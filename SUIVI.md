@@ -3,11 +3,12 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
-**État au 25/07/2026** : conception terminée et validée. **L1, L2 et L3 livrés** — le noyau
+**État au 25/07/2026** : conception terminée et validée. **L1 à L4 livrés** — le noyau
 métier est complet (garde-fous, stabilité, trames, gabarit, configuration, chemin unique,
 machine à états, stockage SQLite) et la balance est lue : boucle série reconnectante,
 drivers GRAM XFOC, source vide de la saisie manuelle, rejeu, suite de conformité,
-commandes `capture` et `replay`. 931 tests. L4 (étiquette et rendu raster) est le lot suivant.
+commandes `capture` et `replay`. L'étiquette se rend : symbole à module
+fractionnaire, HRI relue sur le rendu, aperçu PDF mesurable au réglet. 1056 tests. L5 (impression réelle) est le lot suivant.
 
 **Ce que L3 attend encore du banc (L0).** `OpenSystemPort` n'a jamais parlé à un vrai port :
 baud, parité, préfixage `\\.\` de `COM10`, timeout réel et fermeture d'une lecture en vol
@@ -25,7 +26,7 @@ mesure — `openscale capture` existe pour remplacer ce chiffre par un chiffre m
 | **L1** | Socle et arithmétique — quantités, EAN-13, tarification | 2 sem. | ✅ **25/07/2026** |
 | **L2** | Noyau complet — garde-fous, trames, machine à états, stockage | 3 sem. | ✅ **25/07/2026** |
 | **L3** | Balance — drivers série, capture, rejeu | 2 sem. | ✅ **25/07/2026** |
-| **L4** | Étiquette et rendu raster — gabarits, symbole, aperçu | 3 sem. | ⬜ |
+| **L4** | Étiquette et rendu raster — gabarits, symbole, aperçu | 3 sem. | ✅ **25/07/2026** |
 | **L5** | Impression réelle — SBPL, transports, statut | 2,5 sem. | ⬜ |
 | **L6** | Poste vivant et écran client — Hub, SSE, front | 4,5 sem. | ⬜ |
 | **L7** | Catalogue — sources, import CSV, images | 2,5 sem. | ⬜ |
@@ -95,8 +96,8 @@ démarrage, inatteignables sans tuer le processus — c'est leur raison d'être.
 | `Measurement` est en L1 et non en L2 | `Price(p, m, rules)` en a besoin. Seule la **structure** monte ; `WeightLatch` et `RateMeter` restent en L2 |
 | `Diagnose` (§5.1) est reporté en L4 | Sa signature dépend de `Template`. L'inventer maintenant créerait une API à refaire, et elle n'a aucun consommateur avant l'écran Étiquette |
 | T34 (avertissement de voisinage) est reporté en **L7** | Il porte sur la seconde passe de qualification d'un catalogue, donc sur `Qualify` |
-| `ParseCents`, `Cents.Euro()`, `Grams.Kilos()`, `PlanFor`, `RequireMode`, `validatePlan`, `validateCodeSets` | Identifiants **absents du glossaire** : à y ajouter (règle de complétude de `docs/03-glossaire.md`) |
-| `docs/03-glossaire.md` écrit « variables d'environnement : `BALANCE_` + … » puis donne `OPENSCALE_CONFIG` | Reliquat du renommage Balance → OpenScale. Le préfixe réel est `OPENSCALE_` |
+| ~~Identifiants absents du glossaire~~ | **Résorbé en L4** : le glossaire a été complété de +322 lignes pour L1, L2 et L3 |
+| ~~`BALANCE_` contre `OPENSCALE_` dans le glossaire~~ | **Corrigé en L4** : le préfixe réel est `OPENSCALE_`, et c'est le code qui a tranché |
 
 **Licence retenue : AGPL-3.0-or-later** (`LICENSE`, `THIRD-PARTY.md`). Le point qui a
 tranché : Apache-2.0, portée par `oklog/ulid`, n'est compatible qu'avec la GPL **version 3**.
