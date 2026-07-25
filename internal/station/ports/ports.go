@@ -14,6 +14,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"openscale/internal/domain"
@@ -101,6 +102,117 @@ type PrinterStatus struct {
 	// PendingJobs is the queue depth when the platform can tell us (Windows can).
 	PendingJobs int
 }
+
+// Kind classifies a printing failure BY THE ACTION IT CALLS FOR, never by its
+// technical cause (§8.5).
+//
+// That is what lets one field serve three audiences at once: the customer screen says
+// « Impression indisponible » or nothing at all, the administration screen names the
+// offending value, and the print service decides on its own whether to retry. A
+// taxonomy by cause — "timeout", "I/O error", "bad parameter" — would have forced
+// every one of those three to re-derive the action from the cause.
+//
+// It lives HERE, next to PrinterHealth and PrinterStatus, because it is the same
+// contract they are: what a printer driver says to the station that calls it. Every
+// driver of §8.1 raises it and the print service of §8.2 is the only reader of the
+// field. ports imports nothing but domain, so no driver can create a cycle by
+// depending on it.
+type Kind uint8
+
+const (
+	// KindInternal is the ZERO VALUE on purpose, and that is a decision rather than
+	// the order of the table of §8.5: an error nobody classified is a bug in this
+	// binary, it is never retried, and it says so — « Une erreur est survenue
+	// (ERR-PRN-99) ». A taxonomy whose default were KindData would blame the catalog
+	// for our mistake and get a healthy product flagged; one whose default were
+	// KindTransient would retry a programming error three times.
+	KindInternal Kind = iota
+	// KindData is an unusable product: a barcode that is not thirteen valid digits, a
+	// field the label cannot carry. No retry; the product is flagged. Screen: « Ce
+	// produit n'est pas disponible. Prévenez un responsable. »
+	KindData
+	// KindTemplate is a geometry that would print a wrong label: a bitmap from another
+	// template, a block wider than the head. No retry: a template that does not fit
+	// will not fit any better on a second attempt, and it is refused when it is LOADED
+	// rather than with a customer waiting. Screen: « Impression indisponible. »
+	KindTemplate
+	// KindTransient is the printer not answering right now. TWO retries, 300 ms then
+	// 1 s, and they belong to the print service (§8.2). It is the ONLY kind Retryable
+	// reports true for. Screen: « Un instant… » then « L'imprimante ne répond pas. »
+	KindTransient
+	// KindConsumable is the end of the roll, and it is deliberately NOT a failure of
+	// the weighing: the last label came out. Amber maintenance light, no red screen,
+	// and the print stays a success. Turning it into an error sent a customer away
+	// with a valid label and a screen telling them to fetch a volunteer, so they stuck
+	// two labels on or weighed again — double-counted at the till (important-9).
+	KindConsumable
+	// KindConfig is a setting this station cannot honour: a darkness of 7, an offset
+	// that would push ink off the media, a copy count past the <Q> field. No retry,
+	// and the admin screen shows what is configured against what actually exists.
+	KindConfig
+)
+
+// String reports the kind the way the journal and the admin screen spell it.
+//
+// One spelling per value, shared by the log line, the database column and the screen,
+// exactly as domain.ScaleStatus does it.
+func (k Kind) String() string {
+	switch k {
+	case KindData:
+		return "data"
+	case KindTemplate:
+		return "template"
+	case KindTransient:
+		return "transient"
+	case KindConsumable:
+		return "consumable"
+	case KindConfig:
+		return "config"
+	case KindInternal:
+		return "internal"
+	}
+	return "unknown"
+}
+
+// PrintError is a printing failure that says what to do about itself.
+//
+// Its Message is FRENCH and its identifiers are English: the message is read by a
+// volunteer on the administration screen, and it names what is wrong in the terms of
+// the configuration file they can edit — never « paramètre invalide ».
+type PrintError struct {
+	// Kind decides the policy: it is the only field the print service reads.
+	Kind Kind
+	// Op names what refused, in code terms: "sbpl.media", "raster.Print". It is an
+	// identifier and not a sentence — it goes into the technical journal and into a
+	// support request, never in front of a volunteer.
+	Op string
+	// Message is what a volunteer reads. French, complete, and it states the offending
+	// value AND the admissible range, because « valeur invalide » tells nobody what to
+	// type instead.
+	Message string
+	// Err is the underlying failure when there is one — a transport that refused the
+	// bytes. It is nil for every bound check, which has nothing to wrap.
+	Err error
+}
+
+// Error reports the operation and the French message a volunteer will read.
+func (e *PrintError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s : %s : %v", e.Op, e.Message, e.Err)
+	}
+	return fmt.Sprintf("%s : %s", e.Op, e.Message)
+}
+
+// Unwrap yields the failure this one was built on, so that errors.Is reaches it.
+func (e *PrintError) Unwrap() error { return e.Err }
+
+// Retryable reports whether trying again could change the outcome.
+//
+// ONLY KindTransient is, and that is a decision with teeth: a template fault retried
+// twice is two more seconds of a customer standing in front of a screen that was never
+// going to print. KindConsumable is not retryable either — there is nothing to retry,
+// the label came out (important-9).
+func (e *PrintError) Retryable() bool { return e.Kind == KindTransient }
 
 // Printer is the plug-in contract of a label printer driver.
 //

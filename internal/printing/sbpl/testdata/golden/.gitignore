@@ -1,0 +1,8 @@
+# Le `*.sbpl` du .gitignore racine vise les SORTIES d'impression et les captures de
+# mise au point, qui n'ont rien à faire dans le dépôt. Les trames de ce répertoire
+# sont l'inverse : ce sont les golden octet à octet que §18 exige nommément au lot
+# L5, et un golden non versionné ne prouve rien.
+#
+# Les régénérer :
+#   go test ./internal/printing/sbpl/ -run TestTheFrameMatchesItsGoldens -update
+!*.sbpl
