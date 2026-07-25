@@ -3,9 +3,9 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
-**État au 25/07/2026** : conception terminée et validée. **L1 livré**. **L2 en cours** —
-garde-fous, stabilité, grammaire des trames et gabarit d'étiquette sont livrés et vérifiés ;
-restent `config.go`, `prepare.go`, `machine.go` et le stockage SQLite.
+**État au 25/07/2026** : conception terminée et validée. **L1 et L2 livrés** — le noyau
+métier est complet : garde-fous, stabilité, trames, gabarit, configuration, chemin unique,
+machine à états et stockage SQLite. 660 tests. L3 (balance) est le lot suivant.
 
 ---
 
@@ -15,7 +15,7 @@ restent `config.go`, `prepare.go`, `machine.go` et le stockage SQLite.
 |---|---|---|---|
 | **L0** | Banc de développement (SATO WS408, GRAM XFOC, rouleau, lecteur USB) | ~2 j·h | ⬜ matériel annoncé |
 | **L1** | Socle et arithmétique — quantités, EAN-13, tarification | 2 sem. | ✅ **25/07/2026** |
-| **L2** | Noyau complet — garde-fous, trames, machine à états, stockage | 3 sem. | 🔶 en cours |
+| **L2** | Noyau complet — garde-fous, trames, machine à états, stockage | 3 sem. | ✅ **25/07/2026** |
 | **L3** | Balance — drivers série, capture, rejeu | 2 sem. | ⬜ |
 | **L4** | Étiquette et rendu raster — gabarits, symbole, aperçu | 3 sem. | ⬜ |
 | **L5** | Impression réelle — SBPL, transports, statut | 2,5 sem. | ⬜ |
@@ -161,3 +161,4 @@ de référence produit, pas une correction cosmétique.
 | 25/07/2026 | **L2 (1/3)** : 14 garde-fous, figeur, cadencemètre, grammaire des trames + fuzz. Le corpus vivant attrape son premier bug |
 | 25/07/2026 | **L2 (2/3)** : gabarit d'étiquette, 9 règles dures. Mesure du PDF de test : §7.2 confirmé à 40 µm près |
 | 25/07/2026 | **ADR-029** : barres uniformes, décision du commanditaire. +30 % de hauteur réellement lisible |
+| 25/07/2026 | **L2 (3/3)** livré : 45 contrôles de configuration, stockage SQLite, `Prepare`, machine à états. 660 tests |
