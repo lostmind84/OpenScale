@@ -12,7 +12,9 @@ la caisse, la géométrie de l'étiquette — mais aucune ligne de code.
 
 ## État
 
-**Conception terminée, implémentation non commencée.** Voir [SUIVI.md](SUIVI.md).
+**Conception terminée. Lot L1 livré** — le socle métier compile, ses 35 vecteurs de
+code-barres passent, les deux commandes de démonstration sortent les valeurs attendues.
+Voir [SUIVI.md](SUIVI.md) pour le détail lot par lot.
 
 ## Ce que ça fait
 
@@ -42,6 +44,7 @@ serveur central, aucune dépendance réseau pour peser.
 
 | Fichier | Contenu |
 |---|---|
+| [`docs/00-donnees-retirees.md`](docs/00-donnees-retirees.md) | Coordonnées et adresses retirées du dépôt, et pourquoi |
 | [`docs/02-architecture.md`](docs/02-architecture.md) | La référence : 22 sections, 28 ADR, le code des interfaces |
 | [`docs/03-glossaire.md`](docs/03-glossaire.md) | Le lexique de nommage, qui fait autorité |
 | [`docs/01-etat-des-lieux.md`](docs/01-etat-des-lieux.md) | L'application d'origine, ses règles et ses défauts |

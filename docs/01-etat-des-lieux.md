@@ -4,7 +4,7 @@
 
 **Date d'analyse** : 24/07/2026
 **Version applicative** : `Systeme.VersionApplication = "2.1.6"`
-**Auteur d'origine** : `documents.json` → Author = `cagette`, Title = `Balance`. Contact développeur trouvé en dur dans le code : `dev@example.org`.
+**Auteur d'origine** : `documents.json` → Author = `cagette`, Title = `Balance`. Contact développeur trouvé en dur dans le code : `dev@example.org` (**adresse réelle retirée, voir `00-donnees-retirees.md`**).
 
 > Les rapports détaillés par domaine sont dans `docs/annexes/` (7 rapports thématiques + 8 comblements de lacunes + relevé de contradictions). Ce document est la synthèse.
 
@@ -220,7 +220,7 @@ Tous les seuils sont exprimés en **grammes entiers** (`Val(Replace(poids, ",", 
 
 ### 5.1 Format d'échange
 
-Fichier CSV déposé par Odoo sur un partage WebDAV monté en lecteur `Z:` (`https://dav.example.org:8001/` en production, `https://dav.example.org:8002/dav_partage/` dans le code d'origine).
+Fichier CSV déposé par Odoo sur un partage WebDAV monté en lecteur `Z:` (`https://dav.example.org:8001/` en production, `https://dav.example.org:8002/dav_partage/` dans le code d'origine — **valeurs remplacées, voir `00-donnees-retirees.md`**).
 
 - Nom : **`flv_<numéro de poste>.csv`** — le motif `flv_` est codé en dur dans 6 endroits de la logique métier (extraction du n° de poste pour les mails).
 - Encodage : **UTF-8**, lu par `ADODB.Stream`, fins de ligne **CRLF obligatoires**.

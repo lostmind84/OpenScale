@@ -174,7 +174,7 @@ Paramètres série passés à `BuildCommDCB` sous la forme : `"baud=9600 parity=
 |---|---|---|
 | `CocherConnecterReseau` | `ConnecterReseau` | O/N — pilote l'`Enabled` du bloc |
 | `ModifiableLecteurReseau` | `LecteurReseau` VARCHAR(3) | Liste `Z:` → `F:` (21 entrées, décroissant) |
-| `TexteAdresseReseau` | `AdresseReseau` | UNC/URL. Valeur réelle visible dans du code commenté : `https://dav.example.org:8002/dav_partage/` (`FormulaireSysteme.cls` l.5205, `FormulaireAdministration.cls` l.504) |
+| `TexteAdresseReseau` | `AdresseReseau` | UNC/URL. Valeur visible dans du code commenté, **remplacée ici — voir `../00-donnees-retirees.md`** : `https://dav.example.org:8002/dav_partage/` (`FormulaireSysteme.cls` l.5205, `FormulaireAdministration.cls` l.504) |
 | `TexteUtilisateurReseau` | `UtilisateurReseau` | |
 | `TexteMotDePasseReseau` | `MotDePasseReseau` | `InputMask="Password"` (`.form` l.24332) ; `CommandeVoirPwdReseau` MouseDown/MouseUp bascule `InputMask` à `""` pour révéler |
 | `CocherGererEnvoisDeMails` | `GererEnvoiDeMails` | O/N |
