@@ -1389,6 +1389,26 @@ func DrawEAN13(dst *image.Gray, e domain.EAN13, m [95]bool, o SymbolOptions) err
 | Origine du bloc (X, Y) | 0 ; 8 996 | 0 ; 72 |
 | **Bas du bloc** | **23 646** | **189** |
 
+> **Ce tableau décrit l'EXISTANT. Le gabarit livré fait 265 × 110, pas 265 × 117 —
+> et c'est ADR-029 qui l'impose.** En empilant les trois lignes de texte et en posant
+> le symbole dessous, ADR-029 descend l'origine du bloc de 8 996 à **11 288 µm**
+> (90,30 dots) et raccourcit les barres de 11 720 à **10 875 µm**. Le bloc vaut donc
+> `10 875 + max(1 465 ; 2 930) = 13 805 µm = 110,44 dots`.
+>
+> **Un bloc de 117,2 dots à cette origine mettrait l'encre à 207,5 dots**, au-delà des
+> 202 admis : il ferait échouer la règle dure 3 — celle-là même qu'ADR-029 rend
+> satisfiable. Les deux chiffres ne sont donc pas au choix, et le 110 n'est pas une
+> approximation du 117.
+>
+> **Le 117 reste juste là où sa géométrie vit encore** : `weighing_neutral_single` et
+> `weighing_integer_module` portent toujours 11 720 µm de barres et mesurent bien
+> 265 × 117. Les trois gabarits terminent leur encre à 200,7–200,8 dots.
+>
+> **Mesuré sur le rendu, pas seulement calculé** : le bitmap du PDF de démonstration
+> donne 223 dots de hors-tout de barres, une hauteur encrée **constante à 109 pixels
+> par ligne** sur toute la longueur du symbole — l'objet même d'ADR-029 — et une encre
+> qui s'arrête à 199 dots.
+
 **Tests de non-régression du symbole :**
 
 1. `Modules("0493021012365")` produit une chaîne de 95 bits **figée dans le test**, obtenue une fois et vérifiée avec un décodeur indépendant ;

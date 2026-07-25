@@ -1,6 +1,6 @@
 # 03 — Glossaire de traduction
 
-Le code de Balance est écrit **en anglais** — paquets, types, fonctions, champs, tables SQL,
+Le code d'OpenScale est écrit **en anglais** — paquets, types, fonctions, champs, tables SQL,
 clés de configuration, routes HTTP — tandis que la documentation, les messages affichés à
 l'écran et les libellés imprimés restent **en français**. Ce document est le pont entre les
 deux : il fixe, pour chaque terme du cahier des charges, l'identifiant anglais exact qui devra
@@ -28,7 +28,7 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 
 | Actuel (FR) | Cible (EN) | Justification |
 | --- | --- | --- |
-| `balance/` (racine du dépôt, nom du binaire, `openscale serve`) | `balance/` (inchangé) | Nom de produit / de binaire, déjà un mot anglais. On le garde comme nom propre ; c'est le SEUL endroit où « balance » subsiste. Partout ailleurs l'appareil est `scale`. |
+| `balance/` (racine du dépôt, nom du binaire) | `OpenScale/` (dépôt), `openscale` (binaire, module Go, `openscale serve`) | Le produit a été renommé : il ne s'appelle plus « Balance ». Le nom propre du produit est désormais `openscale`, et il ne reste PLUS AUCUN identifiant nommé `balance`. Le mot ne survit que pour l'APPAREIL, et seulement en français à l'écran (« La balance ne répond plus. ») ou dans un nom d'objet système qui désigne l'appareil (`/dev/balance-serial`). |
 | `cmd/openscale/` | `cmd/openscale/` | Chemin du binaire, inchangé (nom de produit). |
 | `cmd/openscale/drivers.go` | `cmd/openscale/drivers.go` | Déjà anglais. |
 | `internal/noyau/` | `internal/domain/` | « noyau » = noyau MÉTIER pur. `core` est vague et surchargé, `kernel` évoque un OS. `domain` est le terme consacré (DDD) et lit bien : `domain.Label`, `domain.Product`, `domain.Transition`. Go idiomatique : paquet court, minuscules, singulier. |
@@ -87,15 +87,17 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `<donnees>/catalogue/{archives,rejets}/` | `<data>/catalog/{archives,rejected}/` | « rejets » = fichiers rejetés. |
 | `<donnees>/etiquettes/` | `<data>/labels/` | 30 dernières étiquettes capturées. |
 | `<donnees>/images_produits/` | `<data>/product_images/` | Source `image_directory` (héritage). |
-| `<donnees>/logs/balance.log` | `<data>/logs/balance.log` | Déjà anglais. |
+| `<donnees>/logs/balance.log` | `<data>/logs/openscale.log` | Le journal texte porte le nom du PRODUIT, et le produit s'appelle `openscale`. |
 | `config.json.invalide-<horodate>` | `config.json.invalid-<timestamp>` | Copie du fichier fautif. |
-| `balance.db.avant-vN-<horodate>` | `balance.db.before-vN-<timestamp>` | Sauvegarde `VACUUM INTO` pré-migration. |
+| `balance.db` | `openscale.db` | Nom du produit. Tranché **par le code** : `internal/store` n'écrit jamais `balance.db` et ses tests ouvrent `openscale.db`. |
+| `balance.db.avant-vN-<horodate>` | `openscale.db.before-vN-<timestamp>` | Sauvegarde `VACUUM INTO` pré-migration. Le suffixe est construit par `(DB).migrate` à partir du chemin reçu ; seule la base change de nom. |
 | `<binaire>.precedent` | `<binary>.previous` | Sauvegarde de mise à jour. |
 | `installer.ps1` · `desinstaller.ps1` · `durcissement.ps1` · `mettre-a-jour.ps1` · `demarrer.bat` | `install.ps1` · `uninstall.ps1` · `harden.ps1` · `update.ps1` · `start.bat` | Scripts = code livré, donc anglais. Leur CONTENU affiché à l'écran reste français. |
 | `restauration.json` | `restore.json` | Sauvegarde des réglages écrasés par l'installeur. |
 | `fiche-installation.txt` | `install-sheet.txt` | Nom de fichier = code ; le contenu imprimé reste français. |
 | `DEPANNAGE.md` | `TROUBLESHOOTING.md` | Nom de fichier anglais, contenu français (E2). |
-| `INSTALLATION.md` · `balance-kiosk.xml` · `SHA256SUMS` · `config-lacagette.json` · `flv_demo.csv` · `flv_<n>.csv` | identiques | INSTALLATION est identique dans les deux langues ; `lacagette` et `flv` sont des noms propres / un format d'échange externe imposé. |
+| `balance-kiosk.xml` (tâche planifiée) | `openscale-kiosk.xml` | Nom du produit. La tâche elle-même devient `OpenScale-Kiosk`. |
+| `INSTALLATION.md` · `SHA256SUMS` · `config-lacagette.json` · `flv_demo.csv` · `flv_<n>.csv` | identiques | INSTALLATION est identique dans les deux langues ; `lacagette` et `flv` sont des noms propres / un format d'échange externe imposé. |
 | `<rejet>.motif.txt` | `<rejected>.reason.txt` | Cohérent avec le champ `reason`. |
 | `trames.txt` (capture) | `frames.txt` | Cohérent avec `frame`. |
 | `index.html` · `admin.html` | `index.html` · `admin.html` | Déjà anglais. |
@@ -204,8 +206,9 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `Decodeur` (interface) | `Decoder` |
 | `DescripteurBalance` | `ScaleDescriptor` |
 | `DescripteurImprimante` | `PrinterDescriptor` |
-| `Descripteur` (impression) | `Descriptor` |
-| `Capacites` | `Capabilities` |
+| `Descripteur` (impression) | `PrinterDescriptor` — le type nu `Descriptor` n'existe pas : seule la MÉTHODE s'appelle `Descriptor()`. Un type par appareil, parce que les deux ne déclarent pas les mêmes capacités |
+| `Capacites` (balance) | `Capabilities` — `Tare`, `Stability`, `Overload` |
+| `Capacites` (imprimante) | `PrinterCapabilities` — homonymie levée : les deux appareils ne déclarent rien de commun, et un seul type `Capabilities` aurait porté huit champs dont trois vides selon le porteur |
 | `TravailImpression` | `PrintJob` |
 | `Recu` (retour d'`Imprimer`) | `PrintReceipt` |
 | `StatutImprimante` | `PrinterStatus` |
@@ -338,7 +341,7 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `(Poste).rebinderEcoute` | `(Station).rebindListener` |
 | `(Poste).annulerBalance` | `(Station).cancelScale` |
 | `(Poste).journaliserSiErr` | `(Station).logIfErr` |
-| `empreinteBloc` | `blockFingerprint` |
+| `empreinteBloc` | `BlockFingerprint` — **exporté**, contrairement à ce que cette table annonçait : l'empreinte par bloc sert à l'écran d'administration (« quels blocs ont bougé ? »), donc hors du paquet `domain` |
 | `attendreTout` | `waitAll` |
 | `(App).Arreter` | `(App).Stop` |
 | `annulerRacine` | `cancelRoot` |
@@ -407,8 +410,8 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `ArmementMax` (constante 10 s) | `MaxArmingTime` |
 | `BasculeMax` / `IHM.DelaiBascule` (constante 10 s) | `MaxSwitchIdle` / `UI.SwitchDelay` |
 | `Faute.Champ` / `Message` / `Valeurs` | `Fault.Field` / `Message` / `Values` |
-| `Capacites.Raster` / `Statut` / `Massicot` / `MaxExemplaires` / `DotsParMM` | `Capabilities.Raster` / `Status` / `Cutter` / `MaxCopies` / `DotsPerMM` |
-| `Descripteur.ID` / `Libelle` / `Capacites` | `Descriptor.ID` / `Label` / `Capabilities` |
+| `Capacites.Raster` / `Statut` / `Massicot` / `MaxExemplaires` / `DotsParMM` | `PrinterCapabilities.Raster` / `Status` / `Cutter` / `MaxCopies` / `DotsPerMM` |
+| `Descripteur.ID` / `Libelle` / `Capacites` | `PrinterDescriptor.ID` / `Label` / `Capabilities` — et `ScaleDescriptor.ID` / `Label` / `Capabilities` / `NominalRate` |
 | `DescripteurBalance.CadenceNominale` | `ScaleDescriptor.NominalRate` |
 | `Options.Port` / `Baud` / `Bits` / `Parite` / `Stop` / `Decodeur` / `TailleLecture` / `BackoffMin` / `BackoffMax` | `Options.Port` / `Baud` / `Bits` / `Parity` / `Stop` / `Decoder` / `ReadBufferSize` / `BackoffMin` / `BackoffMax` |
 | `EvenementBalance.Statut` / `Mesure` / `Err` | `ScaleEvent.Status` / `Measurement` / `Err` |
@@ -434,7 +437,7 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `Snapshot.Perimee` / `Revision` | `Snapshot.Expired` / `Revision` |
 | `p.balanceFini` / `ferme` (canaux) | `s.scaleDone` / `closed` |
 | `ctxRacine` | `rootCtx` |
-| Codes de garde-fou : `SURCHARGE` / `MESURE_PERIMEE` / `PANIER_ABSENT` / `OPENSCALE_VIDE` / `TARE_REQUISE` | `OVERLOAD` / `MEASUREMENT_EXPIRED` / `BASKET_MISSING` / `SCALE_EMPTY` / `TARE_REQUIRED` |
+| Codes de garde-fou : `SURCHARGE` / `MESURE_PERIMEE` / `PANIER_ABSENT` / `BALANCE_VIDE` / `TARE_REQUISE` | `OVERLOAD` / `MEASUREMENT_EXPIRED` / `BASKET_MISSING` / `SCALE_EMPTY` / `TARE_REQUIRED` |
 | `POIDS_INSTABLE` / `TARE_INVALIDE` / `POIDS_TROP_FAIBLE` / `POIDS_TROP_LOURD` | `WEIGHT_UNSTABLE` / `TARE_INVALID` / `WEIGHT_TOO_LOW` / `WEIGHT_TOO_HIGH` |
 | `UNITES_HORS_BORNES` / `MONTANT_HORS_CAPACITE` / `PRIX_NUL` / `PRODUIT_LEGER_TOLERE` / `PRODUIT_NON_PROPOSE` | `UNITS_OUT_OF_RANGE` / `AMOUNT_OUT_OF_CAPACITY` / `ZERO_PRICE` / `LIGHT_PRODUCT_ALLOWED` / `PRODUCT_WITHDRAWN` |
 | Motifs d'import : `LIGNE_ILLISIBLE` / `PRIX_ILLISIBLE` / `SANS_CODE_BARRES` / `CODE_BARRES_INVALIDE` | `UNREADABLE_ROW` / `PRICE_UNREADABLE` / `NO_BARCODE` / `INVALID_BARCODE` |
@@ -451,6 +454,38 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | Variables CSS : `--fond` / `--surface` / `--bordure` / `--encre` / `--encre-douce` | `--bg` / `--surface` / `--border` / `--ink` / `--ink-muted` |
 | Variables CSS : `--attente` / `--pret` / `--alerte` / `--panne` / `--focus` | `--waiting` / `--ready` / `--warning` / `--fault` / `--focus` |
 | clé `meta.etiquettes_depuis_rouleau` | clé `meta` `labels_since_roll` |
+
+### Champs apparus à l'implémentation
+
+Ces champs portent des types déjà nommés ci-dessus, mais le cahier des charges ne les
+nommait pas. Ils n'ont donc pas d'antécédent français : la colonne de gauche dit ce qu'ils
+portent.
+
+| Ce qu'il porte | Identifiant |
+| --- | --- |
+| La balance se déclare hors capacité (drapeau `OL` de la trame) | `Measurement.Overload` |
+| Ce que la balance déclare savoir faire | `Capabilities.Tare` / `Stability` / `Overload` |
+| Tout ce que la machine retient entre deux événements, au-delà du produit et du poids figé | `Model.State` / `Source` / `Tare` / `Units` / `Latch` / `LatchState` / `ArmedAt` / `StartedAt` / `JobID` / `IdempotencyKey` / `Diagnostics` / `FaultCode` / `LastLabel` / `LastPrintedAt` / `Reprinted` |
+| La réponse rendue à une commande | `Ack.Accepted` / `State` / `Code` / `Message` / `JobID` · `AckEffect.Ack` / `Key` |
+| Le contenu d'un effet | `MessageEffect.Level` / `Code` / `Text` / `Duration` · `TechnicalLogEffect.Level` / `Source` / `Code` / `Message` / `Detail` · `PrintEffect.Label` / `Reprint` · `RecordEffect.Weighing` · `ApplyCatalogEffect.Catalog` · `ArmTimerEffect.Duration` · `SoundEffect.Name` |
+| Ce qu'un événement d'IHM transporte | `ProductTapped.ProductID` / `Tare` / `Units` / `SeenWeight` / `MeasurementSeq` / `Key` · `TareConfirmed.Tare` / `Key` · `ManualWeightConfirmed.Weight` / `Key` · `ReprintRequested.JobID` / `Key` |
+| Ce qu'un événement de matériel transporte | `MeasurementReceived.M` · `ScaleDisconnected.Err` · `PrintFinished.JobID` / `Duration` / `Err` · `CatalogReady.Catalog` |
+| Tout ce qu'`Evaluate` a le droit de lire | `CheckInput.ProductID` / `ProductOffered` / `ProductMinWeight` / `Mode` / `EncodesPrice` / `Gross` / `Tare` / `Quantity` / `Overload` / `Stability` / `StabilityBlocking` / `MeasurementAge` / `Expiry` / `PrimaryAmount` / `ReferenceAmount` |
+| Une réponse à « cette pesée peut-elle produire une étiquette ? » | `Diagnostic.Code` / `Message` / `Severity` / `ProductID` |
+| Les bornes numériques d'un poste | `WeighingLimits.EmptyMax` / `BasketCheckEnabled` / `BasketMin` / `BasketMax` / `MinWeight` / `MaxWeight` / `MaxTare` / `MinUnits` / `MaxUnits` / `MaxAmount` |
+| Tout ce que `Prepare` lit, et ce qu'il répond | `PrepareInput.Product` / `Measurement` / `Rules` / `Limits` / `Decision` / `Expiry` / `MeasurementAge` / `StabilityBlocking` / `JobID` · `Preparation.Label` / `Priced` / `Diagnostics` / `Refusal` |
+| Un élément posé sur l'étiquette | `Element.Field` / `XUM` / `YUM` / `WidthUM` / `HeightUM` / `Align` / `Bold` / `AutoBold` / `Framed` / `When` |
+| Le gabarit lui-même | `Template.Name` / `Media` / `Elements` / `Symbol` / `PrintableWidthUM` / `PrintableHeightUM` / `OffsetXDots` / `OffsetYDots` / `TruncationAccepted` · `Media.WidthUM` / `HeightUM` |
+| Où et de quelle taille le symbole est tracé, en micromètres | `SymbolGeometry.XUM` / `YUM` / `ModuleMilliDots` / `BarHeightUM` / `GuardDescentUM` / `HRIHeightUM` |
+| Un rayon de la grille | `Category.Code` / `Label` / `Rank` / `Color` / `Visible` |
+| L'enregistrement d'une pesée au journal | `Weighing.ID` / `OccurredAt` / `Station` / `JobID` / `IdempotencyKey` / `ProductID` / `ProductName` / `Reference` / `Mode` / `GrossWeight` / `Tare` / `NetWeight` / `Quantity` / `BaseUnitPrice` / `Lines` / `Barcode` / `Source` / `Stability` / `RateMS` / `Frame` / `Result` / `Detail` / `DurationMS` · `WeighingLine.TierCode` / `UnitPrice` / `Amount` |
+| L'enregistrement d'un import | `Import.ID` / `OccurredAt` / `Source` / `FileName` / `SHA256` / `ByteCount` / `RowsRead` / `UnreadableRows` / `Weighable` / `NotWeighable` / `Anomalies` / `UnitMismatches` / `ImagesDecoded` / `ImagesRejected` / `ProductsWithdrawn` / `Result` / `Code` / `Reason` / `DurationMS` |
+| Ce qu'un import a à dire sur une ligne | `Finding.ImportID` / `CSVLine` / `ProductID` / `Code` / `Issue` / `Message` / `Value` |
+| Une photo, une décision humaine, un contenu banni | `Image.SHA256` / `ByteCount` / `Format` / `Width` / `Height` / `SeenAt` · `LocalDecision.ProductID` / `Offered` / `MinWeightG` / `Reason` / `DecidedAt` / `DecidedBy` · `QuarantineEntry.SHA256` / `FailureCount` / `FirstFailureAt` / `LastFailureAt` / `Code` / `Reason` |
+| Les blocs de la configuration, un champ par bloc de §11.2 | `Config.Version` / `Readme` / `ModifiedAt` / `Station` / `Network` / `UI` / `Scale` / `Printer` / `Pricing` / `Barcode` / `Limits` / `Stability` / `Catalog` / `Journal` / `Admin` / `Maintenance` |
+| Le contenu de chaque bloc | `StationConfig.Number` / `Name` / `Coop` · `NetworkConfig.Listen` / `AdminOnLAN` · `UIConfig.Language` / `Sound` / `IdleTimeoutSeconds` / `ReprintWindowSeconds` / `ShowGridPrices` · `ScaleConfig.Type` / `Present` / `ManualEntryAllowed` / `DegradeAfterSeconds` / `Options` · `PrinterConfig.Type` / `Template` / `Options` · `CatalogConfig.Type` / `Options` / `Images` / `Categories` / `FallbackCategory` · `ImagesConfig.Source` / `Path` · `JournalConfig.MaxRows` / `MaxDays` / `MaxTechnical` · `AdminConfig.PasswordHash` / `RecoveryCodeHash` / `SessionMinutes` / `AttemptsPerMinute` · `MaintenanceConfig.WeeklyIntegrityCheck` / `DiskAlertMB` · `BarcodeConfig.VerifyReferenceCheckDigit` |
+| Ce qu'un binaire sait charger, et ce qu'un driver déclare | `Registries.Scales` / `Printers` / `Transports` / `CatalogSources` / `Templates` / `Paths` · `DriverDescriptor.ID` / `Label` / `Options` · `OptionSchema.Key` / `Kind` / `Required` / `Min` / `Max` / `Values` / `Options` |
+| Les deux points d'injection d'une liaison série | `Options.Open` / `Clock` |
 
 ---
 
@@ -579,10 +614,252 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | sous-commandes de démonstration : `codebarre`, `prix` | `barcode`, `price` |
 | drapeaux : `--donnees`, `--duree`, `--gabarit`, `--poids`, `--pu`, `--grille` | `--data`, `--duration`, `--template`, `--weight`, `--unit-price`, `--tiers` |
 | drapeaux de test : `--balance rejeu --imprimante apercu` | `--scale replay --printer preview` |
-| variables d'environnement : `OPENSCALE_CONFIG`, `OPENSCALE_DONNEES` | `OPENSCALE_CONFIG`, `OPENSCALE_DATA` |
+| variables d'environnement : `BALANCE_CONFIG`, `BALANCE_DONNEES` | `OPENSCALE_CONFIG`, `OPENSCALE_DATA` |
 | condition de gabarit : `when: "multi_tarif"` | `when: "multi_tier"` |
 | champs de gabarit : `gras_auto`, `troncature_assumee`, `module_milli_dots`, `hri_hauteur_um`, `hauteur_barres_um`, `descente_gardes_um`, `decalage_x/y`, `corps_um` | `auto_bold`, `truncation_accepted`, `module_milli_dots`, `hri_height_um`, `bar_height_um`, `guard_descent_um`, `offset_x/y`, `font_size_um` |
 | `media{largeur_um, hauteur_um, dots_par_mm}` | `media{width_um, height_um, dots_per_mm}` |
+
+---
+
+## Identifiants nés de l'implémentation — L1, L2, L3
+
+Les tables précédentes traduisent un vocabulaire français préexistant. Les identifiants
+recensés ici n'en ont pas : ils sont apparus **pendant** l'écriture du code, là où le
+cahier des charges nommait un comportement sans nommer le type qui le porte. Leur inventer
+une colonne « Actuel (FR) » serait fabriquer une source ; elle est donc remplacée par ce
+que l'identifiant désigne, relevé sur son `godoc` et non deviné.
+
+Ils sont ici parce que la **règle de complétude** l'exige, et ils obéissent aux mêmes
+conventions que le reste : anglais, `PascalCase` exporté, `Err` + condition pour les
+sentinelles, familles de constantes préfixées par leur type, unités portées par le nom.
+
+> **Périmètre.** L1, L2 et L3 uniquement — noyau métier, stockage, balance. Les paquets
+> `printing`, `catalog`, `web`, `kiosk` n'ont encore livré que ce qui est listé plus bas ;
+> le reste de leurs identifiants sera ajouté au fil des lots, selon la même règle.
+
+> **Ce qui n'est PAS répété ici.** Un verbe déjà traduit une fois dans
+> [Fonctions et méthodes](#fonctions-et-méthodes) vaut pour tous ses porteurs :
+> `Start`, `Close`, `Descriptor`, `Print`, `SelfTest`, `Status`, `Name`, `Write`, `Query`,
+> `Describe`, `Next`, `Acknowledge`, `Now`, `After`, `Ticker`, `Technical`, `Feed`,
+> `Reset`. `serial.Scale`, `absent.Scale`, `replay.Scale` et `SystemClock` les implémentent
+> sans rien renommer — c'est même ce qui rend les drivers interchangeables, et la suite
+> `conformance.Suite` le vérifie. De même, `TB.Cleanup` / `Fatalf` / `Helper` / `TempDir`
+> est l'API de `*testing.T`, et `(ErrUnknownFont).Error` celle de l'interface `error` : ces
+> noms ne sont pas les nôtres et ne se traduisent pas.
+
+### `internal/domain` — types
+
+| Identifiant | Ce qu'il désigne |
+| --- | --- |
+| `StationConfig` · `NetworkConfig` · `UIConfig` · `ScaleConfig` · `PrinterConfig` · `CatalogConfig` · `ImagesConfig` · `JournalConfig` · `AdminConfig` · `MaintenanceConfig` · `BarcodeConfig` | Les blocs de premier niveau de `config.json`, un type Go par bloc. Le suffixe `Config` est **obligatoire** : sans lui, `Station`, `Network` ou `Journal` entreraient en collision avec le poste de §11.4, la couche réseau et le journal des pesées. |
+| `DriverOptions` | La moitié spécifique au driver d'un bloc matériel ou catalogue (`scale.options`, `printer.options`, `catalog.options`) — un sac de clés que le noyau ne connaît pas et ne veut pas connaître. |
+| `OptionSchema` | La déclaration d'UNE option d'un driver : sa clé, sa forme, ses bornes. C'est ce qui permet à un driver enfichable d'être validé sans que le noyau connaisse ses réglages. |
+| `OptionKind` | La forme qu'une option accepte. Constantes `OptionText`, `OptionInt`, `OptionBool`, `OptionEnum`, `OptionRatio`, `OptionURL`, `OptionHostPort`, `OptionGroup`. |
+| `DriverDescriptor` | Ce que la validation d'une configuration a besoin de savoir d'un driver : son `ID`, son `Label` français, son schéma d'options. Distinct de `ScaleDescriptor` et `PrinterDescriptor`, qui décrivent une INSTANCE en service. |
+| `PathChecker` | La seule question qu'une validation pure ne peut pas trancher : « ce chemin est-il lisible ? ». Interface d'une méthode, `Readable`, injectée pour que `Validate` reste sans I/O. |
+| `Preparation` | Ce que le chemin de calcul unique répond d'une pesée : `Label`, `Priced`, `Diagnostics`, `Refusal`. |
+| `PrepareInput` | Tout ce que `Prepare` a le droit de lire. Même intention que `CheckInput` pour `Evaluate` : la fonction ne va rien chercher. |
+| `Severity` | Qui doit agir sur un diagnostic. Constantes `Info` (affiché, imprime quand même) et `Blocking` (l'étiquette s'arrête). |
+| `ScaleStatus` | Ce qu'un driver dit de sa liaison — le type qui porte `StatusConnected` / `StatusDisconnected`. |
+| `PrinterCapabilities` | Voir la table des types : homonyme scindé de `Capabilities`, qui ne décrit plus que la balance. |
+| `SymbolGeometry` | Où et de quelle taille le symbole EAN-13 est tracé, **en micromètres**, dans le gabarit. À ne pas confondre avec `SymbolOptions`, qui est l'entrée du rastériseur en dots (L4). |
+| `Import` | L'enregistrement d'UN import de catalogue — la ligne de la table `imports`. |
+| `Finding` | Le type annoncé par la décision « signalement » existe désormais : une chose qu'un import a à dire sur UNE ligne. |
+| `Image` | La photo d'un produit, adressée par son contenu — la ligne de la table `images`. |
+| `LocalDecision` | Le jugement humain sur un produit, distinct de la qualification calculée — la ligne de `local_decisions`. |
+| `QuarantineEntry` | Un contenu de fichier qui a échoué, et combien de fois — la ligne de `quarantine`. |
+| `WeighingLine` | Ce qu'un tarif a coûté sur une pesée — la ligne de `weighing_lines`. Distinct de `PriceLine`, qui est le calcul ; `WeighingLine` est ce qui en est **archivé**. |
+
+### `internal/domain` — familles de constantes
+
+| Famille | Membres | Ce qu'elle nomme |
+| --- | --- | --- |
+| `Code*` | `CodeOverload`, `CodeMeasurementExpired`, `CodeBasketMissing`, `CodeScaleEmpty`, `CodeTareRequired`, `CodeWeightUnstable`, `CodeTareInvalid`, `CodeWeightTooLow`, `CodeWeightTooHigh`, `CodeUnitsOutOfRange`, `CodeAmountOutOfCapacity`, `CodeZeroPrice`, `CodeLightProductAllowed`, `CodeProductWithdrawn` | Les 14 garde-fous, **dans l'ordre d'évaluation**. Leur VALEUR est le code `SCREAMING_SNAKE_CASE` déjà figé plus haut (`"OVERLOAD"`, …) ; le préfixe `Code` est ce qui les rend cherchables et les distingue des états. |
+| `Finding*` | `FindingUnreadableRow`, `FindingPriceUnreadable`, `FindingZeroPrice`, `FindingInvalidBarcode`, `FindingReservedZoneNotEmpty`, `FindingNoBarcode`, `FindingPrepackagedProduct`, `FindingInternalCodeNotWeighable`, `FindingUnknownUnit`, `FindingUnitMismatch`, `FindingUnexpectedHeader`, `FindingUnknownCategory`, `FindingImageInvalid`, `FindingImageTooLarge`, `FindingMissingGlyph` | Les 15 codes de signalement d'import. Même règle : le préfixe est l'identifiant, la valeur est le code déjà figé. |
+| `Field*` | `FieldProductName`, `FieldQuantity`, `FieldPrimaryUnitPrice`, `FieldSecondaryTotalPrice`, `FieldPrimaryTotalPrice`, `FieldBarcode` | La liste **fermée** des `FieldID` qu'un gabarit peut placer. Fermée, parce qu'un gabarit d'exploitant ne doit pas pouvoir inventer un champ que le moteur ne sait pas remplir. |
+| `Align*` | `AlignLeft`, `AlignRight` | Alignement du texte dans la boîte d'un élément. |
+| `When*` | `WhenAlways` (chaîne vide), `WhenMultiTier` | La condition d'affichage d'un élément — la valeur de `when:`. |
+| `Result*` | `ResultSent`, `ResultRejected`, `ResultFailed`, `ResultReprint` | Fin d'une pesée : la valeur de `weighings.result`. |
+| `Import*` | `ImportApplied`, `ImportUnchanged`, `ImportRejected`, `ImportFailed` | Fin d'un import : la valeur de `imports.result`. |
+| `Source*` | `SourceScale`, `SourceManual`, `SourceReplay` | Provenance d'un poids : la valeur de `weighings.source`. |
+| `CatalogSource*` | `CatalogSourceLocalDrop`, `CatalogSourceWebDAV`, `CatalogSourceManual` | Provenance d'un catalogue : la valeur de `imports.source`. |
+| `Issue*` | `IssueAnomaly`, `IssueInfo` | Gravité d'un signalement : la valeur de `findings.issue`. |
+| `Image*` | `ImageJPEG`, `ImagePNG`, `ImageGIF`, `ImageBMP` | Les quatre formats d'image acceptés : la valeur de `images.format`. |
+| `ImageSource*` | `ImageSourceCSV`, `ImageSourceDirectory`, `ImageSourceNone` | La valeur de `catalog.images.source`. |
+| `Level*` | `LevelInfo`, `LevelWarn`, `LevelError` | Niveau d'un message de bandeau et d'un événement technique. **Volontairement dupliqué** avec `internal/store` : le noyau ne peut pas importer le stockage (§5.2), les deux listes s'accordent par revue et par test, jamais par import. |
+| `Printer*` | `PrinterRaster`, `PrinterSBPL`, `PrinterPreview` | Les trois drivers d'impression : la valeur de `printer.type`. |
+| `Transport*` | `TransportWinspool`, `TransportDevfile`, `TransportTCP`, `TransportFile` | Les quatre transports d'octets : la valeur de `printer.options.transport`. |
+| `OnTimeout*` | `OnTimeoutWarnAndPrint`, `OnTimeoutReject`, `OnTimeoutManualEntry` | Ce que fait le mode bloquant quand il expire : la valeur de `stability.on_timeout`. |
+| `Option*` | voir `OptionKind` | La forme d'une option de driver. |
+
+### `internal/domain` — constantes isolées
+
+| Identifiant | Ce qu'elle vaut, et pourquoi elle existe |
+| --- | --- |
+| `MinModuleMilliDots` · `MaxModuleMilliDots` | Les bornes du module du code-barres, en milli-dots — la règle dure n° 9 de §7.5. |
+| `MinFontSizeUM` | Le plancher **dur** de corps de texte, 14,4 dots à 8 dots/mm. Ce n'est pas un réglage : en dessous, la tête thermique ne rend plus le glyphe. |
+| `InkedWidthDots` · `InkedHeightDots` | La géométrie **encrée** de l'étiquette de production, en dots à 8 dots/mm. C'est contre elle que la règle dure n° 3 mesure un gabarit — le contenu encré, jamais la boîte du contrôle Access (§7.2, ADR-029). |
+| `SuccessMessageDuration` · `RejectMessageDuration` | Combien de temps un message de bandeau survit quand rien ne le retire. Constantes du CODE et non réglages : elles remplacent `success_delay_ms` et `reject_delay_ms` (ADR-025). |
+| `DefaultTemplateName` | Le gabarit que `config-lacagette.json` sélectionne. |
+
+### `internal/domain` — fonctions et méthodes
+
+| Identifiant | Ce qu'il fait |
+| --- | --- |
+| `ParseCents` | Convertit un montant décimal en centimes entiers **sans jamais passer par un flottant**. |
+| `(Cents).Euro` · `(Grams).Kilos` | Formatent un montant et une masse comme l'étiquette les imprime : virgule décimale française. |
+| `ErrPriceFormat` | Sentinelle de `ParseCents` : ce n'est pas un prix exploitable. |
+| `PlanFor` | Rend le plan de numérotation qui gouverne un gabarit d'EAN-13. |
+| `RequireMode` | Rend `ErrPrefixModeMismatch` quand le mode de vente qu'un appelant croit contredit celui du préfixe. Le préfixe fait foi. |
+| `NewCatalog` | Fige un instantané immuable à partir des lignes qu'un import a produites. |
+| `(Catalog).ByID` · `Products` · `Categories` · `Len` · `WeighableCount` | Lecture de l'instantané. Toutes rendent des **copies** : l'immuabilité est tenue par la méthode, pas par la politesse de l'appelant. |
+| `(Product).String` · `(Qualification).String` · `(SaleMode).String` · `(Stability).String` · `(State).String` · `(Severity).String` · `(ScaleStatus).String` · `(RoundingPolicy).String` · `(OptionKind).String` · `(Fault).String` · `(Duration).String` | Une seule orthographe par valeur, partagée par le journal, la base et l'écran. Là où la valeur est stockée, `String` rend **exactement** ce que la colonne SQL accepte. |
+| `SingleTierRules` · `LaCagetteRules` | Les deux grilles livrées : mono-tarif du profil neutre, et la grille établie par les preuves (A7). |
+| `ErrProductNotWeighable` | Sentinelle de `Prepare` : un produit que la grille n'aurait jamais dû proposer. |
+| `Evaluate` → `FirstBlocking` | `Evaluate` rend TOUS les diagnostics ; `FirstBlocking` rend celui sur lequel la machine à états agit, ou `nil`. |
+| `(Diagnostic).Blocks` | Ce diagnostic arrête-t-il l'étiquette ? |
+| `(CheckInput).Net` · `(Measurement).Net` | La masse réellement vendue : brut moins tare. |
+| `DefaultMessage` · `MessagePlaceholders` · `CheckMessage` | Le libellé français livré d'un code, les interpolations qu'il admet, et la validation d'un libellé qu'un exploitant a réécrit. |
+| `DefaultStabilityPolicy` | La politique livrée : `advisory` (ADR-005). |
+| `NewWeightLatch` · `(WeightLatch).Reset` | Construction du figeur, et oubli de son ancre quand la balance est rouverte. |
+| `(RateMeter).Reset` · `Observations` · `RateIsTooSlow` | Idem pour le cadencemètre, plus le nombre d'intervalles connus et **l'unique** condition d'alerte partagée par le tableau de bord et le journal. |
+| `IdenticalTemplate` · `IntegerModuleTemplate` · `NeutralSingleTemplate` · `ShippedTemplates` | Les trois gabarits livrés, et leur table par nom. `IdenticalTemplate` est **la source de vérité de la géométrie** — pas les tables de §7.2, qui décrivent l'existant et sont amendées par ADR-029. |
+| `(Media).MilliDots` | Convertit une longueur en micromètres en milli-dots entiers. |
+| `(SymbolGeometry).HeightUM` · `TotalWidthMilliDots` | Où le bloc du symbole finit, et son hors-tout zones de silence comprises. Une seule définition de chacun, et c'est ici. |
+| `(Template).MaxOffsetDots` | Jusqu'où le réglage de décalage d'un bénévole peut aller dans chaque direction. |
+| `(Element).Active` · `Right` · `Bottom` | L'élément est-il dessiné pour une grille de N tarifs, et où finit sa boîte. |
+| `CanonicalJSON` | Le JSON canonique d'une valeur : clés triées, sans espace. C'est ce qui rend une empreinte reproductible. |
+| `(Config).Retired` | Les chemins pointés des clés **retirées** que le fichier portait — pour dire « cette clé n'existe plus » au lieu de l'ignorer en silence. |
+| `CheckPrice` | La faute que porte un prix livré dans un fichier de configuration (contrôle 43). |
+| `RoundingSpellings` | Les trois orthographes admissibles d'une politique d'arrondi. |
+| `(Registries).ScaleTypes` · `PrinterTypes` · `TransportNames` · `CatalogSourceNames` · `TemplateNames` · `Template` | Ce qu'un bénévole a le droit de choisir, dans un ordre stable. C'est le registre qui décide, jamais une liste en dur dans un écran. |
+| `(DriverOptions).Has` · `Text` · `Int` · `Bool` · `Ratio` · `Group` · `Keys` | Lecture typée d'une option de driver, chacune rendant aussi « présente et de la bonne forme ? ». |
+| `(Weighing).Line` | La ligne archivée d'un code de tarif, ou `nil`. Pendant de `(Label).Find` côté calcul. |
+| `(Decoder).Feed` · `(Decoder).Reset` | Les deux méthodes du seul point de variation par modèle d'une balance série : livrer des octets, et oublier ce qui restait quand le port est rouvert. Homonymes assumés de `(Accumulator).Feed` / `Reset` — c'est le même contrat à un étage de plus. |
+| `(PathChecker).Readable` | Ce chemin est-il lisible ? La seule I/O dont `Validate` a besoin, et la raison pour laquelle elle est injectée plutôt qu'appelée. |
+| `MarshalJSON` / `UnmarshalJSON` sur `Config`, `Category`, `WeighingLimits`, `RoundingPolicy`, `Duration` | La sérialisation de `config.json`. `UnmarshalJSON` **conserve ce que l'objet ne nomme pas** : un bloc partiellement écrit ne remet pas les autres clés à zéro. |
+
+### `internal/domain/frame`
+
+| Identifiant | Ce qu'il désigne |
+| --- | --- |
+| `MaxBuffer` | Combien d'octets l'accumulateur garde avant de se resynchroniser. |
+| `(Accumulator).Reset` | Jette le tampon quand le port est rouvert : une demi-trame d'avant la coupure ne doit pas se recoller à une demi-trame d'après. |
+| `(Accumulator).Pending` | Combien d'octets attendent la fin de leur trame — l'observation qui rend la resynchronisation testable. |
+| `Accumulator.Resyncs` | Combien de fois l'accumulateur a jeté un tampon saturé. Compteur exporté parce que c'est le chiffre que le corpus vivant surveille : une resynchronisation est normale, une cadence de resynchronisations ne l'est pas. |
+
+### `internal/scale` — le registre
+
+| Identifiant | Ce qu'il désigne |
+| --- | --- |
+| `Registry` · `NewRegistry` | L'ensemble des drivers de balance avec lesquels ce binaire a été construit. |
+| `(Registry).Register` | Ajoute un driver. C'est **la ligne unique** promise par §5.2. |
+| `(Registry).New` · `Descriptors` | Instancie le driver que nomme `scale.type` ; liste ce dont l'écran d'administration a besoin pour sa liste déroulante. |
+| `Driver` | Un modèle de balance tel que le registre le connaît : `Driver.Descriptor` (identité et capacités), `Driver.Options` (schéma d'options), `Driver.New` (la fabrique). |
+| `Factory` | Construit une instance de driver à partir des options que porte une configuration. |
+| `ErrUnknownDriver` | Un `scale.type` auquel aucun driver de ce binaire ne répond. |
+
+### `internal/scale/serial`, `gramxfoc`, `absent`, `replay`, `conformance`
+
+| Identifiant | Ce qu'il désigne |
+| --- | --- |
+| `serial.Opener` · `serial.OpenSystemPort` | L'ouverture du port, isolée derrière une fonction injectable — et son implémentation réelle, `go.bug.st/serial`, pur Go. C'est ce qui rend la boucle testable **sans matériel**. |
+| `serial.Options.Open` · `Options.Clock` | Les deux points d'injection de `Options` : par où l'on ouvre, et quelle horloge mesure les délais. |
+| `serial.ParseOptions` · `serial.OptionSchema` | Traduit les options de `config.json` en réglages de liaison ; déclare les sept options d'une liaison série pour que la validation les connaisse sans que le noyau les code en dur. |
+| `serial.ErrAlreadyStarted` · `absent.ErrAlreadyStarted` · `replay.ErrAlreadyStarted` | Une instance de driver qu'on a tenté de démarrer deux fois. Sentinelle par paquet : chaque driver répond de lui-même. |
+| `gramxfoc.IDRS` · `gramxfoc.IDPlus` | Les deux valeurs de `scale.type` de la famille GRAM : `gram-xfoc-rs` et `gram-xfoc-plus`. |
+| `gramxfoc.Descriptor` · `gramxfoc.Drivers` | L'identité d'un modèle GRAM, et les deux entrées de registre de la famille. |
+| `absent.ID` · `absent.Label` | Le nom de la source de poids vide partout où une source est nommée, et **son libellé français** pour le bénévole. |
+| `absent.New` · `absent.Scale` · `absent.ErrNoScale` | La source vide de la saisie manuelle, et la cause portée par chacun de ses événements. |
+| `replay.ID` · `replay.Label` · `replay.DefaultCadence` | Idem pour le rejeu, plus le délai donné aux enregistrements qui n'en déclarent pas. |
+| `replay.Source` | Ce qu'il faut rejouer et à quelle vitesse : `Name`, `Frames`, `Decoder`, `Clock`, `Cadence`, `Speed`, `Repeat`. |
+| `replay.Script` · `replay.Step` · `replay.Parse` | Une capture transformée en pas jouables : `Script.Steps`. Un pas = attendre `Step.Delay`, puis livrer `Step.Raw` au décodeur. |
+| `(replay.Script).Pace` | L'intervalle que le script **déclare** : la MÉDIANE de ses pas. C'est ce que `openscale replay` annonce. |
+| `(replay.Scale).Script` | La capture analysée, pour que la commande dise ce qu'elle va jouer avant de le jouer. |
+| `replay.ErrEmptyCapture` · `ErrNoClock` · `ErrScriptExhausted` | Une capture sans aucun enregistrement ; un rejeu câblé sans l'horloge injectée ; un rejeu arrivé au bout. |
+| `conformance.Subject` | Le driver soumis à la suite : `Name`, `New`, `Frames`, `Feed`, `Patience`, `Unstartable`, `RequireDisconnectCause`. |
+| `conformance.MaxExpressibleGrams` | La masse la plus lourde que la grammaire de trames de §9.2 sait exprimer. Borne du corpus, pas du métier — `MaxWeight` reste la borne métier. |
+
+### `internal/store`
+
+| Identifiant | Ce qu'il désigne |
+| --- | --- |
+| `Clock` | L'interface d'horloge **du paquet `store`**, réduite à `Now`. Redéclarée côté consommateur, comme `ports.Clock` : le stockage n'a besoin ni de `After` ni de `Ticker`. |
+| `Batch` | Un catalogue entier tel qu'un import l'a produit : `Import`, `Products`, `Categories`, `Images`, `Findings`. Homonyme volontaire de `ports.Batch`, qui est le même objet **avant** d'entrer en base. |
+| `ProductRow` | `ProductRow.Product` plus les trois faits de stockage que le type du noyau ne porte pas : `SeenAt`, `WithdrawnAt`, `LastImportID`. |
+| `ImportOutcome` | Ce qu'un import a fait au catalogue : `ImportID`, `Inserted`, `Updated`, `Withdrawn`. |
+| `Retention` · `DefaultRetention` | La politique de purge du journal — `MaxRows`, `MaxDays`, `MaxTechnical` — nommée d'après le bloc de configuration `journal`, et la politique livrée. |
+| `JournalFilter` · `TechnicalFilter` | Le filtre d'une page de journal (`Since`, `Until`, `Result`, `ProductID`, `Limit`, `Offset`) ou de journal technique (`Since`, `Until`, `Level`, `Source`, `Code`, `Limit`, `Offset`). Un filtre nul signifie « la page la plus récente ». |
+| `TechnicalEntry` | Une ligne du journal technique roulant : `ID`, `OccurredAt`, `Level`, `Source`, `Code`, `Message`, `Detail`. |
+| `LogSource*` | `LogSourceScale`, `LogSourcePrinter`, `LogSourceCatalog`, `LogSourceUI`, `LogSourceConfig`, `LogSourceHTTP`, `LogSourceSystem` — les valeurs que `technical_log.source` accepte. Le préfixe `LogSource` évite la collision avec les `Source*` du noyau, qui nomment la provenance d'un POIDS. |
+| `Level*` | `LevelDebug`, `LevelInfo`, `LevelWarn`, `LevelError`, `LevelCritical` — les valeurs de `technical_log.level`. La liste du stockage est plus longue que celle du noyau, qui n'a pas à connaître `debug` ni `critical`. |
+| `Meta*` | `MetaLabelsSinceRoll` (déjà figée comme clé `labels_since_roll`), `MetaLastIntegrityCheck`. Les clés nommées de la table `meta`. |
+| `(DB).Meta` · `MetaAll` · `SetMeta` · `AddMeta` | Lecture, écriture et incrément d'une clé `meta`. `AddMeta` existe pour que le compteur de rouleau ne se lise pas puis s'écrive en deux temps. |
+| `(DB).ReplaceCatalog` · `LoadCatalog` · `AllProducts` · `Product` · `Image` | Le remplacement **transactionnel** d'un catalogue, et les lectures qui en découlent. |
+| `(DB).RecordWeighing` · `Weighings` · `WeighingByJobID` · `CountWeighings` · `PurgeWeighings` | Le journal des pesées. |
+| `(DB).RecordTechnical` · `TechnicalEntries` · `CountTechnical` · `PurgeTechnical` | Le journal technique. |
+| `(DB).RecordImport` · `Imports` · `Findings` · `LastAppliedImport` | L'historique d'imports, en ajout seul (ADR-015). |
+| `(DB).RecordContentFailure` · `Quarantine` · `QuarantineEntries` · `ForgetQuarantine` | La quarantaine, séparée de l'historique : **seul** un échec de CONTENU y compte. |
+| `(DB).SaveDecision` · `Decision` · `ClearDecision` · `LocalDecisions` | La décision humaine « ne plus proposer ce produit » (ADR-017). |
+| `(DB).Backup` · `Vacuum` · `IntegrityCheck` · `SchemaVersion` · `Path` · `Close` | L'entretien du fichier et ce qu'un paquet de diagnostic en extrait. |
+| `(DB).Retention` · `SetRetention` | La politique en vigueur, et son remplacement à chaud (§11.4). |
+| `ErrNotFound` | Une ligne adressée par sa clé n'existe pas. Rendue **à la place de** `sql.ErrNoRows`, pour qu'aucun appelant n'ait à importer `database/sql`. |
+| `ErrPurge` | Un échec de purge survenu **après** qu'une pesée a été validée — le service se dégrade, il ne tombe pas (ADR-013). |
+| `TB` · `OpenTest` · `FixedClock` · `TestEpoch` | Le double d'ouverture de base pour les tests : la part de `*testing.T` dont `OpenTest` a besoin, une base migrée en répertoire temporaire, une horloge arrêtée, et l'instant auquel elle est arrêtée. |
+
+### `internal/station/ports`
+
+| Identifiant | Ce qu'il désigne |
+| --- | --- |
+| `PrinterHealth` | À quel point le statut d'une imprimante mérite d'être cru. Constantes `PrinterReady`, `PrinterConsumable`, `PrinterFaulted`, `PrinterUnknown`. |
+| `PrinterUnknown` | La réponse **honnête** d'un transport unidirectionnel : on ne sait pas. Elle existe pour qu'aucun code n'ait à mentir « prête » faute de canal de retour. |
+| `NopTechnicalLog` | Journal technique qui jette tout. Il existe pour qu'un driver sous test ne déréférence jamais un `nil`, et pour qu'un appelant n'ait pas à en fabriquer un. |
+| `Batch` | Un catalogue entier prêt à remplacer celui en service : `ID`, `Source`, `FileName`, `Bytes`, `RowsRead`, `UnreadableRows`, `Products`, `Images`, `Findings`. |
+| `BatchResult` | Ce que le poste a fait d'un lot, et ce que `Acknowledge` reçoit : `Result`, `Code`, `Reason`. |
+| `PrintJob` | Une étiquette à imprimer : `Label`, `Template`, `Copies`, `Locale`. |
+| `PrintReceipt` | Un travail **remis à un transport** : `JobID`, `Bytes`, `Duration`. Jamais « imprimé » — voir « Reçu » → `PrintReceipt`. |
+| `PrinterStatus` | Ce que l'appareil dit de lui-même : `Health`, `Detail`, `PendingJobs`, `Raw`. |
+
+### `internal/platform` et `internal/fake`
+
+| Identifiant | Ce qu'il désigne |
+| --- | --- |
+| `platform.SystemClock` · `NewSystemClock` | La seule implémentation réelle de `ports.Clock`, et **le seul endroit du dépôt où `time.Now()` a le droit d'être appelé**. `go run ./tools/boundary` le vérifie. |
+| `(fake.Clock).Set` · `Now` · `After` · `Ticker` · `Pending` | L'horloge des tests : elle n'avance que quand un test le lui dit. `Pending` compte les attentes enregistrées — c'est ce qui permet d'assurer qu'un arrêt n'a laissé fuir aucun timer. |
+
+### `internal/printing`
+
+| Identifiant | Ce qu'il désigne |
+| --- | --- |
+| `Library` · `NewLibrary` | Les polices embarquées analysées une fois, et les faces qui en dérivent, mémoïsées. |
+| `(Library).Face` · `Parsed` · `FaceCount` · `Close` | Une face à une taille donnée ; la police analysée ; combien de faces sont mémoïsées (pour qu'un test puisse le vérifier) ; la libération. |
+| `Font` · `Carlito` · `DejaVuSansCondensed` | La famille avec laquelle le moteur sait rendre — la valeur de la clé `font` d'un gabarit. `Carlito` est le clone métrique de Calibri retenu par ADR-020 ; `DejaVuSansCondensed` sert les gabarits neutres et le repli. |
+| `ErrUnknownFont` | Un gabarit qui nomme une police que le binaire ne porte pas. Erreur **typée** et non sentinelle, parce qu'elle doit dire LAQUELLE : `ErrUnknownFont.Font`. |
+
+### Codes `ERR-xxx-nn` réellement alloués par le code
+
+La table de correspondance `BAL→SCL`, `IMP→PRN`, `BDD→DB`, `IHM→UI`, `KIO→KSK` reste celle
+des « Décisions sur les termes délicats ». Ce tableau-ci recense les codes **qu'un binaire
+émet aujourd'hui**, avec le message que lit un bénévole — identifiant anglais, contenu
+français.
+
+| Code | Où il est émis | Message affiché ou journalisé |
+| --- | --- | --- |
+| `ERR-SCL-01` | `serial` — `codeLinkLost` | « La balance ne répond plus. » — le port était ouvert et répondait, il s'est tu. |
+| `ERR-SCL-02` | `domain/machine.go` — perte de balance vue par le Hub | Bandeau : « Le poids n'est plus disponible. Vous pouvez saisir le poids à la main. » · Journal : « La balance ne répond plus. » |
+| `ERR-SCL-03` | `serial` — `codePortUnavailable` | « Le port de la balance ne peut pas être ouvert. » — absent, occupé, accès refusé. Remède différent d'`ERR-SCL-01`, donc code différent. |
+| `ERR-SCL-04` | `serial` — `codeUnusableOptions` | « Les réglages de la balance sont inutilisables. » — aucun nouvel essai ne les corrigera. |
+| `ERR-SCL-05` | `serial` — `codeCloseRefused` | « Le port de la balance n'a pas pu être refermé proprement. » — conséquence propre : la réouverture d'un port EXCLUSIF peut échouer ensuite. |
+| `ERR-PRN-01` | `domain/machine.go` | Bandeau : « L'imprimante ne répond pas. Prévenez un responsable. » · Journal : « Impression échouée. » |
+| `ERR-CFG-01` | `domain/machine.go`, `NeutralProfile` | « Le poste ne peut pas calculer les prix (ERR-CFG-01). Prévenez un responsable. » |
+| `ERR-DB-01` | `store.ErrDatabaseUnusable` | Le fichier ou son répertoire est inutilisable. Le détail français est enveloppé au cas par cas : « ouverture de … impossible », « base endommagée : … », « contrôle d'intégrité impossible ». |
+| `ERR-DB-02` | `store.ErrSchemaFromNewerVersion` | « base créée par une version plus récente (schéma N, ce binaire connaît M). Mettez l'application à jour. » |
+
+> **Codes cités mais pas encore alloués.** `ERR-SCL-08` (poignée déjà relâchée, journalisée
+> par le Hub), `ERR-CAT-03` et `ERR-CAT-05` (échec de contenu, fichier lu mais non
+> supprimé) apparaissent dans des commentaires et des tests de L2/L3, portés par la couche
+> qui les émettra en L6/L7. Ils ne sont **pas** des constantes du code aujourd'hui. Le
+> numéro leur est réservé ; le libellé viendra avec l'émetteur.
 
 ---
 
@@ -684,11 +961,26 @@ type `Weighing` (singulier), **jamais `Weight`** — `Weight` est la grandeur, p
 
 ### « balance » : le produit vs l'appareil
 
-Deux sens, un seul survit en code. Le PRODUIT / binaire / service Windows / `balance.db` /
-`C:\ProgramData\Balance` reste `balance` (nom propre, et mot anglais). L'APPAREIL devient
-`scale` PARTOUT : paquet `internal/scale`, interface `Scale`, config `scale.type`, `ScaleEvent`,
-`ErrScaleDisconnected`, `ERR-SCL-nn`, `weighings.source='scale'`. Aucun identifiant ne doit
-désigner l'appareil par le mot `balance`.
+Deux sens, et **aucun des deux ne s'écrit `balance` en code**.
+
+Le PRODUIT ne s'appelle plus « Balance » : il s'appelle **OpenScale**. Binaire `openscale`,
+module Go `openscale`, dépôt `OpenScale/`, service Windows, base `openscale.db`, journaux
+`openscale.log`, répertoire d'installation `OpenScale`. La règle précédente — « `balance`
+survit comme nom de produit » — est **caduque** et ce qu'il en reste dans un document est un
+reliquat de renommage, pas une décision.
+
+L'APPAREIL est `scale` PARTOUT : paquet `internal/scale`, interface `Scale`, config
+`scale.type`, `ScaleEvent`, `ErrScaleDisconnected`, `ERR-SCL-nn`, `weighings.source='scale'`,
+`technical_log.source='scale'`. **Aucun identifiant ne désigne l'appareil par le mot
+`balance`.**
+
+Le mot français « balance » ne subsiste donc que là où ce n'est pas un identifiant :
+
+1. le **contenu** affiché à un bénévole ou à un client — « La balance ne répond plus. »,
+   « La balance est en surcharge. Retirez votre article. », « Ce poste fonctionne sans
+   balance : le poids est saisi à la main. » ;
+2. un **nom d'objet système qui désigne l'appareil**, et un seul : le symlink udev
+   `/dev/balance-serial`.
 
 ### FAUX AMI CRITIQUE : « file » d'impression → `queue`
 
@@ -792,6 +1084,11 @@ donc traduits — mais UNIQUEMENT selon cette table, aucun traducteur ne doit en
 numéros ne bougent pas : `ERR-BAL-08` → `ERR-SCL-08`. Le MESSAGE porté par le code reste
 français.
 
+Les codes **réellement alloués** par le binaire, avec leur libellé français, sont listés
+dans [Codes `ERR-xxx-nn` réellement alloués par le code](#codes-err-xxx-nn-réellement-alloués-par-le-code).
+Un numéro cité dans un commentaire n'est pas un numéro alloué : il l'est le jour où une
+constante le porte.
+
 ### Auto-tests
 
 `etiquette` → `label`, `reglette` → `ruler`, et `mire` → `alignment` (pas `test-pattern`, deux
@@ -824,9 +1121,10 @@ qui les reçoivent, eux, sont anglais (`Product.Name`, `Product.Reference`, `cat
 Commandes SBPL `<A>`, `<A1>`, `<A3>`, `<#E>`, `<CS>`, `<%>`, `<V>`, `<H>`, `<G>`, `<Q>`, `<Z>`,
 `<BD>`, `<LD>`, `ENQ` ; `winspool`, `devfile`, `RAW`, `DOC_INFO_1.pDatatype`, `SATO WS408`,
 `GRAM XFOC RS/+`, `gram-xfoc-rs`, `gram-xfoc-plus`, `COM8`, `/dev/usb/lp0`,
-`/dev/balance-serie`, `/dev/sato-pesee`, `AutoAdminLogon`, `TimeoutStopSec`. Le symlink udev
-`balance-serie` peut devenir `balance-serial` si l'on renomme la règle : décision à trancher
-une fois, pas cinq.
+`/dev/sato-pesee`, `AutoAdminLogon`, `TimeoutStopSec`. Le symlink udev `balance-serie`
+**est tranché** : c'est `/dev/balance-serial`, écrit ainsi dans `internal/scale/serial` et
+dans l'aide de `openscale capture`. Le mot `balance` y désigne l'APPAREIL, et c'est le seul
+nom d'objet système où il subsiste.
 
 ### « dépôt » : deux sens
 
@@ -890,7 +1188,7 @@ figure pas encore.
 - **Contenu en français** : documentation, commentaires de spécification, messages affichés à
   l'écran, libellés imprimés sur l'étiquette, textes des scripts d'installation, contenu des
   fichiers `TROUBLESHOOTING.md` / `install-sheet.txt`.
-- **Exceptions gelées** : noms propres (`balance`, `lacagette`, `flv`), noms matériels et
+- **Exceptions gelées** : noms propres (`openscale`, `lacagette`, `flv`), noms matériels et
   protocolaires, format d'échange Odoo, identifiants de l'ancienne base Access.
 
 ### Go
@@ -966,8 +1264,9 @@ figure pas encore.
 - **Drapeaux CLI** en `--kebab-case` (`--data`, `--duration`, `--unit-price`, `--template`) ;
   sous-commandes en un seul mot minuscule (`serve`, `kiosk`, `doctor`, `capture`, `label`,
   `replay`, `validate`, `export`, `import`, `password`).
-- **Variables d'environnement** : `BALANCE_` + `SCREAMING_SNAKE_CASE` (`OPENSCALE_CONFIG`,
-  `OPENSCALE_DATA`).
+- **Variables d'environnement** : `OPENSCALE_` + `SCREAMING_SNAKE_CASE` (`OPENSCALE_CONFIG`,
+  `OPENSCALE_DATA`). Le préfixe suit le nom du produit ; il n'y en a **que deux**, et
+  §11.1 interdit toute autre variable d'environnement.
 - **Codes métier affichés au support** en `SCREAMING_SNAKE_CASE` anglais (`WEIGHT_UNSTABLE`,
   `MEASUREMENT_EXPIRED`, `UNREADABLE_ROW`) ; codes techniques au format `ERR-<3 lettres>-<nn>`
   selon la table figée (`SCL`, `PRN`, `CAT`, `DB`, `UI`, `KSK`, `SYS`, `CFG`), numéros

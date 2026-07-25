@@ -5,11 +5,12 @@
 // copying one file.
 //
 // The subcommands of the V1 scope are serve, kiosk, doctor, capture, replay,
-// label and config. Four are present. barcode and price are the DEMONSTRATION
+// label and config. Five are present. barcode and price are the DEMONSTRATION
 // commands of the first work package: they exercise the business core from a
 // terminal, with no scale, no printer and no browser. capture and replay are the
 // diagnostic pair of the third: capture needs a scale on the bench, replay needs
-// nothing but a file.
+// nothing but a file. label is the demonstration of the fourth, and it needs no
+// printer either: the PDF it writes is measured with a ruler.
 package main
 
 import (
@@ -44,6 +45,15 @@ Diagnostic de la balance (lot L3) :
   replay <fichier> [--x10]                 rejoue un fichier de trames : poids,
                                            état de figeage, cadence médiane
 
+Aperçu de l'étiquette, sans imprimante (lot L4) :
+  label --template <nom> --demo [--dual]   rend l'étiquette de démonstration en PDF
+                                           grandeur nature et en PNG. Imprimé à
+                                           100 %, le PDF se mesure au réglet
+        [--pdf f.pdf] [--png f.png]        emplacements des fichiers ; sans eux,
+                                           les deux portent le nom du gabarit
+        [--annotate]                       surcouche de banc : zone imprimable,
+                                           zones de silence et réglet millimétrique
+
 Autres :
   --version                                version, commit et date de compilation
   --help                                   ce message
@@ -53,6 +63,7 @@ Exemples :
   openscale price --unit-price 5,32 --weight 1236 --tiers cagette
   openscale capture --port COM8 --duration 30m
   openscale replay frames.txt --read-size 18
+  openscale label --template weighing_identical --demo --dual --pdf etiquette.pdf
 `
 
 // parseMixed lets options appear BEFORE or AFTER the positional arguments.
@@ -92,6 +103,8 @@ func main() {
 		err = runCapture(os.Args[2:], os.Stdout)
 	case "replay":
 		err = runReplay(os.Args[2:], os.Stdout)
+	case "label":
+		err = runLabel(os.Args[2:], os.Stdout)
 	case "--version", "version":
 		fmt.Printf("openscale %s (commit %s, compilé le %s)\n", version, commit, date)
 	case "--help", "-h", "help":
