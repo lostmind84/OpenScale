@@ -1,0 +1,60 @@
+# Binaires
+/openscale
+/openscale.exe
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go
+/bin/
+*.test
+*.out
+/vendor/
+coverage.out
+
+# Front
+/web/node_modules/
+/web/.svelte-kit/
+# NB : /internal/web/dist est COMMITE (embed.FS en a besoin au build)
+
+# Données locales d'un poste — jamais dans le dépôt
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Secrets et configuration locale
+.env
+*.local.json
+config.local.*
+
+# Ne JAMAIS committer la base Access d'origine : elle contient en clair le mot de
+# passe administrateur et les identifiants WebDAV et SMTP.
+*.mdb
+*.accdb
+
+# Sorties d'impression et captures de mise au point
+/prints/
+*.sbpl
+capture-*.txt
+
+# Systèmes
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Éditeurs
+.vscode/
+.idea/
+*.swp
+*~
+
+# Outillage local du poste de développement — régénérable par `ruflo init`, et sans
+# valeur pour une coopérative qui reprend le dépôt. À retirer d'ici si l'équipe
+# décide de versionner sa configuration d'agents.
+/.claude/
+/.claude-flow/
+/.swarm/

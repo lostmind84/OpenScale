@@ -1,0 +1,72 @@
+# OpenScale — cibles de développement et de livraison.
+#
+# Il n'y a PAS de `export CGO_ENABLED=0` global, et c'est une correction, pas un
+# oubli (important-3, docs/02-architecture.md §16.4) : le détecteur de course
+# repose sur ThreadSanitizer et EXIGE cgo. Un CGO_ENABLED=0 global fait échouer
+# `make test` dès la première exécution, et le premier développeur qui rencontre
+# l'erreur retire `-race` — on perd alors la seule vérification automatique des
+# trois invariants de concurrence du Hub.
+#
+# La cible `test` fait donc DEUX passes : une avec cgo pour `-race`, une sans pour
+# prouver que la configuration réellement livrée compile et passe.
+#
+# Sous Windows sans GNU make, `.\make.ps1 <cible>` expose les mêmes cibles.
+
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+DATE    := $(shell git log -1 --format=%cI 2>/dev/null || echo unknown)
+LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
+
+TARGETS := windows/amd64 linux/amd64 linux/arm64
+
+.PHONY: all test vet boundary build dist front clean cover help
+
+all: test build
+
+help:
+	@echo "Cibles : test · vet · boundary · build · dist · cover · front · clean"
+
+# front n'existe pas encore : le lot L6 livre le paquet web/. La cible est
+# déclarée dès maintenant parce que `go:embed all:dist` en dépendra, et qu'une
+# cible manquante découverte au moment de la livraison coûte plus cher.
+front:
+	@if [ -f web/package.json ]; then \
+	  npm --prefix web ci && npm --prefix web run build; \
+	else \
+	  echo "front : web/package.json absent (lot L6) — rien à construire"; \
+	fi
+
+vet:
+	go vet ./...
+
+boundary:
+	go run ./tools/boundary
+
+test: vet
+	CGO_ENABLED=1 go test ./... -race -count=1
+	CGO_ENABLED=0 go test ./... -count=1
+	$(MAKE) boundary
+
+# Couverture par paquet, avec les seuils de §16.4 : domain 95 %, scale 90 %,
+# printing 80 %, catalog 85 %.
+cover:
+	go test ./... -coverprofile=coverage.out -count=1
+	go tool cover -func=coverage.out | tail -n 1
+	@go tool cover -func=coverage.out | grep -E "internal/domain" | tail -n 1 || true
+
+build:
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/openscale ./cmd/openscale
+
+dist: test
+	@mkdir -p dist
+	@for t in $(TARGETS); do \
+	  os=$${t%/*}; arch=$${t#*/}; ext=""; \
+	  if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
+	  echo "dist : $$os/$$arch"; \
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath \
+	    -ldflags "$(LDFLAGS)" -o dist/openscale-$$os-$$arch$$ext ./cmd/openscale || exit 1; \
+	done
+	cd dist && sha256sum * > SHA256SUMS
+
+clean:
+	rm -rf bin dist coverage.out

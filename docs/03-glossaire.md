@@ -1,0 +1,1000 @@
+# 03 — Glossaire de traduction
+
+Le code de Balance est écrit **en anglais** — paquets, types, fonctions, champs, tables SQL,
+clés de configuration, routes HTTP — tandis que la documentation, les messages affichés à
+l'écran et les libellés imprimés restent **en français**. Ce document est le pont entre les
+deux : il fixe, pour chaque terme du cahier des charges, l'identifiant anglais exact qui devra
+apparaître dans le code.
+
+Ce glossaire est **l'autorité unique sur le nommage**. Il ne s'agit pas d'une suggestion ni
+d'un point de départ : tout écart introduit une divergence entre la spécification française et
+l'implémentation anglaise, et cette divergence coûte plus cher à chaque itération. Il doit donc
+être respecté **à la lettre pendant toute l'implémentation**, jusqu'aux tests, aux scripts de
+déploiement et aux noms de fichiers.
+
+Les justifications ne sont pas décoratives : elles documentent les alternatives écartées, pour
+éviter que la même question soit rouverte à chaque revue. La section
+[Décisions sur les termes délicats](#décisions-sur-les-termes-délicats) traite les cas où un
+mot français recouvre plusieurs concepts (ou l'inverse) ; la section
+[Conventions de nommage](#conventions-de-nommage) résume les règles générales à appliquer.
+
+> **Règle de complétude.** Si un identifiant n'est pas dans ce glossaire : le traduire selon
+> les mêmes conventions, puis **le signaler** dans le compte rendu de l'étape pour qu'il soit
+> ajouté ici. Le glossaire doit rester exhaustif.
+
+---
+
+## Paquets et répertoires
+
+| Actuel (FR) | Cible (EN) | Justification |
+| --- | --- | --- |
+| `balance/` (racine du dépôt, nom du binaire, `openscale serve`) | `balance/` (inchangé) | Nom de produit / de binaire, déjà un mot anglais. On le garde comme nom propre ; c'est le SEUL endroit où « balance » subsiste. Partout ailleurs l'appareil est `scale`. |
+| `cmd/openscale/` | `cmd/openscale/` | Chemin du binaire, inchangé (nom de produit). |
+| `cmd/openscale/drivers.go` | `cmd/openscale/drivers.go` | Déjà anglais. |
+| `internal/noyau/` | `internal/domain/` | « noyau » = noyau MÉTIER pur. `core` est vague et surchargé, `kernel` évoque un OS. `domain` est le terme consacré (DDD) et lit bien : `domain.Label`, `domain.Product`, `domain.Transition`. Go idiomatique : paquet court, minuscules, singulier. |
+| `internal/noyau/quantite.go` | `internal/domain/quantity.go` | Types atomiques Cents/Grams/Micrometers + RoundingPolicy. |
+| `internal/noyau/texte.go` | `internal/domain/text.go` | Normalisation de texte. |
+| `internal/noyau/ean13.go` | `internal/domain/ean13.go` | Acronyme, inchangé. |
+| `internal/noyau/tarif.go` | `internal/domain/pricing.go` | Le fichier porte la règle de prix entière (tiers, règles, calcul) : `pricing.go` est plus juste que `tariff.go`. |
+| `internal/noyau/produit.go` | `internal/domain/product.go` | Direct. |
+| `internal/noyau/garde.go` | `internal/domain/safeguard.go` | « garde-fou » métier = safeguard. Réservé : `guard` désigne les gardes de transition de la machine à états (§6.6), concept différent. |
+| `internal/noyau/mesure.go` | `internal/domain/measurement.go` | Contient Measurement, Stability, WeightLatch, RateMeter. |
+| `internal/noyau/machine.go` | `internal/domain/machine.go` | Déjà anglais (state machine). |
+| `internal/noyau/preparer.go` | `internal/domain/prepare.go` | Fichier nommé d'après la fonction `Prepare`. |
+| `internal/noyau/gabarit.go` | `internal/domain/template.go` | Gabarit d'étiquette = template de mise en page. Voir piège : le « gabarit » d'un EAN-13 est un `pattern`, pas un `template`. |
+| `internal/noyau/config.go` | `internal/domain/config.go` | Déjà anglais. |
+| `internal/noyau/profils.go` | `internal/domain/profiles.go` | Direct. |
+| `internal/noyau/trame/` | `internal/domain/frame/` | « trame » série = frame. Paquet court, minuscule, singulier. |
+| `internal/balance/` | `internal/scale/` | Ici « balance » désigne l'APPAREIL : `scale` en anglais naturel. Lève l'homonymie avec le nom du produit. |
+| `internal/balance/serie/` | `internal/scale/serial/` | Direct. |
+| `internal/balance/serie/boucle.go` | `internal/scale/serial/loop.go` | Fichier nommé d'après `Loop`. |
+| `internal/balance/gramxfoc/` | `internal/scale/gramxfoc/` | Nom de modèle matériel, inchangé. |
+| `internal/balance/absent/` | `internal/scale/absent/` | « absent » est un mot anglais et décrit exactement la source de poids vide. |
+| `internal/balance/rejeu/` | `internal/scale/replay/` | Direct. |
+| `internal/balance/conformite/` | `internal/scale/conformance/` | Suite de conformité imposée à tout driver. |
+| `internal/impression/` | `internal/printing/` | `printing` (l'activité) plutôt que `print` (verbe) ou `printer` (l'appareil) : le paquet porte le rendu ET les drivers. |
+| `internal/impression/rendu.go` | `internal/printing/render.go` | Direct. |
+| `internal/impression/symbole.go` | `internal/printing/symbol.go` | Direct (symbole EAN-13). |
+| `internal/impression/raster/` | `internal/printing/raster/` | Déjà anglais. |
+| `internal/impression/sbpl/` | `internal/printing/sbpl/` | Acronyme constructeur, inchangé. |
+| `internal/impression/transport/` | `internal/printing/transport/` | Déjà anglais. |
+| `internal/impression/apercu/` | `internal/printing/preview/` | « aperçu » PDF/PNG = preview. Cohérent avec la valeur de configuration `printer.type = "preview"`. |
+| `internal/catalogue/` | `internal/catalog/` | Orthographe US, cohérente avec le reste du code. |
+| `internal/catalogue/depot_local/` | `internal/catalog/localdrop/` | Répertoire de dépôt local. Go : pas d'underscore dans un nom de paquet. La valeur de configuration correspondante est `local_drop` (snake_case). |
+| `internal/catalogue/webdav/` | `internal/catalog/webdav/` | Protocole, inchangé. |
+| `internal/catalogue/csvodoo/` | `internal/catalog/csvodoo/` | Déjà neutre (format d'échange Odoo). |
+| `internal/stockage/` | `internal/store/` | Go idiomatique : `store` plutôt que `storage` ou `persistence` pour une couche de dépôts SQLite. |
+| `internal/poste/` | `internal/station/` | « poste de pesée » = weighing station. `terminal` évoque un TTY, `till` une caisse enregistreuse (faux sens : ce poste n'encaisse pas). |
+| `internal/poste/hub.go` | `internal/station/hub.go` | Déjà anglais. |
+| `internal/poste/ports/` | `internal/station/ports/` | Déjà anglais ; interfaces déclarées côté consommateur. |
+| `internal/web/` | `internal/web/` | Déjà anglais. |
+| `internal/web/flux.go` | `internal/web/stream.go` | Flux SSE = stream. Cohérent avec la route `/api/v1/stream`. |
+| `internal/kiosk/` | `internal/kiosk/` | Déjà anglais. |
+| `internal/plateforme/` | `internal/platform/` | Direct. |
+| `internal/plateforme/horloge.go` | `internal/platform/clock.go` | Seule implémentation réelle de `Clock`. |
+| `internal/diag/` | `internal/diag/` | Abréviation identique dans les deux langues. |
+| `internal/obs/` | `internal/obs/` | Observabilité / observability : identique. |
+| `internal/assets/` | `internal/assets/` | Déjà anglais. |
+| `internal/web/dist` | `internal/web/dist` | Sortie Vite committée, inchangée. |
+| `web/` (front Svelte + TS) | `web/` | Déjà anglais. |
+| `web/testdata/normalisation.json` | `web/testdata/normalization.json` | Fixture partagée Go + Vitest : le nom doit être identique des deux côtés. |
+| `internal/balance/testdata/trames/` | `internal/scale/testdata/frames/` | Corpus vivant de trames. |
+| `testdata/` · `deploy/{windows,linux}/` · `migrations/` | identiques | Déjà anglais. |
+| `tools/frontiere/verifier.sh` | `tools/boundary/check.sh` | « les cinq coupes » = frontières architecturales = boundaries. |
+| cible Makefile `frontiere` | cible Makefile `boundary` | `make boundary` ; cohérent avec `tools/boundary/`. |
+| `<donnees>/` | `<data>/` | Répertoire de données ; flag `--data`, variable `OPENSCALE_DATA`. |
+| `<donnees>/catalogue/entrant/` | `<data>/catalog/incoming/` | Répertoire surveillé du dépôt local. |
+| `<donnees>/catalogue/{archives,rejets}/` | `<data>/catalog/{archives,rejected}/` | « rejets » = fichiers rejetés. |
+| `<donnees>/etiquettes/` | `<data>/labels/` | 30 dernières étiquettes capturées. |
+| `<donnees>/images_produits/` | `<data>/product_images/` | Source `image_directory` (héritage). |
+| `<donnees>/logs/balance.log` | `<data>/logs/balance.log` | Déjà anglais. |
+| `config.json.invalide-<horodate>` | `config.json.invalid-<timestamp>` | Copie du fichier fautif. |
+| `balance.db.avant-vN-<horodate>` | `balance.db.before-vN-<timestamp>` | Sauvegarde `VACUUM INTO` pré-migration. |
+| `<binaire>.precedent` | `<binary>.previous` | Sauvegarde de mise à jour. |
+| `installer.ps1` · `desinstaller.ps1` · `durcissement.ps1` · `mettre-a-jour.ps1` · `demarrer.bat` | `install.ps1` · `uninstall.ps1` · `harden.ps1` · `update.ps1` · `start.bat` | Scripts = code livré, donc anglais. Leur CONTENU affiché à l'écran reste français. |
+| `restauration.json` | `restore.json` | Sauvegarde des réglages écrasés par l'installeur. |
+| `fiche-installation.txt` | `install-sheet.txt` | Nom de fichier = code ; le contenu imprimé reste français. |
+| `DEPANNAGE.md` | `TROUBLESHOOTING.md` | Nom de fichier anglais, contenu français (E2). |
+| `INSTALLATION.md` · `balance-kiosk.xml` · `SHA256SUMS` · `config-lacagette.json` · `flv_demo.csv` · `flv_<n>.csv` | identiques | INSTALLATION est identique dans les deux langues ; `lacagette` et `flv` sont des noms propres / un format d'échange externe imposé. |
+| `<rejet>.motif.txt` | `<rejected>.reason.txt` | Cohérent avec le champ `reason`. |
+| `trames.txt` (capture) | `frames.txt` | Cohérent avec `frame`. |
+| `index.html` · `admin.html` | `index.html` · `admin.html` | Déjà anglais. |
+
+---
+
+## Types
+
+| Actuel (FR) | Cible (EN) |
+| --- | --- |
+| `Centimes` | `Cents` |
+| `Grammes` | `Grams` |
+| `Micrometres` | `Micrometers` |
+| `Duree` (durée JSON en ms) | `Duration` (`domain.Duration`) |
+| `PolitiqueArrondi` | `RoundingPolicy` |
+| `ArrondiCommercial` | `RoundHalfUp` |
+| `ArrondiTronque` | `RoundTowardZero` |
+| `ArrondiPair` | `RoundHalfToEven` |
+| `Kilogramme` (const) | `Kilogram` |
+| `MaxPoids` (const) | `MaxWeight` |
+| `PrixUnitaireMax` (const) | `MaxUnitPrice` |
+| `EAN13` | `EAN13` |
+| `PlanPrefixe` | `PrefixPlan` |
+| `planInterne` (var, table constante) | `internalPlan` |
+| `ModeVente` | `SaleMode` |
+| `AuPoids` | `ByWeight` |
+| `ALUnite` | `ByUnit` |
+| `Produit` | `Product` |
+| `Categorie` | `Category` |
+| `Catalogue` | `Catalog` |
+| `Qualification` | `Qualification` |
+| `Pesable` | `Weighable` |
+| `NonPesable` | `NotWeighable` |
+| `Anomalie` | `Anomaly` |
+| `Tarif` | `PriceTier` |
+| `ReglesTarification` | `PricingRules` |
+| `LigneTarif` | `PriceLine` |
+| `Etiquette` | `Label` |
+| `SeuilsPesee` | `WeighingLimits` |
+| `EntreeGarde` | `CheckInput` |
+| `Diagnostic` | `Diagnostic` |
+| `Mesure` | `Measurement` |
+| `Stabilite` | `Stability` |
+| `Stable` / `Instable` / `Inconnue` / `StabiliteSansObjet` | `Stable` / `Unstable` / `StabilityUnknown` / `StabilityNotApplicable` |
+| `Figeur` | `WeightLatch` |
+| `EtatFigeage` | `LatchState` |
+| `Cadencemetre` | `RateMeter` |
+| `PolitiqueStabilite` | `StabilityPolicy` |
+| `ModeBloquant` (const) / mode « informatif » | `ModeBlocking` / `ModeAdvisory` |
+| `Etat` (machine à états) | `State` |
+| `Initialisation` | `Initializing` |
+| `Attente` | `Idle` |
+| `ProduitArme` | `ProductArmed` |
+| `PoidsPresent` | `WeightPresent` |
+| `PoidsStable` | `WeightStable` |
+| `AttenteStabilite` | `AwaitingStability` |
+| `SaisieTare` | `EnteringTare` |
+| `SaisieManuellePoids` | `EnteringWeight` |
+| `ModeManuel` | `ManualMode` |
+| `Validation` (état) | `Validating` |
+| `Impression` (état) | `Printing` |
+| `Succes` (état) | `Succeeded` |
+| `Refus` (état) | `Rejected` |
+| `Erreur` (état) | `Faulted` |
+| `BalancePerdue` (état) | `ScaleLost` |
+| `HorsService` (état) | `OutOfService` |
+| `Evenement` | `Event` |
+| `MesureRecue` | `MeasurementReceived` |
+| `PerteBalance` (événement) | `ScaleDisconnected` |
+| `BalanceRetrouvee` | `ScaleReconnected` |
+| `ProduitTouche` | `ProductTapped` |
+| `ToucheTare` | `TareTapped` |
+| `TareValidee` | `TareConfirmed` |
+| `PoidsSaisiValide` | `ManualWeightConfirmed` |
+| `ImpressionTerminee` | `PrintFinished` |
+| `DemandeReimpression` | `ReprintRequested` |
+| `CatalogueDisponible` | `CatalogReady` |
+| `Annuler` (événement) | `Cancel` |
+| `Acquitter` (événement IHM) | `Dismiss` |
+| `Tic` | `Tick` |
+| `Effet` | `Effect` |
+| `EffetImprimer` | `PrintEffect` |
+| `EffetJournaliser` | `RecordEffect` |
+| `EffetMessage` | `MessageEffect` |
+| `EffetSon` | `SoundEffect` |
+| `EffetAccuser` | `AckEffect` |
+| `EffetTechnique` | `TechnicalLogEffect` |
+| `EffetArmerTimer` | `ArmTimerEffect` |
+| `EffetAppliquerCatalogue` | `ApplyCatalogEffect` |
+| `Modele` | `Model` |
+| `Contexte` (entrées de Transition) | `TransitionContext` |
+| `Accuse` | `Ack` |
+| `Gabarit` (étiquette) | `Template` |
+| `Element` (d'un gabarit) | `Element` |
+| `Faute` (validation) | `Fault` |
+| `Configuration` | `Config` |
+| `Registres` | `Registries` |
+| `Locale` | `Locale` |
+| `Media` | `Media` |
+| `Balance` (interface) | `Scale` |
+| `Imprimante` (interface) | `Printer` |
+| `Transport` (interface) | `Transport` |
+| `SourceCatalogue` (interface) | `CatalogSource` |
+| `Horloge` (interface) | `Clock` |
+| `JournalTechnique` (interface) | `TechnicalLog` |
+| `Decodeur` (interface) | `Decoder` |
+| `DescripteurBalance` | `ScaleDescriptor` |
+| `DescripteurImprimante` | `PrinterDescriptor` |
+| `Descripteur` (impression) | `Descriptor` |
+| `Capacites` | `Capabilities` |
+| `TravailImpression` | `PrintJob` |
+| `Recu` (retour d'`Imprimer`) | `PrintReceipt` |
+| `StatutImprimante` | `PrinterStatus` |
+| `EvenementBalance` | `ScaleEvent` |
+| `StatutDeconnecte` / `StatutConnecte` | `StatusDisconnected` / `StatusConnected` |
+| `Lot` (catalogue) | `Batch` |
+| `ResultatLot` | `BatchResult` |
+| `Signalement` | `Finding` |
+| `Motif` | `Reason` |
+| `Erreur` (impression, typée) | `PrintError` |
+| `Genre` (d'erreur d'impression) | `Kind` |
+| `GenreDonnees` / `GenreGabarit` / `GenreTransitoire` / `GenreConsommable` / `GenreConfig` / `GenreInterne` | `KindData` / `KindTemplate` / `KindTransient` / `KindConsumable` / `KindConfig` / `KindInternal` |
+| `OptionsRendu` | `RenderOptions` |
+| `OptionsSymbole` | `SymbolOptions` |
+| `DiagnosticSymbole` | `SymbolDiagnostic` |
+| `Options` (série) | `Options` |
+| `Accumulateur` | `Accumulator` |
+| `Unite` / `UniteKg` / `UniteG` (parseur de trame) | `Unit` / `UnitKg` / `UnitGram` |
+| `Poste` (struct de §11.4) | `Station` |
+| `Hub` | `Hub` |
+| `Snapshot` | `Snapshot` |
+| `Message` (bandeau) | `Message` |
+| `Service` (impression) | `Service` |
+| `encodeur` (SBPL) | `encoder` |
+| `travail` (job interne du Hub) | `job` |
+| `cleFace` | `faceKey` |
+| `Pesee` (enregistrement au journal) | `Weighing` |
+| `Idempotence` (cache des 32 dernières clés) | `IdempotencyCache` |
+| `Serveur` (web) | `Server` |
+| `App` | `App` |
+| `DB` | `DB` |
+| `ErrEAN13Format` | `ErrEAN13Format` |
+| `ErrEAN13Cle` | `ErrEAN13CheckDigit` |
+| `ErrPrefixeHorsPlan` | `ErrPrefixNotInPlan` |
+| `ErrLargeurHorsPlan` | `ErrWidthNotInPlan` |
+| `ErrChargeHorsCapacite` | `ErrPayloadOutOfRange` |
+| `ErrGabaritNonNul` | `ErrPatternNotZeroed` |
+| `ErrPrefixeIncoherent` | `ErrPrefixModeMismatch` |
+| `ErrQuantiteNulle` | `ErrZeroQuantity` |
+| `ErrGrilleIncoherente` | `ErrInconsistentTiers` |
+| `ErrNonReconnue` (trame) | `ErrUnrecognizedFrame` |
+| `ErrNonSupporte` (transport unidirectionnel) | `ErrUnsupported` |
+| `ErrBoucleTerminee` | `ErrLoopStopped` |
+| `ErrOccupe` (worker d'impression saturé) | `ErrBusy` |
+| `ProfilNeutre` | `NeutralProfile` |
+
+---
+
+## Fonctions et méthodes
+
+| Actuel (FR) | Cible (EN) |
+| --- | --- |
+| `(PolitiqueArrondi).Diviser` | `(RoundingPolicy).Divide` |
+| `Cle` (clé de contrôle EAN-13) | `CheckDigit` |
+| `Composer` | `Compose` |
+| `Generer` | `Generate` |
+| `Diagnostiquer` | `Diagnose` |
+| `Modules` | `Modules` |
+| `Quantifier` | `Quantize` |
+| `Parser` (`noyau.Parser`, code-barres) | `ParseEAN13` |
+| `Tarifer` | `Price` |
+| `(ReglesTarification).TriParOrdre` | `(PricingRules).SortedTiers` |
+| `(Etiquette).Chercher` | `(Label).Find` |
+| `Evaluer` | `Evaluate` |
+| `SeuilPoids` | `MinWeight` |
+| `(Figeur).Alimenter` | `(WeightLatch).Feed` |
+| `(Cadencemetre).Observer` | `(RateMeter).Observe` |
+| `(Cadencemetre).Mediane` | `(RateMeter).Median` |
+| `(Cadencemetre).Peremption` | `(RateMeter).Expiry` |
+| `Transition` | `Transition` |
+| `Preparer` | `Prepare` |
+| `Normaliser` | `Normalize` |
+| `Qualifier` | `Qualify` |
+| `(Configuration).Valider` | `(Config).Validate` |
+| `(Gabarit).Valider` | `(Template).Validate` |
+| `(Configuration).Empreinte` | `(Config).Fingerprint` |
+| `(Configuration).Exporter` | `(Config).Export` |
+| `Analyser` (trame) | `Parse` |
+| `(Accumulateur).Alimenter` | `(Accumulator).Feed` |
+| `enGrammes` | `toGrams` |
+| `Boucle` (série) | `Loop` |
+| `Emettre` | `Emit` |
+| `Rasteriser` | `Rasterize` |
+| `DessinerEAN13` | `DrawEAN13` |
+| `dessinerHRI` | `drawHRI` |
+| `bord` (closure) | `edge` |
+| `seuiller` | `applyThreshold` |
+| `(encodeur).media` | `(encoder).media` |
+| `(encodeur).graphique` | `(encoder).graphic` |
+| `(encodeur).emettreHexa` | `(encoder).writeHex` |
+| `(Erreur).Reessayable` | `(PrintError).Retryable` |
+| `(Service).Imprimer` | `(Service).Print` |
+| `Descripteur()` | `Descriptor()` |
+| `Demarrer` | `Start` |
+| `Fermer` | `Close` |
+| `Imprimer` | `Print` |
+| `Statut` | `Status` |
+| `AutoTest` | `SelfTest` |
+| `Nom()` (`Transport`, `SourceCatalogue`) | `Name()` |
+| `Ecrire` (`Transport`) | `Write` |
+| `Interroger` (`Transport`) | `Query` |
+| `Decrire` (`Transport`) | `Describe` |
+| `Suivant` (`SourceCatalogue`) | `Next` |
+| `Acquitter` (`SourceCatalogue`) | `Acknowledge` |
+| `Maintenant` (`Horloge`) | `Now` |
+| `Apres` (`Horloge`) | `After` |
+| `Ticker` (`Horloge`) | `Ticker` |
+| `Budget` (`ports.Budget`) | `WithBudget` (`ports.WithBudget`) |
+| `Technique` (`JournalTechnique.Technique`) | `Technical` |
+| `(Hub).boucle` | `(Hub).run` |
+| `(Hub).executer` | `(Hub).execute` |
+| `(Hub).publier` | `(Hub).publish` |
+| `(Hub).construireSnapshot` | `(Hub).buildSnapshot` |
+| `(Hub).Soumettre` | `(Hub).Submit` |
+| `(Hub).Abonner` | `(Hub).Subscribe` |
+| `(Hub).appliquerAbonnement` | `(Hub).applySubscription` |
+| `(Hub).FermerAbonnes` | `(Hub).CloseSubscribers` |
+| `(Hub).Etat` | `(Hub).State` |
+| `(Hub).Termine` | `(Hub).Done` |
+| `(Hub).arretPropre` | `(Hub).gracefulStop` |
+| `(Hub).tech` | `(Hub).logTechnical` |
+| `repondre` | `reply` |
+| `accuseParDefaut` | `defaultAck` |
+| `(anneau).Ajouter` / `(anneau).Lire` | `(ring).Add` / `(ring).Entries` |
+| `(Idempotence).Voir` / `(Idempotence).Poser` | `(IdempotencyCache).Lookup` / `(IdempotencyCache).Store` |
+| `(Poste).Recharger` | `(Station).Reload` |
+| `(Poste).redemarrerBalance` | `(Station).restartScale` |
+| `(Poste).redemarrerImprimante` | `(Station).restartPrinter` |
+| `(Poste).redemarrerCatalogue` | `(Station).restartCatalog` |
+| `(Poste).rebinderEcoute` | `(Station).rebindListener` |
+| `(Poste).annulerBalance` | `(Station).cancelScale` |
+| `(Poste).journaliserSiErr` | `(Station).logIfErr` |
+| `empreinteBloc` | `blockFingerprint` |
+| `attendreTout` | `waitAll` |
+| `(App).Arreter` | `(App).Stop` |
+| `annulerRacine` | `cancelRoot` |
+| `Drainer` | `Drain` |
+| `(catalogue).Attendre` | `(catalog).Wait` |
+| `catalogue.Boucle` (veille) | `catalog.Watch` |
+| `Ouvrir` (stockage) | `Open` |
+| `(DB).migrer` | `(DB).migrate` |
+| `(DB).conserverNDernieresSauvegardes` | `(DB).keepLastBackups` |
+| `RemplacerCatalogue` | `ReplaceCatalog` |
+| `OuvrirTest` | `OpenTest` |
+| `(Serveur).flux` | `(Server).stream` |
+| `ecrire` (événement SSE) | `writeEvent` |
+| `Routes` | `Routes` |
+| `poste.Nouveau` | `station.New` |
+| `faux.NouvelleBalance` / `NouvelleImprimante` / `NouvelleHorloge` | `fake.NewScale` / `NewPrinter` / `NewClock` |
+| `(faux.Balance).Pousser` | `(fake.Scale).Push` |
+| `(faux.Horloge).Avancer` | `(fake.Clock).Advance` |
+| `(faux.Imprimante).Travaux` | `(fake.Printer).Jobs` |
+| `lireAccuse` | `readAck` |
+| `attendreResultatSSE` | `waitSSEResult` |
+| `chargerConfig` | `loadConfig` |
+| `lotAil` | `garlicBatch` |
+| `estPortOccupe` | `isPortInUse` |
+| `repondALaSonde` | `respondsToProbe` |
+| `conformite.Suite` | `conformance.Suite` |
+| `TestFloatCasseSur741Masses` | `TestFloatBreaksOn741Weights` |
+| `TestPerteBalanceDeclencheeParLeStatutSeul` | `TestScaleLossTriggeredByStatusAlone` |
+| `TestMesurePerimeeRefuseLaPesee` | `TestExpiredMeasurementRejectsWeighing` |
+| `TestArmementExpireAvantLeSacDuSuivant` | `TestArmingExpiresBeforeNextCustomerBag` |
+| `TestAucuneFuiteSurCommandeSansAccuse` | `TestNoLeakOnCommandWithoutAck` |
+| `TestArretAvecQuatreAbonnesNePaniquePas` | `TestStopWithFourSubscribersDoesNotPanic` |
+| `TestArretNAttendPasLHorlogeReelle` | `TestStopDoesNotWaitOnRealClock` |
+| `TestPeseeBoutEnBout` | `TestWeighingEndToEnd` |
+| `Sauvegarder-Reglages` (PowerShell) | `Backup-Settings` |
+| `Exiger-Succes` (PowerShell) | `Assert-Success` |
+| `Nouveau-MotDePasse` (PowerShell) | `New-Password` |
+| `Ecrire-FicheInstallation` (PowerShell) | `Write-InstallSheet` |
+
+---
+
+## Champs et variables
+
+| Actuel (FR) | Cible (EN) |
+| --- | --- |
+| `Etiquette.Produit` / `Mode` / `PoidsBrut` / `Tare` / `PoidsNet` / `Quantite` | `Label.Product` / `Mode` / `GrossWeight` / `Tare` / `NetWeight` / `Quantity` |
+| `Etiquette.Lignes` / `Principale` / `Reference` (lignes de tarif) | `Label.Lines` / `PrimaryLine` / `ReferenceLine` |
+| `Etiquette.CodeBarre` / `JobID` | `Label.Barcode` / `JobID` |
+| `LigneTarif.Tarif` / `PrixUnitaire` / `Montant` | `PriceLine.Tier` / `UnitPrice` / `Amount` |
+| `Tarif.Code` / `Libelle` / `Abrege` / `CoefNum` / `CoefDen` / `Ordre` | `PriceTier.Code` / `Label` / `Abbrev` / `CoefNum` / `CoefDen` / `Rank` |
+| `ReglesTarification.Tarifs` / `CodePrincipal` / `CodeSecondaires` / `CodeReference` / `ArrondiPrix` / `ArrondiTarif` | `PricingRules.Tiers` / `PrimaryCode` / `SecondaryCodes` / `ReferenceCode` / `AmountRounding` / `UnitPriceRounding` |
+| Codes de tarif `"ADHERENT"` / `"SOLIDAIRE"` | `"MEMBER"` / `"SOLIDARITY"` |
+| `Produit.ID` / `Nom` / `Reference` / `Mode` / `PrixUnitaire` | `Product.ID` / `Name` / `Reference` / `Mode` / `UnitPrice` |
+| `Produit.Libelle` (suffixe « €/kg ») | `Product.PriceSuffix` |
+| `Produit.CategorieCode` / `Qualification` / `Motif` / `LigneCSV` / `ImageSHA` | `Product.CategoryCode` / `Qualification` / `Reason` / `CSVLine` / `ImageSHA` |
+| `PlanPrefixe.Prefixe` / `Mode` / `LargeurRef` / `LargeurCharge` / `Decimales` / `Libelle` | `PrefixPlan.Prefix` / `Mode` / `RefWidth` / `PayloadWidth` / `Decimals` / `PriceLabel` |
+| `Mesure.Brut` / `Tare` / `Quantite` / `Stabilite` / `Horodate` / `Seq` | `Measurement.Gross` / `Tare` / `Quantity` / `Stability` / `Timestamp` / `Seq` |
+| `EtatFigeage.Fige` / `Brut` / `Depuis` | `LatchState.Latched` / `Gross` / `Held` |
+| `Figeur.ancre` / `ancreOK` / `pol` | `WeightLatch.anchor` / `hasAnchor` / `policy` |
+| `Cadencemetre.intervalles` / `precedente` | `RateMeter.intervals` / `previous` |
+| `PolitiqueStabilite.Mode` / `DureeMin` / `ToleranceGrammes` / `Timeout` / `ComportementTimeout` | `StabilityPolicy.Mode` / `MinDuration` / `ToleranceGrams` / `Timeout` / `OnTimeout` |
+| `PolitiqueStabilite.TauxMinBloquant` / `FenetreTauxMin` | `StabilityPolicy.MinLatchRate` / `LatchRateWindow` |
+| `PolitiqueStabilite.PeremptionPlancher` / `PeremptionPlafond` / `FacteurPeremption` | `StabilityPolicy.ExpiryFloor` / `ExpiryCeiling` / `ExpiryFactor` |
+| `Contexte.Cfg` / `Maintenant` / `DerniereMesure` / `AgeDerniereMesure` / `Peremption` / `Catalogue` | `TransitionContext.Cfg` / `Now` / `LastMeasurement` / `MeasurementAge` / `Expiry` / `Catalog` |
+| `Modele.ProduitEnCours` / `PoidsFige` / `Etiquette` | `Model.CurrentProduct` / `LatchedWeight` / `Label` |
+| `ArmementMax` (constante 10 s) | `MaxArmingTime` |
+| `BasculeMax` / `IHM.DelaiBascule` (constante 10 s) | `MaxSwitchIdle` / `UI.SwitchDelay` |
+| `Faute.Champ` / `Message` / `Valeurs` | `Fault.Field` / `Message` / `Values` |
+| `Capacites.Raster` / `Statut` / `Massicot` / `MaxExemplaires` / `DotsParMM` | `Capabilities.Raster` / `Status` / `Cutter` / `MaxCopies` / `DotsPerMM` |
+| `Descripteur.ID` / `Libelle` / `Capacites` | `Descriptor.ID` / `Label` / `Capabilities` |
+| `DescripteurBalance.CadenceNominale` | `ScaleDescriptor.NominalRate` |
+| `Options.Port` / `Baud` / `Bits` / `Parite` / `Stop` / `Decodeur` / `TailleLecture` / `BackoffMin` / `BackoffMax` | `Options.Port` / `Baud` / `Bits` / `Parity` / `Stop` / `Decoder` / `ReadBufferSize` / `BackoffMin` / `BackoffMax` |
+| `EvenementBalance.Statut` / `Mesure` / `Err` | `ScaleEvent.Status` / `Measurement` / `Err` |
+| `Erreur.Genre` / `Op` / `Message` | `PrintError.Kind` / `Op` / `Message` |
+| `OptionsRendu.Annote` | `RenderOptions.Annotate` |
+| `OptionsSymbole.XDots` / `YDots` / `ModuleMilliDots` / `HauteurBarresDots` / `DescenteGardesDots` / `HRIFace` / `HRIHauteurDots` | `SymbolOptions.XDots` / `YDots` / `ModuleMilliDots` / `BarHeightDots` / `GuardDescentDots` / `HRIFace` / `HRIHeightDots` |
+| `DiagnosticSymbole.ModuleUM` / `ModuleDots` / `Grandissement` / `LargeurTotaleUM` / `HauteurBarresUM` / `HauteurNormeUM` / `TauxHauteur` / `ModuleEntier` / `Avertissements` | `SymbolDiagnostic.ModuleUM` / `ModuleDots` / `Magnification` / `TotalWidthUM` / `BarHeightUM` / `StandardHeightUM` / `HeightRatio` / `IntegerModule` / `Warnings` |
+| `Element.CorpsUM` / `CorpsMinUM` | `Element.FontSizeUM` / `MinFontSizeUM` |
+| `Gabarit.SeuilTexte` / `Media.DotsParMM` | `Template.TextThreshold` / `Media.DotsPerMM` |
+| `cleFace{Fonte, PPEM, Gras}` | `faceKey{Font, PPEM, Bold}` |
+| `delaisReessai` (var) | `retryDelays` |
+| `h.modele` / `h.seq` / `h.derniereMesure` / `h.cadence` | `h.model` / `h.seq` / `h.lastMeasurement` / `h.rate` |
+| `h.mesures` / `h.commandes` / `h.impressions` / `h.impressionsFinies` / `h.journaux` | `h.measurements` / `h.commands` / `h.printJobs` / `h.printResults` / `h.journalEntries` |
+| `h.catalogueApplique` / `h.lotEnAttente` / `h.catalogue` | `h.incomingCatalog` / `h.pendingBatch` / `h.catalog` |
+| `h.abonnements` / `h.abonnes` | `h.subscriptions` / `h.subscribers` |
+| `h.reponseEnCours` / `h.derniereInteraction` / `h.idem` | `h.pendingReply` / `h.lastInteraction` / `h.idempotency` |
+| `h.dernierPublie` / `h.dernierePublication` / `h.publicationEnAttente` | `h.lastPublished` / `h.lastPublishedAt` / `h.publishPending` |
+| `h.anneau` / `h.etat` / `h.compteurs` / `h.horloge` / `h.termine` / `h.nominale` / `h.son` / `h.jrn` | `h.ring` / `h.state` / `h.counters` / `h.clock` / `h.done` / `h.nominalRate` / `h.sound` / `h.log` |
+| `differes` (événements réinjectés) | `deferred` |
+| `compteurs.PeseesNonJournalisees` | `counters.UnloggedWeighings` |
+| `compteurs.FermeturesBalanceNonConfirmees` | `counters.UnconfirmedScaleCloses` |
+| `Message.Niveau` / `Code` / `Texte` / `Expire` | `Message.Level` / `Code` / `Text` / `ExpiresAt` |
+| `Snapshot.Perimee` / `Revision` | `Snapshot.Expired` / `Revision` |
+| `p.balanceFini` / `ferme` (canaux) | `s.scaleDone` / `closed` |
+| `ctxRacine` | `rootCtx` |
+| Codes de garde-fou : `SURCHARGE` / `MESURE_PERIMEE` / `PANIER_ABSENT` / `OPENSCALE_VIDE` / `TARE_REQUISE` | `OVERLOAD` / `MEASUREMENT_EXPIRED` / `BASKET_MISSING` / `SCALE_EMPTY` / `TARE_REQUIRED` |
+| `POIDS_INSTABLE` / `TARE_INVALIDE` / `POIDS_TROP_FAIBLE` / `POIDS_TROP_LOURD` | `WEIGHT_UNSTABLE` / `TARE_INVALID` / `WEIGHT_TOO_LOW` / `WEIGHT_TOO_HIGH` |
+| `UNITES_HORS_BORNES` / `MONTANT_HORS_CAPACITE` / `PRIX_NUL` / `PRODUIT_LEGER_TOLERE` / `PRODUIT_NON_PROPOSE` | `UNITS_OUT_OF_RANGE` / `AMOUNT_OUT_OF_CAPACITY` / `ZERO_PRICE` / `LIGHT_PRODUCT_ALLOWED` / `PRODUCT_WITHDRAWN` |
+| Motifs d'import : `LIGNE_ILLISIBLE` / `PRIX_ILLISIBLE` / `SANS_CODE_BARRES` / `CODE_BARRES_INVALIDE` | `UNREADABLE_ROW` / `PRICE_UNREADABLE` / `NO_BARCODE` / `INVALID_BARCODE` |
+| `PRODUIT_PREEMBALLE` / `CODE_INTERNE_NON_PESABLE` / `ZONE_DE_RESERVATION_OCCUPEE` | `PREPACKAGED_PRODUCT` / `INTERNAL_CODE_NOT_WEIGHABLE` / `RESERVED_ZONE_NOT_EMPTY` |
+| `UNITE_INCONNUE` / `UNITE_DIVERGENTE` / `ENTETE_INATTENDU` / `CATEGORIE_INCONNUE` | `UNKNOWN_UNIT` / `UNIT_MISMATCH` / `UNEXPECTED_HEADER` / `UNKNOWN_CATEGORY` |
+| `IMAGE_ABSENTE` / `IMAGE_INVALIDE` / `IMAGE_TROP_GRANDE` / `GLYPHE_MANQUANT` | `IMAGE_MISSING` / `IMAGE_INVALID` / `IMAGE_TOO_LARGE` / `MISSING_GLYPH` |
+| Codes ERR : `ERR-BAL-nn` / `ERR-IMP-nn` / `ERR-CAT-nn` / `ERR-BDD-nn` | `ERR-SCL-nn` / `ERR-PRN-nn` / `ERR-CAT-nn` / `ERR-DB-nn` |
+| Codes ERR : `ERR-IHM-nn` / `ERR-KIO-nn` / `ERR-SYS-nn` / `ERR-CFG-nn` | `ERR-UI-nn` / `ERR-KSK-nn` / `ERR-SYS-nn` / `ERR-CFG-nn` |
+| FieldID du gabarit : `nom_produit` / `quantite` / `prix_unitaire_principal` | `product_name` / `quantity` / `primary_unit_price` |
+| FieldID du gabarit : `prix_total_secondaire` / `prix_total_principal` / `code_barres` | `secondary_total_price` / `primary_total_price` / `barcode` |
+| Noms de gabarits : `pesee_identique` / `pesee_module_entier` / `pesee_neutre_mono` | `weighing_identical` / `weighing_integer_module` / `weighing_neutral_single` |
+| Auto-tests : `etiquette` / `mire` / `reglette` | `label` / `alignment` / `ruler` |
+| Sons : `EffetSon("ok")` | `SoundEffect("ok")` |
+| Variables CSS : `--fond` / `--surface` / `--bordure` / `--encre` / `--encre-douce` | `--bg` / `--surface` / `--border` / `--ink` / `--ink-muted` |
+| Variables CSS : `--attente` / `--pret` / `--alerte` / `--panne` / `--focus` | `--waiting` / `--ready` / `--warning` / `--fault` / `--focus` |
+| clé `meta.etiquettes_depuis_rouleau` | clé `meta` `labels_since_roll` |
+
+---
+
+## Tables et colonnes SQL
+
+| Actuel (FR) | Cible (EN) |
+| --- | --- |
+| table `meta (cle, valeur, modifie_le)` | table `meta (key, value, updated_at)` |
+| table `imports` | table `imports` |
+| `imports.horodate` / `source` / `fichier` / `sha256` / `octets` | `imports.occurred_at` / `source` / `file_name` / `sha256` / `byte_count` |
+| `imports.lignes_lues` / `lignes_illisibles` | `imports.rows_read` / `unreadable_rows` |
+| `imports.pesables` / `non_pesables` / `anomalies` / `unites_divergentes` | `imports.weighable` / `not_weighable` / `anomalies` / `unit_mismatches` |
+| `imports.images_decodees` / `images_refusees` / `produits_retires` | `imports.images_decoded` / `images_rejected` / `products_withdrawn` |
+| `imports.resultat` / `code` / `motif` / `duree_ms` | `imports.result` / `code` / `reason` / `duration_ms` |
+| `imports.resultat IN ('applique','inchange','rejete','echec')` | `imports.result IN ('applied','unchanged','rejected','failed')` |
+| `imports.source IN ('depot_local','webdav','manuel')` | `imports.source IN ('local_drop','webdav','manual')` |
+| `idx_imports_sha` / `idx_imports_horodate` | `idx_imports_sha` / `idx_imports_occurred_at` |
+| table `quarantaine (sha256, echecs, premier_echec, dernier_echec, code, motif)` | table `quarantine (sha256, failure_count, first_failure_at, last_failure_at, code, reason)` |
+| table `categories (code, libelle, ordre, couleur, visible)` | table `categories (code, label, rank, color, visible)` |
+| codes de catégorie : `fruits` / `legumes` / `vrac` / `autres` | `fruits` / `vegetables` / `bulk` / `other` |
+| table `images (sha256, octets, format, largeur, hauteur, vue_le)` | table `images (sha256, byte_count, format, width, height, seen_at)` |
+| table `produits` | table `products` |
+| `produits.id` / `nom` / `reference` / `mode` / `libelle_prix` | `products.id` / `name` / `reference` / `mode` / `price_suffix` |
+| `produits.prix_unitaire` (centimes) | `products.unit_price_cents` |
+| `produits.categorie_code` / `qualification` / `motif` / `ligne_csv` / `image_sha256` | `products.category_code` / `qualification` / `reason` / `csv_line` / `image_sha256` |
+| `produits.vu_le` / `retire_le` / `dernier_import_id` | `products.seen_at` / `withdrawn_at` / `last_import_id` |
+| `mode IN ('au_poids','a_l_unite')` | `mode IN ('by_weight','by_unit')` |
+| `qualification IN ('pesable','non_pesable','anomalie')` | `qualification IN ('weighable','not_weighable','anomaly')` |
+| `idx_produits_grille` / `idx_produits_reference` | `idx_products_grid` / `idx_products_reference` |
+| table `decisions_locales (produit_id, proposer, poids_min_g, motif, horodate, par)` | table `local_decisions (product_id, offered, min_weight_g, reason, decided_at, decided_by)` |
+| table `signalements (import_id, ligne_csv, produit_id, code, issue, message, valeur)` | table `findings (import_id, csv_line, product_id, code, issue, message, value)` |
+| `signalements.issue IN ('anomalie','information')` | `findings.issue IN ('anomaly','info')` |
+| `idx_signalements_import` | `idx_findings_import` |
+| table `pesees` | table `weighings` |
+| `pesees.horodate` / `poste` / `job_id` / `cle_idempotence` | `weighings.occurred_at` / `station` / `job_id` / `idempotency_key` |
+| `pesees.produit_id` / `produit_nom` / `reference` / `mode` | `weighings.product_id` / `product_name` / `reference` / `mode` |
+| `pesees.poids_brut_g` / `tare_g` / `poids_net_g` / `quantite` | `weighings.gross_weight_g` / `tare_g` / `net_weight_g` / `quantity` |
+| `pesees.prix_unitaire_base_c` | `weighings.base_unit_price_cents` |
+| `pesees.code_barre` / `source` / `stabilite` / `cadence_ms` / `trame` | `weighings.barcode` / `source` / `stability` / `rate_ms` / `frame` |
+| `pesees.resultat` / `detail` / `duree_ms` | `weighings.result` / `detail` / `duration_ms` |
+| `pesees.source IN ('balance','manuelle','rejeu')` | `weighings.source IN ('scale','manual','replay')` |
+| `pesees.stabilite IN ('stable','instable','inconnue','sans_objet')` | `weighings.stability IN ('stable','unstable','unknown','not_applicable')` |
+| `pesees.resultat IN ('envoye','refus','erreur','reimpression')` | `weighings.result IN ('sent','rejected','failed','reprint')` |
+| `idx_pesees_horodate` / `idx_pesees_resultat` / `idx_pesees_produit` | `idx_weighings_occurred_at` / `idx_weighings_result` / `idx_weighings_product` |
+| table `pesee_lignes (pesee_id, code_tarif, prix_unitaire_c, montant_c)` | table `weighing_lines (weighing_id, tier_code, unit_price_cents, amount_cents)` |
+| table `technique (horodate, niveau, source, code, message, detail)` | table `technical_log (occurred_at, level, source, code, message, detail)` |
+| `technique.niveau IN ('debug','info','avertissement','erreur','critique')` | `technical_log.level IN ('debug','info','warn','error','critical')` |
+| `technique.source IN ('balance','imprimante','catalogue','ihm','config','http','systeme')` | `technical_log.source IN ('scale','printer','catalog','ui','config','http','system')` |
+| `idx_technique_horodate` / `idx_technique_code` | `idx_technical_log_occurred_at` / `idx_technical_log_code` |
+| tables `SauvegardeProduits`, `Produits`, `Stats`, `TableProduitsLegers`, `SystemeDefaut`, `Systeme_Dimensions` (ancienne base Access) | **INCHANGÉS** — noms réels de l'existant, cités comme preuve |
+
+---
+
+## Clés de configuration et routes
+
+| Actuel (FR) | Cible (EN) |
+| --- | --- |
+| `version` / `_lisez_moi` / `modifie_le` | `version` / `_readme` / `modified_at` |
+| `poste{numero, nom, coop}` | `station{number, name, coop}` |
+| `reseau{ecoute, admin_reseau_local}` | `network{listen, admin_on_lan}` |
+| `ihm{langue, son, delai_inactivite_s, delai_reimpression_s, afficher_prix_grille}` | `ui{language, sound, idle_timeout_s, reprint_window_s, show_grid_prices}` |
+| `balance{type, presente, saisie_manuelle_autorisee, delai_avant_degradation_s}` | `scale{type, present, manual_entry_allowed, degrade_after_s}` |
+| `balance.options{port, baud, bits, parite, stop, backoff_min_ms, backoff_max_ms}` | `scale.options{port, baud, bits, parity, stop, backoff_min_ms, backoff_max_ms}` |
+| `balance.type : gram-xfoc-rs \| gram-xfoc-plus` | `scale.type : gram-xfoc-rs \| gram-xfoc-plus` (inchangés, noms matériels) |
+| `imprimante{type, gabarit}` | `printer{type, template}` |
+| `imprimante.type : raster \| sbpl \| apercu` | `printer.type : raster \| sbpl \| preview` |
+| `imprimante.options.transport : winspool \| devfile \| tcp \| fichier` | `printer.options.transport : winspool \| devfile \| tcp \| file` |
+| `imprimante.options.file` (file d'impression Windows) | `printer.options.queue` |
+| `imprimante.options{chemin, adresse, exemplaires}` | `printer.options{path, address, copies}` |
+| `imprimante.options.secours{actif, transport, file}` | `printer.options.fallback{enabled, transport, queue}` |
+| `imprimante.options{noircissement, vitesse, decalage_x, decalage_y, inverser_bits, capacite_rouleau}` | `printer.options{darkness, speed, offset_x, offset_y, invert_bits, roll_capacity}` |
+| `tarification{tarifs, code_principal, code_secondaires, code_reference, arrondi_prix, arrondi_tarif}` | `pricing{tiers, primary_code, secondary_codes, reference_code, amount_rounding, unit_price_rounding}` |
+| `tarifs[]{code, libelle, abrege, coef_num, coef_den, ordre}` | `tiers[]{code, label, abbrev, coef_num, coef_den, rank}` |
+| `arrondi : commercial \| tronque \| pair` | `rounding : half_up \| truncate \| half_even` |
+| `code_barre{verifier_cle_reference}` | `barcode{verify_reference_check_digit}` |
+| clés refusées par le contrôle 20 : `decimales_poids`, `largeur_champ_unites`, `prefixe_poids`, `prefixe_unite`, `contenu`, `regles_par_prefixe` | `weight_decimals`, `units_field_width`, `weight_prefix`, `unit_prefix`, `content`, `rules_by_prefix` |
+| `seuils{vide_max, panier_actif, panier_min, panier_max}` | `limits{empty_max_g, basket_check_enabled, basket_min_g, basket_max_g}` |
+| `seuils{poids_min, poids_max, tare_max, unites_min, unites_max, montant_max}` | `limits{min_weight_g, max_weight_g, max_tare_g, min_units, max_units, max_amount_cents}` |
+| `stabilite{mode, duree_min_ms, tolerance_grammes, timeout_ms, au_timeout}` | `stability{mode, min_duration_ms, tolerance_g, timeout_ms, on_timeout}` |
+| `stabilite.mode : informatif \| bloquant` | `stability.mode : advisory \| blocking` |
+| `au_timeout : avertir_et_imprimer \| refuser \| saisie_manuelle` | `on_timeout : warn_and_print \| reject \| manual_entry` |
+| `stabilite{peremption_plancher_ms, peremption_plafond_ms, facteur_peremption, taux_min_bloquant, fenetre_taux_min_ms}` | `stability{expiry_floor_ms, expiry_ceiling_ms, expiry_factor, min_latch_rate, latch_rate_window_ms}` |
+| `catalogue.type : depot_local \| webdav` | `catalog.type : local_drop \| webdav` |
+| `catalogue.options{url, utilisateur, mot_de_passe, separateur}` | `catalog.options{url, username, password, separator}` |
+| `catalogue.options{scrutation_s, stabilite_scrutations}` | `catalog.options{poll_interval_s, stable_polls}` |
+| `catalogue.options{taille_max_mo, taille_max_image_ko}` | `catalog.options{max_file_size_mb, max_image_size_kb}` |
+| `catalogue.options{taux_minimal_lisibles, baisse_max_pesables, echecs_avant_rejet}` | `catalog.options{min_readable_ratio, max_weighable_drop, failures_before_reject}` |
+| `catalogue.options{archives_max, archives_jours}` | `catalog.options{max_archives, archive_days}` |
+| `catalogue.images{source, chemin}` | `catalog.images{source, path}` |
+| `images.source : csv \| repertoire_images \| aucune` | `images.source : csv \| image_directory \| none` |
+| `catalogue.categorie_de_repli` | `catalog.fallback_category` |
+| `catalogue.categories[]{code, libelle, ordre, couleur, visible}` | `catalog.categories[]{code, label, rank, color, visible}` |
+| `journal{max_lignes, max_jours, max_technique}` | `journal{max_rows, max_days, max_technical}` |
+| `admin{hash_mot_de_passe, hash_code_secours, session_minutes, tentatives_par_minute}` | `admin{password_hash, recovery_code_hash, session_minutes, attempts_per_minute}` |
+| `maintenance{verif_integrite_hebdo, alerte_disque_mo}` | `maintenance{weekly_integrity_check, disk_alert_mb}` |
+| `GET /api/v1/flux` (événement SSE « etat ») | `GET /api/v1/stream` (SSE event `"state"`) |
+| `GET /api/v1/catalogue` | `GET /api/v1/catalog` |
+| `POST /api/v1/peser` | `POST /api/v1/weigh` |
+| corps de `/peser {produit_id, tare_g, unites, poids_manuel_g, poids_vu_g, mesure_seq, cle}` | `{product_id, tare_g, units, manual_weight_g, seen_weight_g, measurement_seq, key}` |
+| `POST /api/v1/reimprimer {job_id, cle}` | `POST /api/v1/reprint {job_id, key}` |
+| `POST /api/v1/annuler` · `POST /api/v1/acquitter` | `POST /api/v1/cancel` · `POST /api/v1/dismiss` |
+| `POST /api/v1/ihm/erreur {message, pile}` | `POST /api/v1/ui/error {message, stack}` |
+| `GET /healthz` · `GET /readyz` · `GET /images/{sha}.{ext}` | inchangés |
+| `POST /admin/api/depannage/*` | `POST /admin/api/troubleshooting/*` |
+| `/depannage/reimprimer` · `/recharger-catalogue` · `/saisie-manuelle` | `/troubleshooting/reprint` · `/reload-catalog` · `/manual-entry` |
+| `/depannage/rouleau-change` · `/imprimante-secours` | `/troubleshooting/roll-changed` · `/fallback-printer` |
+| `/depannage/tester-balance` · `/tester-imprimante` · `/etiquette-test` | `/troubleshooting/test-scale` · `/test-printer` · `/test-label` |
+| `POST /admin/api/catalogue/importer` | `POST /admin/api/catalog/import` |
+| `GET /admin/api/sante` · `GET /admin/api/diagnostic.zip` | `GET /admin/api/health` · `GET /admin/api/diagnostic.zip` |
+| `POST /admin/api/session` · `/session/secours` | `POST /admin/api/session` · `/session/recovery` |
+| `GET\|PUT /admin/api/config` · `POST /admin/api/config/confirmer` | `GET\|PUT /admin/api/config` · `POST /admin/api/config/confirm` |
+| `GET /admin/api/config/export?materiel=0` · `POST /admin/api/config/import` | `GET /admin/api/config/export?hardware=0` · `POST /admin/api/config/import` |
+| `GET /admin/api/config/versions` · `POST /admin/api/config/restaurer` | `GET /admin/api/config/versions` · `POST /admin/api/config/restore` |
+| `GET /admin/api/empreinte` | `GET /admin/api/fingerprint` |
+| `GET /admin/api/imprimantes` · `POST /admin/api/imprimantes/rechercher` | `GET /admin/api/printers` · `POST /admin/api/printers/discover` |
+| `POST /admin/api/balance/detecter` · `/balance/capturer` | `POST /admin/api/scale/detect` · `/scale/capture` |
+| `POST /admin/api/imprimante/test?quoi=mire\|reglette` | `POST /admin/api/printer/test?what=alignment\|ruler` |
+| `GET /admin/api/etiquette/apercu.png?gabarit=…&demo=1&dual=1` | `GET /admin/api/label/preview.png?template=…&demo=1&dual=1` |
+| `POST /admin/api/catalogue/recharger` · `/catalogue/oublier-quarantaine` | `POST /admin/api/catalog/reload` · `/catalog/forget-quarantine` |
+| `POST /admin/api/produits/{id}/decision {proposer, poids_min_g, motif}` | `POST /admin/api/products/{id}/decision {offered, min_weight_g, reason}` |
+| `GET /admin/api/journal` · `/journal/export.csv` · `/admin/api/technique` · `/admin/api/imports` | `GET /admin/api/journal` · `/journal/export.csv` · `/admin/api/technical` · `/admin/api/imports` |
+| `POST /admin/api/rejouer` | `POST /admin/api/replay` |
+| (supprimée) `POST /admin/api/redemarrer` | (supprimée) `POST /admin/api/restart` |
+| sous-commandes : `serve`, `kiosk`, `doctor`, `capture`, `etiquette`, `rejouer` | `serve`, `kiosk`, `doctor`, `capture`, `label`, `replay` |
+| sous-commandes : `config valider\|exporter\|importer\|motdepasse` | `config validate\|export\|import\|password` |
+| sous-commandes de démonstration : `codebarre`, `prix` | `barcode`, `price` |
+| drapeaux : `--donnees`, `--duree`, `--gabarit`, `--poids`, `--pu`, `--grille` | `--data`, `--duration`, `--template`, `--weight`, `--unit-price`, `--tiers` |
+| drapeaux de test : `--balance rejeu --imprimante apercu` | `--scale replay --printer preview` |
+| variables d'environnement : `OPENSCALE_CONFIG`, `OPENSCALE_DONNEES` | `OPENSCALE_CONFIG`, `OPENSCALE_DATA` |
+| condition de gabarit : `when: "multi_tarif"` | `when: "multi_tier"` |
+| champs de gabarit : `gras_auto`, `troncature_assumee`, `module_milli_dots`, `hri_hauteur_um`, `hauteur_barres_um`, `descente_gardes_um`, `decalage_x/y`, `corps_um` | `auto_bold`, `truncation_accepted`, `module_milli_dots`, `hri_height_um`, `bar_height_um`, `guard_descent_um`, `offset_x/y`, `font_size_um` |
+| `media{largeur_um, hauteur_um, dots_par_mm}` | `media{width_um, height_um, dots_per_mm}` |
+
+---
+
+## Décisions sur les termes délicats
+
+Chaque décision ci-dessous a été arbitrée une fois pour toutes. Les alternatives « ÉCARTÉES »
+ne doivent pas être réintroduites, même localement.
+
+### « noyau » → `domain`
+
+Paquet `internal/domain`. **ÉCARTÉS** : `core` (vague, employé pour tout et n'importe quoi),
+`kernel` (connote un noyau d'OS ou un noyau de calcul). `domain` dit exactement ce que le
+document dit — le métier pur, testable, sans I/O — et se lit bien à l'usage : `domain.Label`,
+`domain.Transition`, `domain.Prepare`.
+
+### « poste » → `station`
+
+Paquet `internal/station`, config `station.number`, colonne `weighings.station`. **ÉCARTÉS** :
+`till` (= caisse enregistreuse : faux sens, ce poste n'encaisse rien), `terminal` (connote un
+TTY/terminal texte), `workstation` (trop long, connote un PC de bureau). `station` est le mot
+naturel de « weighing station » en libre-service.
+
+### « figeur » → `WeightLatch`
+
+Méthode `Feed`, retour `LatchState{Latched, Gross, Held}`, état `weighings.stability` inchangé.
+**ÉCARTÉS** : `Freezer` (= congélateur dans une épicerie — inacceptable ici), `Stabilizer` (le
+composant ne stabilise rien, il constate), `Holder`. « Latch » est le terme d'ingénierie exact
+pour « verrouiller une valeur à un instant » et le verbe `latch` sert aussi au taux :
+`min_latch_rate`.
+
+### « cadencemètre » → `RateMeter`
+
+Méthodes `Observe`, `Median`, `Expiry` ; colonne `weighings.rate_ms` ; descripteur
+`NominalRate`. **ÉCARTÉS** : `Cadencemeter` (calque), `FrequencyMeter` (la grandeur mesurée est
+un intervalle, pas une fréquence), `SampleRateMonitor` (trop long). `RateMeter` est court,
+prononçable, cherchable.
+
+### « gabarit » → `Template` **ou** `pattern`, jamais les deux au même endroit
+
+Le mot a DEUX sens et ils ne doivent JAMAIS partager un nom.
+
+1. **Gabarit d'étiquette** (mise en page, `pesee_identique`) → `Template` / `template` : type
+   `domain.Template`, config `printer.template`, erreur `KindTemplate`, `weighing_identical`.
+2. **Gabarit d'un EAN-13** — la référence 13 chiffres dont la charge utile est à zéro, argument
+   de `Generer` → `pattern` : `Generate(pattern EAN13, payload int64, width int)`, erreur
+   `ErrPatternNotZeroed`.
+
+Traduire les deux par `template` rendrait `ErrGabaritNonNul` incompréhensible.
+
+### « qualification » → `Qualification`
+
+Type `Qualification` avec `Weighable` / `NotWeighable` / `Anomaly` ; colonne
+`products.qualification IN ('weighable','not_weighable','anomaly')` ; fonction `Qualify`.
+**ÉCARTÉS** : `Valid`/`Invalid` (c'est exactement l'erreur d'interprétation que l'ADR-021
+corrige), `Status`, `Eligibility`. « NotWeighable » doit rester neutre à l'écran : le libellé
+français reste « non pesable — c'est normal ».
+
+### « adhérent » / « solidaire » → `MEMBER` / `SOLIDARITY`
+
+Codes de tarif `MEMBER` et `SOLIDARITY`, type `PriceTier`, champ `PricingRules.Tiers`, table
+`weighing_lines.tier_code`. **ÉCARTÉS** : `ADHERENT` (calque), `MEMBRE`. **ATTENTION** : la
+valeur `abbrev` imprimée sur l'étiquette reste « A » et « S » — c'est du CONTENU affiché au
+client, gelé par l'arbitrage A1 (reproduction à l'identique), pas un identifiant. De même
+`label` = « Adhérent » / « Solidaire » reste français.
+
+### « charge utile » → `payload`
+
+`PrefixPlan.PayloadWidth`, `ErrPayloadOutOfRange`, paramètre `payload int64`. **ÉCARTÉS** :
+`load`, `data`, `value`. Cohérent avec l'usage télécom/protocole, et distinct de `reference`
+(la partie fixe).
+
+### « plan de numérotation » → `numbering plan`
+
+En prose anglaise : `numbering plan`. En code : type `PrefixPlan`, variable `internalPlan`,
+erreurs `ErrPrefixNotInPlan` / `ErrWidthNotInPlan`, message de panique
+« inconsistent numbering plan: `<prefix>` ». **ÉCARTÉS** : `scheme` (déjà pris par les URL),
+`numberingScheme`. Le mot « plan » est conservé parce que le document en fait un contrat nommé
+avec la caisse.
+
+### « garde-fou » → `safeguard`, « garde » (transition) → `guard`
+
+Deux concepts distincts, deux mots distincts.
+
+1. Les 14 règles métier de §6.4 = `safeguard` : fichier `safeguard.go`, section
+   « Safety checks », fonction `Evaluate`, type `CheckInput`, `WeighingLimits`.
+2. La colonne « Garde » de la table de transitions §6.6 = `guard` au sens machine à états
+   (condition de franchissement) — terme consacré, on le garde.
+3. « garde-fou de dernier ressort » dans un commentaire → `last-resort guard`.
+
+Ne jamais nommer `Guard` un type du paquet safeguard.
+
+### « pesée » : l'acte vs l'enregistrement
+
+**L'ACTE** : verbe `weigh` (route `POST /api/v1/weigh`, `Hub.Submit`), nom `weighing` en prose,
+`pesees.duree_ms` → `weighings.duration_ms`. **L'ENREGISTREMENT** : type `Weighing`, table
+`weighings`, `weighing_lines`, `RecordEffect`. Le mot anglais couvre les deux comme le
+français ; ce qui compte est que la table s'appelle `weighings` (pluriel, snake_case) et le
+type `Weighing` (singulier), **jamais `Weight`** — `Weight` est la grandeur, pas l'événement.
+
+### « balance » : le produit vs l'appareil
+
+Deux sens, un seul survit en code. Le PRODUIT / binaire / service Windows / `balance.db` /
+`C:\ProgramData\Balance` reste `balance` (nom propre, et mot anglais). L'APPAREIL devient
+`scale` PARTOUT : paquet `internal/scale`, interface `Scale`, config `scale.type`, `ScaleEvent`,
+`ErrScaleDisconnected`, `ERR-SCL-nn`, `weighings.source='scale'`. Aucun identifiant ne doit
+désigner l'appareil par le mot `balance`.
+
+### FAUX AMI CRITIQUE : « file » d'impression → `queue`
+
+`imprimante.options.file` désigne la FILE d'impression Windows, pas un fichier. Il devient
+`printer.options.queue` (et `fallback.queue`). Traduire par `file` produirait un contresens
+complet, d'autant que `transport: "fichier"` devient `transport: "file"` — les deux se
+seraient télescopés.
+
+### « acquitter » : trois sens
+
+1. `SourceCatalogue.Acquitter` (archive puis supprime le fichier) → `Acknowledge` ;
+   `Acquitter(Applique)` → `Acknowledge(Applied)`.
+2. L'événement IHM `Acquitter` (le client ferme un message) → `Dismiss`, route
+   `POST /api/v1/dismiss`.
+3. `Accuse` / `EffetAccuser` (la réponse rendue au POST) → `Ack` / `AckEffect`, jamais
+   `Acknowledgement` en entier dans un identifiant.
+
+### « Contexte » du noyau → `TransitionContext`
+
+PAS `Context`. Le paquet manipule déjà `context.Context` ; un type `domain.Context`
+provoquerait des lignes `ctx context.Context, c domain.Context` illisibles.
+`TransitionContext` révèle l'intention (« tout ce que la transition a le droit de lire ») et
+n'entre en collision avec rien.
+
+### États `Erreur` → `Faulted` et `Refus` → `Rejected`
+
+`Erreur` (état de la machine) → `Faulted`, PAS `Error` : en Go `Error` est réservé à l'idiome
+des erreurs et une constante `Error` de type `State` sèmerait la confusion. `Refus` → état
+`Rejected`, résultat SQL `result='rejected'`, effet de message ; jamais `Refusal` ni `Denied`.
+Cohérent avec `imports.result='rejected'`.
+
+### « trame » → `frame`
+
+Partout : paquet `domain/frame`, `Parse(frame []byte, now time.Time)`, `Accumulator`,
+`weighings.frame`, `testdata/frames/`, `frames.txt`, `--duration`. **ÉCARTÉS** : `telegram`
+(usage industriel mais opaque pour un relecteur), `packet` (connote le réseau).
+
+### « journal » : trois choses
+
+1. **Journal des pesées** → table `weighings` + `weighing_lines`, worker `journalWorker`, bloc
+   de config `journal`.
+2. **Journal technique** → table `technical_log`, interface `TechnicalLog`, méthode
+   `Technical`, route `/admin/api/technical`.
+3. **Journaux texte** (slog + rotation) → `logs/`.
+
+Ne jamais nommer `Log` le journal des pesées ni `Journal` le journal technique.
+
+### « signalement » → `Finding`
+
+Table `findings`. **ÉCARTÉS** : `Report` (déjà pris : « le rapport d'import » = `import report`,
+l'export CSV pour Odoo), `Warning` (un finding peut être une simple information), `Issue`
+(connote un ticket). `findings.issue IN ('anomaly','info')` conserve le mot `issue` pour la
+GRAVITÉ, comme dans le document.
+
+### « Reçu » → `PrintReceipt`
+
+Retour de `Imprimante.Imprimer` → `PrintReceipt`, pas `Receipt` seul : dans un contexte
+d'épicerie, `Receipt` se lirait comme le ticket de caisse, qui n'existe pas dans ce système.
+`Imprimer(ctx, job PrintJob) (PrintReceipt, error)`.
+
+### « seuils » → `limits`
+
+Pas `thresholds`. Le bloc contient des bornes min/max (`min_weight_g`, `max_amount_cents`), pas
+des seuils de déclenchement ; `WeighingLimits` se lit naturellement. Exception assumée : la
+fonction `SeuilPoids` devient `MinWeight`, parce qu'elle rend une borne basse et non un
+« seuil ».
+
+### « péremption » → `expiry`
+
+Jamais `perishability`, ni `staleness` : la grandeur est une durée de validité.
+`MEASUREMENT_EXPIRED`, `Snapshot.Expired`, `RateMeter.Expiry`, `expiry_floor_ms` /
+`expiry_ceiling_ms` / `expiry_factor`.
+
+### « libellé » : polysémique, traduit selon ce qu'il porte
+
+- (a) Libellé d'affichage d'un tarif, d'une catégorie, d'un driver → `label`.
+- (b) `Produit.Libelle` = le suffixe de prix (« €/kg », « € le litre ») → `PriceSuffix` /
+  colonne `price_suffix` : l'appeler `label` masquerait sa nature.
+- (c) `PlanPrefixe.Libelle` = suffixe par défaut du préfixe → `PriceLabel`.
+
+Et `Etiquette` (l'objet imprimé) → `Label` : c'est le sens principal, il ne doit pas être dilué.
+
+### « ordre » → `rank`
+
+Jamais `order` : `order` est un mot réservé en SQL (`ORDER BY`) et signifie « commande » dans un
+contexte commerce. `tiers[].rank`, `categories.rank`, `PriceTier.Rank`.
+
+### Suffixe des montants → `_cents`
+
+Le document mélange `_c` (`prix_unitaire_c`, `montant_c`) et rien du tout (`prix_unitaire`). On
+UNIFIE en `_cents` : `products.unit_price_cents`, `weighings.base_unit_price_cents`,
+`weighing_lines.unit_price_cents`, `weighing_lines.amount_cents`, `limits.max_amount_cents`.
+Les masses gardent `_g`, les longueurs `_um`, les durées `_ms`. Un même concept, une seule
+convention.
+
+### Codes `ERR-xxx-nn`
+
+Ce sont des IDENTIFIANTS (constantes du code, affichées à l'écran pour le support téléphonique),
+donc traduits — mais UNIQUEMENT selon cette table, aucun traducteur ne doit en inventer :
+`BAL→SCL`, `IMP→PRN`, `BDD→DB`, `IHM→UI`, `KIO→KSK` ; `CAT`, `SYS`, `CFG` inchangés. Les
+numéros ne bougent pas : `ERR-BAL-08` → `ERR-SCL-08`. Le MESSAGE porté par le code reste
+français.
+
+### Auto-tests
+
+`etiquette` → `label`, `reglette` → `ruler`, et `mire` → `alignment` (pas `test-pattern`, deux
+mots, ni `crosshair` qui ne décrit que les coins). La route devient `?what=alignment|ruler`, la
+valeur `label` ayant son doublon non authentifié `/troubleshooting/test-label`.
+
+### NE PAS TRADUIRE — noms réels de l'existant
+
+Cités comme preuve dans le document : `Module1.bas`, `FormulaireCalcul.cls`,
+`FormulaireSquelette`, `FormulaireClavier`, `FormulairePaveNumeriqueUnites`,
+`FormulaireTimerMessages.SupprimeFenetres`, `EtataImprimer.report`, `Image0…Image119`,
+`LabelPoidsBandeau`, `LabelAPayer`, `Prixaukilo`, `PoidsUnites`, `CodeBarre`, `Produit`,
+`Prix`, `LabelHeure`, `TableProduitsLegers`, `SystemeDefaut`, `Systeme_Dimensions`,
+`SauvegardeProduits`, `RapportIntegrite`, `Decimales_Prix`, `Decimales_Poids`,
+`Recup_Odoo_activee`, `ProduitIndisponibleSurErreur`, `Delai_idle_en_s`,
+`FAideDecimalesPoids`, `BalanceConnectee`, `ReformatePoidsBalanceXFOCRS`,
+`gPoidsBalanceConnectee`, `_Poste1..4`. Les traduire détruirait la valeur de preuve du
+document.
+
+### NE PAS TRADUIRE — format d'échange imposé par Odoo
+
+L'en-tête CSV `"id";"nom";"code-barre";"prix";"categorie";"unite";"image"` (comparé OCTET À
+OCTET par le parseur), les valeurs de la colonne `unite` (`kg`, `Litre(s)`, `Unité(s)`, accents
+et parenthèses compris), les lettres de catégorie `F`/`L`/`V`/`A`, le nom `flv_<n>.csv` et
+`flv_demo.csv`. Ce sont des constantes de l'adaptateur, pas du code à nous. Les identifiants Go
+qui les reçoivent, eux, sont anglais (`Product.Name`, `Product.Reference`, `category_code`).
+
+### NE PAS TRADUIRE — vocabulaire matériel et protocolaire
+
+Commandes SBPL `<A>`, `<A1>`, `<A3>`, `<#E>`, `<CS>`, `<%>`, `<V>`, `<H>`, `<G>`, `<Q>`, `<Z>`,
+`<BD>`, `<LD>`, `ENQ` ; `winspool`, `devfile`, `RAW`, `DOC_INFO_1.pDatatype`, `SATO WS408`,
+`GRAM XFOC RS/+`, `gram-xfoc-rs`, `gram-xfoc-plus`, `COM8`, `/dev/usb/lp0`,
+`/dev/balance-serie`, `/dev/sato-pesee`, `AutoAdminLogon`, `TimeoutStopSec`. Le symlink udev
+`balance-serie` peut devenir `balance-serial` si l'on renomme la règle : décision à trancher
+une fois, pas cinq.
+
+### « dépôt » : deux sens
+
+Le répertoire de dépôt (`depot_local`) → `local_drop` / paquet `localdrop` /
+`<data>/catalog/incoming/` ; et les « 6 dépôts » de la couche SQLite (design pattern) →
+`repositories`, dans le paquet `internal/store`. Ne pas confondre avec « dépôt Git » →
+`repository` en prose seulement.
+
+### « scrutation » → `poll`
+
+`poll_interval_s`, `stable_polls` (et non `scan`, qui évoque la douchette de caisse — laquelle
+est bien un `scanner` dans la prose des tests de recette).
+
+### « aperçu » → `preview`
+
+Partout et sans exception : driver `preview`, `printer.type = "preview"`, paquet
+`internal/printing/preview`, route `/admin/api/label/preview.png`, « aperçu du diff » →
+`diff preview`. Jamais `overview`.
+
+### « état » → `State` ou `health`
+
+`State` pour la machine à états et `Snapshot.State` ; mais « état de santé / feu » → `health`,
+`/admin/api/health`. `GET /api/v1/etat` n'existe que comme événement SSE nommé `"state"`.
+
+### Deux « délais » qui ne doivent pas se ressembler
+
+`delai_inactivite_s` → `idle_timeout_s` (vide une SAISIE abandonnée) et
+`delai_reimpression_s` → `reprint_window_s` (fenêtre pendant laquelle la barre basse reste
+active). `window` dit qu'on peut agir, `timeout` dit qu'on va perdre quelque chose.
+
+### Conflit Clean Code / Go idiomatique — signalé une fois
+
+Clean Code proscrit les identifiants courts, Go les exige dans les portées courtes. On garde
+donc `i`, `r`, `w`, `p`, `e`, `err`, `ctx`, `tx`, `db`, `h` (le Hub), `g` (le gabarit) tels
+quels dans les corps de fonction, et on ne préfixe aucune interface par `I` (`Scale`, `Printer`,
+`Clock`, `Transport`, et non `IScale`). De même les paquets restent courts et au singulier
+(`domain`, `scale`, `store`, `frame`) et les interfaces sont déclarées côté consommateur
+(`station/ports`), ce qui interdit de les renommer en `ScaleInterface` ou de les déplacer côté
+implémentation. **LE GO IDIOMATIQUE GAGNE.**
+
+### Conventions de documentation — à rappeler une seule fois
+
+Le commanditaire a demandé « TSDoc sur tout élément public » ; TSDoc est propre à TypeScript. On
+applique donc **godoc en Go** (commentaire commençant par le nom de l'identifiant, phrase
+complète terminée par un point : `// Prepare builds a printable label from a product and a
+measurement.`) et **TSDoc en TypeScript/Svelte** (`/** … */` avec `@param`, `@returns`,
+`@throws`, `@example`). Une seule règle par langage, chacune dans son langage.
+
+---
+
+## Conventions de nommage
+
+Règles générales appliquées par le glossaire. Elles servent à traduire tout identifiant qui n'y
+figure pas encore.
+
+### Langue
+
+- **Code en anglais** : paquets, fichiers, types, fonctions, champs, variables, constantes,
+  tables et colonnes SQL, clés de configuration, routes, drapeaux CLI, variables
+  d'environnement, noms de scripts, noms de tests.
+- **Contenu en français** : documentation, commentaires de spécification, messages affichés à
+  l'écran, libellés imprimés sur l'étiquette, textes des scripts d'installation, contenu des
+  fichiers `TROUBLESHOOTING.md` / `install-sheet.txt`.
+- **Exceptions gelées** : noms propres (`balance`, `lacagette`, `flv`), noms matériels et
+  protocolaires, format d'échange Odoo, identifiants de l'ancienne base Access.
+
+### Go
+
+- **Paquets** : courts, minuscules, singuliers, sans underscore ni majuscule
+  (`domain`, `scale`, `store`, `frame`, `printing`, `localdrop`). Un paquet nomme un concept,
+  pas une couche technique.
+- **Fichiers** : minuscules, un mot quand c'est possible, nommés d'après le type ou la fonction
+  principale (`prepare.go` pour `Prepare`, `loop.go` pour `Loop`).
+- **Exportés en `PascalCase`, non exportés en `camelCase`**. Aucune abréviation inventée ; les
+  acronymes gardent leur casse d'usage (`EAN13`, `ID`, `SHA`, `HRI`, `CSV`, `DB`, `UM`).
+- **Aucun préfixe `I` sur les interfaces** (`Scale`, `Printer`, `Clock`, `Transport`), qui sont
+  déclarées **côté consommateur** (`station/ports`) et non côté implémentation.
+- **Identifiants courts autorisés dans les portées courtes** (`i`, `r`, `w`, `p`, `e`, `err`,
+  `ctx`, `tx`, `db`, `h`, `g`) : Go idiomatique prime sur Clean Code sur ce point.
+- **Erreurs sentinelles** : `Err` + `PascalCase` décrivant la condition
+  (`ErrPatternNotZeroed`, `ErrPrefixNotInPlan`). Erreur typée = `PrintError` avec un champ
+  `Kind` dont les constantes sont préfixées par leur famille (`KindData`, `KindTemplate`, …).
+- **Familles de constantes préfixées par leur type** : `Round*` (`RoundHalfUp`), `Status*`
+  (`StatusConnected`), `Mode*` (`ModeBlocking`), `Kind*`, `Unit*` (`UnitKg`), `Stability*`.
+- **États** : adjectif ou gérondif (`Idle`, `Initializing`, `Validating`, `Printing`,
+  `Succeeded`, `Rejected`, `Faulted`). Jamais un nom réservé à un idiome Go (`Error`).
+- **Événements** : fait accompli au participe passé (`MeasurementReceived`, `ProductTapped`,
+  `TareConfirmed`, `PrintFinished`, `ScaleDisconnected`). **Effets** : suffixe `Effect`
+  (`PrintEffect`, `RecordEffect`, `ArmTimerEffect`).
+- **Méthodes** : verbe à l'infinitif anglais (`Prepare`, `Evaluate`, `Qualify`, `Normalize`,
+  `Submit`, `Subscribe`, `Rasterize`). Les accesseurs ne portent pas de préfixe `Get`.
+- **Unités portées par le nom du champ** : `...Grams`, `...UM` (micromètres), `...Dots`,
+  `...MilliDots`, durées typées `time.Duration` ou `domain.Duration`. Les montants sont des
+  `Cents`.
+- **Tests** : `TestXxx` en anglais, phrase lisible décrivant le comportement vérifié
+  (`TestExpiredMeasurementRejectsWeighing`). Doubles de test dans un paquet `fake`, constructeurs
+  `NewScale`, `NewPrinter`, `NewClock`.
+
+### SQL
+
+- **`snake_case` partout**, sans accent ni majuscule.
+- **Tables au pluriel** (`products`, `weighings`, `findings`, `imports`, `categories`,
+  `images`, `local_decisions`, `weighing_lines`, `technical_log`, `quarantine`, `meta`) ;
+  **colonnes au singulier**.
+- **Horodatages en `*_at`** : `occurred_at`, `updated_at`, `seen_at`, `withdrawn_at`,
+  `decided_at`, `first_failure_at`, `last_failure_at`.
+- **Suffixes d'unité obligatoires et uniques** : `_cents` pour les montants, `_g` pour les
+  masses, `_um` pour les longueurs, `_ms` pour les durées, `_count` pour les dénombrements
+  (`byte_count`, `failure_count`).
+- **Clés étrangères** : `<table_au_singulier>_id` (`product_id`, `import_id`, `weighing_id`,
+  `last_import_id`).
+- **Valeurs énumérées** : minuscules `snake_case`, en anglais, contraintes par un `CHECK`
+  (`'by_weight'`, `'not_weighable'`, `'local_drop'`, `'warn_and_print'`, `'not_applicable'`).
+- **Index** : `idx_<table>_<colonne(s)>` (`idx_weighings_occurred_at`, `idx_findings_import`).
+- **`rank`, jamais `order`** (mot réservé SQL et faux ami commerce).
+- Les identifiants hérités de l'ancienne base Access ne sont **jamais** renormalisés.
+
+### Configuration, routes et CLI
+
+- **Clés JSON en `snake_case`** ; blocs de premier niveau au singulier et en nom commun
+  (`station`, `network`, `ui`, `scale`, `printer`, `pricing`, `barcode`, `limits`, `stability`,
+  `catalog`, `journal`, `admin`, `maintenance`).
+- **L'unité fait partie du nom de la clé** : `_s`, `_ms`, `_g`, `_um`, `_mb`, `_kb`, `_cents`,
+  `_ratio`. Une valeur sans unité explicite est un défaut de nommage.
+- **Booléens formulés comme une assertion vraie** : `present`, `enabled`, `visible`, `offered`,
+  `manual_entry_allowed`, `show_grid_prices`, `weekly_integrity_check`, `invert_bits`. Pas de
+  négation dans le nom.
+- **Valeurs énumérées en minuscules `snake_case`** (`local_drop`, `half_up`, `truncate`,
+  `half_even`, `advisory`, `blocking`, `manual_entry`, `image_directory`), sauf noms matériels
+  qui gardent leur graphie d'origine (`gram-xfoc-rs`, `winspool`, `devfile`, `sbpl`).
+- **Routes** : minuscules, segments en `kebab-case` (`/troubleshooting/roll-changed`,
+  `/fallback-printer`), ressources au pluriel (`/printers`, `/products`, `/imports`), actions à
+  l'infinitif (`/weigh`, `/reprint`, `/cancel`, `/dismiss`, `/import`, `/reload`, `/discover`).
+  API publique préfixée `/api/v1`, API d'administration `/admin/api`.
+- **Paramètres de requête et corps JSON** en `snake_case` anglais (`?what=alignment|ruler`,
+  `?hardware=0`, `{product_id, tare_g, units, manual_weight_g}`).
+- **Drapeaux CLI** en `--kebab-case` (`--data`, `--duration`, `--unit-price`, `--template`) ;
+  sous-commandes en un seul mot minuscule (`serve`, `kiosk`, `doctor`, `capture`, `label`,
+  `replay`, `validate`, `export`, `import`, `password`).
+- **Variables d'environnement** : `BALANCE_` + `SCREAMING_SNAKE_CASE` (`OPENSCALE_CONFIG`,
+  `OPENSCALE_DATA`).
+- **Codes métier affichés au support** en `SCREAMING_SNAKE_CASE` anglais (`WEIGHT_UNSTABLE`,
+  `MEASUREMENT_EXPIRED`, `UNREADABLE_ROW`) ; codes techniques au format `ERR-<3 lettres>-<nn>`
+  selon la table figée (`SCL`, `PRN`, `CAT`, `DB`, `UI`, `KSK`, `SYS`, `CFG`), numéros
+  inchangés.
+- **Variables CSS** en `--kebab-case` courtes et sémantiques (`--bg`, `--ink`, `--ink-muted`,
+  `--ready`, `--fault`).
+
+### Documentation du code — godoc et TSDoc
+
+- **Go → godoc.** Tout élément exporté (paquet, type, fonction, méthode, constante, champ
+  public) porte un commentaire qui **commence par le nom de l'identifiant** et forme une
+  **phrase complète terminée par un point** :
+  `// Prepare builds a printable label from a product and a measurement.`
+  Le commentaire de paquet vit dans un seul fichier (`doc.go` ou le fichier principal).
+  Documenter le **contrat** — préconditions, erreurs renvoyées, unités, effets de bord — pas la
+  paraphrase du corps.
+- **TypeScript / Svelte → TSDoc.** Tout élément public porte un bloc `/** … */` avec, selon le
+  cas, `@param`, `@returns`, `@throws`, `@example`. Pas de `@type` redondant avec la signature.
+- **Une seule règle par langage** : jamais de TSDoc dans du Go, jamais de style godoc dans du
+  TypeScript.
+- **Langue des commentaires** : les identifiants cités restent anglais ; la prose explicative
+  suit la langue du fichier de documentation associé. Les commentaires de code publics sont
+  rédigés en anglais, cohérents avec les identifiants qu'ils décrivent.
+- **Références croisées** : citer le glossaire lorsqu'un identifiant traduit pourrait surprendre
+  (`safeguard` vs `guard`, `Template` vs `pattern`, `queue` vs `file`).
+
+---
+
+> **Rappel final.** Ce glossaire fait autorité. Tout identifiant absent doit être traduit selon
+> les conventions ci-dessus, **puis signalé** pour être ajouté au présent document.

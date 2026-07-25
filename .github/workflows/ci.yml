@@ -1,0 +1,127 @@
+# CI d'OpenScale — docs/02-architecture.md §16.4.
+#
+# Deux jobs, et la raison de chacun :
+#
+#   test  — la qualité. Il fait DEUX passes de `go test` : une avec cgo, parce que
+#           `-race` exige ThreadSanitizer, et une sans, parce que c'est la
+#           configuration réellement livrée (ADR-001). Un `CGO_ENABLED=0` global
+#           casserait `-race`, et le premier contributeur qui rencontre l'erreur
+#           retirerait `-race` — on perdrait la seule vérification automatique des
+#           invariants de concurrence du Hub (important-3).
+#
+#   build — la livraison. Les trois cibles compilent en zéro cgo depuis une machine
+#           Linux, sans chaîne C et sans Docker. C'est la contrepartie directe de
+#           la contrainte 2, et elle se vérifie à chaque commit plutôt qu'au moment
+#           de livrer.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Épinglé : les golden de rendu de §7.4 ne doivent pas bouger avec la version de
+  # la chaîne d'outils.
+  GO_VERSION: "1.26.5"
+
+jobs:
+  test:
+    name: Tests et frontières
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+
+      - name: go vet
+        run: go vet ./...
+
+      # La passe -race, restreinte à linux/amd64 comme le dit ADR-001.
+      - name: go test -race (CGO_ENABLED=1)
+        env:
+          CGO_ENABLED: "1"
+        run: go test ./... -race -count=1
+
+      # La passe qui prouve que la configuration LIVRÉE compile et passe.
+      - name: go test (CGO_ENABLED=0)
+        env:
+          CGO_ENABLED: "0"
+        run: go test ./... -count=1
+
+      - name: make boundary
+        run: go run ./tools/boundary
+
+      # Les seuils de §16.4. `domain` est le seul paquet livré à ce stade ; les
+      # autres entrent avec leur lot, et leur seuil est déjà écrit ici pour qu'il
+      # n'y ait pas à y penser ce jour-là.
+      - name: Couverture par paquet
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          go test ./... -coverprofile=coverage.out -count=1
+          go tool cover -func=coverage.out | tail -n 1
+          fail=0
+          check() {
+            package="$1"; floor="$2"
+            if ! go list ./... | grep -q "openscale/internal/$package\$"; then
+              echo "  $package : paquet absent (lot à venir) — contrôle sauté"
+              return
+            fi
+            measured=$(go test "./internal/$package/..." -coverprofile=/tmp/p.out -count=1 >/dev/null 2>&1 \
+              && go tool cover -func=/tmp/p.out | tail -n 1 | grep -oE '[0-9]+\.[0-9]+')
+            echo "  $package : $measured % (plancher $floor %)"
+            awk -v m="$measured" -v f="$floor" 'BEGIN { exit !(m + 0 >= f + 0) }' || {
+              echo "::error::couverture de $package : $measured %, plancher $floor %"
+              fail=1
+            }
+          }
+          check domain 95
+          check scale 90
+          check printing 80
+          check catalog 85
+          exit $fail
+
+      - name: Format
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::ces fichiers ne sont pas formatés : $unformatted"
+            exit 1
+          fi
+
+  build:
+    name: Compilation croisée, zéro cgo
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { goos: windows, goarch: amd64 }
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+
+      - name: go build ${{ matrix.target.goos }}/${{ matrix.target.goarch }}
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.target.goos }}
+          GOARCH: ${{ matrix.target.goarch }}
+        run: |
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${GITHUB_SHA::8}" \
+            -o "openscale-${GOOS}-${GOARCH}" ./cmd/openscale
+          ls -lh openscale-*
