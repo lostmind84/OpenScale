@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -167,18 +168,42 @@ func TestNotFoundTranslatesOnlyNoRows(t *testing.T) {
 }
 
 // TestDSNPathEscapesWhatWouldEndThePath: '?' and '#' would silently open a DIFFERENT
-// database, and a Windows data directory is not under our control.
+// database, and a data directory is not under our control.
+//
+// This half of the contract is INVARIANT, so it is tested with separators that mean
+// the same thing everywhere. The other half — turning a Windows separator into the
+// forward slash a DSN needs — is by nature platform-dependent, and lives in its own
+// test below.
 func TestDSNPathEscapesWhatWouldEndThePath(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
-		{`C:\ProgramData\Balance\openscale.db`, `C:/ProgramData/Balance/openscale.db`},
 		{`/var/lib/openscale/openscale.db`, `/var/lib/openscale/openscale.db`},
-		{`C:\dossier?piege\x.db`, `C:/dossier%3Fpiege/x.db`},
-		{`C:\dossier#1\x.db`, `C:/dossier%231/x.db`},
-		{`C:\100%\x.db`, `C:/100%25/x.db`},
+		{`/var/lib/dossier?piege/x.db`, `/var/lib/dossier%3Fpiege/x.db`},
+		{`/var/lib/dossier#1/x.db`, `/var/lib/dossier%231/x.db`},
+		{`/var/lib/100%/x.db`, `/var/lib/100%25/x.db`},
+		// '%' first, because escaping it after the others would double-escape them.
+		{`/a%b?c#d.db`, `/a%25b%3Fc%23d.db`},
 	} {
 		if got := dsnPath(c.in); got != c.want {
 			t.Errorf("dsnPath(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// TestDSNPathUsesTheSeparatorOfThisPlatform is the platform-dependent half, and the
+// reason it is separate is worth stating: filepath.ToSlash converts a backslash on
+// Windows and deliberately does NOT on Linux, where a backslash is a legal character
+// in a file name. A test that demanded the conversion everywhere would be asking the
+// code to corrupt a legitimate Linux path — and it did, until the CI caught it on a
+// runner that is not the machine this was written on.
+func TestDSNPathUsesTheSeparatorOfThisPlatform(t *testing.T) {
+	native := filepath.Join("data", "openscale.db")
+	got := dsnPath(native)
+
+	if strings.Contains(got, `\`) {
+		t.Errorf("dsnPath(%q) = %q : un DSN se lit avec des barres obliques", native, got)
+	}
+	if want := "data/openscale.db"; got != want {
+		t.Errorf("dsnPath(%q) = %q, want %q", native, got, want)
 	}
 }
 
