@@ -3,9 +3,17 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
-**État au 25/07/2026** : conception terminée et validée. **L1 et L2 livrés** — le noyau
-métier est complet : garde-fous, stabilité, trames, gabarit, configuration, chemin unique,
-machine à états et stockage SQLite. 660 tests. L3 (balance) est le lot suivant.
+**État au 25/07/2026** : conception terminée et validée. **L1, L2 et L3 livrés** — le noyau
+métier est complet (garde-fous, stabilité, trames, gabarit, configuration, chemin unique,
+machine à états, stockage SQLite) et la balance est lue : boucle série reconnectante,
+drivers GRAM XFOC, source vide de la saisie manuelle, rejeu, suite de conformité,
+commandes `capture` et `replay`. 931 tests. L4 (étiquette et rendu raster) est le lot suivant.
+
+**Ce que L3 attend encore du banc (L0).** `OpenSystemPort` n'a jamais parlé à un vrai port :
+baud, parité, préfixage `\\.\` de `COM10`, timeout réel et fermeture d'une lecture en vol
+sont les tests `//go:build hardware` de §16.1. Et le timeout de lecture d'une seconde repose
+sur une cadence nominale de 400 ms qui est le timer de polling du formulaire Access, pas une
+mesure — `openscale capture` existe pour remplacer ce chiffre par un chiffre mesuré.
 
 ---
 
@@ -16,7 +24,7 @@ machine à états et stockage SQLite. 660 tests. L3 (balance) est le lot suivant
 | **L0** | Banc de développement (SATO WS408, GRAM XFOC, rouleau, lecteur USB) | ~2 j·h | ⬜ matériel annoncé |
 | **L1** | Socle et arithmétique — quantités, EAN-13, tarification | 2 sem. | ✅ **25/07/2026** |
 | **L2** | Noyau complet — garde-fous, trames, machine à états, stockage | 3 sem. | ✅ **25/07/2026** |
-| **L3** | Balance — drivers série, capture, rejeu | 2 sem. | ⬜ |
+| **L3** | Balance — drivers série, capture, rejeu | 2 sem. | ✅ **25/07/2026** |
 | **L4** | Étiquette et rendu raster — gabarits, symbole, aperçu | 3 sem. | ⬜ |
 | **L5** | Impression réelle — SBPL, transports, statut | 2,5 sem. | ⬜ |
 | **L6** | Poste vivant et écran client — Hub, SSE, front | 4,5 sem. | ⬜ |
