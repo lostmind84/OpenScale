@@ -3,9 +3,9 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
-**État au 25/07/2026** : conception terminée et validée. **L1 livré** — le socle métier
-compile, ses 35 vecteurs de code-barres passent, et les deux commandes de démonstration
-sortent les valeurs attendues. L2 est le lot suivant.
+**État au 25/07/2026** : conception terminée et validée. **L1 livré**. **L2 en cours** —
+garde-fous, stabilité, grammaire des trames et gabarit d'étiquette sont livrés et vérifiés ;
+restent `config.go`, `prepare.go`, `machine.go` et le stockage SQLite.
 
 ---
 
@@ -15,7 +15,7 @@ sortent les valeurs attendues. L2 est le lot suivant.
 |---|---|---|---|
 | **L0** | Banc de développement (SATO WS408, GRAM XFOC, rouleau, lecteur USB) | ~2 j·h | ⬜ matériel annoncé |
 | **L1** | Socle et arithmétique — quantités, EAN-13, tarification | 2 sem. | ✅ **25/07/2026** |
-| **L2** | Noyau complet — garde-fous, trames, machine à états, stockage | 3 sem. | ⬜ |
+| **L2** | Noyau complet — garde-fous, trames, machine à états, stockage | 3 sem. | 🔶 en cours |
 | **L3** | Balance — drivers série, capture, rejeu | 2 sem. | ⬜ |
 | **L4** | Étiquette et rendu raster — gabarits, symbole, aperçu | 3 sem. | ⬜ |
 | **L5** | Impression réelle — SBPL, transports, statut | 2,5 sem. | ⬜ |
@@ -129,7 +129,7 @@ de référence produit, pas une correction cosmétique.
 
 ## Décisions structurantes
 
-28 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
+29 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
 
 | ADR | Décision |
 |---|---|
@@ -142,6 +142,7 @@ de référence produit, pas une correction cosmétique.
 | 011 | Import manuel de CSV au périmètre V1 |
 | 020 | Carlito comme police d'étiquette (clone métrique de Calibri, OFL) |
 | 021 | « Ce produit est-il pesable ? » remplace le contrôle d'intégrité |
+| **029** | **Barres du code-barres uniformes** — le texte cesse de les recouvrir, +30 % de hauteur lisible |
 
 ---
 
@@ -157,3 +158,6 @@ de référence produit, pas une correction cosmétique.
 | 25/07/2026 | Projet transféré vers `C:\_dev\OpenScale`, renommé OpenScale |
 | 25/07/2026 | Dépôt initialisé, licence **AGPL-3.0-or-later** retenue, Go 1.26.5 épinglé |
 | 25/07/2026 | **L1 livré** : socle métier, 35 vecteurs de code-barres, couverture 99,3 %, `make boundary` opérationnel |
+| 25/07/2026 | **L2 (1/3)** : 14 garde-fous, figeur, cadencemètre, grammaire des trames + fuzz. Le corpus vivant attrape son premier bug |
+| 25/07/2026 | **L2 (2/3)** : gabarit d'étiquette, 9 règles dures. Mesure du PDF de test : §7.2 confirmé à 40 µm près |
+| 25/07/2026 | **ADR-029** : barres uniformes, décision du commanditaire. +30 % de hauteur réellement lisible |

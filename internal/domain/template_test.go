@@ -541,3 +541,129 @@ func TestNegativeCoordinatesAreRefused(t *testing.T) {
 		t.Errorf("faults = %v, want a fault naming the element as being off the label", faults)
 	}
 }
+
+// TestIdenticalTemplateHasUniformBars is ADR-029 made checkable.
+//
+// The decision the commissioning party took: stop putting the two prices ON the bars,
+// stack the text instead, and put the symbol below it. The bars become uniform over
+// the full width AND taller in usable terms.
+func TestIdenticalTemplateHasUniformBars(t *testing.T) {
+	template := IdenticalTemplate()
+
+	// 1. Nothing overlaps the symbol any more — which is what makes rule 5
+	//    satisfiable for the production template at all.
+	if faults := template.Validate(2); len(faults) != 0 {
+		t.Errorf("double tarif : %d fautes", len(faults))
+		for _, f := range faults {
+			t.Errorf("    %s", f)
+		}
+	}
+	if faults := template.Validate(1); len(faults) != 0 {
+		t.Errorf("mono-tarif : %d fautes", len(faults))
+		for _, f := range faults {
+			t.Errorf("    %s", f)
+		}
+	}
+
+	// 2. The usable bar height BEATS what the current label achieves. Measured on the
+	//    test PDF: 11 722 um of bars declared, of which the solidarity price eats
+	//    1 192 um and the member price 3 381 um, leaving 8 341 um clean.
+	const cleanBarsToday = 10_875 - 2_534 // 8 341 um, spelled out from the measurement
+	if got := template.Symbol.BarHeightUM; got <= cleanBarsToday {
+		t.Errorf("barres = %d µm, want plus que les %d µm réellement propres aujourd'hui",
+			got, cleanBarsToday)
+	}
+	if got := template.Symbol.BarHeightUM; got != 10_875 {
+		t.Errorf("barres = %d µm, want 10875 (87 dots exactement à 8 dots/mm)", got)
+	}
+	// 87 dots exactly: a whole number of dots, so no bar is a fraction of a scan line.
+	if milliDots := template.Media.MilliDots(template.Symbol.BarHeightUM); milliDots%1000 != 0 {
+		t.Errorf("hauteur de barres = %d milli-dots : elle doit être un compte entier de dots", milliDots)
+	}
+
+	// 3. What A1 freezes has NOT moved.
+	if got := template.Symbol.ModuleMilliDots; got != 2_344 {
+		t.Errorf("module = %d, want 2344 : A1 fige le grandissement", got)
+	}
+	if got := template.Symbol.TotalWidthMilliDots(); got != 264_872 {
+		t.Errorf("hors-tout = %d milli-dots, want 264872 (33,109 mm) : A1 le fige aussi", got)
+	}
+
+	// 4. The HRI survives: it is printed today, and dropping it would take away the
+	//    cashier's fallback.
+	if template.Symbol.HRIHeightUM != 2_930 {
+		t.Errorf("HRI = %d µm, want 2930 : elle est imprimée aujourd'hui", template.Symbol.HRIHeightUM)
+	}
+
+	// 5. The truncation stays a documented decision, so the admin diagnostic stays
+	//    informative rather than amber (ADR-003).
+	if !template.TruncationAccepted {
+		t.Error("truncation_accepted doit rester levé : la troncature est une décision, pas un défaut")
+	}
+
+	bottom, right := template.inkedExtent(2)
+	t.Logf("contenu encré : %d,%03d dots de haut, %d,%03d de large (limites %d et %d)",
+		bottom/1000, bottom%1000, right/1000, right%1000, InkedHeightDots, InkedWidthDots)
+	t.Logf("barres uniformes : %d µm contre %d µm propres aujourd'hui (+%.0f %%)",
+		template.Symbol.BarHeightUM, cleanBarsToday,
+		100*float64(int(template.Symbol.BarHeightUM)-cleanBarsToday)/cleanBarsToday)
+}
+
+// TestIdenticalTemplateTextDoesNotReachTheSymbol is the geometric heart of ADR-029,
+// asserted on the ink rather than on a rule verdict.
+func TestIdenticalTemplateTextDoesNotReachTheSymbol(t *testing.T) {
+	template := IdenticalTemplate()
+	symbolTop := template.Symbol.YUM
+
+	for _, e := range template.Elements {
+		if e.Field == FieldBarcode {
+			continue
+		}
+		if e.Bottom() > symbolTop {
+			t.Errorf("le champ %s descend à %d µm, le symbole commence à %d µm : "+
+				"le texte recouvre encore les barres", e.Field, e.Bottom(), symbolTop)
+		}
+	}
+
+	// And the two prices share a BASELINE, which the legacy report did not do — its
+	// two prices sat 774 um apart for no reason anyone could state.
+	var secondary, primary Element
+	for _, e := range template.Elements {
+		switch e.Field {
+		case FieldSecondaryTotalPrice:
+			secondary = e
+		case FieldPrimaryTotalPrice:
+			primary = e
+		}
+	}
+	const ascent = 750 // per mille
+	secondaryBaseline := secondary.YUM + secondary.FontSizeUM*ascent/1000
+	primaryBaseline := primary.YUM + primary.FontSizeUM*ascent/1000
+	if drift := secondaryBaseline - primaryBaseline; drift > 2 || drift < -2 {
+		t.Errorf("lignes de base : solidaire à %d µm, adhérent à %d µm (écart %d) — "+
+			"les deux prix doivent partager leur ligne de base",
+			secondaryBaseline, primaryBaseline, drift)
+	}
+}
+
+// TestIdenticalTemplateIsTheShippedDefault: config-lacagette.json selects it, so a
+// rename must break here rather than at start-up on a station.
+func TestIdenticalTemplateIsTheShippedDefault(t *testing.T) {
+	shipped := ShippedTemplates()
+	template, ok := shipped[DefaultTemplateName]
+	if !ok {
+		t.Fatalf("%q absent des gabarits livrés : %v", DefaultTemplateName, shipped)
+	}
+	if template.Name != DefaultTemplateName {
+		t.Errorf("le gabarit livré sous %q se nomme %q", DefaultTemplateName, template.Name)
+	}
+	if len(shipped) != 3 {
+		t.Errorf("%d gabarits livrés, want 3 (identical, neutral_single, integer_module)", len(shipped))
+	}
+	// Every shipped template names itself the way it is keyed.
+	for name, template := range shipped {
+		if template.Name != name {
+			t.Errorf("le gabarit %q se nomme %q", name, template.Name)
+		}
+	}
+}

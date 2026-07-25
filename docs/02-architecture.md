@@ -1130,6 +1130,25 @@ stateDiagram-v2
 **Les critiques bloquant-3, bloquant-4, bloquant-5 et bloquant-10 sont closes sans objet** : elles portaient toutes sur la mise en conformité du symbole (grandissement 75,8 % à 2 dots, changement de consommable, gabarit `weighing_40x40`, budget vertical). Voir ADR-003.
 
 ### 7.2 Le gabarit `weighing_identical` — géométrie exacte
+> **AMENDÉ PAR ADR-029 — à lire avant d'utiliser les valeurs de cette section.** La
+> géométrie ci-dessous est celle de l'étiquette **telle qu'elle est imprimée
+> aujourd'hui**, et elle a été **confirmée à 40 µm près** par la mesure du flux de
+> contenu de `reference/test_etiquette_EtataImprimer.pdf`. Deux corrections en
+> découlent :
+>
+> 1. **Le texte recouvre les barres, et c'est un choix du commanditaire** — les deux
+>    prix mangent 4 573 µm des 11 722 µm de barres, qui ne sont donc propres que sur
+>    **8 341 µm**, soit 71 % de l'annoncé. ADR-029 empile les trois lignes et pose le
+>    symbole **sous** elles : les barres deviennent **uniformes à 10 875 µm**, soit
+>    **+30 %** de hauteur réellement lisible. Le module et le hors-tout ne changent
+>    pas, donc A1 est respecté là où A1 se prononce.
+> 2. **L'origine du symbole donnée ici (8 996 µm) est celle de la BOÎTE du contrôle
+>    Access**, pas celle du symbole tracé : la ligne de base du glyphe est à
+>    21 326 µm et les barres commencent à **9 604 µm**, 608 µm plus bas. La hauteur du
+>    bloc, 14 650 µm, est exacte.
+>
+> La géométrie **livrée** est celle d'ADR-029 ; les valeurs ci-dessous restent la
+> description de l'existant, et c'est à ce titre qu'elles font foi.
 
 Source : `reports/EtataImprimer.report` de l'export MSAccess VCS. Conversion **1 mm = 56,6929 twips**, résolution de la tête **8 dots/mm** (203,2 dpi, 1 dot = 0,125 mm).
 
@@ -4350,6 +4369,36 @@ Chaque lot livre quelque chose de **démontrable** et laisse le dépôt vert.
 **Contexte.** L'existant pilotait la largeur du champ poids par `Decimales_Poids` (`Module1.bas:8743-8800`), un réglage présenté comme un choix d'arrondi d'**affichage** alors que `FormulaireCalcul.cls:3455` — `Left(Reference, 12 − Len(Poids_sansvirgule)) & Poids_sansvirgule` — en faisait aussi la largeur du champ **lu par la caisse**. La revue anti-clonage a supprimé ce réglage, à juste titre. Restait une question qu'elle n'avait pas tranchée : **d'où vient alors la largeur ?** `flv.csv` a rendu la question urgente en exhibant 16 codes `0493` qui ressemblent à une seconde convention (référence 4 digits, charge 4 digits), tous à clé valide, sur des références contiguës `1001`…`1022` — de quoi croire que le catalogue porte deux conventions simultanées et qu'il faudrait deviner la bonne, produit par produit.
 **Décision.** **Un plan de numérotation interne, table constante du binaire, indexée par préfixe** : `0493`–`0498` ⇒ au poids, référence 3 digits, charge 5 digits, 3 décimales ; `0499` ⇒ à l'unité, référence 6 digits, charge 2 digits. Le plan s'**auto-contrôle au démarrage** (`4 + RefWidth + PayloadWidth + 1 = 13`). L'appartenance de chaque produit se vérifie par un **invariant de gabarit** — la charge utile du catalogue doit être intégralement à zéro —, sous peine de refus signalé (§10.3, §10.3 bis). **Trois interdits** : la largeur n'est **pas configurable** (ce serait le retour de `weight_decimals` sous un autre nom), elle n'est **pas déduite** des chiffres du code (compter les zéros terminaux est un pile ou face : 95,2 % des codes `0493` de `flv.csv` et **100 %** de ceux de `flv_1.csv` admettent les deux lectures ; la déduction ne « tranche » que sur les 16 codes cassés, et elle y tranche **faux**), et un préfixe hors plan n'est **pas** une erreur mais une **autre nature d'article** (préemballé, ADR-021).
 **Conséquences.** (a) **0 largeur devinée et 0 cas ambigu sur les 508 produits** des deux fixtures, contre 316 ambiguïtés (`flv.csv`) et 92 sur 92 (`flv_1.csv`) pour la variante « déduction stricte », qui était inexploitable. (b) Les 16 codes fautifs sont **isolés et nommés**, au lieu d'être validés en silence — ils produiraient à 1,236 kg trois étiquettes désignant *PATATE DOUCE SAF*, *SAUCISSE CANARD FACON TOULOUSE* et *AIL BLANC SAF*, avec un facteur 10 sur la masse (§6.2, T31–T33). (c) La suppression de `weight_decimals` **tient toujours**, et son argumentaire est complété : ce qui la remplace n'est pas un autre réglage, c'est un **contrat déclaré**, indexé par préfixe — il porte donc déjà deux largeurs différentes, ce qu'un réglage global ne pouvait pas faire. (d) Le prix à payer est nommé : **le plan est établi, pas prouvé**. Il est confirmé par un **test d'acceptation physique bloquant** avant mise en service — imprimer, scanner en caisse, vérifier article et poids (§21 n° 13). (e) Un futur article qui aurait besoin de plus de 3 digits de référence ne fera pas élargir `0493` — 684 références y sont libres — mais **ouvrir un autre préfixe**, en accord avec la caisse. (f) Non couverts, et dits : l'EAN-8, et les codes à prix variable `0491`/`0492` que l'ancienne application signalait déjà (`Module1.bas:4096`, `4105`), absents des deux catalogues.
+
+### ADR-029 — Les barres du symbole deviennent uniformes ; le texte cesse de les recouvrir
+**Contexte.** L'étiquette de production superpose les deux prix **par-dessus les barres** du code-barres. Ce n'est pas un accident de mise en page : c'est un **choix délibéré du commanditaire**, qui avait besoin de place pour afficher les deux politiques tarifaires de la coopérative — adhérent et solidaire — au-dessus d'un symbole de cette hauteur. Cela fonctionne en caisse parce qu'un lecteur linéaire n'a besoin que d'**une** ligne de balayage propre, et qu'il la trouve sous le texte.
+
+Le PDF de test a été décompressé et son flux de contenu lu. Il **confirme les six boîtes de §7.2 à 40 µm près** — moins d'un tiers de dot — et il chiffre le coût de ce choix :
+
+| Grandeur | Valeur mesurée |
+|---|---|
+| Barres annoncées par §7.2 | 11 722 µm |
+| dont recouvertes par le prix solidaire (7 pt) | 1 192 µm |
+| dont recouvertes par le prix adhérent (11 pt) | 3 381 µm |
+| **Barres réellement propres sur toute la largeur** | **8 341 µm** — 71 % de l'annoncé |
+
+Le PDF révèle en outre que **le symbole ne commence pas en haut de sa boîte** : §7.2 donne l'origine du bloc à 8 996 µm, qui est le haut du contrôle Access `CodeBarre`, alors que la ligne de base du glyphe est à 21 326 µm et que les barres montent de 0,977 em au-dessus, soit un départ à **9 604 µm**. La *hauteur* du bloc est exactement les 14 650 µm annoncés ; c'est l'origine qui dérive de 608 µm.
+
+**Décision (commanditaire).** Les trois lignes de texte sont **empilées** avec un interligne de **350 µm**, et le symbole est placé **sous** elles. Les barres deviennent **uniformes sur toute la largeur**, à **10 875 µm** (87 dots exactement à 8 dots/mm).
+
+**Ce qui ne change pas, et c'est ce qui rend la décision compatible avec A1 :** le **module** reste à 0,293 mm (2 344 milli-dots, grandissement 88,8 %, dans la plage GS1) et le **hors-tout** reste à 33,109 mm. ADR-003 interdit trois remèdes nommés — changer de consommable, passer en 305 dpi, modifier le grandissement — et cette décision n'en touche aucun. La hauteur des barres était **déjà** déclarée volontairement tronquée : elle est tronquée autrement, et mieux.
+
+**Conséquences.**
+
+1. **La hauteur réellement lisible augmente de 30 %** : 10 875 µm uniformes contre 8 341 µm propres aujourd'hui. Rapportée à la norme ramenée à ce grandissement (20,29 mm), la hauteur passe de **41 % à 54 %** : la conformité *s'améliore*, elle ne se dégrade pas.
+2. **La règle dure n° 3 de §7.5 devient satisfiable pour le gabarit de production**, ce qui n'était pas le cas : les 9 règles s'appliquent enfin à `weighing_identical` au lieu d'être suspendues pour lui. Le contenu encré descend à **200,744 dots** sur les 202 admis.
+3. **L'aperçu à l'écran devient fidèle sans réserve**, et le réglage du décalage ±1 dot fait dans l'admin est juste sur la vraie étiquette.
+4. **Un lecteur ne peut plus tomber sur une ligne de balayage coupée** en haut du symbole — le mode de panne le plus difficile à diagnostiquer d'un code-barres partiellement masqué, puisqu'il dépend de l'angle de présentation.
+5. L'origine du symbole n'est plus lue depuis une boîte de contrôle Access : elle est **posée par sa propre valeur mesurée**, ce qui rend l'écart de 608 µm sans objet.
+
+**Ce qui reste à valider physiquement, et c'est un critère de recette de L5.** L'étiquette **change visuellement** : les barres sont plus courtes de 847 µm que les 11 722 annoncés, le texte n'est plus dessus. Le protocole de §7.6 s'applique tel quel — 50 étiquettes de production Access contre 50 étiquettes neuves, au même scanner de caisse, refus et relectures comptés. L'attente est un taux de lecture **meilleur** ; si le comptage disait le contraire, le repli est d'augmenter l'interligne pour rendre les barres plus hautes encore, jusqu'à 11 632 µm à 150 µm d'interligne.
+
+**Ce que cette décision ne fait pas.** Elle ne rouvre pas la question du grandissement, ni celle du consommable, ni celle de la résolution. Elle ne rend pas le symbole conforme à la norme — il reste tronqué, volontairement, et `truncation_accepted` reste levé sur le gabarit pour que le diagnostic de l'admin demeure **informatif** et non un avertissement (ADR-003).
 
 ---
 

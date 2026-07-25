@@ -8,39 +8,28 @@ package domain
 // files under internal/assets and this file becomes their loader — validated by the
 // very same Template.Validate.
 //
-// # WHY THE PRODUCTION TEMPLATE IS NOT HERE YET
+// # WHAT THE TEST PDF TAUGHT US
 //
-// weighing_identical reproduces a measured object, and the measurement was done:
-// reference/test_etiquette_EtataImprimer.pdf was decompressed and its content
-// stream read. It CONFIRMS the six boxes of §7.2 to within 40 um — under a third of
-// a dot — which is a strong result for a table transcribed from twips.
-//
-// It also shows two things §7.2 does not say, and both matter to L4:
+// reference/test_etiquette_EtataImprimer.pdf was decompressed and its content stream
+// read. It CONFIRMS the six boxes of §7.2 to within 40 um — under a third of a dot —
+// which is a strong result for a table transcribed from twips. It also shows two
+// things §7.2 does not say:
 //
 //  1. THE SYMBOL DOES NOT START AT THE TOP OF ITS BOX. §7.2 gives the block origin
 //     as y = 8 996 um, which is the top of the Access control CodeBarre. The glyph
-//     actually drawn has its baseline at y = 21 326 um and rises 0.977 em above it,
-//     so the bars begin at 9 604 um — 608 um lower. The block height is exactly the
-//     14 650 um the document states; it is the ORIGIN that is off. The inked content
-//     therefore reaches 194 dots, not 189, and rule 3 passes with 8 dots of margin
-//     rather than 13.
+//     actually drawn has its baseline at 21 326 um and rises 0.977 em above it, so
+//     the bars begin at 9 604 um — 608 um lower. The block HEIGHT is exactly the
+//     14 650 um stated; it is the origin that drifts.
 //
-//  2. THE BOXES OF THE PRODUCTION LABEL OVERLAP EACH OTHER, and overlap the symbol
-//     box. That is not a defect of the label: an Access report control carries its
-//     line spacing inside its height, and the text inside it is short and aligned
-//     left or right, so the INK does not collide. But rules 5 and 8 bear on boxes,
-//     because ink extent is only known once a font has measured a string — which is
-//     L4's job, not L2's.
+//  2. THE TEXT SITS ON THE BARS, and by design. The cooperative runs two price
+//     tiers, and there was no room for both above a symbol of that height. Measured:
+//     the two prices eat 4 573 um of the 11 722 um of bars, leaving 8 341 um clean
+//     across the full width.
 //
-// Transcribing those boxes literally would therefore produce a template that fails
-// its own hard rules. The answer is not to weaken the rules: it is to declare a
-// NATIVE geometry that places ink, which is precisely the test CLAUDE.md prescribes
-// — trace the element back to the legacy application, then ask whether it would
-// exist starting from a blank page. Overlapping boxes with built-in leading would
-// not.
-//
-// So L4 gets the measurements, and L2 ships the validator plus a template that
-// exercises it.
+// ADR-029 answers point 2 by stacking the text and putting the symbol below it. The
+// bars become uniform AND taller in usable terms — 10 875 um against 8 341 — so
+// point 1 becomes moot: the symbol is placed by its own measured top, not by a
+// control box.
 func neutralSingleGeometry() Template {
 	return Template{
 		Name: "weighing_neutral_single",
@@ -109,9 +98,136 @@ func neutralSingleGeometry() Template {
 
 // NeutralSingleTemplate is the mono-tarif template of the neutral profile.
 //
-// It is the only template L2 ships, and it is deliberately NOT a transposition of
-// the production label: its boxes place ink, so it satisfies all nine hard rules.
+// It is deliberately NOT a transposition of the production label: its boxes place
+// ink, so it satisfies all nine hard rules.
 func NeutralSingleTemplate() Template { return neutralSingleGeometry() }
+
+// IdenticalTemplate is the production label: same product, same five fields, same
+// module, same over-all width — with the bars UNIFORM instead of half-covered by
+// text (ADR-029).
+//
+// WHY THIS DIFFERS FROM §7.2, AND WHY IT IS BETTER
+//
+// The current label superimposes the two prices ON the bars. That was a deliberate
+// choice of the commissioning party, not an accident: the cooperative runs two price
+// tiers, member and solidarity, and there was no room for both above a symbol of
+// that height. It works at the till because a linear scanner needs only ONE clean
+// scan line and finds it below the text.
+//
+// Measured on the test PDF, the cost of that choice:
+//
+//	bars declared                              11 722 um
+//	  minus the solidarity price (7 pt)          1 192 um
+//	  minus the member price (11 pt)             3 381 um
+//	bars clean across the WHOLE width            8 341 um   -- 71 % of the declared
+//
+// Stacking the three text lines with a 350 um leading and placing the symbol BELOW
+// them yields 10 875 um of bars — uniform over the full width, +30 % of usable
+// height, and 54 % of the standard bar height at this magnification against 41 %
+// today. The conformity improves.
+//
+// Nothing A1 freezes moves: the module stays at 0.293 mm (2 344 milli-dots) and the
+// over-all width at 33.109 mm. ADR-003 forbids three specific remedies — changing
+// the consumable, going to 305 dpi, altering the magnification — and this touches
+// none of them. The bar height was already declared deliberately truncated; it is
+// truncated differently, and better.
+//
+// Three technical consequences, all of them wanted:
+//   - hard rule 5 becomes SATISFIABLE, so the nine rules finally apply to the
+//     production template rather than being suspended for it;
+//   - the on-screen preview becomes faithful without reservation;
+//   - a scanner can no longer land on a scan line that is cut off at the top.
+func IdenticalTemplate() Template {
+	// The typographic grid, in micrometres. Three lines, 350 um of leading, then the
+	// symbol. Every number below is derived from these four, so changing the leading
+	// changes one constant.
+	const (
+		leading = 350
+		body9   = 3_175 //  9 pt
+		body7   = 2_473 //  7 pt, measured on the PDF
+		body11  = 3_888 // 11 pt, measured on the PDF
+		ascent  = 750   // per mille of em: Carlito, metrically Calibri
+	)
+	line2 := Micrometers(body9 + leading)          //  3 525
+	line3 := line2 + Micrometers(body9+leading)    //  7 050
+	textBottom := line3 + Micrometers(body11)      // 10 938
+	symbolTop := textBottom + Micrometers(leading) // 11 288
+
+	// The solidarity price is 7 pt and the member price 11 pt; they share a BASELINE,
+	// which is what a typographer would do and what the legacy report did not — its
+	// two prices sat 774 um apart for no reason anyone could state.
+	baseline := line3 + Micrometers(body11*ascent/1000)
+	secondaryTop := baseline - Micrometers(body7*ascent/1000)
+
+	return Template{
+		Name: "weighing_identical",
+		Media: Media{
+			WidthUM:   40_000,
+			HeightUM:  25_400,
+			DotsPerMM: 8,
+		},
+		PrintableWidthUM:  40_000,
+		PrintableHeightUM: 25_400,
+		TextThreshold:     0x68,
+		// The truncation remains a documented decision of the commissioning party.
+		// The flag keeps the admin screen INFORMATIVE about it rather than amber, so
+		// that no contributor "corrects" it out of zeal in six months (ADR-003).
+		TruncationAccepted: true,
+		Elements: []Element{
+			{
+				Field: FieldProductName,
+				XUM:   0, YUM: 0, WidthUM: 34_978, HeightUM: body9,
+				FontSizeUM: body9, MinFontSizeUM: 2_200,
+				AutoBold: true, Align: AlignLeft,
+			},
+			{
+				Field: FieldQuantity,
+				XUM:   0, YUM: line2, WidthUM: 15_000, HeightUM: body9,
+				FontSizeUM: body9, AutoBold: true, Align: AlignLeft,
+			},
+			{
+				// Bold and framed, as on the current label: the price per kilo is what a
+				// customer checks against the shelf.
+				Field: FieldPrimaryUnitPrice,
+				XUM:   15_200, YUM: line2, WidthUM: 19_778, HeightUM: body9,
+				FontSizeUM: body9, Bold: true, Framed: true, AutoBold: true, Align: AlignRight,
+			},
+			{
+				Field: FieldSecondaryTotalPrice,
+				XUM:   0, YUM: secondaryTop, WidthUM: 15_000, HeightUM: body7,
+				FontSizeUM: body7,
+				// auto_bold OFF: the source carries no FontWeight on LabelAPayer, so the
+				// solidarity price prints in REGULAR. Bolding it would be the one visible
+				// departure from the original, which A1 forbids.
+				AutoBold: false, Align: AlignLeft, When: WhenMultiTier,
+			},
+			{
+				Field: FieldPrimaryTotalPrice,
+				XUM:   17_978, YUM: line3, WidthUM: 17_000, HeightUM: body11,
+				FontSizeUM: body11, Bold: true, AutoBold: true, Align: AlignRight,
+			},
+			{
+				Field: FieldBarcode,
+				XUM:   0, YUM: symbolTop, WidthUM: 34_978, HeightUM: 10_875 + 2_930,
+				Align: AlignLeft,
+			},
+		},
+		Symbol: SymbolGeometry{
+			XUM: 0, YUM: symbolTop,
+			// UNCHANGED, and this is the point: 2.344 dots = 0.293 mm, 88.8 %
+			// magnification, inside the GS1 range. A1 is respected where A1 speaks.
+			ModuleMilliDots: 2_344,
+			// 87 dots exactly at 8 dots/mm. Uniform over the full width, against
+			// 8 341 um clean today.
+			BarHeightUM: 10_875,
+			// 5 modules, unchanged.
+			GuardDescentUM: 1_465,
+			// Measured on the PDF: 0.244 em at 34 pt. The HRI exists on the current
+			// label and is never dropped — the cashier keeps her fallback.
+			HRIHeightUM: 2_930,
+		},
+	}
+}
 
 // IntegerModuleTemplate is gabarit B of §7.6: the same layout with a module of
 // exactly 2 dots.
@@ -131,10 +247,14 @@ func IntegerModuleTemplate() Template {
 	return t
 }
 
-// ShippedTemplates are the templates the binary knows, by name.
+// ShippedTemplates are the three templates the binary knows, by name.
 func ShippedTemplates() map[string]Template {
 	return map[string]Template{
+		"weighing_identical":      IdenticalTemplate(),
 		"weighing_neutral_single": NeutralSingleTemplate(),
 		"weighing_integer_module": IntegerModuleTemplate(),
 	}
 }
+
+// DefaultTemplateName is what config-lacagette.json selects.
+const DefaultTemplateName = "weighing_identical"
