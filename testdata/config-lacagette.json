@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "_readme": "Modifiable depuis l'écran d'administration. Édition manuelle : arrêtez le service, éditez, redémarrez. Copies de secours en config.json.1 à .5.",
+  "modified_at": "2026-07-24T14:32:05Z",
+
+  "station": { "number": 2, "name": "Poste 2 — fruits", "coop": "Les Amis de la Coopé" },
+  "network": { "listen": "127.0.0.1:8085", "admin_on_lan": false },
+
+  "ui": {
+    "language": "fr",
+    "sound": true,
+    "idle_timeout_s": 45,
+    "reprint_window_s": 60,
+    "show_grid_prices": true
+  },
+
+  "scale": {
+    "type": "gram-xfoc-plus",
+    "present": true,
+    "options": {
+      "port": "COM8",
+      "baud": 9600,
+      "bits": 8,
+      "parity": "N",
+      "stop": 1,
+      "backoff_min_ms": 200,
+      "backoff_max_ms": 5000
+    },
+    "manual_entry_allowed": true,
+    "degrade_after_s": 20
+  },
+
+  "printer": {
+    "type": "raster",
+    "template": "weighing_identical",
+    "options": {
+      "transport": "winspool",
+      "queue": "SATO WS408_2",
+      "path": "",
+      "address": "",
+      "fallback": { "enabled": false, "transport": "winspool", "queue": "SATO WS408_3" },
+      "darkness": 3,
+      "speed": 4,
+      "offset_x": 0,
+      "offset_y": 0,
+      "invert_bits": false,
+      "copies": 1,
+      "roll_capacity": 1000
+    }
+  },
+
+  "pricing": {
+    "tiers": [
+      { "code": "MEMBER",     "label": "Adhérent",  "abbrev": "A", "coef_num": 9, "coef_den": 10, "rank": 1 },
+      { "code": "SOLIDARITY", "label": "Solidaire", "abbrev": "S", "coef_num": 1, "coef_den": 1,  "rank": 2 }
+    ],
+    "primary_code": "MEMBER",
+    "secondary_codes": ["SOLIDARITY"],
+    "reference_code": "SOLIDARITY",
+    "amount_rounding": "half_up",
+    "unit_price_rounding": "half_up"
+  },
+
+  "barcode": { "verify_reference_check_digit": true },
+
+  "limits": {
+    "empty_max_g": 5,
+    "basket_check_enabled": true,
+    "basket_min_g": -282,
+    "basket_max_g": -270,
+    "min_weight_g": 10,
+    "max_weight_g": 99999,
+    "max_tare_g": 9999,
+    "min_units": 1,
+    "max_units": 99,
+    "max_amount_cents": 99999
+  },
+
+  "stability": {
+    "mode": "advisory",
+    "min_duration_ms": 300,
+    "tolerance_g": 2,
+    "timeout_ms": 3000,
+    "on_timeout": "warn_and_print",
+    "min_latch_rate": 0.7,
+    "latch_rate_window_ms": 300000,
+    "expiry_floor_ms": 1200,
+    "expiry_ceiling_ms": 5000,
+    "expiry_factor": 3
+  },
+
+  "catalog": {
+    "type": "webdav",
+    "options": {
+      "url": "https://dav.example.org:8001/",
+      "username": "balance",
+      "password": "",
+      "separator": ";",
+      "poll_interval_s": 5,
+      "stable_polls": 2,
+      "max_file_size_mb": 8,
+      "max_image_size_kb": 256,
+      "min_readable_ratio": 0.9,
+      "max_weighable_drop": 0.1,
+      "max_archives": 30,
+      "archive_days": 60,
+      "failures_before_reject": 3
+    },
+    "images": { "source": "csv", "path": "" },
+    "fallback_category": "other",
+    "categories": [
+      { "code": "fruits",     "label": "Fruits",  "rank": 1, "color": "#C0392B", "visible": true },
+      { "code": "vegetables", "label": "Légumes", "rank": 2, "color": "#27AE60", "visible": true },
+      { "code": "bulk",       "label": "Vrac",    "rank": 3, "color": "#B7950B", "visible": true },
+      { "code": "other",      "label": "Autres",  "rank": 4, "color": "#5D6D7E", "visible": true }
+    ]
+  },
+
+  "journal": { "max_rows": 5000, "max_days": 90, "max_technical": 2000 },
+
+  "admin": {
+    "password_hash": "$argon2id$v=19$m=65536,t=3,p=2$b3BlbnNjYWxlLXNhbHQxMg$Zm9yLXRoZS1kZWxpdmVyZWQtY29uZmlndXJhdGlvbmc",
+    "recovery_code_hash": "$argon2id$v=19$m=65536,t=3,p=2$cmVjb3Zlcnktc2FsdC0wMQ$Zm9yLXRoZS1yZWNvdmVyeS1jb2RlLW9mLXRoZS1zaGVldA",
+    "session_minutes": 30,
+    "attempts_per_minute": 5
+  },
+
+  "maintenance": { "weekly_integrity_check": true, "disk_alert_mb": 200 }
+}

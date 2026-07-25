@@ -484,3 +484,68 @@ func findCode(diagnostics []Diagnostic, code string) *Diagnostic {
 	}
 	return nil
 }
+
+// TestCheckMessageEnforcesTheClosedList is what turns the closed list from a comment
+// into a rule. The Rules screen of L8 will call it; the point of writing it now is
+// that the handler gets a rule to call rather than a rule to invent.
+func TestCheckMessageEnforcesTheClosedList(t *testing.T) {
+	cases := []struct {
+		name    string
+		message string
+		faults  int
+	}{
+		{"no placeholder at all", "Posez votre produit.", 0},
+		{"every legal placeholder", "{{.Weight}} kg, {{.Quantity}} unités, tare {{.Tare}}, {{.Amount}} €", 0},
+		{"the shipped wording of rule 9", DefaultMessage(CodeWeightTooHigh), 0},
+		{"the shipped wording of rule 10", DefaultMessage(CodeUnitsOutOfRange), 0},
+
+		{"a placeholder that does not exist", "{{.Poids}} kg, ça paraît lourd !", 1},
+		{"a French field name", "{{.Quantite}} unités", 1},
+		{"a plausible but absent field", "{{.NetWeight}} kg", 1},
+		{"two unknown ones", "{{.Poids}} et {{.Prix}}", 2},
+		{"one known and one unknown", "{{.Weight}} kg pour {{.Prix}} €", 1},
+		{"an unclosed marker", "{{.Weight kg", 1},
+		{"case matters: Go field names are exported", "{{.weight}} kg", 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			faults := CheckMessage("limits.messages.WEIGHT_TOO_HIGH", c.message)
+			if len(faults) != c.faults {
+				t.Errorf("%d fautes sur %q, want %d : %v", len(faults), c.message, c.faults, faults)
+			}
+			// A closed list must SAY what it accepts, or a volunteer has nowhere to go.
+			for _, f := range faults {
+				if len(f.Values) == 0 {
+					t.Errorf("la faute %q ne propose aucun marqueur admissible", f.Message)
+				}
+				if f.Field != "limits.messages.WEIGHT_TOO_HIGH" {
+					t.Errorf("la faute ne nomme pas le champ soumis : %q", f.Field)
+				}
+			}
+		})
+	}
+}
+
+// TestEveryShippedMessagePassesItsOwnRule: the wording we ship must satisfy the rule
+// we impose on an operator. A shipped message with a typo in a placeholder would
+// print a raw "{{.Poids}}" on a customer's screen.
+func TestEveryShippedMessagePassesItsOwnRule(t *testing.T) {
+	for code := range defaultMessages {
+		if faults := CheckMessage(code, DefaultMessage(code)); len(faults) != 0 {
+			t.Errorf("%s : %v", code, faults)
+		}
+	}
+}
+
+// TestMessagePlaceholdersDoesNotLeakTheList: the Rules screen displays it, and a
+// screen must not be able to shrink the rule it is documenting.
+func TestMessagePlaceholdersDoesNotLeakTheList(t *testing.T) {
+	first := MessagePlaceholders()
+	if len(first) != 4 {
+		t.Fatalf("%d marqueurs, want 4", len(first))
+	}
+	first[0] = "{{.Mutated}}"
+	if MessagePlaceholders()[0] != "{{.Weight}}" {
+		t.Error("MessagePlaceholders rend une tranche qui aliase la liste interne")
+	}
+}

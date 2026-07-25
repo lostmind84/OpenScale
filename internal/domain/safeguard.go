@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -166,9 +167,69 @@ func DefaultMessage(code string) string { return defaultMessages[code] }
 // A closed list rather than text/template: an operator editing a message from the
 // Rules screen must not be able to make the rendering fail at print time, and a
 // template error in the middle of a weighing is exactly the kind of failure this
-// architecture refuses. An unknown placeholder is caught when the configuration
-// is validated, not when a customer is waiting.
+// architecture refuses. An unknown placeholder is caught when the message is
+// SUBMITTED, not when a customer is waiting.
 var messagePlaceholders = []string{"{{.Weight}}", "{{.Quantity}}", "{{.Tare}}", "{{.Amount}}"}
+
+// MessagePlaceholders reports the interpolations a safeguard message may contain, so
+// that the Rules screen can list them next to the field being edited.
+func MessagePlaceholders() []string {
+	out := make([]string, len(messagePlaceholders))
+	copy(out, messagePlaceholders)
+	return out
+}
+
+// CheckMessage reports the faults of a safeguard message an operator submitted.
+//
+// It lives here rather than in Config.Validate, and that is a consequence of
+// ADR-025: config.json carries NO message. §6.4 says the wording lives "once, in the
+// table below", and limits.rules{} -- the only table that ever carried messages by
+// code -- is deleted, because it put the definition of a sellable product in the
+// hands of a volunteer. So there is nothing to validate when a configuration is
+// loaded.
+//
+// What there IS to validate is a message arriving from the Rules screen, and that is
+// this function. It is written now, with the closed list it enforces, so that the
+// L8 handler has a rule to call rather than a rule to invent.
+//
+// An unknown placeholder is a fault and not a silent pass-through: renderMessage
+// leaves it visible on screen, which is better than a blank, but a customer should
+// never be the one who discovers it.
+func CheckMessage(field, message string) []Fault {
+	var faults []Fault
+	for i := 0; i+1 < len(message); i++ {
+		if message[i] != '{' || message[i+1] != '{' {
+			continue
+		}
+		end := indexFrom(message, "}}", i)
+		if end < 0 {
+			faults = append(faults, Fault{
+				Field:   field,
+				Message: "un marqueur est ouvert par « {{ » et jamais refermé",
+				Values:  MessagePlaceholders(),
+			})
+			break
+		}
+		placeholder := message[i : end+2]
+		if !known(messagePlaceholders, placeholder) {
+			faults = append(faults, Fault{
+				Field:   field,
+				Message: fmt.Sprintf("le marqueur %s n'existe pas", placeholder),
+				Values:  MessagePlaceholders(),
+			})
+		}
+		i = end + 1
+	}
+	return faults
+}
+
+// indexFrom reports the first occurrence of needle at or after start, or -1.
+func indexFrom(haystack, needle string, start int) int {
+	if index := strings.Index(haystack[start:], needle); index >= 0 {
+		return start + index
+	}
+	return -1
+}
 
 // renderMessage substitutes the closed list of placeholders. Unknown placeholders
 // are left as they are: visible, therefore reportable, never a silent blank.
