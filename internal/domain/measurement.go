@@ -55,6 +55,14 @@ type Measurement struct {
 	Tare      Grams
 	Quantity  int
 	Stability Stability
+	// Overload is the OL flag of the frame: the scale itself declares it is over
+	// capacity.
+	//
+	// Not in the field list of §6.5, and it has to be: safeguard rule 1 fires on
+	// "OL frame OR gross > MaxWeight", so the flag must travel from the decoder to
+	// Evaluate. No arithmetic on a saturated reading can replace it — a scale over
+	// capacity may report any mass at all, including a plausible one.
+	Overload  bool
 	Timestamp time.Time
 	// Seq numbers the measurements of a session. The screen sends it back with a
 	// weigh command, which is how the station knows whether the customer tapped
