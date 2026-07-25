@@ -5,9 +5,11 @@
 // copying one file.
 //
 // The subcommands of the V1 scope are serve, kiosk, doctor, capture, replay,
-// label and config. The two present here -- barcode and price -- are the
-// DEMONSTRATION commands of the first work package: they exercise the business
-// core from a terminal, with no scale, no printer and no browser.
+// label and config. Four are present. barcode and price are the DEMONSTRATION
+// commands of the first work package: they exercise the business core from a
+// terminal, with no scale, no printer and no browser. capture and replay are the
+// diagnostic pair of the third: capture needs a scale on the bench, replay needs
+// nothing but a file.
 package main
 
 import (
@@ -36,6 +38,12 @@ Commandes de démonstration du lot L1 :
   barcode <référence> --units <nombre>     idem pour un produit vendu à l'unité
   price --unit-price <prix> --weight <g>   calcule les prix d'une pesée
 
+Diagnostic de la balance (lot L3) :
+  capture --port COM8 --duration 30m       dump hexa + ASCII du port série, et
+                                           mesure la cadence réelle d'émission
+  replay <fichier> [--x10]                 rejoue un fichier de trames : poids,
+                                           état de figeage, cadence médiane
+
 Autres :
   --version                                version, commit et date de compilation
   --help                                   ce message
@@ -43,6 +51,8 @@ Autres :
 Exemples :
   openscale barcode 0493021000003 --weight 1236
   openscale price --unit-price 5,32 --weight 1236 --tiers cagette
+  openscale capture --port COM8 --duration 30m
+  openscale replay frames.txt --read-size 18
 `
 
 // parseMixed lets options appear BEFORE or AFTER the positional arguments.
@@ -78,6 +88,10 @@ func main() {
 		err = runBarcode(os.Args[2:], os.Stdout)
 	case "price":
 		err = runPrice(os.Args[2:], os.Stdout)
+	case "capture":
+		err = runCapture(os.Args[2:], os.Stdout)
+	case "replay":
+		err = runReplay(os.Args[2:], os.Stdout)
 	case "--version", "version":
 		fmt.Printf("openscale %s (commit %s, compilé le %s)\n", version, commit, date)
 	case "--help", "-h", "help":
