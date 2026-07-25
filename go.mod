@@ -8,6 +8,7 @@ toolchain go1.26.5
 
 require (
 	go.bug.st/serial v1.8.0
+	golang.org/x/image v0.44.0
 	golang.org/x/text v0.40.0
 	modernc.org/sqlite v1.54.0
 )

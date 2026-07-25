@@ -1231,7 +1231,18 @@ func Rasterize(g *domain.Template, label domain.Label, loc domain.Locale, o Rend
 | Substitut | Licence | Métriques | Conséquence sur l'étiquette |
 |---|---|---|---|
 | **Carlito** *(retenu)* | SIL OFL 1.1, redistribuable | **métriquement compatible Calibri** : mêmes chasses, mêmes crénages, même largeur de chaîne au 1/1000 d'em | les cinq champs occupent **la même largeur qu'aujourd'hui** ; le dessin des glyphes diffère à la loupe, la mise en page ne bouge pas |
-| DejaVu Sans Condensed | Bitstream Vera, redistribuable | chasse **plus étroite** que Calibri, métriques sans rapport | décalait la position de fin de chaîne des champs alignés à gauche et changeait le seuil de réduction automatique du corps |
+| DejaVu Sans Condensed | Bitstream Vera, redistribuable | chasse **plus large** que Calibri de 10 à 15 % — *mesuré*, voir la note — métriques sans rapport | les champs **déborderaient** de leur boîte et déclencheraient la réduction automatique du corps, au lieu de simplement finir plus tôt |
+
+> **Le sens de l'écart de DejaVu a été mesuré, et il est l'inverse de ce que cette table
+> a longtemps affirmé.** Son nom « Condensed » invite à la croire plus étroite ; elle ne
+> l'est que par rapport à la DejaVu Sans ordinaire, pas par rapport à Calibri, qui est
+> une humanistique déjà très économe. Rendues au même corps,
+> `internal/printing/metrics_test.go` mesure DejaVu Sans Condensed **plus large** que
+> Carlito de +10,65 % à +15,30 % selon la chaîne (« TRUC SUPER CHER » : +13,39 % ;
+> « 0,250 kg » : +15,30 %). La conclusion d'ADR-020 ne change pas — elle se renforce :
+> un texte plus large ne finit pas plus tôt, il **sort de son champ** et déclenche la
+> boucle de réduction de §7.3, ce qui changerait le corps imprimé et non seulement la
+> position de fin de chaîne.
 
 **Décision : `Carlito` est la police de `weighing_identical`** (Regular + Bold, ~700 ko pour les deux, embarqués) — **ADR-020**. DejaVu Sans Condensed reste embarquée comme police des **gabarits neutres** et comme repli si Carlito manque à un caractère : **elle n'est la police d'aucun champ de l'étiquette de production.** **Critère de recette de L4, mesurable et non subjectif** : pour les 5 chaînes réelles de l'étiquette de démonstration, `font.MeasureString` avec Carlito au corps du gabarit doit rendre une largeur **à moins de 1 % de la largeur mesurée sur le PDF de test produit par Access en Calibri** ; au-delà, l'écart est journalisé et remonté avant de figer le gabarit. C'est ce qui rend vérifiable le critère « superposé à une étiquette de production sur une table lumineuse, il coïncide ».
 

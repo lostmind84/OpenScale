@@ -41,6 +41,19 @@ La SIL OFL impose une seule contrainte à connaître : une version **modifiée**
 peut pas conserver son nom réservé. Nous ne modifions aucune police — nous les embarquons
 telles quelles.
 
+**Où elles se trouvent, et leur texte de licence.** `internal/printing/fonts/` porte les
+quatre fichiers `.ttf` et, à côté d'eux, le texte intégral des licences qu'ils exigent :
+`OFL.txt` pour Carlito, `DEJAVU-LICENSE.txt` pour DejaVu Sans Condensed. Les deux licences
+demandent que leur texte accompagne la police redistribuée ; comme `//go:embed` la fait
+voyager dans le binaire, le texte voyage avec le dépôt.
+
+**La compatibilité métrique de Carlito n'est pas prise sur parole.**
+`internal/printing/metrics_test.go` la mesure contre l'étiquette de production :
+les largeurs de Calibri sont lues sur `reference/test_etiquette_EtataImprimer.pdf`, où
+l'écart entre deux matrices de texte consécutives donne l'avance exacte du premier bloc.
+Écarts constatés sur les trois champs mesurables, en Regular comme en Bold, à 7, 9 et
+11 points : **+0,02 %, +0,35 %, −0,14 %** — le critère d'ADR-020 est d'un pour cent.
+
 ## Ce qui n'est pas embarqué, et pourquoi
 
 - **Calibri** — police de l'étiquette d'origine. Propriétaire Microsoft, licence liée au
