@@ -106,9 +106,16 @@ func TestTheReleaseWorkflowMayWriteAndOnlyIt(t *testing.T) {
 // created a Release, the page would fill with things nobody should install.
 func TestTheReleaseWorkflowTriggersOnVersionTagsOnly(t *testing.T) {
 	workflow := readWorkflow(t)
-	if !strings.Contains(workflow, `- "[0-9]+.[0-9]+.[0-9]+"`) {
-		t.Error("release.yml ne filtre pas les tags sur une forme de version : un tag de " +
-			"travail publierait une version")
+
+	// The « v » prefix is the most widespread convention of the git ecosystem, and the
+	// first version published from this repository was called v0.1. A filter that only
+	// accepted 2.0.0 matched nothing, so no run appeared at all — and a Release with no
+	// archives and no failed run is the hardest kind of nothing to diagnose.
+	for _, form := range []string{`- "[0-9]*.[0-9]*"`, `- "v[0-9]*.[0-9]*"`} {
+		if !strings.Contains(workflow, form) {
+			t.Errorf("release.yml n'accepte pas les tags de la forme %s : une version "+
+				"posée sous cette forme ne déclencherait rien", form)
+		}
 	}
 	if strings.Contains(workflow, `tags:`) && strings.Contains(workflow, `- "*"`) {
 		t.Error("release.yml se déclenche sur n'importe quel tag")

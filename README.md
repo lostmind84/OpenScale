@@ -265,9 +265,12 @@ premier poste, pas les 15 du plan.
 archives et les attache à la page *Releases* du dépôt, avec leurs empreintes :
 
 ```bash
-git tag -a 2.0.0 -m "Version 2.0.0"
-git push origin 2.0.0
+git tag -a v0.1 -m "Version 0.1"
+git push origin v0.1
 ```
+
+Les deux conventions sont acceptées — `v0.1` comme `2.0.0`, avec ou sans le préfixe `v`,
+en deux ou trois nombres, suffixe de préversion compris.
 
 Le workflow reconstruit l'écran client — `internal/web/dist` est commité pour que
 `go build` marche sans Node, mais rien ne garantit qu'il corresponde aux sources du tag,
@@ -281,7 +284,10 @@ par un numéro de révision. Le workflow demande donc `fetch-depth: 0`, et refus
 si les noms ne concordent pas.
 
 Un tag qui ne ressemble pas à une version — `banc-de-test`, `avant-migration` — ne
-déclenche rien. Un tag suffixé (`2.0.1-rc1`) est publié comme **préversion**, pour qu'un
+déclenche rien : il ne se passe alors **rien du tout**, pas même une exécution en échec,
+ce qui est le genre de silence le plus difficile à diagnostiquer. Si une Release reste sans
+archives, regardez d'abord la page *Actions* : une liste vide veut dire que le tag n'a pas
+été reconnu. Un tag suffixé (`2.0.1-rc1`) est publié comme **préversion**, pour qu'un
 bénévole n'installe pas une release candidate en croyant faire une mise à jour ordinaire.
 
 Pour reconstruire une version sans reposer son tag, la page *Actions* du dépôt propose

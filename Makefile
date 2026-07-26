@@ -12,7 +12,14 @@
 #
 # Sous Windows sans GNU make, `.\make.ps1 <cible>` expose les mêmes cibles.
 
-VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# VERSION est DÉRIVÉE par défaut et SURCHARGEABLE : `make release VERSION=v0.1`.
+#
+# Le workflow de publication l'impose, parce que dans une release la version EST le tag.
+# Et parce que `--dirty` suffixe le nom dès que l'arbre est modifié : la publication
+# reconstruit l'écran client juste avant, dont les noms de fichiers portent une empreinte
+# du contenu, si bien que les archives sortiraient en « -dirty » d'un dépôt parfaitement
+# sain. `?=` et non `:=` pour que la variable d'environnement suffise aussi.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    := $(shell git log -1 --format=%cI 2>/dev/null || echo unknown)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)

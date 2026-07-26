@@ -22,7 +22,13 @@
 param(
   [Parameter(Position = 0)]
   [ValidateSet('all', 'test', 'vet', 'boundary', 'build', 'dist', 'release', 'cover', 'front', 'front-check', 'clean', 'help')]
-  [string]$Target = 'all'
+  [string]$Target = 'all',
+
+  # -Version impose le numéro au lieu de le dériver de l'histoire, comme
+  # `make release VERSION=v0.1`. La publication s'en sert : dans une release, la version
+  # EST le tag, et `git describe --dirty` suffixerait « -dirty » dès que l'arbre est
+  # modifié — ce qu'il est juste après la reconstruction de l'écran client.
+  [string]$Version = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -67,7 +73,7 @@ function Or-Else($value, $fallback) {
   return $value
 }
 
-$version = Or-Else (git describe --tags --always --dirty 2>$null) 'dev'
+$version = Or-Else $Version (Or-Else (git describe --tags --always --dirty 2>$null) 'dev')
 $commit = Or-Else (git rev-parse --short HEAD 2>$null) 'unknown'
 $date = Or-Else (git log -1 --format=%cI 2>$null) 'unknown'
 $ldflags = "-s -w -X main.version=$version -X main.commit=$commit -X main.date=$date"

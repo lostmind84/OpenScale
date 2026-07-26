@@ -15,10 +15,16 @@ name: Release
 on:
   push:
     tags:
-      # Les versions livrées : 2.0.0, 2.1.0, 2.0.1-rc1. Un tag qui ne ressemble pas à une
-      # version ne déclenche rien — un `git tag banc-de-test` ne publie pas.
-      - "[0-9]+.[0-9]+.[0-9]+"
-      - "[0-9]+.[0-9]+.[0-9]+-*"
+      # Toutes les formes qu'une version prend en pratique : 2.0.0 et v2.0.0, 0.1 et v0.1,
+      # 2.0.1-rc1 et v0.1-beta. Le préfixe « v » est la convention la plus répandue de
+      # l'écosystème git, et la première version publiée de ce dépôt s'appelait v0.1 : un
+      # filtre qui ne l'acceptait pas n'a rien déclenché du tout, et la Release est restée
+      # sans archives sans qu'aucune exécution n'apparaisse pour l'expliquer.
+      #
+      # Ce qui reste exclu est ce qui doit l'être : `git tag banc-de-test` et
+      # `git tag avant-migration` sont des gestes de travail et ne publient pas.
+      - "[0-9]*.[0-9]*"
+      - "v[0-9]*.[0-9]*"
   # Pour reconstruire une version sans re-poser son tag, ou pour essayer le workflow.
   workflow_dispatch:
     inputs:
@@ -87,8 +93,20 @@ jobs:
 
       # release dépend de dist, qui dépend de test : la suite complète tourne avant
       # qu'une archive existe. Une version n'est pas un endroit où gagner du temps.
+      #
+      # VERSION EST IMPOSÉE, et ne vient pas du `git describe` du Makefile. Deux raisons,
+      # et la seconde a réellement bloqué une publication :
+      #
+      #   1. dans une release, la version EST le tag. La dériver de l'histoire ajoute une
+      #      étape qui peut se tromper là où il n'y a rien à déduire ;
+      #   2. `git describe --dirty` suffixe « -dirty » dès que l'arbre de travail est
+      #      modifié — et l'étape précédente reconstruit l'écran client, dont les noms de
+      #      fichiers portent une empreinte du contenu. L'arbre est donc SALE au moment où
+      #      les archives se fabriquent, elles sortiraient sous le nom
+      #      openscale-v0.1-dirty-windows-amd64.zip, et le contrôle de cohérence
+      #      ci-dessous refuserait de publier une version pourtant correcte.
       - name: Fabriquer les trois archives
-        run: make release
+        run: make release VERSION="${{ github.event.inputs.tag || github.ref_name }}"
 
       - name: Ce qui va être publié
         run: |
