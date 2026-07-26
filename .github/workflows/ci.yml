@@ -128,3 +128,50 @@ jobs:
             -ldflags "-s -w -X main.version=${GITHUB_SHA::8}" \
             -o "openscale-${GOOS}-${GOARCH}" ./cmd/openscale
           ls -lh openscale-*
+
+  front:
+    name: Écran client — types, tests et budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # `npm ci` et non `npm install` : les versions sont exactes dans package.json
+      # et gelées dans package-lock.json (§14.1). Un `^` ferait bouger un golden.
+      - name: npm ci
+        working-directory: web
+        run: npm ci
+
+      - name: svelte-check
+        working-directory: web
+        run: npm run check
+
+      # Les 121 paires de normalisation, la grille sur le catalogue réel, le seuil
+      # des puces. Aucun de ces tests ne dort.
+      - name: vitest
+        working-directory: web
+        run: npm test
+
+      - name: npm run build
+        working-directory: web
+        run: npm run build
+
+      # Le budget de §14.1 : < 110 ko gzip pour l'écran client, administration
+      # exclue. Mesuré ici, jamais supposé.
+      - name: Budget de l'écran client
+        working-directory: web
+        run: npm run budget
+
+      # internal/web/dist est COMMITÉ pour que `go build` marche sans Node. Les
+      # sorties de Vite ne sont pas reproductibles d'une version de Node à l'autre,
+      # donc on ne compare pas les octets : on vérifie seulement que le dépôt porte
+      # bien un dist, et que le binaire compile avec lui.
+      - name: internal/web/dist est présent dans le dépôt
+        run: |
+          test -f internal/web/dist/index.html
+          test -f internal/web/dist/admin.html

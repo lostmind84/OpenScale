@@ -19,22 +19,28 @@ LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.dat
 
 TARGETS := windows/amd64 linux/amd64 linux/arm64
 
-.PHONY: all test vet boundary build dist front clean cover help
+.PHONY: all test vet boundary build dist front front-check clean cover help
 
 all: test build
 
 help:
-	@echo "Cibles : test · vet · boundary · build · dist · cover · front · clean"
+	@echo "Cibles : test · vet · boundary · build · dist · cover · front · front-check · clean"
 
-# front n'existe pas encore : le lot L6 livre le paquet web/. La cible est
-# déclarée dès maintenant parce que `go:embed all:dist` en dépendra, et qu'une
-# cible manquante découverte au moment de la livraison coûte plus cher.
+# front construit l'écran client vers internal/web/dist, qui est COMMITÉ : `go
+# build` doit fonctionner sur une machine sans Node (§14.1).
 front:
 	@if [ -f web/package.json ]; then \
 	  npm --prefix web ci && npm --prefix web run build; \
 	else \
-	  echo "front : web/package.json absent (lot L6) — rien à construire"; \
+	  echo "front : web/package.json absent — rien à construire"; \
 	fi
+
+# front-check est la qualité du front : types, tests, puis le budget de §14.1
+# mesuré sur le dist fraîchement construit — jamais supposé.
+front-check: front
+	npm --prefix web run check
+	npm --prefix web test
+	npm --prefix web run budget
 
 vet:
 	go vet ./...

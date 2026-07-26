@@ -1,0 +1,150 @@
+/*
+ * Design tokens and the rules that are true of the whole screen.
+ *
+ * Sizes are relative — rem on a 16 px base, which is the reference screen of
+ * §14.2: 1920 x 1080 on a 24" panel read from 60 to 80 cm. A 24" 16:9 panel is
+ * 531 mm wide, so 1920 / 531 = 3,61 px/mm and the 20 mm touch target of §14.2 is
+ * 72 px, i.e. 4.5rem. That figure, and the readability of a 69 character name,
+ * are the two physical constraints the single grid density is derived from:
+ * there is no comfort/dense setting to arbitrate (ADR-024, ADR-025).
+ */
+
+:root {
+  --bg: #f7f6f3;
+  --surface: #ffffff;
+  --border: #e2dfd8;
+  --ink: #1c1b19;
+  --ink-muted: #5b5850;
+  --waiting: #8a867c; /* grey: weight not latched yet */
+  --ready: #1e8e4e; /* green: weight latched, success */
+  --warning: #c8641b; /* orange: business rejection, the customer acts */
+  --fault: #b3261e; /* red: hardware failure, a volunteer acts */
+  --focus: #1e5fa8;
+
+  /* The touch target of §14.2, in relative units. Nothing touchable is smaller. */
+  --touch-min: 4.5rem;
+  /* A calibration drift of 5 mm -- a real case after a screen swap -- must stay
+     without effect, hence the gap between two targets. */
+  --touch-gap: 0.5rem;
+
+  /* One column is at least 230 px = 14.375rem; auto-fill absorbs a change of
+     resolution without anyone editing a number (§14.3-1). */
+  --tile-min: 14.375rem;
+
+  --banner-height: 10.5rem;
+  --reprint-height: 3.5rem;
+  --filter-height: 6rem;
+
+  --radius: 0.5rem;
+
+  font-size: 16px;
+  color-scheme: light;
+}
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: block;
+  src: url('./assets/inter-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter Variable', system-ui, sans-serif;
+  /* Without this the weight jumps sideways on every decimal -- the most tiring
+     visual defect of a real-time display (§14.2). */
+  font-variant-numeric: tabular-nums;
+  /* A self-service station is not a document: nothing selects, nothing zooms on
+     a double tap, nothing bounces at the end of a scroll, no context menu. */
+  touch-action: manipulation;
+  user-select: none;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  font-variant-numeric: inherit;
+  background: none;
+  border: none;
+  margin: 0;
+  cursor: pointer;
+}
+
+/*
+ * Every touchable element carries this class, and a test walks the sources to
+ * check that it does. The rule is worth automating because its failure mode is
+ * silent: a button that is merely a little too small still works for whoever
+ * tested it.
+ */
+.touch-target {
+  min-height: var(--touch-min);
+  min-width: var(--touch-min);
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* No animation lasts longer than 200 ms, and the ribbon never blinks: a 3 Hz
+   flash is a photosensitive trigger (§14.2). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
+
+/*
+ * The last-resort screen of ERR-UI-01. It lives in the global stylesheet and not
+ * in a component: whatever is broken, this must still render.
+ */
+.fatal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background: var(--bg);
+  color: var(--ink);
+  text-align: center;
+}
+
+.fatal h1 {
+  margin: 0;
+  padding-top: 1rem;
+  border-top: 0.5rem solid var(--fault);
+  font-size: 3rem;
+}
+
+.fatal p {
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+.fatal .code {
+  font-size: 1.125rem;
+  color: var(--ink-muted);
+}

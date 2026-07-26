@@ -1,0 +1,140 @@
+{
+  "revision": 42,
+  "at": "2026-07-24T09:00:00.000Z",
+  "state": "printing",
+  "station": 2,
+  "weight": {
+    "available": true,
+    "expired": false,
+    "gross_g": 1236,
+    "tare_g": 0,
+    "net_g": 1236,
+    "quantity": 1,
+    "net_text": "1,236",
+    "stability": "stable",
+    "latched": true,
+    "seq": 7,
+    "age_ms": 120,
+    "expiry_ms": 1200
+  },
+  "product": {
+    "id": "4412",
+    "name": "AIL",
+    "category_code": "vegetables",
+    "mode": "by_weight",
+    "unit_price_cents": 532,
+    "unit_price_text": "5,32",
+    "price_suffix": " €/kg"
+  },
+  "label": {
+    "job_id": "01J9F2ABC",
+    "barcode": "0493021012365",
+    "product_id": "4412",
+    "product_name": "AIL",
+    "mode": "by_weight",
+    "gross_g": 1236,
+    "tare_g": 0,
+    "net_g": 1236,
+    "net_text": "1,236",
+    "quantity": 1,
+    "prices": [
+      {
+        "code": "MEMBER",
+        "label": "Adhérent",
+        "abbrev": "A",
+        "unit_price_cents": 479,
+        "unit_price_text": "4,79",
+        "amount_cents": 592,
+        "amount_text": "5,92"
+      },
+      {
+        "code": "SOLIDARITY",
+        "label": "Solidaire",
+        "abbrev": "S",
+        "unit_price_cents": 532,
+        "unit_price_text": "5,32",
+        "amount_cents": 658,
+        "amount_text": "6,58"
+      }
+    ],
+    "primary_code": "MEMBER",
+    "reference_code": "SOLIDARITY"
+  },
+  "last_label": {
+    "job_id": "01J9F2ABC",
+    "barcode": "0493021012365",
+    "product_id": "4412",
+    "product_name": "AIL",
+    "mode": "by_weight",
+    "gross_g": 1236,
+    "tare_g": 0,
+    "net_g": 1236,
+    "net_text": "1,236",
+    "quantity": 1,
+    "prices": [
+      {
+        "code": "MEMBER",
+        "label": "Adhérent",
+        "abbrev": "A",
+        "unit_price_cents": 479,
+        "unit_price_text": "4,79",
+        "amount_cents": 592,
+        "amount_text": "5,92"
+      },
+      {
+        "code": "SOLIDARITY",
+        "label": "Solidaire",
+        "abbrev": "S",
+        "unit_price_cents": 532,
+        "unit_price_text": "5,32",
+        "amount_cents": 658,
+        "amount_text": "6,58"
+      }
+    ],
+    "primary_code": "MEMBER",
+    "reference_code": "SOLIDARITY"
+  },
+  "reprint": {
+    "available": true,
+    "job_id": "01J9F2ABC",
+    "printed_at": "2026-07-24T08:59:57.000Z"
+  },
+  "message": {
+    "level": "info",
+    "code": "",
+    "text": "Étiquette envoyée.",
+    "expires_at": "2026-07-24T09:00:05.000Z"
+  },
+  "sound": "ok",
+  "diagnostics": [
+    {
+      "code": "WEIGHT_UNSTABLE",
+      "severity": "info",
+      "message": "Pesée en cours…",
+      "blocking": false,
+      "product_id": "4412"
+    }
+  ],
+  "fault_code": "ERR-PRN-01",
+  "arming_expires_at": "2026-07-24T09:00:10.000Z",
+  "scale": {
+    "connected": true,
+    "median_ms": 400,
+    "observations_count": 64,
+    "provisional": false,
+    "too_slow": false
+  },
+  "printer": {
+    "health": "consumable",
+    "detail": "Fin de rouleau proche.",
+    "pending_jobs_count": 1,
+    "observed_at": "2026-07-24T08:59:59.000Z"
+  },
+  "degraded": {
+    "since": "2026-07-24T08:00:00.000Z",
+    "code": "ERR-SCL-03",
+    "reason": "Le port de la balance ne peut pas être ouvert."
+  },
+  "catalog_count": 1,
+  "unlogged_weighings_count": 3
+}

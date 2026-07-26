@@ -1,0 +1,126 @@
+import { flushSync, mount, unmount } from 'svelte'
+import { afterEach, describe, expect, it } from 'vitest'
+import Grid from '../src/components/Grid.svelte'
+import { ALL_CATEGORIES, filterProducts, visibleProducts, type Product } from '../src/lib/catalog'
+import { catalogFromExport } from './fixtures/odoo'
+
+/**
+ * La grille rend-elle TOUT le catalogue, sans plafond nulle part ?
+ *
+ * C'est le défaut le plus coûteux de l'ancienne application : `FormulaireSquelette`
+ * porte 120 contrôles `Image0…Image119` et sa boucle de remplissage cherche
+ * `"Image" & i` dans un `Select Case` SANS branche par défaut. Passé i = 119, rien
+ * n'est écrit, rien n'est journalisé, et la boucle continue jusqu'à EOF. Sur
+ * `flv.csv`, la catégorie « Autres » compte 126 pesables pour 120 emplacements :
+ * six produits vendables ne s'affichent sur aucune balance aujourd'hui, sans un
+ * message ni une ligne de journal (§14.3-1).
+ *
+ * Ce test est ce qui interdit qu'un plafond revienne un jour par la fenêtre.
+ */
+
+const catalog = catalogFromExport('flv.csv')
+const products = visibleProducts(catalog)
+
+let host: HTMLElement | null = null
+let component: Record<string, unknown> | null = null
+
+afterEach(() => {
+  if (component !== null) unmount(component)
+  host?.remove()
+  component = null
+  host = null
+})
+
+/** Monte la grille sur une liste de produits et rend les tuiles obtenues. */
+function render(list: Product[]): HTMLElement[] {
+  host = document.createElement('div')
+  document.body.appendChild(host)
+  component = mount(Grid, { target: host, props: { products: list, onpick: () => {} } })
+  flushSync()
+  return [...host.querySelectorAll<HTMLElement>('button[data-product-id]')]
+}
+
+describe('la grille, sur le catalogue réel de testdata/catalog/flv.csv', () => {
+  it('reçoit les 331 pesables et n’en garde pas 330', () => {
+    expect(products).toHaveLength(331)
+  })
+
+  it('rend UNE tuile par produit, les 331 d’un seul tenant', () => {
+    const tiles = render(products)
+    expect(tiles).toHaveLength(331)
+  })
+
+  it('rend le 331ᵉ produit comme le premier — aucune tuile n’est perdue en queue', () => {
+    const tiles = render(products)
+    const rendered = new Set(tiles.map((t) => t.dataset.productId))
+    const missing = products.filter((p) => !rendered.has(p.id))
+    expect(missing).toEqual([])
+  })
+
+  it('rend les 126 pesables d’« Autres » — six de plus que les 120 emplacements', () => {
+    // C'est l'assertion qui date le défaut : « Autres » a franchi 120 produits
+    // quelque part entre le catalogue de 2022 (A = 1) et celui de 2026 (A = 140).
+    const others = filterProducts(products, 'other', '')
+    expect(others).toHaveLength(126)
+    expect(render(others)).toHaveLength(126)
+  })
+
+  it('affiche le nom de 69 caractères en entier, sans points de suspension', () => {
+    const longest = products.reduce((a, b) => (b.name.length > a.name.length ? b : a))
+    expect(longest.name).toBe(
+      '♥AA-LA TOMME DES CROQUANTS AFFINE A LA LIQUEUR DE NOIX DU PERIGORD-MV',
+    )
+    expect(longest.name).toHaveLength(69)
+    const tile = render([longest])[0] as HTMLElement
+    expect(tile.querySelector('.name')?.textContent).toBe(longest.name)
+    expect(tile.textContent).not.toContain('…')
+  })
+
+  it('donne une initiale, et non un cadre gris, aux 154 tuiles sans photo', () => {
+    // 154 et non 174 : le « (181 avec photo, 174 sans) » de §14.4 porte sur les
+    // 355 lignes REÇUES et non sur les 331 tuiles — 181 + 174 = 355. Mesuré sur
+    // le fichier : 177 tuiles illustrées, 154 sans (voir catalog-fixture.test.ts).
+    const withoutPhoto = products.filter((p) => p.image_url === '')
+    expect(withoutPhoto).toHaveLength(154)
+    const tile = render([withoutPhoto[0] as Product])[0] as HTMLElement
+    expect(tile.querySelector('img')).toBeNull()
+    expect(tile.querySelector('.initial')?.textContent?.trim()).not.toBe('')
+  })
+
+  it('annonce son effectif dans le DOM, pour qu’un plafond se voie', () => {
+    render(products)
+    expect(host?.querySelector('.grid')?.getAttribute('data-tile-count')).toBe('331')
+  })
+})
+
+describe('la recherche, filtre en place et sans plafond de résultats', () => {
+  it('réduit la grille lettre après lettre, insensible aux accents', () => {
+    const steps = ['c', 'ca', 'car', 'carotte'].map(
+      (q) => filterProducts(products, ALL_CATEGORIES, q).length,
+    )
+    // Chaque lettre réduit ou laisse égal ; jamais elle n'augmente.
+    expect(steps).toEqual([...steps].sort((a, b) => b - a))
+    expect(steps.at(-1)).toBeGreaterThan(0)
+  })
+
+  it('trouve un produit dont le nom porte un cœur, tapé sans le cœur', () => {
+    const found = filterProducts(products, ALL_CATEGORIES, 'lentilles vertes')
+    expect(found.some((p) => p.name.includes('♥'))).toBe(true)
+  })
+
+  it('trouve un nom accentué tapé sans accent, au clavier réduit', () => {
+    const accented = products.filter((p) => /[éèêëàâïôöùûüç]/iu.test(p.name))
+    expect(accented.length).toBeGreaterThan(0)
+    const target = accented[0] as Product
+    const typed = target.search.split(' ')[0] as string
+    expect(filterProducts(products, ALL_CATEGORIES, typed)).toContainEqual(target)
+  })
+
+  it('ne plafonne pas les résultats : une lettre courante en rend plus de 50', () => {
+    // L'existant refusait au-delà de 50 résultats. Une seule lettre suffit à
+    // franchir ce seuil sur le catalogue réel : le plafond serait visible tous les jours.
+    const many = filterProducts(products, ALL_CATEGORIES, 'a')
+    expect(many.length).toBeGreaterThan(50)
+    expect(render(many)).toHaveLength(many.length)
+  })
+})

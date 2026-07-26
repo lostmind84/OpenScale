@@ -21,7 +21,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('all', 'test', 'vet', 'boundary', 'build', 'dist', 'cover', 'front', 'clean', 'help')]
+  [ValidateSet('all', 'test', 'vet', 'boundary', 'build', 'dist', 'cover', 'front', 'front-check', 'clean', 'help')]
   [string]$Target = 'all'
 )
 
@@ -96,8 +96,15 @@ function Invoke-Front {
     npm --prefix web run build; Assert-Success 'npm run build'
   }
   else {
-    Write-Host 'front : web/package.json absent (lot L6) — rien a construire'
+    Write-Host 'front : web/package.json absent — rien a construire'
   }
+}
+
+function Invoke-FrontCheck {
+  Invoke-Front
+  npm --prefix web run check; Assert-Success 'svelte-check'
+  npm --prefix web test; Assert-Success 'vitest'
+  npm --prefix web run budget; Assert-Success 'budget'
 }
 
 function Invoke-Dist {
@@ -120,13 +127,14 @@ function Invoke-Dist {
 }
 
 switch ($Target) {
-  'help' { 'Cibles : test - vet - boundary - build - dist - cover - front - clean' }
+  'help' { 'Cibles : test - vet - boundary - build - dist - cover - front - front-check - clean' }
   'vet' { Invoke-Vet }
   'boundary' { Invoke-Boundary }
   'test' { Invoke-Test }
   'cover' { Invoke-Cover }
   'build' { Invoke-Build }
   'front' { Invoke-Front }
+  'front-check' { Invoke-FrontCheck }
   'dist' { Invoke-Dist }
   'clean' { Remove-Item -Recurse -Force bin, dist, coverage.out -ErrorAction Ignore }
   'all' { Invoke-Test; Invoke-Build }
