@@ -1,30 +1,44 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"openscale/internal/domain"
 	"openscale/internal/platform"
 	"openscale/internal/printing/transport"
+	"openscale/internal/web"
 )
 
-// runConfig is `openscale config validate|export|fingerprint` (§15.1).
+// runConfig is `openscale config validate|export|fingerprint|password|recovery-code`
+// (§15.1, §14.4).
 //
-// # Why these three and not the five of §15.1
+// # Why `import` is still not here, and why `password` now is
 //
-// `import` and `password` are gestures of the ADMINISTRATION SCREEN, and giving them a
-// second home would give the station two ways of being reconfigured — one of them with
-// no diff preview, no sixty-second confirmation and no fault list in front of a human
-// (§11.4, §11.5). What a terminal is genuinely better at is the three below: telling a
-// volunteer on the telephone what is wrong with a file, producing the hardware-free
-// export the other three stations are cloned from, and reading out the eight characters
-// that say the fleet is homogeneous.
-func runConfig(args []string, out io.Writer) error {
+// `import` is a gesture of the ADMINISTRATION SCREEN, and giving it a second home would
+// give the station two ways of being reconfigured — one of them with no diff preview, no
+// sixty-second confirmation and no fault list in front of a human (§11.4, §11.5).
+//
+// `password` was refused on that same argument, and the argument does not hold for it:
+// there is no diff to preview and no rollback to arrange for one field, and above all a
+// station whose configuration carries no password at all has NO screen to offer. The
+// screen refuses to open a session (409), the recovery form has no code to check against,
+// and `PUT /admin/api/config` is behind the very password nobody can set — a station out
+// of the box was locked out of its own administration, which is the opposite of what
+// ADR-018 arbitrates. §14.4 says it in one line: « `openscale config password` reste
+// disponible en ligne de commande ».
+//
+// `recovery-code` is the other half of that line: §14.4 has the eight characters
+// « générés à l'installation, imprimés sur la fiche », and install.ps1 has no way to
+// produce an argon2id hash on its own.
+func runConfig(args []string, in io.Reader, out io.Writer) error {
 	fs := flag.NewFlagSet("config", flag.ContinueOnError)
 	fs.SetOutput(out)
 	var (
@@ -40,7 +54,8 @@ func runConfig(args []string, out io.Writer) error {
 	}
 	if len(positional) == 0 {
 		fs.Usage()
-		return errors.New("config prend une action : validate, export ou fingerprint")
+		return errors.New("config prend une action : validate, export, fingerprint, " +
+			"password ou recovery-code")
 	}
 
 	action := positional[0]
@@ -66,19 +81,26 @@ func runConfig(args []string, out io.Writer) error {
 	case "fingerprint":
 		fmt.Fprintf(out, "%s\n", cfg.Fingerprint())
 		return nil
+	case "password":
+		return setAdminPassword(in, out, path)
+	case "recovery-code":
+		return mintRecoveryCode(out, path)
 	}
 	fs.Usage()
-	return fmt.Errorf("action inconnue %q : validate, export ou fingerprint", action)
+	return fmt.Errorf("action inconnue %q : validate, export, fingerprint, password "+
+		"ou recovery-code", action)
 }
 
-const configUsage = `Usage : openscale config <validate|export|fingerprint> [fichier] [options]
+const configUsage = `Usage : openscale config <action> [fichier] [options]
 
 Sans fichier, c'est la configuration de ce poste qui est lue.
 
 Actions :
-  validate      liste TOUTES les fautes en français, d'un coup
-  export        écrit la configuration à cloner vers les autres postes
-  fingerprint   affiche l'empreinte de 8 caractères des réglages partagés
+  validate        liste TOUTES les fautes en français, d'un coup
+  export          écrit la configuration à cloner vers les autres postes
+  fingerprint     affiche l'empreinte de 8 caractères des réglages partagés
+  password        pose le mot de passe d'administration, lu sur l'entrée standard
+  recovery-code   tire le code de secours de 8 caractères et l'affiche UNE fois
 
 Options d'export :
   --hardware            conserver le bloc matériel (numéro de poste, port série, file
@@ -87,9 +109,12 @@ Options d'export :
   --output <fichier>    écrire dans un fichier plutôt que sur la sortie standard
 
 Le mot de passe d'administration ne sort JAMAIS, avec ou sans --hardware.
-Importer une configuration et changer le mot de passe se font depuis l'écran
-d'administration : l'aperçu du diff champ par champ et la confirmation de 60 secondes
-en font partie.
+Importer une configuration se fait depuis l'écran d'administration : l'aperçu du diff
+champ par champ et la confirmation de 60 secondes en font partie.
+
+password et recovery-code écrivent le FICHIER, que le poste ne relit qu'au démarrage :
+arrêtez le service, lancez la commande, redémarrez-le. Le terminal affiche ce qui est
+tapé — c'est une console de poste, pas un poste de travail partagé.
 `
 
 // validateConfig runs the controls of §11.3 with the REAL registries of this binary,
@@ -119,6 +144,124 @@ func validateConfig(out io.Writer, path string, cfg domain.Config) error {
 	return &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf(
 		"%s comporte %d faute(s) : le poste démarrerait en configuration d'usine (ERR-CFG-01)",
 		path, len(faults))}
+}
+
+// minPasswordLength is the floor POST /admin/api/session/recovery already holds (§14.4).
+//
+// The same figure in the two places that set a password, because a station where the
+// terminal accepted four characters and the screen refused them would be a station whose
+// rule depends on which door somebody came through.
+const minPasswordLength = 8
+
+// setAdminPassword is `openscale config password` (§14.4).
+//
+// It writes the FILE, through the same store the administration screen saves with, so a
+// password set from a terminal rotates the versions and lands atomically like any other
+// change. The station does not see it before it restarts: nothing re-reads config.json
+// while the service runs, and pretending otherwise would have somebody typing a password
+// that works only after the next power cut.
+func setAdminPassword(in io.Reader, out io.Writer, path string) error {
+	store, err := platform.NewConfigStore(path)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	cfg, err := store.Read(ctx)
+	if err != nil {
+		return fmt.Errorf("le fichier de configuration %s ne peut pas être lu : %w", path, err)
+	}
+
+	fmt.Fprintf(out, "Nouveau mot de passe d'administration pour %s\n"+
+		"(au moins %d caractères, il s'affiche à l'écran) : ", path, minPasswordLength)
+	typed, err := readSecretLine(in)
+	if err != nil {
+		return err
+	}
+	if len([]rune(typed)) < minPasswordLength {
+		return fmt.Errorf("le mot de passe doit faire au moins %d caractères", minPasswordLength)
+	}
+
+	hash, err := web.HashSecret(typed)
+	if err != nil {
+		return err
+	}
+	cfg.Admin.PasswordHash = hash
+	cfg.ModifiedAt = platform.NewSystemClock().Now()
+	if err := store.Save(ctx, cfg); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(out, "\nMot de passe d'administration posé dans %s.\n", path)
+	if cfg.Admin.RecoveryCodeHash == "" {
+		fmt.Fprintf(out, "Ce poste n'a AUCUN code de secours : sans lui, ce mot de passe "+
+			"perdu se rattrape uniquement ici. Tirez-en un avec « openscale config "+
+			"recovery-code » et recopiez-le sur la fiche d'installation.\n")
+	}
+	fmt.Fprintf(out, "Redémarrez le service pour que le poste le prenne en compte.\n")
+	return nil
+}
+
+// mintRecoveryCode is `openscale config recovery-code` (§14.4, important-10).
+//
+// The code is shown ONCE, in clear, and never again: the configuration keeps its argon2id
+// hash and nothing else. Whoever runs this command has one job left, and it is written on
+// the last line — copy the eight characters onto the installation sheet, which goes into
+// the shop's folder and not onto the station.
+func mintRecoveryCode(out io.Writer, path string) error {
+	store, err := platform.NewConfigStore(path)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	cfg, err := store.Read(ctx)
+	if err != nil {
+		return fmt.Errorf("le fichier de configuration %s ne peut pas être lu : %w", path, err)
+	}
+	replacing := cfg.Admin.RecoveryCodeHash != ""
+
+	code, err := web.NewRecoveryCode()
+	if err != nil {
+		return err
+	}
+	hash, err := web.HashSecret(code)
+	if err != nil {
+		return err
+	}
+	cfg.Admin.RecoveryCodeHash = hash
+	cfg.ModifiedAt = platform.NewSystemClock().Now()
+	if err := store.Save(ctx, cfg); err != nil {
+		return err
+	}
+
+	if replacing {
+		fmt.Fprintf(out, "L'ancien code de secours de ce poste ne fonctionne plus : "+
+			"la fiche déjà classée est à corriger.\n")
+	}
+	fmt.Fprintf(out, "Code de secours de ce poste : %s\n", code)
+	fmt.Fprintf(out, "Recopiez-le sur la fiche d'installation MAINTENANT : il ne sera "+
+		"plus jamais affiché.\n")
+	return nil
+}
+
+// readSecretLine reads ONE line off the standard input.
+//
+// No echo suppression, and it is a deliberate refusal rather than an oversight: turning
+// the terminal echo off means a terminal package, which means an eleventh module in a
+// perimeter §17.1 closed at ten. The usage text says the line is visible, and the machine
+// it is typed on is the station's own console.
+func readSecretLine(in io.Reader) (string, error) {
+	if in == nil {
+		return "", errors.New("aucune entrée standard : le mot de passe se tape au clavier, " +
+			"ou s'envoie par un tube")
+	}
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("lecture du mot de passe : %w", err)
+	}
+	// Typed on a Windows console the line ends with \r\n, piped from a file it may end
+	// with nothing at all. Only those two characters go: a password is allowed to end
+	// with a space, and trimming it would refuse tomorrow what it accepted today.
+	return strings.TrimRight(line, "\r\n"), nil
 }
 
 // exportConfig writes what §11.5 clones.

@@ -357,6 +357,91 @@ func TestAnUnusableConfigurationStartsOutOfService(t *testing.T) {
 	}
 }
 
+// TestARepairedConfigurationPutsTheStationBackInServiceWITHOUTARestart.
+//
+// This is the second half of §11.3, and it was missing. A station whose file carries a
+// fault starts on the neutral profile, in the terminal state, and serves its
+// administration screen so that somebody can repair it — and then §11.4 promises that no
+// configuration block requires a restart of the process. It did require one: the
+// repaired station kept saying « Poste hors service » until the service was restarted,
+// which on a kiosk is a screen with no button and no prompt behind it.
+func TestARepairedConfigurationPutsTheStationBackInServiceWITHOUTARestart(t *testing.T) {
+	b := newBench(t, func(o *benchOptions) {
+		// Exactly what the composition root does with an unusable file (§11.3): the
+		// neutral profile, in memory, in the terminal state.
+		o.config = func(c *domain.Config) { *c = domain.NeutralProfile() }
+		o.outOfService = true
+		o.registries = knownDrivers()
+	})
+	if got := b.hub.State().State; got != domain.OutOfService {
+		t.Fatalf("état de départ %s, attendu out_of_service", got)
+	}
+
+	// And what is missing is ONE field. The neutral profile is valid in every other
+	// respect — that is what makes it the profile a station falls back onto — so the
+	// password the first access poses is literally the last fault standing (contrôle 31).
+	if _, err := b.station.Reload(repairedProfile()); err != nil {
+		t.Fatalf("Reload : %v", err)
+	}
+	// One turn of the loop, because the answer to a command is sent before the
+	// publication: without it the test would read the snapshot of the turn before.
+	b.flush()
+	// The catalog was already in memory, so the station has a grid to show.
+	if got := b.hub.State().State; got != domain.Idle {
+		t.Fatalf("état après réparation %s, attendu idle", got)
+	}
+}
+
+// TestAStillBrokenConfigurationLeavesTheStationOutOfService: coming back into service is
+// the answer to « il n'y a plus AUCUNE faute », never to « on a enregistré quelque chose ».
+func TestAStillBrokenConfigurationLeavesTheStationOutOfService(t *testing.T) {
+	b := newBench(t, func(o *benchOptions) {
+		o.config = func(c *domain.Config) { *c = domain.NeutralProfile() }
+		o.outOfService = true
+		o.registries = knownDrivers()
+	})
+
+	broken := repairedProfile()
+	broken.Station.Number = 0 // hors bornes [1, 99] : le nom du fichier surveillé en dérive
+	if _, err := b.station.Reload(broken); err != nil {
+		t.Fatalf("Reload : %v", err)
+	}
+	b.flush()
+	if got := b.hub.State().State; got != domain.OutOfService {
+		t.Fatalf("état %s : une configuration encore fautive remet le poste en service", got)
+	}
+}
+
+// repairedProfile is the factory configuration once the first access has posed a
+// password, which is the only fault the neutral profile carries (§11.3 contrôle 31).
+//
+// The hash is SHAPED and not derived: this package proves what the machine does with a
+// valid configuration, and deriving one here would spend 64 MiB of argon2 to assert
+// nothing. What the string has to satisfy is the control, and the control reads its
+// shape.
+func repairedProfile() domain.Config {
+	cfg := domain.NeutralProfile()
+	cfg.Admin.PasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$" +
+		"c2VsLXBvdXItbGUtdGVzdA$Y2xlLWRlLXRlc3QtcG91ci1sYS12YWxpZGF0aW9u"
+	return cfg
+}
+
+// knownDrivers is what THIS binary would be built with, as far as the neutral profile is
+// concerned.
+//
+// internal/station imports no driver package (cut 2 of §5.2), so the descriptors are
+// written out here rather than fetched from a registry. Only the identifiers matter:
+// what the station asks is « ce type existe-t-il ? », and the option schemas are exercised
+// where they live, in cmd/openscale.
+func knownDrivers() domain.Registries {
+	return domain.Registries{
+		Scales:         []domain.DriverDescriptor{{ID: "gram-xfoc-plus", Label: "GRAM XFOC +"}},
+		Printers:       []domain.DriverDescriptor{{ID: "preview", Label: "Aperçu (PDF ou PNG)"}},
+		Transports:     []domain.DriverDescriptor{{ID: "winspool", Label: "File Windows"}},
+		CatalogSources: []domain.DriverDescriptor{{ID: "local_drop", Label: "Dépôt local"}},
+	}
+}
+
 // TestAnUnknownTemplateDoesNotStopAStationThatIsServing: a name that resolves to
 // nothing yields the zero template rather than a panic. The configuration control
 // refuses an unknown template long before a customer stands at the scale.

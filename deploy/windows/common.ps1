@@ -643,10 +643,12 @@ function Write-InstallSheet {
   .DESCRIPTION
     « C'est le livrable qui manque le plus souvent et qui coûte le plus cher quand il
     manque » (§15.2, étape 7). Elle porte le compte Windows et son mot de passe, le
-    numéro de poste, l'empreinte de configuration et la date. Le code de secours
-    d'administration n'y est PAS écrit par l'installeur : il est tiré par l'assistant de
-    premier démarrage, sur l'écran, et c'est lui qui l'affiche — l'installeur ne le
-    connaît pas et ne doit pas prétendre le connaître.
+    numéro de poste, l'empreinte de configuration, la date — et le code de secours
+    d'administration, que §14.4 fait générer À L'INSTALLATION et imprimer ici.
+
+    -RecoveryCode vide laisse la ligne à remplir à la main, ce qui reste vrai d'un poste
+    dont le fichier portait déjà un code : c'est celui de la fiche précédente, et
+    personne ne peut le relire puisque le poste n'en garde que l'empreinte.
   #>
   [CmdletBinding()]
   param(
@@ -656,7 +658,21 @@ function Write-InstallSheet {
     [string]$Fingerprint = '(à relever sur l''écran d''administration)',
     [string]$StationNumber = '(à choisir dans l''assistant de premier démarrage)',
     [string]$Version = '(inconnue)',
-    [string]$Address = 'http://127.0.0.1:8085')
+    [string]$Address = 'http://127.0.0.1:8085',
+    [string]$RecoveryCode = '')
+
+  # Le code n'existe en clair QU'ICI : le poste n'en garde que l'empreinte argon2id.
+  $recoveryLine = if ([string]::IsNullOrWhiteSpace($RecoveryCode)) {
+    "  ........................................................`n" +
+    "  À RECOPIER ICI À LA MAIN : ce poste portait déjà un code, et seule son`n" +
+    "  empreinte est conservée. Reprenez-le sur la fiche précédente, ou tirez-en un`n" +
+    "  nouveau avec « openscale config recovery-code »."
+  }
+  else {
+    "  $RecoveryCode`n" +
+    "  Tiré à l'installation. Il n'est affiché nulle part ailleurs et le poste ne`n" +
+    "  sait pas le relire : cette feuille est la seule copie."
+  }
 
   $sheet = @"
 FICHE D'INSTALLATION — POSTE DE PESÉE OPENSCALE
@@ -689,10 +705,10 @@ CONFIGURATION
   C'est à ce moment-là qu'on compare les quatre postes.
 
 CODE DE SECOURS D'ADMINISTRATION
-  ........................................................
-  À RECOPIER ICI À LA MAIN depuis l'assistant de premier démarrage.
+$recoveryLine
   C'est le seul moyen de reprendre la main si le mot de passe d'administration
-  est perdu.
+  est perdu. Il s'utilise depuis l'écran : « Réglages avancés », puis
+  « Mot de passe oublié : j'ai le code de secours ».
 
 EN CAS DE PROBLÈME
   1. Ouvrez l'écran de dépannage : appui long de 3 secondes dans le coin

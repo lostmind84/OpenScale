@@ -199,7 +199,7 @@ var allStates = []State{
 	Rejected, Faulted, ScaleLost, OutOfService,
 }
 
-// allEvents is the thirteen events of §6.6.
+// allEvents is the fourteen events of §6.6.
 func allEvents(t *testing.T) []Event {
 	t.Helper()
 	return []Event{
@@ -216,22 +216,23 @@ func allEvents(t *testing.T) []Event {
 		Cancel{},
 		Dismiss{},
 		Tick{},
+		ConfigurationRepaired{},
 	}
 }
 
-// TestMachineHasSixteenStatesAndThirteenEvents guards the two lists the exhaustive
+// TestMachineHasSixteenStatesAndFourteenEvents guards the two lists the exhaustive
 // test walks.
 //
 // Without it, adding a state and forgetting to declare it would SHRINK the
 // cartesian product in silence, and the test that is supposed to be exhaustive
 // would quietly stop being it. State(16) has no name, State(15) has one: that is
 // what pins the count to sixteen from the enumeration's side as well.
-func TestMachineHasSixteenStatesAndThirteenEvents(t *testing.T) {
+func TestMachineHasSixteenStatesAndFourteenEvents(t *testing.T) {
 	if len(allStates) != 16 {
 		t.Fatalf("allStates holds %d states, §6.6 declares 16", len(allStates))
 	}
-	if got := len(allEvents(t)); got != 13 {
-		t.Fatalf("allEvents holds %d events, §6.6 declares 13", got)
+	if got := len(allEvents(t)); got != 14 {
+		t.Fatalf("allEvents holds %d events, §6.6 declares 14", got)
 	}
 	if OutOfService.String() == "unknown" {
 		t.Error("the last declared state has no name")
@@ -255,7 +256,7 @@ func TestMachineHasSixteenStatesAndThirteenEvents(t *testing.T) {
 // close the sets.
 //
 // They have no body, and that is the point: they exist so that no package outside
-// this one can add a fourteenth event or a ninth effect, which is what keeps the
+// this one can add a fifteenth event or a ninth effect, which is what keeps the
 // exhaustive test exhaustive and the Hub's effect switch total. Calling them once
 // proves every value declared above really carries the mark -- a type that only
 // LOOKED like an event would not compile into these two slices.
@@ -310,7 +311,7 @@ func modelSeeds(t *testing.T) []Model {
 	return seeds
 }
 
-// TestTransitionNeverPanics is invariant 5 of §6.7: sixteen states times thirteen
+// TestTransitionNeverPanics is invariant 5 of §6.7: sixteen states times fourteen
 // events, and Transition survives all of them.
 //
 // It is run over four contexts, because a pair that is harmless with a valid
@@ -368,12 +369,12 @@ func TestTransitionNeverPanics(t *testing.T) {
 			pairs++
 		}
 	}
-	if want := 13 * len(contexts); pairs != want {
+	if want := 14 * len(contexts); pairs != want {
 		t.Fatalf("walked %d event x context pairs, want %d", pairs, want)
 	}
 	// The headline figure of §6.7-5, asserted rather than asserted about.
-	if got := len(allStates) * len(allEvents(t)); got != 208 {
-		t.Fatalf("the cartesian product is %d couples, §6.7 says 208", got)
+	if got := len(allStates) * len(allEvents(t)); got != 224 {
+		t.Fatalf("the cartesian product is %d couples, §6.7 says 224", got)
 	}
 }
 
@@ -1803,12 +1804,15 @@ func TestTransitionSoundFollowsTheConfiguration(t *testing.T) {
 }
 
 // TestTransitionOutOfServiceIsTerminal: nothing in the machine enters it, and
-// nothing but Cancel is answered from it.
+// nothing but Cancel and ConfigurationRepaired is answered from it.
 func TestTransitionOutOfServiceIsTerminal(t *testing.T) {
 	ctx := TransitionContext{Cfg: machineConfig(), Now: origin, Catalog: machineCatalog(t)}
 	for _, ev := range allEvents(t) {
 		next, effects := Transition(Model{State: OutOfService}, ev, ctx)
 		if _, isCancel := ev.(Cancel); isCancel {
+			continue
+		}
+		if _, repaired := ev.(ConfigurationRepaired); repaired {
 			continue
 		}
 		if next.State != OutOfService {
@@ -1825,6 +1829,48 @@ func TestTransitionOutOfServiceIsTerminal(t *testing.T) {
 			if next.State == OutOfService && s != OutOfService {
 				t.Errorf("(%s, %T) entered out_of_service", s, ev)
 			}
+		}
+	}
+}
+
+// TestTransitionRepairedIsTheONEWayOutOfOutOfService.
+//
+// §11.3 puts a station in the terminal state from OUTSIDE the machine, when the file it
+// read is unusable. §11.4 promises that no configuration block requires a restart of the
+// process — and that promise was false for exactly this station: it could be repaired
+// from the administration screen and would keep showing « Poste hors service » until
+// somebody restarted a service the screen has no button for.
+func TestTransitionRepairedIsTheONEWayOutOfOutOfService(t *testing.T) {
+	ctx := TransitionContext{Cfg: machineConfig(), Now: origin, Catalog: machineCatalog(t)}
+
+	// With a catalog in memory the station is ready to serve, and saying « Catalogue vide »
+	// about a grid that holds 331 tiles would be the second wrong screen in a row.
+	served, effects := Transition(Model{State: OutOfService}, ConfigurationRepaired{}, ctx)
+	if served.State != Idle {
+		t.Errorf("poste réparé avec catalogue = %s, attendu idle", served.State)
+	}
+	if len(effects) != 0 {
+		t.Errorf("la réparation produit %d effets, elle n'en produit aucun", len(effects))
+	}
+
+	// Without one, it goes back to waiting for its first flv_<n>.csv (§15.4).
+	empty := TransitionContext{Cfg: machineConfig(), Now: origin}
+	waiting, _ := Transition(Model{State: OutOfService}, ConfigurationRepaired{}, empty)
+	if waiting.State != Initializing {
+		t.Errorf("poste réparé sans catalogue = %s, attendu initializing", waiting.State)
+	}
+
+	// And it is INERT everywhere else: a configuration saved while a customer is mid-cycle
+	// must not cancel the weighing under their finger.
+	for _, state := range allStates {
+		if state == OutOfService {
+			continue
+		}
+		before := Model{State: state, ArmedAt: origin}
+		after, produced := Transition(before, ConfigurationRepaired{}, ctx)
+		if after.State != state || len(produced) != 0 {
+			t.Errorf("(%s, ConfigurationRepaired) = %s avec %d effets : la réparation "+
+				"doit être sans effet hors de out_of_service", state, after.State, len(produced))
 		}
 	}
 }

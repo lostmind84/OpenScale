@@ -203,6 +203,21 @@ type ProductTapped struct {
 	Key string
 }
 
+// ConfigurationRepaired reports that the configuration this station refused at start-up
+// is now valid, and is the ONE way out of OutOfService.
+//
+// It is the mirror image of how that state is entered: §11.3 has the composition root
+// put the station there, from OUTSIDE the machine, when the file it read carries faults.
+// Leaving it the same way — on a signal the composition root raises once the faults are
+// gone — is what makes the promise of §11.4 true for that station too: no configuration
+// block requires a restart of the process. Without it, a station repaired from the
+// administration screen kept showing « Poste hors service » until somebody restarted a
+// service the screen deliberately has no button for.
+//
+// It carries NOTHING and it is INERT in the fifteen other states: a configuration saved
+// while a customer is mid-cycle must not touch the weighing under their finger.
+type ConfigurationRepaired struct{}
+
 // TareTapped opens the tare keypad.
 type TareTapped struct{}
 
@@ -270,6 +285,7 @@ func (CatalogReady) event()          {}
 func (Cancel) event()                {}
 func (Dismiss) event()               {}
 func (Tick) event()                  {}
+func (ConfigurationRepaired) event() {}
 
 // --- The eight effects -----------------------------------------------------
 
@@ -524,11 +540,29 @@ func Transition(m Model, ev Event, ctx TransitionContext) (Model, []Effect) {
 	case ScaleLost:
 		return scaleLost(m, ev, ctx)
 	case OutOfService:
-		// Terminal, and deliberately deaf. Cancel is the single exception and it
-		// was already served above.
+		// Terminal, and deliberately deaf. Cancel is one exception and it was already
+		// served above; ConfigurationRepaired is the other, and it is the only event
+		// that LEAVES this state (§11.3, §11.4).
+		if _, repaired := ev.(ConfigurationRepaired); repaired {
+			return returnToService(ctx), nil
+		}
 		return m, nil
 	}
 	return m, nil
+}
+
+// returnToService is the model a repaired station starts over from.
+//
+// It is deliberately the SAME rule the Hub applies when it builds a station that was
+// never out of service: a catalog already in memory means there is a grid to show, and
+// nothing else means the station is still waiting for its first flv_<n>.csv (§15.4). A
+// repaired station that announced « Catalogue vide » in front of 331 tiles would be the
+// second wrong screen in a row.
+func returnToService(ctx TransitionContext) Model {
+	if ctx.Catalog != nil && ctx.Catalog.WeighableCount() > 0 {
+		return Model{State: Idle}
+	}
+	return Model{State: Initializing}
 }
 
 // loseScale is the answer to ScaleDisconnected, from everywhere.

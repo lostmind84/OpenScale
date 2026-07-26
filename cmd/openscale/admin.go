@@ -108,6 +108,12 @@ func (s adminStore) Image(ctx context.Context, sha string) (domain.Image, error)
 // where the file system does: this type only converts one structure into another.
 type adminConfig struct{ file *platform.ConfigStore }
 
+// Read returns the configuration as it stands ON DISK, which the expert pages edit and
+// a rescue writes back — never the one in force (§11.3, §11.4).
+func (c adminConfig) Read(ctx context.Context) (domain.Config, error) {
+	return c.file.Read(ctx)
+}
+
 // Save rotates the versions and writes atomically (§11.4, steps 3 and 4).
 func (c adminConfig) Save(ctx context.Context, cfg domain.Config) error {
 	return c.file.Save(ctx, cfg)

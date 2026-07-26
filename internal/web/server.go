@@ -93,6 +93,17 @@ type Store interface {
 
 // ConfigStore is the configuration FILE, with its five rotating versions (§11.4).
 type ConfigStore interface {
+	// Read returns the configuration AS IT STANDS ON DISK, which is not always the one
+	// in force.
+	//
+	// The difference is the whole reason this method is on the interface. A station that
+	// started out of service runs the NEUTRAL PROFILE (§11.3) while the file keeps the
+	// shop's settings and the faults that put it there; a station that fell back to
+	// manual entry runs something else again (§11.4). What the expert pages edit, and
+	// what a rescue writes back, has to be « ce que l'exploitant a demandé » — otherwise
+	// the first save replaces the tariffs, the safeguards and the categories of a
+	// cooperative with the factory ones.
+	Read(ctx context.Context) (domain.Config, error)
 	// Save rotates the versions and writes atomically: tmp, fsync, rename.
 	Save(ctx context.Context, cfg domain.Config) error
 	// Versions lists the restorable versions, most recent first.

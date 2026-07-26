@@ -280,6 +280,44 @@ func TestAnInvalidConfigurationStillServes(t *testing.T) {
 	}
 }
 
+// TestTheFallbackProfileKeepsTheKEYSToTheStation.
+//
+// §11.3 replaces the configuration a station OPERATES ON when that configuration is
+// unusable. It has no business replacing the identity of whoever administers it — and
+// dropping it locked the screen on the one station §11.3 exists to keep serving: the
+// login form answered « aucun mot de passe n'est défini » and the recovery form « ce
+// poste n'a pas de code de secours », about a file that carried both.
+func TestTheFallbackProfileKeepsTheKEYSToTheStation(t *testing.T) {
+	broken := shippedConfig(t)
+	broken.Admin.PasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$c2VsLWRlLXRlc3Q$Y2xlLWRlLXRlc3QtcG91ci1jZS1wb3N0ZQ"
+	broken.Admin.RecoveryCodeHash = "$argon2id$v=19$m=65536,t=3,p=2$YXV0cmUtc2VsLTAx$Y2xlLWR1LWNvZGUtZGUtc2Vjb3Vycy1pY2k"
+	broken.Station.Coop = "Les Amis de la Coopé"
+
+	fallback := fallbackProfile(broken, "")
+	if fallback.Admin.PasswordHash != broken.Admin.PasswordHash {
+		t.Error("le profil de repli oublie le mot de passe d'administration du fichier")
+	}
+	if fallback.Admin.RecoveryCodeHash != broken.Admin.RecoveryCodeHash {
+		t.Error("le profil de repli oublie le code de secours du fichier")
+	}
+	// Everything the station OPERATES on is the neutral profile, and nothing else is
+	// borrowed from a file that carries faults.
+	if fallback.Station.Coop == broken.Station.Coop {
+		t.Error("le profil de repli fait tourner le poste sur la configuration fautive")
+	}
+	if want := domain.NeutralProfile().Network.Listen; fallback.Network.Listen != want {
+		t.Errorf("adresse du repli = %q, attendu %q", fallback.Network.Listen, want)
+	}
+
+	// --listen is the one deliberate instruction that survives: it is what somebody
+	// types to move a station off an address that is already taken, and the neutral
+	// profile carries the address of every station of the parc.
+	moved := fallbackProfile(broken, "127.0.0.1:8099")
+	if moved.Network.Listen != "127.0.0.1:8099" {
+		t.Errorf("adresse du repli = %q : --listen a été perdu par le repli", moved.Network.Listen)
+	}
+}
+
 // --- The bench --------------------------------------------------------------
 
 // serveBench is one `openscale serve` in this process, on a configuration written to a
@@ -341,7 +379,12 @@ func newServeBench(t *testing.T, tweak ...func(*domain.Config)) *serveBench {
 		returned:   make(chan error, 1),
 	}
 	writeConfig(t, b.configPath, cfg)
-	b.options = serveOptions{configPath: b.configPath, dataDir: b.dataDir}
+	// The address travels as the FLAG as well as in the file, and that is what makes a
+	// bench with a deliberately invalid configuration testable: such a station falls back
+	// on the neutral profile, whose address is 127.0.0.1:8085 like every station of the
+	// parc — including the one this developer has installed on their own machine. Only
+	// --listen survives that fallback.
+	b.options = serveOptions{configPath: b.configPath, dataDir: b.dataDir, listen: cfg.Network.Listen}
 	// No Timeout on the client: an SSE body is read for as long as the station keeps
 	// it open, and a client-side deadline would end the stream itself — which is the
 	// one thing these tests must not do.

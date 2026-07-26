@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"openscale/internal/domain"
+	"openscale/internal/web"
 )
 
 // deliveredConfig is the configuration file of §17.2 — the one the release archive
@@ -28,7 +29,7 @@ func deliveredConfig(t *testing.T) string {
 func TestCloningAStationShowsTheSAMEEightCharacters(t *testing.T) {
 	out := &strings.Builder{}
 	export := filepath.Join(t.TempDir(), "config-export.json")
-	if err := runConfig([]string{"export", deliveredConfig(t), "--output", export}, out); err != nil {
+	if err := runConfig([]string{"export", deliveredConfig(t), "--output", export}, nil, out); err != nil {
 		t.Fatalf("export : %v", err)
 	}
 
@@ -105,7 +106,7 @@ func TestOneBusinessSettingApartAndTheFingerprintDiverges(t *testing.T) {
 // would have to ignore.
 func TestTheFingerprintIsEightCharactersAndNothingElse(t *testing.T) {
 	out := &strings.Builder{}
-	if err := runConfig([]string{"fingerprint", deliveredConfig(t)}, out); err != nil {
+	if err := runConfig([]string{"fingerprint", deliveredConfig(t)}, nil, out); err != nil {
 		t.Fatalf("fingerprint : %v", err)
 	}
 	printed := strings.TrimSpace(out.String())
@@ -122,7 +123,7 @@ func TestTheFingerprintIsEightCharactersAndNothingElse(t *testing.T) {
 func TestTheHardwareBlockIsKeptWhenItIsAskedFor(t *testing.T) {
 	out := &strings.Builder{}
 	path := filepath.Join(t.TempDir(), "sauvegarde.json")
-	if err := runConfig([]string{"export", deliveredConfig(t), "--hardware", "--output", path}, out); err != nil {
+	if err := runConfig([]string{"export", deliveredConfig(t), "--hardware", "--output", path}, nil, out); err != nil {
 		t.Fatalf("export : %v", err)
 	}
 	exported := readJSONConfig(t, path)
@@ -150,7 +151,7 @@ func TestValidateNamesEveryFaultAndReturnsNonZero(t *testing.T) {
 	writeJSONConfig(t, path, broken)
 
 	out := &strings.Builder{}
-	err := runConfig([]string{"validate", path}, out)
+	err := runConfig([]string{"validate", path}, nil, out)
 	if err == nil {
 		t.Fatal("une configuration fautive a été validée sans erreur")
 	}
@@ -170,7 +171,7 @@ func TestValidateNamesEveryFaultAndReturnsNonZero(t *testing.T) {
 // and the catalog sources it actually carries.
 func TestValidateOfTheDeliveredFileIsGreenAndSaysItsFingerprint(t *testing.T) {
 	out := &strings.Builder{}
-	if err := runConfig([]string{"validate", deliveredConfig(t)}, out); err != nil {
+	if err := runConfig([]string{"validate", deliveredConfig(t)}, nil, out); err != nil {
 		t.Fatalf("la configuration livrée est refusée : %v\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), "aucune faute") {
@@ -188,24 +189,137 @@ func TestConfigRefusesWhatItCannotDo(t *testing.T) {
 		"action inconnue":  {"reset"},
 		"fichier absent":   {"fingerprint", filepath.Join(t.TempDir(), "absent.json")},
 		"trop d'arguments": {"validate", "a.json", "b.json"},
-		// import and password belong to the administration screen, with its diff preview
-		// and its sixty-second confirmation (§11.4, §11.5).
-		"import":   {"import", "autre.json"},
-		"password": {"password"},
+		// import belongs to the administration screen, with its diff preview and its
+		// sixty-second confirmation (§11.4, §11.5). password does NOT: a station whose
+		// configuration carries no password has no screen to offer (§14.4).
+		"import": {"import", "autre.json"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := runConfig(args, &strings.Builder{}); err == nil {
+			if err := runConfig(args, nil, &strings.Builder{}); err == nil {
 				t.Fatalf("%v a été accepté", args)
 			}
 		})
 	}
 }
 
+// TestTheCommandLineOpensAStationNobodyCanLogInTo is the hole this command closes.
+//
+// The delivered configuration carries no password — §11.5 ships the values of the site,
+// not the secrets of one station — so a station straight out of install.ps1 answers 409 on
+// its login form, 409 on its recovery form and 401 on every route that writes. It was
+// locked out of its own administration, and §14.4 names the way back in.
+func TestTheCommandLineOpensAStationNobodyCanLogInTo(t *testing.T) {
+	path := copyDelivered(t)
+	if before := readJSONConfig(t, path).Admin.PasswordHash; before != "" {
+		t.Fatalf("la configuration livrée porte déjà un mot de passe : %q", before)
+	}
+
+	out := &strings.Builder{}
+	if err := runConfig([]string{"password", path}, strings.NewReader("mot-de-passe-du-poste\n"), out); err != nil {
+		t.Fatalf("config password : %v", err)
+	}
+
+	after := readJSONConfig(t, path)
+	if !web.VerifySecret(after.Admin.PasswordHash, "mot-de-passe-du-poste") {
+		t.Fatalf("empreinte écrite = %q : elle ne vérifie pas le mot de passe tapé",
+			after.Admin.PasswordHash)
+	}
+	// The station is asked to restart, because nothing re-reads config.json while the
+	// service runs. A command that stayed silent about it would be read as « c'est fait ».
+	if !strings.Contains(out.String(), "Redémarrez le service") {
+		t.Errorf("la commande ne dit pas qu'il faut redémarrer : %q", out.String())
+	}
+	// And it touched ONE field: everything the delivered file carried is still there.
+	before := readJSONConfig(t, copyDelivered(t))
+	after.Admin.PasswordHash, after.ModifiedAt = "", before.ModifiedAt
+	if after.Fingerprint() != before.Fingerprint() {
+		t.Error("la commande a changé autre chose que le mot de passe")
+	}
+}
+
+// TestAPasswordTooShortIsRefusedByBOTHDoors: the floor is the same on the terminal and on
+// the recovery form, or the rule would depend on which door somebody came through.
+func TestAPasswordTooShortIsRefusedByBOTHDoors(t *testing.T) {
+	path := copyDelivered(t)
+	err := runConfig([]string{"password", path}, strings.NewReader("court\n"), &strings.Builder{})
+	if err == nil {
+		t.Fatal("un mot de passe de cinq caractères a été accepté")
+	}
+	if hash := readJSONConfig(t, path).Admin.PasswordHash; hash != "" {
+		t.Fatal("un mot de passe refusé a tout de même été écrit")
+	}
+}
+
+// TestTheRecoveryCodeIsPrintedOnceAndStoredHashed (§14.4, important-10).
+//
+// It is generated AT INSTALLATION, and install.ps1 has no way to produce an argon2id
+// hash: this command is where the eight characters of the installation sheet come from.
+func TestTheRecoveryCodeIsPrintedOnceAndStoredHashed(t *testing.T) {
+	path := copyDelivered(t)
+	out := &strings.Builder{}
+	if err := runConfig([]string{"recovery-code", path}, nil, out); err != nil {
+		t.Fatalf("config recovery-code : %v", err)
+	}
+
+	code := codePrintedBy(t, out.String())
+	if len(code) != web.RecoveryCodeLength {
+		t.Fatalf("code affiché = %q, attendu %d caractères", code, web.RecoveryCodeLength)
+	}
+	hash := readJSONConfig(t, path).Admin.RecoveryCodeHash
+	if !web.VerifySecret(hash, code) {
+		t.Fatalf("l'empreinte écrite ne vérifie pas le code affiché %q", code)
+	}
+	// The clear code is nowhere in the file: the only copy is the printed sheet.
+	if raw, err := os.ReadFile(path); err != nil || strings.Contains(string(raw), code) {
+		t.Fatal("le code de secours est écrit en clair dans la configuration")
+	}
+
+	// Drawn a second time, it says what it costs: the sheet already in the folder is wrong.
+	second := &strings.Builder{}
+	if err := runConfig([]string{"recovery-code", path}, nil, second); err != nil {
+		t.Fatalf("second tirage : %v", err)
+	}
+	if !strings.Contains(second.String(), "ne fonctionne plus") {
+		t.Errorf("un second tirage ne prévient pas que l'ancien code est mort : %q", second.String())
+	}
+	if web.VerifySecret(readJSONConfig(t, path).Admin.RecoveryCodeHash, code) {
+		t.Error("le premier code de secours ouvre encore la porte")
+	}
+}
+
+// copyDelivered produces the file a station straight out of install.ps1 actually reads,
+// in a temporary directory, because these two commands WRITE.
+//
+// It is the EXPORT and not a copy of testdata/config-lacagette.json, because that is what
+// the release archive carries (§17.2, `make release`): the export drops the hardware block
+// AND both administration secrets, which is precisely how a new station ends up with no
+// password and no recovery code.
+func copyDelivered(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := runConfig([]string{"export", deliveredConfig(t), "--output", path},
+		nil, &strings.Builder{}); err != nil {
+		t.Fatalf("export de la configuration livrée : %v", err)
+	}
+	return path
+}
+
+// codePrintedBy reads the eight characters out of what the command said.
+func codePrintedBy(t *testing.T, printed string) string {
+	t.Helper()
+	const marker = "Code de secours de ce poste : "
+	index := strings.Index(printed, marker)
+	if index < 0 {
+		t.Fatalf("le code de secours n'est pas affiché : %q", printed)
+	}
+	return strings.TrimSpace(strings.SplitN(printed[index+len(marker):], "\n", 2)[0])
+}
+
 // fingerprintOf runs the subcommand a volunteer runs, and returns what it printed.
 func fingerprintOf(t *testing.T, path string) string {
 	t.Helper()
 	out := &strings.Builder{}
-	if err := runConfig([]string{"fingerprint", path}, out); err != nil {
+	if err := runConfig([]string{"fingerprint", path}, nil, out); err != nil {
 		t.Fatalf("empreinte de %s : %v", path, err)
 	}
 	return strings.TrimSpace(out.String())

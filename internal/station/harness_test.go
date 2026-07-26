@@ -232,6 +232,10 @@ type benchOptions struct {
 	// confirmed a hardware change (§11.4). The tests that watch the rollback hand one
 	// in; the others leave it nil, and nothing writes anything.
 	onRevert func(domain.Config)
+	// outOfService starts the station in the terminal state of §11.3, and registries
+	// is what lets it come back out of it when a valid configuration arrives.
+	outOfService bool
+	registries   domain.Registries
 }
 
 // newBench starts a station and stops it when the test ends.
@@ -263,7 +267,7 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		Clock: clock, Config: cfg, Catalog: o.catalog,
 		Printer: b.printer, Journal: b.journal, TechnicalSink: b.technical,
 		NewScale: o.newScale, CatalogSource: o.source, ApplyCatalog: o.applyCatalog,
-		OnRevert: o.onRevert,
+		OnRevert: o.onRevert, OutOfService: o.outOfService, Registries: o.registries,
 	}
 	if !o.noScale {
 		options.Scale = b.scale

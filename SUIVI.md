@@ -7,8 +7,35 @@
 poste complet : noyau métier, balance, étiquette, impression, Hub à horloge injectée,
 écran client Svelte, catalogue, écrans d'administration, `openscale doctor` et ses quinze
 contrôles, `diagnostic.zip`, installeurs Windows et Linux, `INSTALLATION.md` et
-`TROUBLESHOOTING.md`. **2 425 tests** (2 180 Go, 245 front), CI verte sur
-les trois cibles, `-race` vert.
+`TROUBLESHOOTING.md`. **2 564 tests** verts (2 319 Go comptés en `--- PASS`, 245 front), suite passée sur ce
+poste Windows — `-race` sautée faute de gcc, la CI Linux la couvre.
+
+**Le premier accès, trouvé en installant vraiment un poste (26/07/2026).** Un poste sorti
+d'`install.ps1` n'avait **aucune porte d'entrée** vers son administration, et il ne pouvait
+donc pas être configuré : la configuration livrée est l'export de §11.5, qui ne porte
+aucun secret, l'assistant de premier démarrage de §14.4 n'existe pas, et `openscale config
+password` avait été écarté du CLI. Login 409, code de secours 409, écriture de
+configuration 401 — sur un poste dont la configuration est incomplète *par construction*.
+Ce qui a été livré ferme le trou **sans l'assistant** :
+
+- `openscale config password` et `openscale config recovery-code` (§14.4, §15.1) ;
+- **le code de secours est tiré à l'installation** par `install.ps1` et **imprimé sur la
+  fiche**, comme §14.4 le décrit, avec un alphabet sans `I`/`L`/`O`/`U`/`0`/`1` et une
+  comparaison en majuscules — ce code se recopie à la main, des mois plus tard ;
+- `ConfigurationRepaired`, **la seule sortie de `OutOfService`** : un poste réparé depuis
+  l'écran revient en service **dans le même processus**, ce que §11.4 promettait déjà et
+  que ce poste-là démentait ;
+- trois endroits lisaient la configuration **en service** là où le **fichier** était en
+  jeu — `GET /admin/api/config`, le code de secours, et le profil de repli lui-même.
+  Conséquence sur un poste hors service : l'écran montrait les tarifs d'usine, et le
+  premier enregistrement écrasait ceux de la coopérative. Le profil de repli garde
+  désormais le bloc `admin` du fichier — §11.3 remplace ce sur quoi le poste *tourne*, pas
+  l'identité de qui a le droit de le réparer — et `--listen` survit au repli.
+
+**Ce qui reste ouvert.** L'**assistant en 5 étapes** de §14.4 n'est toujours pas écrit :
+le chemin existe et il est complet, mais il n'est pas *guidé*. Et `printer.type: "preview"`
+que porte le profil neutre n'est enregistré par aucun binaire (`printerRegistry()` ne
+connaît que `raster`), alors que §11.3 contrôle 3-5 annonce les trois.
 
 **Ce qui a été vérifié en faisant tourner le poste, et pas seulement en le lisant.**
 Déposer le vrai `flv.csv` dans le répertoire d'un poste neuf sert **331 tuiles** et vide

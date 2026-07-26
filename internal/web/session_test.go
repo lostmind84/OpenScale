@@ -155,7 +155,7 @@ func TestTheRecoveryCodeResetsThePasswordFromTheScreen(t *testing.T) {
 	}
 	response.Body.Close()
 
-	if hash := saved.saved().Admin.PasswordHash; hash == "" || !verifySecret(hash, "nouveau-mot") {
+	if hash := saved.saved().Admin.PasswordHash; hash == "" || !VerifySecret(hash, "nouveau-mot") {
 		t.Fatal("le nouveau mot de passe n'a pas été écrit dans la configuration")
 	}
 	// The volunteer who just proved possession of the sheet is logged in, and every
@@ -163,8 +163,54 @@ func TestTheRecoveryCodeResetsThePasswordFromTheScreen(t *testing.T) {
 	if got := b.get("/admin/api/config"); got.StatusCode != http.StatusOK {
 		t.Fatalf("la session délivrée par le code de secours ne vaut rien : %d", got.StatusCode)
 	}
-	if !verifySecret(b.hub.Config().Admin.PasswordHash, "nouveau-mot") {
+	if !VerifySecret(b.hub.Config().Admin.PasswordHash, "nouveau-mot") {
 		t.Fatal("la configuration en service porte encore l'ancien mot de passe")
+	}
+}
+
+// TestARescueDoesNotReplaceTheShopsConfigurationWithTheFactoryOne.
+//
+// The one station that needs the recovery code most is the one that started OUT OF
+// SERVICE: no password, no screen, nothing but the eight characters on the installation
+// sheet. And that station runs the NEUTRAL PROFILE in memory while its file keeps the
+// cooperative's tariffs, safeguards and categories (§11.3). Writing the running
+// configuration back would have wiped all of it on the single gesture meant to rescue it.
+func TestARescueDoesNotReplaceTheShopsConfigurationWithTheFactoryOne(t *testing.T) {
+	shop := loadConfig(t)
+	saved := &savedConfig{}
+	if err := saved.Save(context.Background(), shop); err != nil {
+		t.Fatalf("préparation du fichier : %v", err)
+	}
+
+	b := newBench(t, func(o *benchOptions) {
+		o.configStore = saved
+		// What a station in factory configuration RUNS (§11.3), which is not what its
+		// file says.
+		o.config = func(cfg *domain.Config) { *cfg = domain.NeutralProfile() }
+	})
+	b.setPassword("oublie", "ABCD2345")
+
+	response := b.post("/admin/api/session/recovery", `{"code":"ABCD2345","password":"nouveau-mot"}`)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("code de secours = %d : %s", response.StatusCode, body(t, response))
+	}
+	response.Body.Close()
+
+	written := saved.saved()
+	if !VerifySecret(written.Admin.PasswordHash, "nouveau-mot") {
+		t.Fatal("le nouveau mot de passe n'est pas dans le fichier")
+	}
+	if got, want := len(written.Pricing.Tiers), len(shop.Pricing.Tiers); got != want {
+		t.Fatalf("le fichier porte %d tarifs au lieu de %d : la configuration du magasin "+
+			"a été remplacée par celle d'usine", got, want)
+	}
+	if written.Limits.BasketMin != shop.Limits.BasketMin || written.Station.Coop != shop.Station.Coop {
+		t.Fatal("le fichier a perdu les réglages du magasin")
+	}
+	// And the station keeps running what it was running: a rescue is not the moment to
+	// hand a station a configuration nobody validated.
+	if b.hub.Config().Station.Coop == shop.Station.Coop {
+		t.Fatal("le poste s'est mis à faire tourner le fichier au lieu de son profil neutre")
 	}
 }
 
@@ -250,17 +296,17 @@ func TestClosingASessionRevokesItAtOnce(t *testing.T) {
 // TestArgon2idRoundTrip: the shape is the one §11.2 shows and the one the 45
 // configuration controls check.
 func TestArgon2idRoundTrip(t *testing.T) {
-	hash, err := hashSecret("un-mot-de-passe")
+	hash, err := HashSecret("un-mot-de-passe")
 	if err != nil {
 		t.Fatalf("hachage : %v", err)
 	}
 	if !strings.HasPrefix(hash, "$argon2id$v=19$m=65536,t=3,p=2$") {
 		t.Fatalf("empreinte = %q", hash)
 	}
-	if !verifySecret(hash, "un-mot-de-passe") {
+	if !VerifySecret(hash, "un-mot-de-passe") {
 		t.Fatal("le mot de passe correct est refusé")
 	}
-	if verifySecret(hash, "un-mot-de-pass") {
+	if VerifySecret(hash, "un-mot-de-pass") {
 		t.Fatal("un mot de passe faux est accepté")
 	}
 	for _, broken := range []string{
@@ -271,7 +317,7 @@ func TestArgon2idRoundTrip(t *testing.T) {
 		"$argon2id$v=19$m=1,t=1,p=1$!!!$aGFzaCE",
 		"$argon2id$v=19$m=1,t=1,p=1$c2VsIQ$!!!",
 	} {
-		if verifySecret(broken, "un-mot-de-passe") {
+		if VerifySecret(broken, "un-mot-de-passe") {
 			t.Errorf("une empreinte illisible a été acceptée : %q", broken)
 		}
 	}
@@ -291,11 +337,60 @@ func TestVerificationReadsTheCostFromTheStoredHash(t *testing.T) {
 	if !strings.HasPrefix(built, "$argon2id$v=19$m=8,t=1,p=1$") {
 		t.Fatalf("empreinte = %q", built)
 	}
-	if !verifySecret(built, "ancien") {
+	if !VerifySecret(built, "ancien") {
 		t.Fatal("une empreinte de coût plus faible n'est plus vérifiable")
 	}
-	if verifySecret(built, "autre") {
+	if VerifySecret(built, "autre") {
 		t.Fatal("un mot de passe faux est accepté")
+	}
+}
+
+// TestTheRecoveryCodeIsReadableOffAPrintedSheet checks the one property that decides
+// whether important-10 works at all: eight characters a volunteer can copy back months
+// later without a second attempt.
+func TestTheRecoveryCodeIsReadableOffAPrintedSheet(t *testing.T) {
+	seen := make(map[string]bool)
+	for range 200 {
+		code, err := NewRecoveryCode()
+		if err != nil {
+			t.Fatalf("tirage : %v", err)
+		}
+		if len(code) != RecoveryCodeLength {
+			t.Fatalf("code = %q, attendu %d caractères", code, RecoveryCodeLength)
+		}
+		if strings.ContainsAny(code, "ILOU01") {
+			t.Fatalf("code = %q : il porte un caractère qu'une transcription confond", code)
+		}
+		seen[code] = true
+	}
+	// Two identical draws out of two hundred would mean the entropy is not where it is
+	// supposed to be. The alphabet gives 30^8 possibilities; a collision here is a defect,
+	// not bad luck.
+	if len(seen) != 200 {
+		t.Fatalf("%d codes distincts sur 200 tirages", len(seen))
+	}
+}
+
+// TestARecoveryCodeCopiedInLowerCaseStillOpens.
+//
+// The code is printed in upper case and typed by somebody who did not choose it. A shift
+// key is not an authentication factor.
+func TestARecoveryCodeCopiedInLowerCaseStillOpens(t *testing.T) {
+	code, err := NewRecoveryCode()
+	if err != nil {
+		t.Fatalf("tirage : %v", err)
+	}
+	hash, err := HashSecret(code)
+	if err != nil {
+		t.Fatalf("hachage : %v", err)
+	}
+	for _, typed := range []string{code, strings.ToLower(code), "  " + code + "  "} {
+		if !VerifySecret(hash, NormalizeRecoveryCode(typed)) {
+			t.Errorf("le code %q est refusé alors qu'il est le bon", typed)
+		}
+	}
+	if VerifySecret(hash, NormalizeRecoveryCode("ZZZZ9999")) {
+		t.Error("un code faux est accepté")
 	}
 }
 
@@ -427,6 +522,18 @@ type savedConfig struct {
 	saveErr  error
 }
 
+// Read hands back the document this store holds, which stands in for the file. A store
+// that was never written answers the zero configuration, and the callers all treat that
+// as « pas de fichier lisible ».
+func (s *savedConfig) Read(context.Context) (domain.Config, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.written == 0 {
+		return domain.Config{}, errNoConfigFile
+	}
+	return s.cfg, nil
+}
+
 func (s *savedConfig) Save(_ context.Context, cfg domain.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -463,5 +570,8 @@ func (s *savedConfig) saved() domain.Config {
 
 // errNoSuchVersion is what a store answers for a backup that was never written.
 var errNoSuchVersion = errors.New("version inconnue")
+
+// errNoConfigFile is what a store answers before anything was written to it.
+var errNoConfigFile = errors.New("aucun fichier de configuration")
 
 var _ ConfigStore = (*savedConfig)(nil)

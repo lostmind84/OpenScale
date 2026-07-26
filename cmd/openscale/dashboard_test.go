@@ -106,7 +106,11 @@ func TestTheDashboardOfARealStationCarriesWhatOnlyItCanKnow(t *testing.T) {
 	if got.Restart == nil || got.Restart.Detail == "" {
 		t.Fatalf("redémarrage sans intervention = %+v, attendu un verdict motivé", got.Restart)
 	}
-	if got.Restart.Configured == got.Restart.Known && !got.Restart.Known {
+	// « Je ne sais pas » et « non » ne demandent pas le même geste, et un seul couple les
+	// confond : un verdict qui s'annonce configuré alors que personne n'a pu répondre. Un
+	// poste installé avec -SkipAutoLogon répond précisément « je ne sais pas » — les deux
+	// champs à faux — et c'est la réponse honnête, pas une faute à signaler.
+	if got.Restart.Configured && !got.Restart.Known {
 		t.Fatal("un verdict inconnu se déclare configuré : « je ne sais pas » et « non » ne " +
 			"demandent pas le même geste")
 	}

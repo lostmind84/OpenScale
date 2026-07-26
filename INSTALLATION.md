@@ -48,7 +48,7 @@ de passe d'administrateur Windows, et lire ce qui s'affiche.
 | 1 | 2 min | Décompresser l'archive et débloquer les fichiers |
 | 2 | 3 min | Lancer `install.ps1` en administrateur |
 | 3 | 3 min | **Redémarrer et vérifier que le poste revient seul sur l'écran client** |
-| 4 | 2 min | Choisir le mot de passe d'administration, noter le code de secours |
+| 4 | 2 min | Poser le mot de passe d'administration avec le code de secours de la fiche |
 | 5 | 1 min | Balance → *Détecter automatiquement* |
 | 6 | 4 min | Imprimante → étiquette de test, superposer, régler le décalage |
 | 7 | 2 min | Catalogue → source, numéro de poste, *Importer maintenant* |
@@ -148,13 +148,33 @@ passe, et le poste est inutilisable alors que tout va bien à l'intérieur.
 
 ## Étape 4 — Le mot de passe d'administration (2 min)
 
+**Prenez la fiche d'installation** : l'installeur y a imprimé un **code de secours de
+8 caractères**. Il n'est écrit nulle part ailleurs — le poste n'en garde qu'une empreinte
+et ne sait pas le relire. C'est lui qui ouvre la porte la première fois.
+
 1. **Appui long de 3 secondes dans le coin bas-droit** de l'écran client. L'écran de
    dépannage s'ouvre.
-2. Le poste vous impose de choisir un mot de passe d'administration. Choisissez-en un
-   que l'équipe connaît, pas celui de votre boîte mail.
-3. Le poste affiche un **code de secours de 8 caractères**. **Recopiez-le à la main sur
-   la fiche d'installation.** C'est le seul moyen de reprendre la main si le mot de
-   passe est perdu — il n'y a pas de « mot de passe oublié » sur un poste hors ligne.
+2. Onglet **Réglages avancés**, puis **« Mot de passe oublié : j'ai le code de secours »**.
+3. Tapez les 8 caractères de la fiche — les minuscules passent aussi — et choisissez le
+   mot de passe d'administration. Prenez-en un que l'équipe connaît, pas celui de votre
+   boîte mail. Huit caractères au minimum.
+4. **Rangez la fiche dans le classeur du magasin.** Le code y reste valable : c'est le
+   seul moyen de reprendre la main si le mot de passe est perdu — il n'y a pas de
+   « mot de passe oublié » sur un poste hors ligne.
+
+> **Le poste affiche encore « Poste hors service » à ce stade, et c'est normal** : sa
+> configuration est incomplète tant que les étapes 5 à 7 n'ont pas été faites. Il revient
+> en service tout seul, sans redémarrage, dès qu'il ne reste plus une seule faute.
+
+> **Si la fiche a été perdue avant d'avoir servi**, il reste la ligne de commande, sur le
+> poste, en administrateur :
+>
+> ```powershell
+> Stop-Service OpenScale
+> & "C:\Program Files\OpenScale\openscale.exe" config recovery-code   # en tire un nouveau
+> & "C:\Program Files\OpenScale\openscale.exe" config password        # ou pose le mot de passe
+> Start-Service OpenScale
+> ```
 
 ## Étape 5 — La balance (1 min)
 

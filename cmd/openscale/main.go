@@ -137,7 +137,7 @@ func main() {
 	case "service":
 		err = runService(os.Args[2:], os.Stdout)
 	case "config":
-		err = runConfig(os.Args[2:], os.Stdout)
+		err = runConfig(os.Args[2:], os.Stdin, os.Stdout)
 	case "doctor":
 		err = runDoctor(stopSignals(), os.Args[2:], os.Stdout)
 	case "barcode":

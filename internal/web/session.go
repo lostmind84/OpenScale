@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"strconv"
@@ -203,19 +204,25 @@ func newToken() (string, error) {
 
 // --- argon2id ---------------------------------------------------------------
 
-// hashSecret produces the PHC string a configuration file carries.
+// HashSecret produces the PHC string a configuration file carries.
 //
 // The format is the one §11.2 shows and the one Config.Validate checks the shape of:
 // $argon2id$v=19$m=…,t=…,p=…$salt$hash, both parts in unpadded base64.
-func hashSecret(secret string) (string, error) {
+//
+// It is EXPORTED for one caller outside this package: `openscale config password`, the
+// command line §14.4 keeps beside the screen for a station in Assigned Access whose
+// wizard was never run. Two implementations of this format would be two ways of writing
+// the same field, and the day they drifted the station would refuse a password nobody
+// mistyped.
+func HashSecret(secret string) (string, error) {
 	return hashWithCost(secret, argonMemory, argonTime, argonThreads)
 }
 
-// hashWithCost is hashSecret with the cost spelled out.
+// hashWithCost is HashSecret with the cost spelled out.
 //
 // Production has exactly one caller and it passes the constants above. The parameters
 // exist so that a test can produce a hash written by an OLDER binary — which is the
-// case verifySecret has to keep opening.
+// case VerifySecret has to keep opening.
 func hashWithCost(secret string, memory, iterations uint32, threads uint8) (string, error) {
 	salt := make([]byte, argonSaltLen)
 	if _, err := rand.Read(salt); err != nil {
@@ -228,12 +235,55 @@ func hashWithCost(secret string, memory, iterations uint32, threads uint8) (stri
 		base64.RawStdEncoding.EncodeToString(key)), nil
 }
 
-// verifySecret reports whether secret is the one behind encoded.
+// RecoveryCodeLength is the eight characters §14.4 prints on the installation sheet.
+const RecoveryCodeLength = 8
+
+// recoveryAlphabet is what those eight characters are drawn from.
+//
+// Neither I, L, O, U, 0 nor 1. This code is not typed by whoever generated it: it is read
+// off a sheet of paper filed in the shop's folder, months later, by a volunteer who is
+// already having a bad morning. The pair O/0 alone accounts for most of what a printed
+// code loses on its way back to a keyboard, and U leaves with them so that eight random
+// characters never spell a word somebody would then keep in their head instead of the
+// folder.
+const recoveryAlphabet = "ABCDEFGHJKMNPQRSTVWXYZ23456789"
+
+// NewRecoveryCode draws the recovery code of §14.4, in clear, ONCE.
+//
+// The station never stores it: what goes into the configuration is its argon2id hash, and
+// the only copy in existence is the one printed on the installation sheet. That is the
+// whole point — it is a possession factor, and a possession factor a machine can read
+// back is not one.
+func NewRecoveryCode() (string, error) {
+	code := make([]byte, RecoveryCodeLength)
+	for i := range code {
+		// rand.Int and not a modulo of one byte: the alphabet has 30 characters, 256 is
+		// not a multiple of 30, and the bias that follows would make six of them a third
+		// more likely than the rest.
+		drawn, err := rand.Int(rand.Reader, big.NewInt(int64(len(recoveryAlphabet))))
+		if err != nil {
+			return "", fmt.Errorf("web: tirage du code de secours impossible : %w", err)
+		}
+		code[i] = recoveryAlphabet[drawn.Int64()]
+	}
+	return string(code), nil
+}
+
+// NormalizeRecoveryCode is what both ends apply before hashing or comparing.
+//
+// The alphabet is upper case, so a code copied in lower case out of the folder is the
+// SAME code and must open the same door. Refusing it would be refusing a volunteer for a
+// shift key.
+func NormalizeRecoveryCode(code string) string {
+	return strings.ToUpper(strings.TrimSpace(code))
+}
+
+// VerifySecret reports whether secret is the one behind encoded.
 //
 // The cost parameters come from the STORED string and not from the constants above:
 // raising the cost of new hashes must never invalidate the ones already written, and
 // a station whose password was set by an older binary has to keep opening.
-func verifySecret(encoded, secret string) bool {
+func VerifySecret(encoded, secret string) bool {
 	salt, want, memory, iterations, threads, err := parsePHC(encoded)
 	if err != nil {
 		return false
@@ -312,7 +362,7 @@ func (s *Server) openSession(w http.ResponseWriter, r *http.Request) {
 			"Aucun mot de passe n'est défini sur ce poste : lancez l'assistant de premier démarrage.")
 		return
 	}
-	if !verifySecret(cfg.Admin.PasswordHash, body.Password) {
+	if !VerifySecret(cfg.Admin.PasswordHash, body.Password) {
 		s.sessions.failed(address, cfg.Admin.AttemptsPerMinute)
 		s.technical.Technical(domain.LevelWarn, "http", "",
 			"Mot de passe d'administration refusé.", address)
@@ -376,7 +426,7 @@ func (s *Server) recoverSession(w http.ResponseWriter, r *http.Request) {
 			"Ce poste n'a pas de code de secours. Utilisez « openscale config password ».")
 		return
 	}
-	if !verifySecret(cfg.Admin.RecoveryCodeHash, strings.TrimSpace(body.Code)) {
+	if !VerifySecret(cfg.Admin.RecoveryCodeHash, NormalizeRecoveryCode(body.Code)) {
 		// The SAME counter as the password: a code of eight characters is worth
 		// brute-forcing, and two independent budgets would be two doors.
 		s.sessions.failed(address, cfg.Admin.AttemptsPerMinute)
@@ -395,18 +445,34 @@ func (s *Server) recoverSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hash, err := hashSecret(body.Password)
+	hash, err := HashSecret(body.Password)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "", err.Error())
 		return
 	}
-	next := cfg
-	next.Admin.PasswordHash = hash
-	if err := s.configStore.Save(r.Context(), next); err != nil {
+	// ONE field changes, and it changes in TWO documents that are not always the same one.
+	//
+	// The file is the operator's, and it is what the station will read at its next start.
+	// The configuration in force is what the station is running right now — and on a
+	// station that started out of service those two differ completely: the file carries
+	// the shop's settings and its faults, memory carries the NEUTRAL PROFILE (§11.3).
+	// Writing the running configuration to disk there would replace tariffs, safeguards
+	// and categories with the factory ones, on the single gesture whose whole purpose is
+	// to rescue that station.
+	stored := cfg
+	if onDisk, err := s.configStore.Read(r.Context()); err == nil {
+		stored = onDisk
+	}
+	stored.Admin.PasswordHash = hash
+	if err := s.configStore.Save(r.Context(), stored); err != nil {
 		writeProblem(w, http.StatusInternalServerError, "",
 			"Configuration non écrite : "+err.Error())
 		return
 	}
+	// And the station keeps running what it was running, with the new password in force:
+	// a recovery is not a moment to hand a station a configuration nobody has validated.
+	next := cfg
+	next.Admin.PasswordHash = hash
 	if _, err := s.controller.Reload(next); err != nil {
 		writeProblem(w, http.StatusInternalServerError, "",
 			"Configuration non rechargée : "+err.Error())

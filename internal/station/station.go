@@ -130,6 +130,16 @@ type Options struct {
 	// OutOfService starts the station in the one terminal state, which is what an
 	// unusable configuration does (§11.3, ERR-CFG-01).
 	OutOfService bool
+	// Registries carries the driver descriptors, and it is here for ONE question: is
+	// the configuration that just arrived still unusable?
+	//
+	// A station started out of service is repaired from the administration screen, block
+	// by block, and it comes back into service the moment the last fault goes — which is
+	// what §11.4 promises when it says no configuration block requires a restart. Left at
+	// its zero value, no driver is known, every configuration carries faults, and the
+	// station never returns: that is the safe default for a caller that never had a reason
+	// to be out of service in the first place.
+	Registries domain.Registries
 	// Templates resolves printer.template. It defaults to the shipped ones.
 	Templates map[string]domain.Template
 	// NominalRate is the cadence the scale driver DECLARES, used until the rate
@@ -212,6 +222,10 @@ type Station struct {
 	rootCtx    context.Context
 	cancelRoot context.CancelFunc
 
+	// registries answers « cette configuration est-elle encore inutilisable ? » on every
+	// reload, and nothing else. See Options.Registries.
+	registries domain.Registries
+
 	// reloadMu serialises configuration changes: two administrators saving at the
 	// same instant must not open two serial ports.
 	reloadMu     sync.Mutex
@@ -267,6 +281,7 @@ func New(o Options) (*Station, error) {
 		hub:              newHub(o),
 		clock:            o.Clock,
 		counters:         o.Counters,
+		registries:       o.Registries,
 		scale:            o.Scale,
 		scaleDone:        make(chan struct{}),
 		printer:          o.Printer,
@@ -463,7 +478,40 @@ func (s *Station) apply(previous, next domain.Config) []string {
 	if previous.Network.Listen != next.Network.Listen {
 		changed = append(changed, blockNetwork)
 	}
+	// LAST, and after the drivers have been rebuilt: a station coming back into service
+	// must find its scale open and its printer in place, not be declared ready in front
+	// of devices that are still being instantiated.
+	s.returnToServiceIfRepaired(next)
 	return changed
+}
+
+// returnToServiceIfRepaired takes a station out of the terminal state of §11.3 once the
+// configuration it is given no longer carries a fault.
+//
+// The question is asked HERE and not in the machine because the machine has no registry:
+// « unusable » means « names a driver this binary does not have, or forgets an option that
+// driver requires », and only the composition root knows what this binary was built with.
+// The machine is told the ANSWER, once, through the one event that leaves the state.
+//
+// It costs one turn of the loop and it is spent on the goroutine of an administration
+// handler, which is already waiting for a reload that opens a serial port. Failure is
+// silent on purpose: the station is out of service either way, and a save that reported
+// « configuration écrite mais poste toujours hors service » with no gesture attached would
+// only frighten whoever just repaired it.
+func (s *Station) returnToServiceIfRepaired(next domain.Config) {
+	if s.hub.State().State != domain.OutOfService {
+		return
+	}
+	if len((&next).Validate(s.registries)) > 0 {
+		return
+	}
+	ctx, cancel := ports.WithBudget(context.Background(), s.clock, hubStopBudget)
+	defer cancel()
+	if _, err := s.hub.Submit(ctx, domain.ConfigurationRepaired{}, ""); err != nil {
+		return
+	}
+	s.hub.logTechnical(domain.LevelWarn, "config", "",
+		"Configuration réparée : le poste quitte l'état hors service.", next.Fingerprint())
 }
 
 // needsConfirmation reports the blocks that arm the 60 s countdown: the hardware

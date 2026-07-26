@@ -256,7 +256,7 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	outOfService := len(faults) > 0
 	if outOfService {
 		reportFaults(out, o.configPath, faults)
-		cfg = domain.NeutralProfile()
+		cfg = fallbackProfile(cfg, o.listen)
 	}
 
 	// The technical journal belongs to the Hub, and the drivers are built BEFORE it
@@ -325,10 +325,13 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	httpHolder := &heldServer{}
 
 	st, err := station.New(station.Options{
-		Clock:         clock,
-		Config:        cfg,
-		Catalog:       catalog,
-		OutOfService:  outOfService,
+		Clock:        clock,
+		Config:       cfg,
+		Catalog:      catalog,
+		OutOfService: outOfService,
+		// The same registries that decided the station was out of service decide when it
+		// stops being: the answer must not depend on which of the two moments asked.
+		Registries:    registries,
 		Templates:     templates,
 		Scale:         weigher,
 		Printer:       printer,
@@ -576,6 +579,37 @@ func readConfig(path string) (domain.Config, error) {
 			"le fichier de configuration %s n'est pas un JSON exploitable : %v", path, err)}
 	}
 	return cfg, nil
+}
+
+// fallbackProfile is what a station RUNS when its own configuration is unusable (§11.3).
+//
+// It is the neutral profile, plus the two things that must survive the fallback — and
+// both were found by starting a station out of the box and trying to repair it from its
+// own screen.
+//
+// # The administration block
+//
+// §11.3 replaces the configuration a station OPERATES ON. It has no business replacing
+// the identity of whoever administers it: the password and the recovery code are the
+// answer to « qui a le droit de réparer ce poste », and that answer is on the
+// installation sheet, in the shop's folder, matching the hash IN THE FILE. Dropping them
+// left the login form answering « aucun mot de passe n'est défini » and the recovery form
+// answering « ce poste n'a pas de code de secours » — on the ONE station both exist for.
+// The screen was then unreachable on exactly the station §11.3 says it must serve.
+//
+// # The listening address
+//
+// --listen is what somebody types while diagnosing — « the address is taken, move this
+// station off it ». The neutral profile carries 127.0.0.1:8085 like every station of the
+// parc, so dropping the override answered a deliberate instruction with the very address
+// the operator was trying to leave.
+func fallbackProfile(broken domain.Config, listen string) domain.Config {
+	cfg := domain.NeutralProfile()
+	cfg.Admin = broken.Admin
+	if listen != "" {
+		cfg.Network.Listen = listen
+	}
+	return cfg
 }
 
 // reportFaults writes the whole list of §11.3 where whoever started the service can

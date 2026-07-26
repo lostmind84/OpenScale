@@ -65,8 +65,22 @@ type confirmationDTO struct {
 }
 
 // readConfig is GET /admin/api/config.
-func (s *Server) readConfig(w http.ResponseWriter, _ *http.Request) {
+//
+// It serves the FILE and not the configuration in force, and on one station that is the
+// difference between repairing it and destroying it: a station that started out of
+// service runs the neutral profile, so a screen fed from memory would show a volunteer
+// the factory tariffs, the factory safeguards and the factory categories — and the save
+// that followed would write them over the cooperative's own (§11.3, §11.4).
+//
+// A file that cannot be read falls back on what is running, which is all a station with
+// no readable file has left to show.
+func (s *Server) readConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.hub.Config()
+	if s.configStore != nil {
+		if onDisk, err := s.configStore.Read(r.Context()); err == nil {
+			cfg = onDisk
+		}
+	}
 	writeJSON(w, http.StatusOK, s.configPayload(cfg, nil))
 }
 

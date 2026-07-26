@@ -161,6 +161,46 @@ elseif (Test-Path $paths.Config) {
   Write-Step "configuration existante conservée : $($paths.Config)" $paths.LogFile
 }
 
+# --- 2 ter. Code de secours d'administration (§14.4, important-10) -----------------
+# « Un code de secours de 8 caractères est généré à l'installation, imprimé sur la fiche
+# d'installation et consigné dans le classeur du magasin. » C'est ici, et pas sur l'écran :
+# un poste sort de l'installeur SANS mot de passe d'administration — la configuration
+# livrée est l'export de §11.5, qui ne porte aucun secret — donc sans ce code il n'existe
+# aucune porte d'entrée, ni écran ni ligne de commande, vers les pages qui écrivent la
+# configuration. PowerShell ne sait pas produire une empreinte argon2id : le binaire le
+# fait, et il est le seul à afficher le code en clair, une fois.
+#
+# Le code n'est JAMAIS écrit dans install.log : ce journal reste sur le poste, la fiche
+# part au classeur.
+$recoveryCode = ''
+if (Test-Path $paths.Config) {
+  $existing = ''
+  try {
+    $existing = (Get-Content -Path $paths.Config -Raw -Encoding UTF8 |
+      ConvertFrom-Json).admin.recovery_code_hash
+  }
+  catch { $existing = '' }
+
+  if ([string]::IsNullOrWhiteSpace($existing)) {
+    $printed = & $paths.Binary config recovery-code $paths.Config
+    Assert-Success 'openscale config recovery-code'
+    $found = [regex]::Match(($printed -join "`n"), 'Code de secours de ce poste : (\S+)')
+    if ($found.Success) {
+      $recoveryCode = $found.Groups[1].Value
+      Write-Step "code de secours d'administration tiré (il n'est écrit que sur la fiche)" $paths.LogFile
+    }
+    else {
+      Write-Step "code de secours d'administration NON relu dans la sortie du binaire : la fiche portera une ligne à remplir à la main" $paths.LogFile
+    }
+  }
+  else {
+    # Une réinstallation ne fait PAS tourner le code : la fiche déjà rangée dans le
+    # classeur doit rester vraie, et personne ne peut relire un code qui n'existe plus
+    # qu'en empreinte.
+    Write-Step "code de secours existant conservé : la fiche déjà classée reste valable" $paths.LogFile
+  }
+}
+
 # --- 3. Ouverture de session automatique (bloquant-7) ------------------------------
 # C'était l'écueil le plus coûteux du plan précédent : l'installeur affichait « lancez
 # maintenant netplwiz », étape manuelle faite une fois et JAMAIS vérifiée ensuite. Après
@@ -269,7 +309,8 @@ if (Test-Path $paths.Config) {
 }
 $stationNumber = '(à choisir dans l''assistant de premier démarrage)'
 Write-InstallSheet -Path $paths.InstallSheet -Account $script:AccountName -Password $password `
-  -Fingerprint $fingerprint -StationNumber $stationNumber -Version "$version" -Address $address | Out-Null
+  -Fingerprint $fingerprint -StationNumber $stationNumber -Version "$version" -Address $address `
+  -RecoveryCode $recoveryCode | Out-Null
 Write-Step "fiche d'installation écrite dans $($paths.InstallSheet)" $paths.LogFile
 
 Write-Host ''

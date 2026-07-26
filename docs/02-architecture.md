@@ -1010,7 +1010,9 @@ type TransitionContext struct {
 func Transition(m Model, ev Event, ctx TransitionContext) (Model, []Effect)
 ```
 
-Événements : `MeasurementReceived`, `ScaleDisconnected`, `ScaleReconnected`, `ProductTapped`, `TareTapped`, `TareConfirmed`, `ManualWeightConfirmed`, `PrintFinished`, `ReprintRequested`, `CatalogReady`, `Cancel`, `Dismiss`, `Tick`.
+Événements : `MeasurementReceived`, `ScaleDisconnected`, `ScaleReconnected`, `ProductTapped`, `TareTapped`, `TareConfirmed`, `ManualWeightConfirmed`, `PrintFinished`, `ReprintRequested`, `CatalogReady`, `Cancel`, `Dismiss`, `Tick`, `ConfigurationRepaired`.
+
+> **`ConfigurationRepaired` est la SEULE sortie de `OutOfService`, et elle est arrivée après coup.** Cet état est le miroir exact de la façon dont il est atteint : §11.3 le fait poser **depuis l'extérieur** de la machine, par la racine de composition, quand le fichier lu porte des fautes. En sortir de la même façon — sur un signal que la racine lève quand il n'y a plus aucune faute — est ce qui rend vraie, pour ce poste-là aussi, la promesse de §11.4 : *aucun bloc de configuration n'exige un redémarrage du processus*. Sans elle, un poste réparé depuis l'écran d'administration continuait d'afficher « Poste hors service » jusqu'à ce que quelqu'un relance un service pour lequel l'écran n'a **délibérément aucun bouton**. L'événement ne porte rien et il est **inerte dans les quinze autres états** : une configuration enregistrée pendant qu'un client pèse ne doit pas toucher à la pesée en cours.
 
 Effets : `PrintEffect`, `RecordEffect`, `MessageEffect`, `SoundEffect`, `AckEffect`, `TechnicalLogEffect`, `ArmTimerEffect`, `ApplyCatalogEffect`.
 
@@ -1094,8 +1096,8 @@ stateDiagram-v2
 2. `PrintEffect` n'est émis **que** par la transition sortante de `Validating`, et **exactement une fois par cycle** (pas de double étiquette).
 3. `LatchedWeight` n'est jamais modifié après la sortie de `Validating`.
 4. Aucun cycle sans passage par `Idle` : pas d'étiquettes en rafale sur une même pose de sac.
-5. `Transition` ne panique jamais — test exhaustif du produit cartésien (16 états × 13 événements = **208** couples).
-   *(Le produit a maigri de 224 à 208 : `EnteringUnits` s'en va et `ProductArmed` prend sa place — 16 états inchangés —, mais l'événement `UnitsConfirmed` disparaît avec la surcouche qui l'émettait, soit 16 couples de moins à couvrir. Supprimer un écran allège aussi le test.)*
+5. `Transition` ne panique jamais — test exhaustif du produit cartésien (16 états × 14 événements = **224** couples).
+   *(Le produit avait maigri de 224 à 208 : `EnteringUnits` s'en allait et `ProductArmed` prenait sa place — 16 états inchangés —, mais l'événement `UnitsConfirmed` disparaissait avec la surcouche qui l'émettait, soit 16 couples de moins à couvrir. Supprimer un écran allège aussi le test. Il revient à 224 avec `ConfigurationRepaired`, quatorzième événement et seule sortie de `OutOfService` — un état ne se quitte pas en dehors de la machine.)*
 6. `Price` est monotone : `coef(t1) ≤ coef(t2) ⇒ montant(t1) ≤ montant(t2)` (10⁴ tirages).
 7. `Divide` est exacte : comparaison à `big.Rat` sur `num ∈ [−3000, 3000] × den ∈ {1,3,10,100,1000}` = 30 005 cas, et `D(−n) == −D(n)`.
 8. **L'armement expire.** Depuis `ProductArmed`, `MaxArmingTime` + 1 tic sans mesure hors zone vide ramène à `Idle` avec `CurrentProduct == nil` : **aucune sélection ne survit au départ d'un client**, et aucune étiquette ne peut être imprimée pour le sac du suivant.
@@ -3718,6 +3720,10 @@ Contrastes **AAA** (≥ 7:1) sur tout texte ≥ 24 px, **AA** partout ailleurs �
 
 **Mot de passe oublié** (important-10) : un **code de secours de 8 caractères** est généré à l'installation, **imprimé sur la fiche d'installation** et consigné dans le classeur du magasin. Il permet de réinitialiser le mot de passe **depuis l'écran lui-même**, sans ligne de commande — indispensable sur un poste en Assigned Access où il n'y a plus ni bureau ni invite. `openscale config password` reste disponible en ligne de commande.
 
+> **Qui tire ces huit caractères, et pourquoi ce n'est pas l'écran.** `install.ps1` les tire, par `openscale config recovery-code`, juste après avoir copié la configuration livrée — et il le fait parce qu'un poste sort de l'installeur **sans mot de passe d'administration** : la configuration livrée est l'export de §11.5, qui ne porte aucun secret. Sans ce code, il n'existe donc **aucune porte d'entrée** vers les pages qui écrivent la configuration, sur un poste dont la configuration est incomplète *par construction* et doit être terminée depuis ces pages-là. PowerShell ne sait pas produire une empreinte argon2id ; le binaire, si — et il est le seul à afficher le code **en clair, une fois**. Le code n'est écrit ni dans `install.log`, qui reste sur le poste, ni dans la configuration, qui n'en garde que l'empreinte : **la fiche est la seule copie**. Une réinstallation ne le fait pas tourner, sans quoi la fiche déjà rangée dans le classeur deviendrait fausse en silence.
+>
+> L'alphabet exclut `I`, `L`, `O`, `U`, `0` et `1` : ce code est recopié à la main depuis une feuille de papier, des mois plus tard, et la paire `O`/`0` explique à elle seule la plus grande partie de ce qu'une transcription perd. La saisie est comparée **en majuscules** — une touche Maj n'est pas un facteur d'authentification.
+
 ### 14.5 Contrat HTTP
 
 ```
@@ -3792,7 +3798,11 @@ openscale replay frames.txt [--x10]           rejoue un fichier de trames — C'
                                             du driver `replay`, avec le bouton « Rejouer cette
                                             trame » (§15.4). Il n'est PAS dans config.json (§9.3)
 openscale label --template X --demo           rend un PDF + un PNG grandeur nature
-openscale config validate|export|import|password
+openscale config validate|export|fingerprint|password|recovery-code
+                                            `import` reste un geste de l'ÉCRAN — l'aperçu du
+                                            diff et la confirmation de 60 s en font partie.
+                                            `password` et `recovery-code` sont l'inverse : un
+                                            poste sans mot de passe n'a AUCUN écran à offrir
 balance service install|uninstall
 balance --version                           version, commit, date de build
 ```
@@ -3989,7 +3999,7 @@ Le kiosque : unité séparée, `ExecStart=/usr/bin/cage -d -- /usr/local/bin/bal
 
 ### 15.5 Installer, mettre à jour, désinstaller
 
-**Installer un poste — 15 minutes** : décompresser · `install.ps1` en administrateur · **redémarrer et cocher « le poste est revenu seul sur l'écran client »** (recette obligatoire, bloquant-7) · appui long 3 s dans le coin bas-droit de l'écran client (§14.3) → l'assistant impose un mot de passe et imprime la fiche · Balance → *Détecter automatiquement* · Imprimante → *Imprimer une étiquette de test* → **superposer avec une étiquette actuelle** → régler le décalage ±1 dot · Catalogue → **source et numéro de poste** *(pas de « chemin » à saisir : `local_drop` est créé par le service, et le nom du fichier dérive du numéro de poste — §11.2)* → *Importer maintenant* (ou glisser-déposer un CSV). Postes 2 à 4 : *Poste → Importer* la configuration du poste 1 **sans le bloc matériel**, puis les deux étapes matériel. **Vérifier que l'empreinte affichée est identique.**
+**Installer un poste — 15 minutes** : décompresser · `install.ps1` en administrateur · **redémarrer et cocher « le poste est revenu seul sur l'écran client »** (recette obligatoire, bloquant-7) · appui long 3 s dans le coin bas-droit de l'écran client (§14.3) → *Réglages avancés* → **le code de secours de la fiche** pose le mot de passe d'administration *(l'assistant en 5 étapes de §14.4 n'est pas écrit ; le chemin existe, il n'est pas encore guidé)* · Balance → *Détecter automatiquement* · Imprimante → *Imprimer une étiquette de test* → **superposer avec une étiquette actuelle** → régler le décalage ±1 dot · Catalogue → **source et numéro de poste** *(pas de « chemin » à saisir : `local_drop` est créé par le service, et le nom du fichier dérive du numéro de poste — §11.2)* → *Importer maintenant* (ou glisser-déposer un CSV). Postes 2 à 4 : *Poste → Importer* la configuration du poste 1 **sans le bloc matériel**, puis les deux étapes matériel. **Vérifier que l'empreinte affichée est identique.**
 
 **Mettre à jour** : `update.ps1` arrête le service **avec contrôle d'erreur**, sauvegarde le binaire sous un nom horodaté, copie, redémarre, **vérifie `/healthz` (jamais `/readyz`)**, et **restaure automatiquement** la version précédente en cas d'échec. La configuration et la base ne sont pas touchées : elles vivent dans `ProgramData`, pas à côté du binaire. Les migrations s'appliquent au démarrage, **précédées d'un `VACUUM INTO` horodaté** ; le retour arrière restaure `.previous` **et** la copie `balance.db.before-vN-…` si le schéma a bougé — la procédure le dit, c'est trois commandes, pas deux.
 
@@ -4013,7 +4023,7 @@ Le kiosque : unité séparée, `ExecStart=/usr/bin/cage -d -- /usr/local/bin/bal
 | `domain.Normalize` | table + **fixture partagée** | `web/testdata/normalization.json`, 120 paires | idempotence ; **le test Vitest lit la même fixture** |
 | `frame.Accumulator` | table (30 cas) + **fuzz** | découpage à 18 octets, bruit binaire, concaténation, resync | 100 trames sur 100 ; `len(buf) ≤ 512` ; jamais de panique |
 | `domain.WeightLatch`, `RateMeter` | **scénario temporel** | séquences horodatées à la main | figeage à ±1 trame ; médiane robuste aux trous ; péremption dérivée correcte |
-| `domain.Transition` | **exhaustif** + scénarios | 16 états × 13 événements = **208 couples** + **17 scénarios** (le catalogue de `Prepare`), dont **l'expiration de `ProductArmed`** | jamais de panique ; invariants §6.7, y compris le n° 8 |
+| `domain.Transition` | **exhaustif** + scénarios | 16 états × 14 événements = **224 couples** + **17 scénarios** (le catalogue de `Prepare`), dont **l'expiration de `ProductArmed`** | jamais de panique ; invariants §6.7, y compris le n° 8 |
 | `domain.Prepare` | **17 scénarios** | nominal poids/unité, tare, tare invalide, produit léger, panier absent, instable **en mode `advisory`**, instable **en mode `blocking`**, **mesure périmée** ← défaut 1, manuel, poids changé, surcharge, prix nul, zone de réservation occupée, code non pesable, produit non proposé localement, réimpression, mono-tarif | `Label` comparée champ à champ ; sur « mesure périmée », **aucune `Label` produite** et diagnostic `MEASUREMENT_EXPIRED` |
 | `domain.Template.Validate` | table | 3 gabarits livrés + 14 gabarits fautifs | les 9 règles, message français exact, **dont « le contenu encré déborde la géométrie de l'étiquette de production (280 × 202 dots) »** — jamais « plus haut que le média » : aucune règle ne dépend du média déclaré (§7.5-3, D1) |
 | `domain.Config.Validate` | table | **`config-lacagette.json` du dépôt** + 26 configurations fausses | **toutes** les fautes remontées d'un coup |

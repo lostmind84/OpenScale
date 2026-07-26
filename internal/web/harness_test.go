@@ -105,6 +105,15 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		Clock: clock, Config: cfg, Catalog: o.catalog,
 		Scale: b.scale, Printer: b.printer,
 		Journal: b.store, TechnicalSink: b.store,
+		// The rollback puts the FILE back as well as the running station, and it is the
+		// composition root that does it (§11.4, serve.go). Without it here, the store the
+		// routes read would keep the configuration nobody confirmed, and the screen would
+		// show a port the station stopped using sixty seconds ago.
+		OnRevert: func(previous domain.Config) {
+			if o.configStore != nil {
+				_ = o.configStore.Save(context.Background(), previous)
+			}
+		},
 	})
 	if err != nil {
 		t.Fatalf("station.New : %v", err)
@@ -332,11 +341,11 @@ func quote(s string) string {
 // password of a station that has not been installed.
 func (b *bench) setPassword(password, recovery string) {
 	b.t.Helper()
-	hash, err := hashSecret(password)
+	hash, err := HashSecret(password)
 	if err != nil {
 		b.t.Fatalf("hachage : %v", err)
 	}
-	recoveryHash, err := hashSecret(recovery)
+	recoveryHash, err := HashSecret(recovery)
 	if err != nil {
 		b.t.Fatalf("hachage : %v", err)
 	}

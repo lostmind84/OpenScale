@@ -45,6 +45,10 @@ func TestAnUnconfirmedHardwareChangeComesBackOnItsOwn(t *testing.T) {
 	// looks at them on its own tick — so the clock moves past the window and the loop turns.
 	b.advance(61 * time.Second)
 	awaitRollback(t, b, livePort(t, before))
+	// The station comes back first and the FILE a moment later, on the same goroutine:
+	// waiting only for the one in service would read the route while the write is still
+	// in flight (§11.4 — « le retour arrière remet AUSSI le fichier »).
+	awaitFile(t, saved, livePort(t, before))
 
 	if got := livePort(t, b.hub.Config()); got != livePort(t, before) {
 		t.Fatalf("le port en service est %q après soixante et une secondes sans confirmation, "+
@@ -128,6 +132,20 @@ func awaitRollback(t *testing.T, b *bench, want string) {
 	}
 	t.Fatalf("le superviseur n'a jamais remis %q en service : le compte à rebours ne "+
 		"revient pas en arrière", want)
+}
+
+// awaitFile waits for the rollback to have reached the configuration FILE.
+func awaitFile(t *testing.T, saved *savedConfig, want string) {
+	t.Helper()
+	deadline := time.Now().Add(hang)
+	for time.Now().Before(deadline) {
+		if port, ok := saved.saved().Scale.Options.Text("port"); ok && port == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("le fichier porte encore autre chose que %q : le retour arrière ne l'a pas "+
+		"remis en place, et le prochain démarrage repartirait sur la version non confirmée", want)
 }
 
 // Compile-time proof that the station is what the routes drive here, and not a double: the

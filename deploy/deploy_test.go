@@ -24,6 +24,16 @@ import (
 // unitPath is one shipped unit.
 func unitPath(name string) string { return filepath.Join("linux", name) }
 
+// byteOrderMark is what every shipped .ps1 starts with, and it is NOT optional.
+//
+// Windows PowerShell 5.1 reads a UTF-8 file with no BOM as ANSI, which turns every
+// accented character of these scripts into mojibake — « compilé » becomes « compil├® » in
+// the installation log. The marker is therefore part of the delivery, and it is the
+// READER here that has to know it: without this, the first line is "<BOM><#" instead of
+// "<#", codeOnly never enters block-comment mode, and the prose of every .SYNOPSIS is
+// searched as if it were code.
+const byteOrderMark = "\ufeff"
+
 // readFile reads a shipped file, and fails the test rather than the installer.
 func readFile(t *testing.T, path string) string {
 	t.Helper()
@@ -31,7 +41,7 @@ func readFile(t *testing.T, path string) string {
 	if err != nil {
 		t.Fatalf("lecture de %s : %v", path, err)
 	}
-	return string(raw)
+	return strings.TrimPrefix(string(raw), byteOrderMark)
 }
 
 // codeOnly strips the comments out of a script or a unit file.
@@ -72,6 +82,39 @@ func codeOnly(script string) string {
 		out.WriteString("\n")
 	}
 	return out.String()
+}
+
+// TestTheProseOfAScriptIsNeverReadAsCode is the regression of the byte order mark.
+//
+// The two tests it protects — the order of the steps of install.ps1 and the « jamais
+// /readyz » of update.ps1 — both search for a word every script names in its own header in
+// order to explain why it must NOT do it. Reading that header as code makes them fail on
+// the shipped files, which is a red suite that accuses working scripts.
+func TestTheProseOfAScriptIsNeverReadAsCode(t *testing.T) {
+	// Every shipped .ps1 carries the marker, and a run that no longer found one would mean
+	// somebody « fixed » the encoding and broke the accents of a whole parc.
+	for _, name := range []string{"install.ps1", "update.ps1", "common.ps1", "harden.ps1"} {
+		raw, err := os.ReadFile(filepath.Join("windows", name))
+		if err != nil {
+			t.Fatalf("lecture de %s : %v", name, err)
+		}
+		if !strings.HasPrefix(string(raw), byteOrderMark) {
+			t.Errorf("%s ne commence plus par la marque UTF-8 : PowerShell 5.1 lira ses "+
+				"accents en ANSI", name)
+		}
+	}
+
+	// And the reader hands the text over WITHOUT it, which is what puts « <# » back at the
+	// start of the first line where codeOnly looks for it.
+	for _, name := range []string{"install.ps1", "update.ps1"} {
+		text := readFile(t, filepath.Join("windows", name))
+		if strings.HasPrefix(text, byteOrderMark) {
+			t.Errorf("%s est lu avec sa marque UTF-8 : le bloc d'en-tête sera lu comme du code", name)
+		}
+		if strings.Contains(codeOnly(text), ".SYNOPSIS") {
+			t.Errorf("le bloc d'en-tête de %s survit à codeOnly", name)
+		}
+	}
 }
 
 // directive reads one systemd directive out of a unit file.
@@ -783,6 +826,16 @@ $text = Get-Content -Path $sheet -Raw
 foreach ($expected in @('MOT-DE-PASSE-TEST', 'a1b2c3d4', 'openscale', 'CODE DE SECOURS', 'doctor')) {
   if ($text -notmatch [regex]::Escape($expected)) { throw "la fiche ne porte pas $expected" }
 }
+# Sans code connu, la ligne reste à remplir à la main : c'est un poste réinstallé, dont
+# le fichier porte déjà une empreinte que personne ne peut relire.
+if ($text -notmatch 'RECOPIER ICI') { throw 'la fiche sans code ne demande pas de le recopier' }
+
+# --- 8. Le code de secours de §14.4 est IMPRIMÉ quand l'installeur vient de le tirer -
+Write-InstallSheet -Path $sheet -Account 'openscale' -Password 'MOT-DE-PASSE-TEST' -Fingerprint 'a1b2c3d4' -StationNumber '2' -Version 'openscale 2.0.0' -RecoveryCode 'K7M4Q2XR' | Out-Null
+$text = Get-Content -Path $sheet -Raw
+if ($text -notmatch 'K7M4Q2XR') { throw 'la fiche ne porte pas le code de secours tiré à l''installation' }
+if ($text -match 'RECOPIER ICI') { throw 'la fiche demande de recopier un code qu''elle porte déjà' }
+if ($text -notmatch 'seule copie') { throw 'la fiche ne dit pas qu''elle est la seule copie du code' }
 
 Write-Output 'TOUT-EST-VERIFIE'
 `
@@ -888,6 +941,36 @@ func TestTheInstallerDoesTheStepsOfSection15_2InOrder(t *testing.T) {
 	}
 }
 
+// TestTheInstallerLeavesAWayIntoTheAdministration is the hole a whole install had.
+//
+// §11.5 ships a configuration WITHOUT secrets, so a station comes out of install.ps1 with
+// no administration password: the login form answers 409, `PUT /admin/api/config` answers
+// 401, and the expert pages are unreachable — on a station whose configuration is
+// incomplete BY DESIGN and has to be finished from those very pages. §14.4 closes it with
+// eight characters « générés à l'installation, imprimés sur la fiche », and this is where
+// they are generated.
+func TestTheInstallerLeavesAWayIntoTheAdministration(t *testing.T) {
+	installer := codeOnly(readFile(t, filepath.Join("windows", "install.ps1")))
+	for what, needle := range map[string]string{
+		"le tirage du code de secours":       "config recovery-code",
+		"son contrôle":                       "Assert-Success 'openscale config recovery-code'",
+		"sa remise à la fiche":               "-RecoveryCode $recoveryCode",
+		"la lecture de l'empreinte en place": "recovery_code_hash",
+	} {
+		if !strings.Contains(installer, needle) {
+			t.Errorf("install.ps1 ne fait pas %s (« %s » absent)", what, needle)
+		}
+	}
+	// Le code en clair ne part JAMAIS dans install.log : ce journal reste sur le poste,
+	// la fiche part au classeur.
+	for _, line := range strings.Split(installer, "\n") {
+		if strings.Contains(line, "Write-Step") && strings.Contains(line, "$recoveryCode") {
+			t.Errorf("install.ps1 écrit le code de secours dans le journal : %s",
+				strings.TrimSpace(line))
+		}
+	}
+}
+
 // TestTheUpdaterVerifiesHealthzAndRestoresOnFailure reads update.ps1 for the four things
 // §15.5 requires of it.
 func TestTheUpdaterVerifiesHealthzAndRestoresOnFailure(t *testing.T) {
@@ -896,11 +979,11 @@ func TestTheUpdaterVerifiesHealthzAndRestoresOnFailure(t *testing.T) {
 		// « service stop » ne suffit pas à nommer cette exigence, et c'est la correction :
 		// la tâche du kiosque exécute le MÊME binaire, donc arrêter le service seul laissait
 		// le fichier verrouillé. Le mot cherché est celui du geste complet.
-		"l'arrêt de TOUT ce qui tient le binaire":   "Stop-OpenScaleBinaryHolders",
-		"la sauvegarde horodatée du binaire":        "Backup-File",
-		"la vérification de /healthz":               "Test-StationHealth",
-		"la restauration automatique":               "Restore-File",
-		"la copie de base à remettre à la main":     "openscale.db.before-",
+		"l'arrêt de TOUT ce qui tient le binaire": "Stop-OpenScaleBinaryHolders",
+		"la sauvegarde horodatée du binaire":      "Backup-File",
+		"la vérification de /healthz":             "Test-StationHealth",
+		"la restauration automatique":             "Restore-File",
+		"la copie de base à remettre à la main":   "openscale.db.before-",
 	} {
 		if !strings.Contains(updater, needle) {
 			t.Errorf("update.ps1 ne fait pas %s (« %s » absent)", what, needle)
