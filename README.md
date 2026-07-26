@@ -12,9 +12,103 @@ la caisse, la géométrie de l'étiquette — mais aucune ligne de code.
 
 ## État
 
-**Conception terminée. Lot L1 livré** — le socle métier compile, ses 35 vecteurs de
-code-barres passent, les deux commandes de démonstration sortent les valeurs attendues.
-Voir [SUIVI.md](SUIVI.md) pour le détail lot par lot.
+**Lots L1 à L8 livrés** — le poste fonctionne de bout en bout : noyau métier, balance,
+étiquette, impression, Hub temps réel, écran client, catalogue, administration,
+diagnostic et installeurs. **2 425 tests**, intégration continue verte sur les trois
+cibles, détecteur de course vert.
+
+Il reste **L0** — approvisionner le banc (SATO WS408, GRAM XFOC, rouleau, lecteur) — et
+**L9**, la recette sur site. Aucun des deux ne demande d'écrire du code : ils demandent
+du matériel et deux semaines d'exploitation réelle. Voir [SUIVI.md](SUIVI.md).
+
+**Ce qui n'a donc jamais été vérifié sur du matériel réel** : aucune étiquette n'est
+sortie d'une vraie imprimante, et aucun octet n'est venu d'une vraie balance. Les tests
+qui l'exigent portent l'étiquette `//go:build hardware` et attendent le banc.
+
+## Essayer, sans balance et sans imprimante
+
+Quatre commandes, et un poste complet tourne sur votre machine. C'est le chemin le plus
+court pour voir ce que fait ce dépôt.
+
+```bash
+make build                                  # ou : pwsh -File ./make.ps1 build
+./bin/openscale serve --config testdata/config-demo.json --data /tmp/openscale-demo
+```
+
+Ouvrez <http://127.0.0.1:8085> : c'est l'écran client, avec sa grille vide. Dans un
+second terminal, déposez le catalogue de démonstration — 60 produits tirés d'un vrai
+export, une photo sur deux :
+
+```bash
+cp testdata/catalog/flv_demo.csv /tmp/openscale-demo/catalog/incoming/flv_2.csv
+```
+
+La grille se remplit en quelques secondes, et le fichier disparaît : **sa suppression est
+l'acquittement** (§10.1). Le poste n'a pas de balance, donc il est en saisie manuelle et
+le dit. Pesez quand même :
+
+```bash
+curl -X POST http://127.0.0.1:8085/api/v1/weigh -H "Content-Type: application/json" \
+  -d '{"product_id":"894","manual_weight_g":1236,"key":"essai-1"}'
+```
+
+L'étiquette est écrite dans `/tmp/openscale-demo/labels/` — 16 310 octets de trame, ceux
+qu'une vraie imprimante recevrait. C'est le transport `file` de §8.4, qui existe pour
+exactement cet usage.
+
+**`config-demo.json` diffère de la configuration de production sur trois points et
+trois seulement** : `scale.present` est `false` (pas de balance), le transport de
+l'imprimante est `file` au lieu de la file Windows, et la source du catalogue est le
+dépôt local au lieu de WebDAV. Tout le reste — tarifs, garde-fous, gabarit d'étiquette —
+est celui de la coopérative.
+
+### Voir l'étiquette sans rien lancer
+
+```bash
+./bin/openscale label --template weighing_identical --demo --dual --pdf etiquette.pdf
+```
+
+Un PDF **à imprimer à 100 %** et mesurable au réglet. Et le diagnostic, qui fonctionne
+même quand rien ne démarre :
+
+```bash
+./bin/openscale doctor --config testdata/config-demo.json --data /tmp/openscale-demo
+```
+
+Quinze contrôles qui disent chacun ce qui a été vérifié, le verdict, et **ce qu'il faut
+faire** si c'est rouge.
+
+Sur une machine de développement, `doctor` conclut « ce poste ne peut pas fonctionner en
+l'état » — et il a raison de le dire, mais pas de vous inquiéter. Ses reproches portent
+sur l'installation d'un poste de **production** : le service n'est pas enregistré, la
+tâche du kiosque n'existe pas, le redémarrage sans intervention n'est pas configuré, la
+suspension USB sélective est active. Aucun des quatre n'empêche `serve` de tourner comme
+ci-dessus. Ils comptent le jour où le poste doit revenir seul après une coupure de
+courant.
+
+## À quoi sert `openscale`, le binaire
+
+Un seul exécutable porte tout : le service, l'écran client, l'administration, les outils
+de diagnostic et les commandes de mise au point. `openscale --help` les liste. Les plus
+utiles :
+
+| Commande | Ce qu'elle fait |
+|---|---|
+| `serve` | **Lance le poste.** C'est ce que démarre le service Windows ou l'unité systemd |
+| `kiosk` | Ouvre l'écran client en plein écran et le relance s'il se ferme |
+| `service install` | Enregistre le poste comme service Windows |
+| `doctor` | Les quinze contrôles ; `--zip` produit le fichier à envoyer au support |
+| `config validate` | Liste **toutes** les fautes d'un fichier de configuration, en français |
+| `config export` | La configuration à cloner vers les autres postes, sans le bloc matériel |
+| `config fingerprint` | L'empreinte de 8 caractères à comparer entre postes |
+| `label` | Sort une étiquette en PDF ou PNG, sans imprimante |
+| `capture` | Enregistre ce que dit la balance, et mesure sa cadence réelle |
+| `replay` | Rejoue un fichier de trames : poids, figeage, cadence médiane |
+| `barcode` · `price` | Le code-barres et les prix d'une pesée, depuis un terminal |
+
+`make build` produit ce binaire dans `bin/`. **Il suffit pour tout essayer, mais ce n'est
+pas ce qu'on installe sur un poste** : l'installation a besoin des scripts et des
+documents qui l'accompagnent — voir « Déployer » ci-dessous.
 
 ## Ce que ça fait
 
@@ -81,17 +175,85 @@ version 3.
 
 ## Développement
 
-**Prérequis** : Go 1.26.5 (épinglé dans `go.mod`), Node 22 pour le front (lot L6).
-Rien d'autre — pas de chaîne C, pas de Docker.
+**Prérequis** : Go 1.26.5 (épinglé dans `go.mod`). Node 22 seulement si vous touchez au
+front. Rien d'autre — pas de chaîne C, pas de Docker.
+
+| Cible | Ce qu'elle fait |
+|---|---|
+| `make test` | `go vet`, les deux passes de `go test`, et `make boundary` |
+| `make build` | `bin/openscale` pour la machine courante |
+| `make front` | Construit l'écran client vers `internal/web/dist` |
+| `make front-check` | En plus : types, tests du front, et le **budget de poids** mesuré |
+| `make cover` | La couverture, avec les planchers par paquet de §16.4 |
+| `make boundary` | Les coupes architecturales de §5.2 |
+| `make dist` | Les trois binaires + `SHA256SUMS` |
+| `make release` | **Les archives d'installation** — voir « Déployer » |
+| `make clean` | Efface `bin/`, `dist/` et `coverage.out` |
+
+**Sous Windows**, `pwsh -File ./make.ps1 <cible>` expose les mêmes cibles. Il faut
+**PowerShell 7** : `winget install Microsoft.PowerShell`. Le script vérifie ce qu'il lui
+manque et le dit, plutôt que d'échouer sur un message qui ressemble à une chaîne Go
+cassée.
+
+**Le détecteur de course exige `gcc`** (mingw-w64 sous Windows), parce que `-race` a
+besoin de cgo alors que le binaire livré est compilé en `CGO_ENABLED=0`. Sans gcc, la
+passe est sautée avec un avertissement et l'intégration continue Linux la couvre — mais
+elle trouve de vraies courses, alors installez-le si vous touchez au Hub :
 
 ```
-make test        # go vet, les deux passes de go test, make boundary
-make build       # bin/openscale pour la machine courante
-make dist        # les trois cibles + SHA256SUMS
-make boundary    # les coupes architecturales de docs/02-architecture.md §5.2
+winget install BrechtSanders.WinLibs.POSIX.UCRT
 ```
 
-Sous Windows sans GNU make, `.\make.ps1 <cible>` expose les mêmes cibles. La passe
-`go test -race` demande `gcc` (mingw-w64) : le détecteur de course exige cgo, alors que le
-binaire livré est compilé en `CGO_ENABLED=0`. Sans gcc, la passe est **sautée avec un
-avertissement** et la CI Linux la couvre.
+### Ce que l'architecture interdit, et qui est vérifié
+
+`make boundary` échoue si l'une de ces règles est franchie, parce qu'aucune relecture ne
+les tient sur la durée :
+
+- `internal/domain` n'importe **rien** de l'extérieur — ni `os`, ni `net`, ni un driver ;
+- **`time.Now()` est interdit** hors de `internal/platform` : l'âge d'une mesure vaut
+  `Now - Timestamp`, et un tick perdu qui sous-estimerait cet âge laisserait imprimer un
+  poids périmé. L'horloge est injectée partout ailleurs ;
+- `internal/station` ne connaît aucun driver concret. Ajouter un modèle de balance est
+  **un paquet et une ligne** dans `cmd/openscale/drivers.go`, le seul fichier qui nomme
+  du matériel.
+
+## Déployer
+
+Un poste ne s'installe pas en copiant `openscale.exe` : il faut aussi les scripts
+d'installation, les unités ou la tâche planifiée, la configuration et les deux documents
+écrits pour un bénévole. C'est ce que `make release` assemble.
+
+```bash
+make release                       # ou : pwsh -File ./make.ps1 release
+```
+
+Vous obtenez dans `dist/` une archive par plateforme :
+
+```
+dist/openscale-2.0.0-windows-amd64.zip     ← à copier sur la clé USB
+dist/openscale-2.0.0-linux-amd64.zip
+dist/openscale-2.0.0-linux-arm64.zip
+```
+
+Chacune contient le binaire, `install.ps1` / `install.sh` et leurs jumeaux de mise à jour
+et de désinstallation, la tâche planifiée ou les unités systemd, la configuration livrée
+**sans le bloc matériel**, `INSTALLATION.md`, `TROUBLESHOOTING.md`, la licence et
+`SHA256SUMS`.
+
+**Le numéro de version vient du tag git**, et de nulle part ailleurs. Sans tag, l'archive
+s'appelle `openscale-<sha>-windows-amd64.zip` — utilisable, mais ce n'est pas une
+version. Pour livrer :
+
+```bash
+git tag -a 2.0.0 -m "Version 2.0.0"
+make release
+```
+
+La configuration embarquée dans l'archive est **produite par le binaire lui-même**
+(`openscale config export`), pas copiée : une copie emporterait le `COM8` et la file
+d'impression du poste de développement, que la comparaison d'empreinte de §15.5
+rejetterait.
+
+Ensuite, tout est dans [`INSTALLATION.md`](INSTALLATION.md), qui est écrit pour un
+bénévole et non pour un développeur — et qui annonce honnêtement **17 minutes** pour le
+premier poste, pas les 15 du plan.

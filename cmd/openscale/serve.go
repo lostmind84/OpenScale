@@ -22,7 +22,6 @@ import (
 	"openscale/internal/domain"
 	"openscale/internal/platform"
 	"openscale/internal/printing"
-	"openscale/internal/printing/transport"
 	"openscale/internal/scale"
 	"openscale/internal/scale/absent"
 	"openscale/internal/station"
@@ -244,15 +243,10 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	}
 
 	scales, printers := scaleRegistry(), printerRegistry()
-	registries := domain.Registries{
-		Scales:     scales.Descriptors(),
-		Printers:   printers.Descriptors(),
-		Transports: transport.Descriptors(),
-		// The catalog sources belong here too: without them control 9 cannot check
-		// catalog.type, and PUT /admin/api/config would accept a source no station can
-		// open — an amber light and an empty grid instead of a fault next to the field.
-		CatalogSources: catalogSourceDescriptors(),
-	}
+	// The catalog sources belong in there too: without them control 9 cannot check
+	// catalog.type, and PUT /admin/api/config would accept a source no station can open —
+	// an amber light and an empty grid instead of a fault next to the field.
+	registries := registries()
 
 	// §11.3: an invalid configuration NEVER kills the process. The station starts on
 	// the neutral profile, IN MEMORY AND WITHOUT WRITING, in the one terminal state,

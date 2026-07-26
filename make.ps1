@@ -34,10 +34,54 @@ $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $env:Path = "$machinePath;$userPath"
 
-$version = (git describe --tags --always --dirty 2>$null) ?? 'dev'
-$commit = (git rev-parse --short HEAD 2>$null) ?? 'unknown'
-$date = (git log -1 --format=%cI 2>$null) ?? 'unknown'
+# --- Ce dont ce script a besoin, vérifié AVANT de faire quoi que ce soit ----------------
+#
+# Les deux contrôles ci-dessous existent parce que leurs pannes ne ressemblent pas à leur
+# cause. Un script qui échoue sur « Get-FileHash n'est pas reconnu » se lit comme une
+# chaîne Go cassée, et on cherche du côté de Go pendant vingt minutes.
+$missing = @()
+foreach ($needed in 'Get-FileHash', 'Compress-Archive', 'Expand-Archive') {
+  if (-not (Get-Command $needed -ErrorAction SilentlyContinue)) { $missing += $needed }
+}
+if ($missing.Count -gt 0) {
+  Write-Host ''
+  Write-Host "Ce shell ne fournit pas : $($missing -join ', ')" -ForegroundColor Red
+  Write-Host "Version de PowerShell : $($PSVersionTable.PSVersion)"
+  Write-Host ''
+  Write-Host 'Lancez la construction avec PowerShell 7 :'
+  Write-Host '    pwsh -File ./make.ps1 <cible>'
+  Write-Host ''
+  Write-Host "PowerShell 7 s'installe par  winget install Microsoft.PowerShell"
+  Write-Host 'Sous Linux ou macOS, `make <cible>` fait la meme chose sans PowerShell.'
+  exit 1
+}
+
+# Or-Else remplace l'opérateur `??`, qui n'existe qu'à partir de PowerShell 7.
+#
+# CE SCRIPT DOIT TOURNER SOUS WINDOWS POWERSHELL 5.1, qui est le seul shell garanti sur
+# une machine Windows : pwsh 7 s'installe, 5.1 est là. Avec `??`, le fichier ne PARSE pas
+# sous 5.1 — l'erreur porte sur un jeton inattendu et ne dit rien du script, si bien que
+# le premier réflexe est de croire la chaîne Go cassée.
+function Or-Else($value, $fallback) {
+  if ($null -eq $value -or $value -eq '') { return $fallback }
+  return $value
+}
+
+$version = Or-Else (git describe --tags --always --dirty 2>$null) 'dev'
+$commit = Or-Else (git rev-parse --short HEAD 2>$null) 'unknown'
+$date = Or-Else (git log -1 --format=%cI 2>$null) 'unknown'
 $ldflags = "-s -w -X main.version=$version -X main.commit=$commit -X main.date=$date"
+
+# Write-Utf8NoBom écrit un fichier texte SANS marque d'ordre des octets.
+#
+# `Set-Content -Encoding utf8NoBOM` ferait la même chose, et n'existe qu'à partir de
+# PowerShell 6. Le BOM compte ici : `sha256sum -c SHA256SUMS` sous Linux lit les trois
+# octets de la marque comme le début du premier nom de fichier et déclare l'archive
+# corrompue, ce qui est le contraire de ce que ce fichier sert à prouver.
+function Write-Utf8NoBom([string]$path, [string[]]$lines) {
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($path, (($lines -join "`n") + "`n"), $encoding)
+}
 
 function Assert-Success([string]$what) {
   if ($LASTEXITCODE -ne 0) { throw "$what a échoué (code $LASTEXITCODE)" }
@@ -120,9 +164,9 @@ function Invoke-Dist {
     Assert-Success "build $target"
   }
   Remove-Item Env:GOOS, Env:GOARCH -ErrorAction Ignore
-  Get-FileHash dist/openscale-* -Algorithm SHA256 |
-    ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
-    Set-Content dist/SHA256SUMS -Encoding utf8NoBOM
+  $sums = Get-FileHash dist/openscale-* -Algorithm SHA256 |
+    ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" }
+  Write-Utf8NoBom 'dist/SHA256SUMS' $sums
   Get-Content dist/SHA256SUMS
 }
 
@@ -160,9 +204,9 @@ function Invoke-Release {
       --output (Join-Path $stage 'config-lacagette.json') | Out-Null
     Assert-Success 'openscale config export'
 
-    Get-ChildItem -File $stage | Get-FileHash -Algorithm SHA256 |
-      ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
-      Set-Content (Join-Path $stage 'SHA256SUMS') -Encoding utf8NoBOM
+    $sums = Get-ChildItem -File $stage | Get-FileHash -Algorithm SHA256 |
+      ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" }
+    Write-Utf8NoBom (Join-Path $stage 'SHA256SUMS') $sums
 
     $archive = "dist/$name.zip"
     Remove-Item $archive -ErrorAction Ignore

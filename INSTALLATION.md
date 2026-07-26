@@ -8,10 +8,36 @@ de passe d'administrateur Windows, et lire ce qui s'affiche.
 
 - le PC du poste, la balance branchée en USB, l'imprimante d'étiquettes branchée et
   allumée, avec un rouleau ;
-- l'archive `openscale-2.0.0-windows-amd64.zip` sur une clé USB ;
+- l'archive `openscale-2.0.0-windows-amd64.zip` sur une clé USB — **si vous ne l'avez
+  pas, voir juste en dessous** ;
 - **une étiquette imprimée par l'ancienne application**, pour comparer ;
 - un compte administrateur sur ce PC ;
 - une imprimante ordinaire pour imprimer la fiche d'installation. À défaut, un stylo.
+
+> ### D'où vient l'archive, et qui la fabrique
+>
+> **Vous n'avez rien à construire pour installer un poste.** L'archive est préparée une
+> fois par la personne qui suit le logiciel, et c'est elle que vous copiez sur la clé USB
+> pour les quatre postes. Si on vous l'a remise, passez à l'étape 1.
+>
+> **Si vous devez la fabriquer vous-même**, il faut le dépôt et Go 1.26.5 — c'est le seul
+> moment où un outil de développement est nécessaire, et cela n'a lieu qu'une fois par
+> version :
+>
+> ```
+> git clone https://github.com/lostmind84/OpenScale.git
+> cd OpenScale
+> git tag -a 2.0.0 -m "Version 2.0.0"        # le nom de l'archive vient de ce tag
+> pwsh -File ./make.ps1 release              # sous Linux ou macOS : make release
+> ```
+>
+> Les trois archives apparaissent dans `dist/`, une par plateforme. Prenez
+> `openscale-2.0.0-windows-amd64.zip`. Le détail est dans
+> [`README.md`](README.md#déployer).
+>
+> **Sans le tag**, l'archive porte le numéro de révision du dépôt au lieu de la version —
+> par exemple `openscale-473ebed-windows-amd64.zip`. Elle s'installe aussi bien, mais
+> personne ne saura dire six mois plus tard ce qu'elle contenait.
 
 ---
 

@@ -268,3 +268,19 @@ func newCatalogSource(
 		Quarantine:    quarantine,
 	})
 }
+
+// registries is what Config.Validate checks a configuration against.
+//
+// It is extracted from serve so that a TEST can validate a shipped configuration the way
+// the station does, registries included. Validating against an empty set would accept a
+// driver name no binary carries — which is exactly the mistake that leaves an operator
+// with an amber light and an empty grid instead of a fault next to the field.
+func registries() domain.Registries {
+	scales, printers := scaleRegistry(), printerRegistry()
+	return domain.Registries{
+		Scales:         scales.Descriptors(),
+		Printers:       printers.Descriptors(),
+		Transports:     transport.Descriptors(),
+		CatalogSources: catalogSourceDescriptors(),
+	}
+}
