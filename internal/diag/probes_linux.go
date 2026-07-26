@@ -62,3 +62,10 @@ func systemRelease() string {
 	}
 	return ""
 }
+
+// sessionIsElevated says whether this process runs as root.
+//
+// The kiosk of §15.3 is a systemd unit, so the Windows probe that needs this answer is
+// never reached here; the function exists because probes.go compiles everywhere and names
+// it.
+func sessionIsElevated() bool { return os.Geteuid() == 0 }

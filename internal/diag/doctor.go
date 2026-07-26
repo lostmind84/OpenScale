@@ -294,7 +294,10 @@ func (d *Doctor) checkKioskTask(ctx context.Context) Control {
 	switch {
 	case err != nil:
 		control.Status, control.Observed = StatusUnknown, "la tâche du kiosque n'a pas pu être interrogée : "+err.Error()
-		control.Remedy = "Relancez cette commande depuis une invite administrateur."
+		control.Remedy = "Relancez cette commande depuis une invite ADMINISTRATEUR : le dossier " +
+			"des tâches planifiées n'est pas lisible par tout le monde, et « je n'ai pas pu " +
+			"regarder » n'est pas « la tâche est absente ».\n" +
+			"Tant que ce contrôle est INCONNU, ne réinstallez rien."
 	case !state.Determined:
 		control.Status, control.Observed = StatusUnknown, "ce système n'expose pas de planificateur interrogeable"
 		control.Remedy = "Vérifiez à la main qu'un navigateur en plein écran s'ouvre à l'ouverture de session."

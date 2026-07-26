@@ -75,6 +75,61 @@ Le service spécifié n'existe pas en tant que service installé.
 	}
 }
 
+// TestADelayedAutomaticStartIsStillAutomatic covers the shape the product's OWN installer
+// produces, and the one this corpus was missing.
+//
+// internal/platform/service_windows.go sets DelayedAutoStart on purpose, so that the disks,
+// the network stack and the print spooler come up first. `sc qc` then prints
+// « START_TYPE : 2   AUTO_START  (DELAYED) », whose LAST word is « (DELAYED) » — and a
+// parser reading the last word declared the service not automatic. Every station installed
+// with « --start auto » was warned to set the very setting it already had. The two lines
+// below are copied from a station installed by install.ps1.
+func TestADelayedAutomaticStartIsStillAutomatic(t *testing.T) {
+	running := "        STATE              : 4  RUNNING \n"
+	delayed := "        START_TYPE         : 2   AUTO_START  (DELAYED)\n"
+
+	state := parseWindowsService("OpenScale", running, delayed)
+	if !state.Automatic {
+		t.Error("AUTO_START (DELAYED) lu comme non automatique : ce poste redémarre pourtant seul")
+	}
+	if state.Detail != "RUNNING, AUTO_START (DELAYED)" {
+		t.Errorf("le détail doit porter les deux mots, pas la parenthèse seule : %q", state.Detail)
+	}
+}
+
+// TestAnUnreadableTaskFolderIsNotAnAbsentTask is what v0.1 got wrong on a real station.
+//
+// schtasks exits 1 for « Erreur : Accès refusé. » as well as for « Erreur : Le fichier
+// spécifié est introuvable. », and both messages are localised. Unelevated — which is how a
+// volunteer runs `openscale doctor` — the two cannot be told apart, and answering
+// « absente » sends somebody reinstalling a station whose task is right there.
+func TestAnUnreadableTaskFolderIsNotAnAbsentTask(t *testing.T) {
+	state, err := kioskTaskState("OpenScale-Kiosk", "Erreur : Accès refusé.\n", true, false)
+	if err == nil {
+		t.Fatal("un refus d'accès rendu comme une réponse : doctor conclurait « tâche absente » " +
+			"et enverrait relancer install.ps1")
+	}
+	if state.Determined {
+		t.Error("l'état se dit déterminé alors que rien n'a pu être lu")
+	}
+
+	// Elevated, the SAME failure IS an answer: we could look, and it is not there.
+	state, err = kioskTaskState("OpenScale-Kiosk",
+		"Erreur : Le fichier spécifié est introuvable.\n", true, true)
+	if err != nil {
+		t.Fatalf("en session élevée, un échec de schtasks est une réponse : %v", err)
+	}
+	if !state.Determined || state.Known {
+		t.Errorf("tâche réellement absente mal rendue : %+v", state)
+	}
+
+	// And a task that answers is simply there, elevation or not.
+	state, err = kioskTaskState("OpenScale-Kiosk", "Dossier: \\\nOpenScale-Kiosk  N/A  Prêt\n", false, false)
+	if err != nil || !state.Determined || !state.Known {
+		t.Errorf("tâche présente mal rendue : %+v (%v)", state, err)
+	}
+}
+
 func TestOutputThisParserDoesNotRecogniseIsNotTurnedIntoAVerdict(t *testing.T) {
 	state := parseWindowsService("OpenScale", "sc.exe n'est pas reconnu comme commande", "")
 	if state.Determined {
