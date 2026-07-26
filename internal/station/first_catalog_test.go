@@ -36,10 +36,12 @@ func TestTheFirstCatalogTakesServiceWithoutAScale(t *testing.T) {
 	// Initializing instead, and that path always worked — which is exactly why this
 	// went unnoticed.
 	b.scale.Disconnect(errors.New("COM8 : Serial port not found"))
-	b.tick()
-	if got := b.hub.State().State; got != domain.ScaleLost {
-		t.Fatalf("état %v, attendu scale_lost : le scénario du défaut n'est pas reproduit", got)
-	}
+	// AWAITED, not assumed after one tick: the driver pushes the status on its own
+	// goroutine, so a single tick observed `initializing` on a loaded CI runner and
+	// scale_lost here. The scenario of the defect is what this test rests on — asserting
+	// it after one tick made the test flaky, not the code.
+	awaitCondition(t, func() bool { return b.hub.State().State == domain.ScaleLost },
+		"l'état n'est jamais passé à scale_lost : le scénario du défaut n'est pas reproduit")
 
 	first := domain.NewCatalog([]domain.Product{{
 		ID: "9999", Name: "POIREAU", Reference: "0493022000002",
