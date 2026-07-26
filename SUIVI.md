@@ -10,6 +10,36 @@ contrôles, `diagnostic.zip`, installeurs Windows et Linux, `INSTALLATION.md` et
 `TROUBLESHOOTING.md`. **2 564 tests** verts (2 319 Go comptés en `--- PASS`, 245 front), suite passée sur ce
 poste Windows — `-race` sautée faute de gcc, la CI Linux la couvre.
 
+**L'écran client, repris en le REGARDANT (27/07/2026).** Le front n'avait jamais été rendu
+dans un navigateur : les 245 tests s'exécutent sous `jsdom`, qui ne calcule aucune mise en
+page. Un banc d'observation — le vrai bundle, le vrai `flv.csv`, ses 331 tuiles et ses 177
+photos, servis à un Chrome piloté — a montré quatre défauts qu'aucun test ne pouvait voir,
+puis a servi à les fermer :
+
+- **les deux barres PERMANENTES de §14.3 étaient hors de l'écran.** `#app` n'avait pas de
+  hauteur, `height: 100%` se résolvait donc contre une boîte de hauteur automatique, et la
+  colonne grandissait avec la grille ; les bandes se laissaient en outre comprimer, faute
+  de `flex: 0 0 auto` ;
+- **une tuile débordait sur sa voisine** : un `button` garde le dimensionnement au contenu
+  d'un contrôle de formulaire même en conteneur flex, et « CRANBERRY/CANNEBERGES » se
+  donnait 407 px dans une colonne de 231 ;
+- **les noms étaient ajustés contre une fonte qui n'était pas encore chargée**, donc plus
+  étroite : « TOURNESOL DECORTIQUE » sortait coupé en « TOURNESO / L DECORTIQU / E » sur
+  l'écran dont la promesse est qu'un nom n'est jamais coupé ;
+- **la grille dessinait 331 hauteurs de tuile** parce que la contrainte portait sur un
+  nombre de lignes et non sur une hauteur (ADR-030).
+
+Ce qui a été livré : **les 331 tuiles font 231 × 180 px exactement**, mesurées dans le
+navigateur, avec ou sans photo, sur les deux exports authentiques et de 1024 × 768 à
+2560 × 1440 ; quatre rangées pleines et aucune demie, l'addition des quatre bandes étant
+écrite dans `app.css` là où on la modifierait. Le reste est du dessin : plaque de catégorie
+et prix sur une même bande de tête, liseré d'état sur toute la largeur, anneaux au lieu de
+marques d'angle, icônes tracées au lieu d'émojis — `🫙` est un caractère de 2021 qu'un
+Windows 10 non mis à jour rend en tofu —, retour au toucher en 110 ms, ossature de grille
+pendant le chargement, et **« Catalogue vide. En attente du fichier `flv_2.csv` »** là où un
+poste sans catalogue affichait « Aucun produit ne correspond ». Budget : 75,8 ko gzip sur
+110, soit 68,9 %. **255 tests front**, dont 10 nouveaux sur la couleur configurée et la hauteur des tuiles.
+
 **Le premier accès, trouvé en installant vraiment un poste (26/07/2026).** Un poste sorti
 d'`install.ps1` n'avait **aucune porte d'entrée** vers son administration, et il ne pouvait
 donc pas être configuré : la configuration livrée est l'export de §11.5, qui ne porte

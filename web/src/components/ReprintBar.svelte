@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { LabelDTO } from '../lib/dto'
   import { lastLabelSummary } from '../lib/format'
+  import Icon from './Icon.svelte'
 
   /**
    * The reprint bar, and it is PERMANENT.
@@ -23,12 +24,16 @@
   const { label, available, onreprint }: Props = $props()
 </script>
 
-<div class="bar">
+<div class="bar" class:live={label !== null}>
+  <span class="glyph" class:quiet={label === null} aria-hidden="true">
+    <Icon name="printer" size="1.5rem" />
+  </span>
+
   {#if label === null}
     <p class="idle">Dernière étiquette : aucune pour le moment</p>
   {:else}
     <p class="summary">
-      Dernière étiquette :
+      <span class="lead">Dernière étiquette :</span>
       <strong>{lastLabelSummary(label)}</strong>
     </p>
     <button type="button" class="reprint touch-target" disabled={!available} onclick={onreprint}>
@@ -40,37 +45,76 @@
 <style>
   .bar {
     display: flex;
+    /* PERMANENT means it keeps its height whatever the grid above weighs. */
+    flex: 0 0 auto;
     align-items: center;
     gap: 1rem;
     height: var(--reprint-height);
-    padding: 0 var(--touch-gap);
+    padding: 0 1rem 0 1.25rem;
     background: var(--bg);
     border-top: 1px solid var(--border);
+    transition: background-color var(--slide) var(--ease);
+  }
+
+  /* A label has just come out: the strip lifts onto the surface colour, which is
+     the whole acknowledgement §14.3 asks for — the real one is the paper. */
+  .bar.live {
+    background: var(--surface);
+  }
+
+  .glyph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: var(--radius-sm);
+    background: var(--ready-wash);
+    color: var(--ink);
+  }
+
+  /* `quiet` and not `idle`: `.idle` is also the paragraph below, which declares
+     `flex: 1 1 auto` — the glyph took the whole bar. */
+  .glyph.quiet {
+    background: var(--waiting-wash);
+    color: var(--ink-muted);
   }
 
   .idle,
   .summary {
     flex: 1 1 auto;
     margin: 0;
-    font-size: 1.25rem;
+    font-size: 1.375rem;
+    color: var(--ink-muted);
+  }
+
+  .summary .lead {
     color: var(--ink-muted);
   }
 
   .summary strong {
     color: var(--ink);
-  }
-
-  .reprint {
-    padding: 0 1.5rem;
-    /* The bar is 56 px high and the button is a touch target: it therefore grows
-       past the bar rather than shrinking below 72 px (§14.2). */
-    border: 2px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
     font-size: 1.5rem;
   }
 
+  .reprint {
+    padding: 0 2rem;
+    border: 2px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-1);
+    font-size: 1.5rem;
+    font-weight: 600;
+    transition:
+      border-color var(--slide) var(--ease),
+      opacity var(--slide) var(--ease),
+      transform var(--tap) var(--ease);
+  }
+
   .reprint:disabled {
-    opacity: 0.4;
+    opacity: 0.35;
+    box-shadow: none;
+    cursor: default;
   }
 </style>

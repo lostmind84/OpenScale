@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Icon from './Icon.svelte'
+
   /**
    * The search: a filter in place, never a view.
    *
@@ -43,10 +45,12 @@
       {#if query.length === 0}
         <span class="hint">Tapez les premières lettres</span>
       {:else}
-        {query}
+        {query}<span class="caret" aria-hidden="true"></span>
       {/if}
     </p>
-    <p class="matches">{matches} produit{matches > 1 ? 's' : ''}</p>
+    <p class="matches" class:none={matches === 0}>
+      {matches} produit{matches > 1 ? 's' : ''}
+    </p>
     <button type="button" class="key touch-target close" onclick={onclose}>Fermer</button>
   </header>
 
@@ -65,7 +69,7 @@
         Espace
       </button>
       <button type="button" class="key touch-target wide" onclick={backspace}>
-        <span aria-hidden="true">⌫</span>
+        <Icon name="backspace" size="1.75rem" />
         <span class="visually-hidden">Effacer la dernière lettre</span>
       </button>
     </div>
@@ -77,43 +81,76 @@
     /* Anchored to the bottom third: the grid above stays visible and keeps
        filtering. A full-screen overlay hides exactly what it is filtering. */
     flex: 0 0 auto;
-    max-height: 33.333%;
+    max-height: 40%;
     display: flex;
     flex-direction: column;
-    gap: var(--touch-gap);
-    padding: var(--touch-gap);
+    gap: 0.75rem;
+    padding: 0.75rem var(--touch-gap) 1rem;
     background: var(--surface);
-    border-top: 2px solid var(--border);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -0.5rem 2rem rgb(28 27 25 / 8%);
+    z-index: 2;
+    animation: rise var(--slide) var(--ease);
+  }
+
+  /* It arrives from where it lives — the bottom edge — and it is over in 170 ms. */
+  @keyframes rise {
+    from {
+      transform: translateY(1.5rem);
+      opacity: 0;
+    }
   }
 
   .head {
     display: flex;
     align-items: center;
     gap: 1rem;
+    padding: 0 0.5rem;
   }
 
   .typed {
+    display: flex;
+    align-items: center;
     flex: 1 1 auto;
     margin: 0;
-    font-size: 1.75rem;
+    font-size: 2rem;
     font-weight: 700;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
   }
 
   .hint {
     color: var(--ink-muted);
     font-weight: 400;
+    letter-spacing: 0;
+  }
+
+  /* Where the next letter lands. It does not blink — nothing on this screen does. */
+  .caret {
+    width: 0.1875rem;
+    height: 1.75rem;
+    margin-left: 0.25rem;
+    border-radius: 0.125rem;
+    background: var(--ink);
   }
 
   .matches {
     margin: 0;
+    padding: 0.25rem 1rem;
+    border-radius: var(--radius-pill);
+    background: var(--bg);
     color: var(--ink-muted);
-    font-size: 1.5rem;
+    font-size: 1.375rem;
+  }
+
+  .matches.none {
+    background: var(--warning-wash);
+    color: var(--ink);
   }
 
   .keys {
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: var(--touch-gap);
   }
 
@@ -123,24 +160,40 @@
     gap: var(--touch-gap);
   }
 
+  /*
+   * A key is a fixed rectangle, so the three rows line up on one grid instead of
+   * stretching to whatever width their letter count gives them.
+   */
   .key {
-    flex: 1 1 auto;
-    max-width: 7rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 5rem;
     border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    box-shadow: var(--shadow-1);
     font-size: 1.75rem;
-    font-weight: 700;
+    font-weight: 600;
+  }
+
+  .key:active {
+    background: var(--bg);
   }
 
   .key.space {
-    max-width: 20rem;
+    width: 22rem;
   }
 
-  .key.wide,
+  .key.wide {
+    width: 8rem;
+  }
+
   .key.close {
-    max-width: 10rem;
-    font-weight: 400;
+    width: auto;
+    padding: 0 1.75rem;
+    font-size: 1.5rem;
+    font-weight: 500;
   }
 
   .visually-hidden {

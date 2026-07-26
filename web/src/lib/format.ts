@@ -11,17 +11,6 @@ import type { LabelDTO } from './dto'
  */
 
 /**
- * Compose le prix d'une tuile : le montant servi et son suffixe.
- *
- * @param text - le prix déjà mis en forme, `unit_price_text`.
- * @param suffix - le suffixe servi avec le produit, espace initiale comprise.
- * @returns par exemple `5,32 €/kg`.
- */
-export function unitPrice(text: string, suffix: string): string {
-  return `${text}${suffix}`
-}
-
-/**
  * Compose la phrase de la barre de réimpression permanente.
  *
  * @param label - la dernière étiquette telle que le flux la donne.

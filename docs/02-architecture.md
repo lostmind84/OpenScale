@@ -3590,11 +3590,13 @@ go func() {
 
 ### 14.2 Direction visuelle
 
-Échelle typographique (base 16 px sur 1920 × 1080, écran 24″, distance 60–80 cm) : poids **96 px / 700 / tabulaire** (lisible à 2,5 m) · prix principal 64 px · **nom de produit sur tuile 34 px / 700, deux lignes, sans troncature** ← *l'élément principal de la tuile* · prix sur tuile 24 px / 400 · filtre actif 28 px · consigne 28 px · mention légale 18 px.
+Échelle typographique (base 16 px sur 1920 × 1080, écran 24″, distance 60–80 cm) : poids **96 px / 700 / tabulaire** (lisible à 2,5 m) · prix principal 64 px · **nom de produit sur tuile 34 px / 700 au nominal, dans un bloc de hauteur fixe, sans troncature** ← *l'élément principal de la tuile* · prix sur tuile 24 px · filtre actif 28 px · consigne 28 px · mention légale 18 px.
 
-> **La hiérarchie de la tuile est inversée par rapport à la première version, et c'est la donnée réelle qui l'impose.** Le nom y était un sous-titre de 26 px **sous une image**, parce que l'ancienne application posait 120 contrôles `Image0…Image119` porteurs de l'événement et dimensionnait l'image d'abord (`Systeme_Dimensions.LargeurImage`, `HauteurImage`, puis `HauteurLabel`). Or les fichiers authentiques disent le contraire, et la mesure de 2026 le dit **plus fort** que celle de 2022 : `flv_1.csv` n'a aucune image (0 sur 153), et `flv.csv`, qui en a enfin, n'en a que pour **181 produits sur 355 — 49 % du catalogue n'a pas de photo** (§10.2, §10.7). Le déséquilibre est de surcroît très inégal selon la catégorie : `F` est illustrée à 69 %, `A` à 32 %. **Une tuile sans photo n'est donc pas un cas dégradé qu'on soigne à la marge : c'est un produit sur deux, et deux tuiles voisines de la même grille seront l'une illustrée et l'autre non.** Ce qu'on a **certainement**, ce sont des noms — 8 à 69 caractères, 27 en moyenne — et des prix. **Le corpus de rendu de référence reste donc un catalogue SANS image**, et c'est le nom qui est dimensionné en premier : 34 px / 700 doit tenir « ♥AA-LA TOMME DES CROQUANTS AFFINE A LA LIQUEUR DE NOIX DU PERIGORD-MV » (**69 caractères**, le plus long de `flv.csv`) dans une tuile de 230 px sans points de suspension — deux lignes n'y suffisent plus, la tuile en autorise **trois** et le corps se réduit d'un cran au-delà, exactement comme sur l'étiquette (§7.3). Quand une photo existe, elle s'ajoute au-dessus du nom ; quand elle manque, **rien ne bouge et il n'y a ni trou ni cadre gris** — l'initiale sur la couleur de catégorie occupe la place, ou la tuile se referme sur son texte.
+> **Ce qui est tenu constant est le BLOC, pas le nombre de lignes** (ADR-030). Le nom est ajusté dans un bloc de **90 px** : deux lignes au corps nominal, quatre au plancher de 18 px, ce dont le nom de 69 caractères a besoin. Les 331 tuiles du fichier de référence font donc **231 × 180 px exactement**, mesurées dans le navigateur, quelles que soient la longueur du nom, la présence d'une photo et sa forme. Fixer « au plus trois lignes » ne pouvait pas donner ça : trois lignes de 34 px et trois lignes de 18 px sont deux tuiles différentes.
 
-`font-variant-numeric: tabular-nums` sur **tous** les chiffres : sans cela le poids « saute » latéralement à chaque décimale, défaut visuel le plus fatigant d'un afficheur temps réel.
+> **La hiérarchie de la tuile est inversée par rapport à la première version, et c'est la donnée réelle qui l'impose.** Le nom y était un sous-titre de 26 px **sous une image**, parce que l'ancienne application posait 120 contrôles `Image0…Image119` porteurs de l'événement et dimensionnait l'image d'abord (`Systeme_Dimensions.LargeurImage`, `HauteurImage`, puis `HauteurLabel`). Or les fichiers authentiques disent le contraire, et la mesure de 2026 le dit **plus fort** que celle de 2022 : `flv_1.csv` n'a aucune image (0 sur 153), et `flv.csv`, qui en a enfin, n'en a que pour **181 produits sur 355 — 49 % du catalogue n'a pas de photo** (§10.2, §10.7). Le déséquilibre est de surcroît très inégal selon la catégorie : `F` est illustrée à 69 %, `A` à 32 %. **Une tuile sans photo n'est donc pas un cas dégradé qu'on soigne à la marge : c'est un produit sur deux, et deux tuiles voisines de la même grille seront l'une illustrée et l'autre non.** Ce qu'on a **certainement**, ce sont des noms — 8 à 69 caractères, 27 en moyenne — et des prix. **Le corpus de rendu de référence reste donc un catalogue SANS image**, et c'est le nom qui est dimensionné en premier : 34 px / 700 doit tenir « ♥AA-LA TOMME DES CROQUANTS AFFINE A LA LIQUEUR DE NOIX DU PERIGORD-MV » (**69 caractères**, le plus long de `flv.csv`) dans une tuile de 230 px sans points de suspension — deux lignes n'y suffisent plus, et le corps se réduit par pas d'un demi-pixel jusqu'à ce que le nom tienne dans son bloc, exactement comme sur l'étiquette (§7.3). La photo, quand elle existe, occupe une **plaque carrée de 56 px en tête de tuile**, avec le prix aligné à droite sur la même bande ; quand elle manque, **rien ne bouge et il n'y a ni trou ni cadre gris** — la même plaque porte l'initiale sur la couleur de catégorie. La bande pleine largeur de la première version laissait les deux tiers de sa surface vides sur chacune des 331 tuiles ; la plaque carrée récupère la hauteur d'une **quatrième rangée visible**.
+
+`font-variant-numeric: tabular-nums` sur **tous** les chiffres : sans cela le poids « saute » latéralement à chaque décimale, défaut visuel le plus fatigant d'un afficheur temps réel. **Une exception, et elle est mesurable** : le **nom** d'une tuile revient à `normal`. Sur Inter, `tabular-nums` élargit bien plus que les chiffres — le trait d'union et le signe pour-cent aussi —, si bien que « Arc-en-Ciel » se compose **6 % plus large** que ce qu'un `canvas` mesure. Six pour cent, c'est une ligne entière dans un bloc dimensionné pour deux : le nom doit être dessiné avec la variante qui le mesure. Les chiffres qu'un client lit sur une tuile sont dans le prix, qui garde les siens.
 
 ```css
 :root {
@@ -3608,29 +3610,35 @@ go func() {
 }
 ```
 
+**Aucune couleur ne porte de lettres, sauf l'encre.** `--warning` plafonne à 3,97:1 sur `--surface` et `--fault` à 6,54:1 : les employer comme couleur de texte violerait la règle qui les déclare. Elles n'existent donc qu'en **liserés, anneaux, pastilles et lavis à 10 %** — les quatre lavis sont précalculés en jetons (`--ready-wash`, `--warning-wash`, `--fault-wash`, `--waiting-wash`) plutôt que composés par `color-mix()`, qu'un navigateur de kiosque pourrait ignorer en silence, emportant le sens de l'état avec lui.
+
+**La couleur d'un rayon vient de la configuration, donc elle est corrigée avant d'être dessinée.** `categories[].color` est écrite à la main dans un JSON, sans aperçu (§14.3-2) : l'ocre du fichier livré, `#B7950B`, plafonne à **2,7:1** sur blanc, et une initiale dessinée telle quelle serait illisible à 80 cm — le CSS ne peut rien y faire puisqu'il ne voit jamais la valeur. L'écran n'emploie donc jamais la couleur reçue telle quelle : un **lavis** de celle-ci identifie le rayon, et une forme **assombrie jusqu'à 4,5:1** porte tout ce qui doit être lu. Les deux sont calculés au rendu, et un test les vérifie sur les quatre couleurs livrées.
+
 Contrastes **AAA** (≥ 7:1) sur tout texte ≥ 24 px, **AA** partout ailleurs — vérifié par un test qui parcourt les jetons. Aucune animation > 200 ms ; `prefers-reduced-motion` supprime les transitions ; **le liseré ne clignote jamais** (il glisse) : un clignotement à 3 Hz est un déclencheur photosensible. **Cibles tactiles ≥ 20 mm**, espacement ≥ 8 px : une dérive de calibration tactile de 5 mm — cas réel après un changement d'écran — reste sans effet. C'est une mitigation par le design, pas par la procédure. **La conversion, refaite** : un 24″ 16:9 mesure 531 mm de large, donc 1920 / 531 = **3,61 px/mm**, et 20 mm = **≈ 72 px** (la valeur « ≈ 190 px » qui figurait ici était fausse d'un facteur 2,6). Le test de jetons vérifie que toute cible touchable déclare `min-height`/`min-width` ≥ 72 px sur l'écran de référence, exprimés en unités relatives. **C'est cette valeur, avec la lisibilité d'un nom de 49 caractères, qui fixe la densité unique de la grille** — il n'y a plus de réglage `confort`/`dense` à arbitrer (§14.3).
 
 ### 14.3 Écran client
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│    1,236 kg  ●         Touchez votre produit,          ┌──────┐          │
-│    ▔▔▔▔▔▔▔▔ vert       l'étiquette sort                │ 🫙   │          │ 168 px
-│    tare 0 g                                            │ TARE │          │
-│                                                        └──────┘          │
+│  1,236 kg   │  Touchez votre produit,                        ┌────────┐  │
+│  tare 0 g   │  l'étiquette sort                              │ (tare) │  │ 152 px
+│             │                                                │  TARE  │  │
+│▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ liseré d'état, pleine largeur ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔│
 ├──────────────────────────────────────────────────────────────────────────┤
 │ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────┐ │
-│ │ AIL        │ │ BANANES    │ │ CAROTTES   │ │ COURGETTES │ │ ÉPINARDS │ │
-│ │            │ │            │ │            │ │            │ │          │ │
-│ │ 5,32 €/kg  │ │ 2,90 €/kg  │ │ 1,80 €/kg  │ │ 3,10 €/kg  │ │6,40 €/kg │ │
+│ │ ▣ 5,32 €/kg│ │ ▣ 2,90 €/kg│ │ ▣ 1,80 €/kg│ │ ▣ 3,10 €/kg│ │▣6,40 €/kg│ │ 180 px
+│ │ AIL        │ │ BANANES    │ │ CAROTTES   │ │ COURGETTES │ │ ÉPINARDS │ │ par
+│ │            │ │            │ │            │ │            │ │          │ │ rangée
 │ └────────────┘ └────────────┘ └────────────┘ └────────────┘ └──────────┘ │
-│  … défilement vertical inertiel — les 331 pesables d'un seul tenant      │
+│  … 4 rangées visibles, défilement inertiel — les 331 d'un seul tenant    │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ Dernière étiquette : ail 1,236 kg  [ Réimprimer ]      ← barre PERMANENTE │  56 px
+│ ⎙ Dernière étiquette : ail 1,236 kg          [ Réimprimer ] ← PERMANENTE │  80 px
 ├──────────────────────────────────────────────────────────────────────────┤
-│ [ Tout · 331 ] [ Autres ] [ Vrac ] [ Légumes ] [ Fruits ] [ 🔍 ]       ● │  96 px
+│ (Tout 331) (Fruits 28) (Légumes 67) (Vrac 110) (Autres 126)   [🔍]     ● │  88 px
 └──────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Les quatre bandes s'additionnent, et l'addition est le dessin.** 152 + 80 + 88 = 320 px ; 1080 − 320 = 760 px pour la grille, moins ses 2 × 8 px de marge = **744 px**, soit exactement **quatre rangées de 180 px et leurs trois gouttières de 8**. La grille montre quatre rangées pleines et aucune demie. Changer l'une de ces quatre valeurs coupe la quatrième rangée en deux : elles sont liées, et le commentaire de `app.css` le dit à l'endroit où on les modifierait.
 
 **L'exigence, formulée en client et non en réfutation de l'ancien logiciel :** *les produits pesables sont tous atteignables en un défilement, et n'importe lequel en moins de 4 secondes* — **mesuré**, pas supposé, par `weighings.duration_ms` (§12.3). Sur la pièce de référence cela fait **331 produits** — 107 seulement sur `flv_1.csv`. Le chiffre a **triplé en quatre ans** : c'est la mesure qui compte, pas le 340 hérité de la table `Produits` de l'ancienne base, qui ne venait pas de la donnée reçue (§10.2). Une grille qui tiendrait juste à 107 et casserait à 331 serait déjà périmée. Une exigence qui se serait écrite « nous n'avons pas la limite qu'ils avaient » — ni 120 produits, ni 16 colonnes, ni 50 résultats, ni 32 767 twips — aurait encore été rédigée depuis l'ancienne application.
 
@@ -4440,6 +4448,29 @@ Le PDF révèle en outre que **le symbole ne commence pas en haut de sa boîte**
 **Ce qui reste à valider physiquement, et c'est un critère de recette de L5.** L'étiquette **change visuellement** : les barres sont plus courtes de 847 µm que les 11 722 annoncés, le texte n'est plus dessus. Le protocole de §7.6 s'applique tel quel — 50 étiquettes de production Access contre 50 étiquettes neuves, au même scanner de caisse, refus et relectures comptés. L'attente est un taux de lecture **meilleur** ; si le comptage disait le contraire, le repli est d'augmenter l'interligne pour rendre les barres plus hautes encore, jusqu'à 11 632 µm à 150 µm d'interligne.
 
 **Ce que cette décision ne fait pas.** Elle ne rouvre pas la question du grandissement, ni celle du consommable, ni celle de la résolution. Elle ne rend pas le symbole conforme à la norme — il reste tronqué, volontairement, et `truncation_accepted` reste levé sur le gabarit pour que le diagnostic de l'admin demeure **informatif** et non un avertissement (ADR-003).
+
+---
+
+### ADR-030 — La tuile a une hauteur, pas un nombre de lignes
+
+**Statut** : accepté · **Date** : 27/07/2026 · **Portée** : §14.2, §14.3
+
+**Contexte.** La première version dimensionnait le nom d'un produit « en au plus **trois lignes**, corps réduit au besoin ». Rendue dans un navigateur sur le catalogue réel, la grille donnait **331 hauteurs de tuile différentes** — de 185 à 226 px — parce que trois lignes de 34 px et trois lignes de 18 px ne mesurent pas la même chose. Les rangées ne s'alignaient plus, et l'œil lisait un damier plutôt qu'une grille.
+
+**Décision.** Ce qui est tenu constant est le **bloc** : le nom est ajusté dans une hauteur fixe de 90 px, et un corps plus petit y achète des lignes supplémentaires — deux au nominal de 34 px, quatre au plancher de 18 px. La tuile mesure **180 px**, toujours ; une rangée ne grandit que si un nom déborde même au plancher, et alors **toutes les tuiles de cette rangée grandissent ensemble**. La troncature n'est jamais une issue.
+
+**Ce que l'ajustement doit savoir du navigateur, et qui a été mesuré et non supposé.** Un `canvas` sert de mesureur ; quatre écarts entre ce qu'il annonce et ce que le navigateur compose ont dû être fermés, chacun valant une ligne de trop :
+
+| Écart | Effet | Traitement |
+|---|---|---|
+| La police n'est pas chargée à la première mesure | mesure faite sur la fonte de repli, plus étroite | `document.fonts.load()` de la **fonte nommée** — `ready` se résout avant qu'elle soit demandée |
+| `tabular-nums`, hérité de `body`, élargit trait d'union et pour-cent | « Arc-en-Ciel » composé 6 % plus large que mesuré | le nom repasse en `font-variant-numeric: normal` |
+| `measureText(' ')` sous-évalue l'espace de 3,2 px à 100 px | 1 px par mot, et le mot suivant passe à la ligne | l'espace est mesuré **entre deux lettres** : `« a a » − « aa »` |
+| Le navigateur coupe **entre deux glyphes**, pas au pixel | « CRANBERRY/CANNEBERGES », 1,96 colonne, occupe **trois** lignes | un fragment trop large est compté en caractères par ligne |
+
+Les opportunités de coupure ont été mesurées de la même façon plutôt que lues dans UAX #14 : Chrome coupe **après un trait d'union** et **jamais après une barre oblique** — les deux normes divergent, c'est le navigateur qui compose.
+
+**Conséquences.** Les **331 tuiles font 231 × 180 px**, vérifié dans le navigateur, avec ou sans photo, sur les deux exports authentiques, et de 1024 × 768 à 2560 × 1440. La largeur utile d'une colonne n'est plus **calculée** mais **relue dans la mise en page** — l'estimation avait oublié les deux filets d'un pixel de la tuile, et 205 px de texte étaient ajustés contre 207. Un test vérifie que chacun des 331 noms réels tient dans son bloc, en recopiant la règle de coupure du navigateur : le jour où l'un des deux modèles dérive, la CI le dit.
 
 ---
 

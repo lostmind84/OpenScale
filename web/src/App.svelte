@@ -39,6 +39,33 @@
   const healthy = $derived(
     snapshot === null || (snapshot.scale.connected && snapshot.printer.health !== 'faulted'),
   )
+  /**
+   * What the grid says when it has nothing to draw — and the three cases differ.
+   *
+   * « Aucun produit ne correspond » is true of a filter that matched nothing and
+   * FALSE of a station whose catalog has not arrived: there is nothing to
+   * correspond to, nobody typed anything, and the sentence sends a volunteer
+   * looking for a search box. §14.4 fixes the wording of that second case, and
+   * the name of the awaited file is DERIVED from the station number — never
+   * written in a message.
+   */
+  const empty = $derived.by(() => {
+    if (session.catalogError !== '') {
+      return { message: session.catalogError, hint: 'Le poste réessaie tout seul.' }
+    }
+    if (products.length > 0) {
+      return { message: 'Aucun produit ne correspond.', hint: 'Effacez des lettres ou changez de rayon.' }
+    }
+    const station = snapshot?.station ?? 0
+    return {
+      message:
+        station > 0
+          ? `Catalogue vide. En attente du fichier flv_${station}.csv.`
+          : 'Catalogue vide. En attente du fichier du poste.',
+      hint: 'Prévenez un responsable : aucun produit ne peut être pesé.',
+    }
+  })
+
   /** The tile a refusal points at: an orange ribbon, and the grid stays visible. */
   const rejectedID = $derived(snapshot?.state === 'rejected' ? (snapshot.product?.id ?? null) : null)
   const selectedID = $derived(snapshot?.state === 'rejected' ? null : (snapshot?.product?.id ?? null))
@@ -110,6 +137,7 @@
     {snapshot}
     showWeight={session.link.showWeight}
     linkBanner={session.link.banner}
+    taring={tareEntry !== null}
     ontare={() => (tareEntry = '')}
   />
 
@@ -130,8 +158,9 @@
     {rejectedID}
     {busyID}
     showPrices={settings.show_grid_prices}
-    emptyMessage={session.catalogError ||
-      (catalog === null ? 'Chargement du catalogue…' : 'Aucun produit ne correspond.')}
+    loading={catalog === null && session.catalogError === ''}
+    emptyMessage={empty.message}
+    emptyHint={empty.hint}
     onpick={pick}
   />
 
@@ -181,5 +210,13 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    /*
+     * The four bands keep their height and the grid takes what is left, which is
+     * why each of them declares `flex: 0 0 auto` and the grid `min-height: 0`.
+     * Left to the default `flex-shrink: 1`, the overflow of a 331 tile grid is
+     * spent on the elements that must not move: the banner loses its weight
+     * display and the two PERMANENT bars of §14.3 are squeezed to nothing.
+     */
+    overflow: hidden;
   }
 </style>

@@ -7,6 +7,11 @@
  * 72 px, i.e. 4.5rem. That figure, and the readability of a 69 character name,
  * are the two physical constraints the single grid density is derived from:
  * there is no comfort/dense setting to arbitrate (ADR-024, ADR-025).
+ *
+ * Colour carries meaning, never letters. The palette below reaches 3,97:1
+ * (--warning) and 6,54:1 (--fault) on --surface, both under the 7:1 §14.2 demands
+ * of text at 24 px and more, so those two hues exist only as rules, rings, dots
+ * and 10 % washes. Everything that is READ is ink on a light surface (ADR-030).
  */
 
 :root {
@@ -21,6 +26,18 @@
   --fault: #b3261e; /* red: hardware failure, a volunteer acts */
   --focus: #1e5fa8;
 
+  /* The same four hues washed to 10 % over --surface, computed once here rather
+     than by color-mix(): a station renders on whatever browser the kiosk ships
+     with, and a wash that silently falls back to transparent takes the meaning
+     of the state with it. */
+  --waiting-wash: #f4f3f2;
+  --ready-wash: #e9f4ed;
+  --warning-wash: #faf0e8;
+  --fault-wash: #f7e9e8;
+
+  /* A hairline inside a surface, where --border would draw a box. */
+  --border-soft: #eeebe4;
+
   /* The touch target of §14.2, in relative units. Nothing touchable is smaller. */
   --touch-min: 4.5rem;
   /* A calibration drift of 5 mm -- a real case after a screen swap -- must stay
@@ -30,12 +47,46 @@
   /* One column is at least 230 px = 14.375rem; auto-fill absorbs a change of
      resolution without anyone editing a number (§14.3-1). */
   --tile-min: 14.375rem;
+  /* The two bands of a tile, fixed so that 331 tiles draw one single rhythm
+     whatever their name, their price and their photo (ADR-030). */
+  --tile-media: 3.5rem;
+  --tile-name: 5.625rem;
+  --tile-pad: 0.75rem;
+  /* 12 + 56 + 8 + 90 + 12 of content, plus the two hairlines: 180 px. Four rows
+     of it and their three gaps are 744 px, which is exactly what the four bands
+     below leave of a 1080 px screen — four full rows, and no half one. */
+  --tile-height: 11.25rem;
 
-  --banner-height: 10.5rem;
-  --reprint-height: 3.5rem;
-  --filter-height: 6rem;
+  /*
+   * The four fixed bands of the screen, and the arithmetic that ties them.
+   *
+   * 152 + 80 + 88 = 320 px of banner, reprint bar and filter bar; 1080 − 320 =
+   * 760 px for the grid, less its 2 × 8 px of padding = 744 px of tiles. Change
+   * one of these four numbers and the fourth row of tiles is cut in half.
+   */
+  --banner-height: 9.5rem;
+  /* 80 px, and not the 56 px of the first sketch: the reprint key is a touch
+     target like any other, so the bar is drawn around it instead of letting it
+     grow out of the bar (§14.2). */
+  --reprint-height: 5rem;
+  --filter-height: 5.5rem;
 
-  --radius: 0.5rem;
+  --radius-sm: 0.5rem;
+  --radius: 0.875rem;
+  --radius-lg: 1.25rem;
+  --radius-pill: 62.5rem;
+
+  /* Two shadows and no more: one to lift a surface off the background, one to
+     say « this is above everything else ». */
+  --shadow-1:
+    0 1px 1px rgb(28 27 25 / 4%), 0 2px 6px rgb(28 27 25 / 5%);
+  --shadow-2:
+    0 2px 4px rgb(28 27 25 / 6%), 0 12px 32px rgb(28 27 25 / 10%);
+
+  /* Nothing lasts longer than 200 ms (§14.2); these two are the whole vocabulary. */
+  --tap: 110ms;
+  --slide: 170ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
 
   font-size: 16px;
   color-scheme: light;
@@ -62,6 +113,18 @@ body {
   overflow: hidden;
 }
 
+/*
+ * The mount point takes the full height, and that is not decoration.
+ *
+ * Without it `.screen { height: 100% }` resolves against a div of automatic
+ * height, the column grows with the grid, and the reprint bar and the filter bar
+ * — the two PERMANENT bars of §14.3 — are pushed under the bottom edge of a
+ * kiosk screen that has no scrollbar and no window to resize.
+ */
+#app {
+  height: 100%;
+}
+
 body {
   background: var(--bg);
   color: var(--ink);
@@ -69,6 +132,7 @@ body {
   /* Without this the weight jumps sideways on every decimal -- the most tiring
      visual defect of a real-time display (§14.2). */
   font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
   /* A self-service station is not a document: nothing selects, nothing zooms on
      a double tap, nothing bounces at the end of a scroll, no context menu. */
   touch-action: manipulation;
@@ -98,6 +162,21 @@ button {
   min-width: var(--touch-min);
 }
 
+/*
+ * A finger gets an answer before the network does.
+ *
+ * The press is the only feedback a touch screen can give in the 40 ms before the
+ * station has said anything, and its absence is what makes a kiosk feel broken.
+ * 110 ms, well under the 200 ms ceiling of §14.2.
+ */
+button:active:not(:disabled) {
+  transform: scale(0.975);
+}
+
+button {
+  transition: transform var(--tap) var(--ease);
+}
+
 :focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
@@ -111,6 +190,10 @@ button {
   *::after {
     transition-duration: 0ms !important;
     animation-duration: 0ms !important;
+  }
+
+  button:active:not(:disabled) {
+    transform: none;
   }
 }
 
