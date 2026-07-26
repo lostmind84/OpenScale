@@ -24,8 +24,8 @@ import (
 // error message.
 const (
 	secretWebDAVPassword = "s3cr3t-du-producteur"
-	secretWebDAVURL      = "https://balance:s3cr3t-du-producteur@dav.lacagette-cooperative.fr/depots"
-	secretWebDAVHost     = "dav.lacagette-cooperative.fr"
+	secretWebDAVURL      = "https://balance:s3cr3t-du-producteur@dav.example.org/depots"
+	secretWebDAVHost     = "dav.example.org"
 )
 
 // TestTheArchiveCarriesNoSecretAtAll is THE security test of this package.

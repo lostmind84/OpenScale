@@ -740,14 +740,14 @@ func TestTheCatalogControlNeverPublishesTheWebDAVAddress(t *testing.T) {
 	b.tweak(func(cfg *domain.Config) {
 		cfg.Catalog.Type = domain.CatalogSourceWebDAV
 		cfg.Catalog.Options = domain.DriverOptions{
-			"url":      json.RawMessage(`"https://dav.lacagette-cooperative.fr/balance"`),
+			"url":      json.RawMessage(`"https://dav.example.org/balance"`),
 			"username": json.RawMessage(`"balance"`),
 		}
 	})
 	b.service.silence()
 
 	found := control(t, b.run(), ControlCatalogSource)
-	if strings.Contains(found.Observed+found.Remedy, "lacagette-cooperative") {
+	if strings.Contains(found.Observed+found.Remedy, "example.org") {
 		t.Fatalf("l'adresse privée de la source ne doit pas voyager dans un rapport que "+
 			"diagnostic.zip emporte :\n%s\n%s", found.Observed, found.Remedy)
 	}

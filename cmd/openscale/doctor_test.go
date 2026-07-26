@@ -158,7 +158,7 @@ func TestDoctorSaysWhyAStationThatIsNotRunningIsNotRunning(t *testing.T) {
 // route a volunteer actually presses — unauthenticated, one button (§15.4, ADR-018).
 func TestTheStationServesAnArchiveWithNoSecretInIt(t *testing.T) {
 	const password = "mot-de-passe-du-producteur-2026"
-	const address = "https://dav.lacagette-cooperative.fr/depots"
+	const address = "https://dav.example.org/depots"
 
 	b := newServeBench(t, func(cfg *domain.Config) {
 		cfg.Catalog.Type = domain.CatalogSourceWebDAV
@@ -191,7 +191,7 @@ func TestTheStationServesAnArchiveWithNoSecretInIt(t *testing.T) {
 	secrets := map[string]string{
 		password:                                "le mot de passe WebDAV",
 		address:                                 "l'adresse privée de la source",
-		"dav.lacagette-cooperative.fr":          "l'hôte privé de la coopérative",
+		"dav.example.org":                       "l'hôte privé de la coopérative",
 		shippedConfig(t).Admin.PasswordHash:     "l'empreinte du mot de passe d'administration",
 		shippedConfig(t).Admin.RecoveryCodeHash: "l'empreinte du code de secours",
 	}
