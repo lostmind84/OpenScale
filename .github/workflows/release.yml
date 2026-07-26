@@ -48,6 +48,35 @@ jobs:
     name: Archives et publication
     runs-on: ubuntu-latest
     steps:
+      # LA PREMIÈRE ÉTAPE VALIDE LE NOM DU TAG, avant tout checkout et toute construction.
+      #
+      # Un nom de tag git accepte presque tout — guillemets, points-virgules, substitution
+      # de commande — et `workflow_dispatch` laisse quiconque a le droit d'écriture en
+      # fournir un à la main. Le filtre `on: push: tags` ne protège pas ce chemin-là, et il
+      # est de toute façon un glob : il n'exclut pas les métacaractères.
+      #
+      # La valeur passe par l'ENVIRONNEMENT et non par une interpolation dans la ligne de
+      # commande : `${{ }}` est remplacé par GitHub AVANT que le shell ne lise la ligne, si
+      # bien qu'un tag contenant `"; curl … | sh; #` deviendrait une commande. Une variable
+      # d'environnement, elle, n'est jamais relue comme du code.
+      - name: Le nom du tag est bien une version
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          case "$TAG" in
+            v[0-9]*.[0-9]*|[0-9]*.[0-9]*) ;;
+            *) echo "Tag « $TAG » : ce n'est pas une forme de version."; exit 1 ;;
+          esac
+          # Seuls les caractères d'un numéro de version sont admis. Tout le reste — espace,
+          # guillemet, point-virgule, barre verticale, apostrophe inverse, dollar — est
+          # refusé ici plutôt que d'être échappé plus loin, parce qu'un échappement se perd
+          # au premier refactoring et qu'aucune version légitime n'en a besoin.
+          if printf '%s' "$TAG" | grep -qvE '^v?[0-9]+(\.[0-9]+){1,2}(-[A-Za-z0-9.]+)?$'; then
+            echo "Tag « $TAG » : caractères non admis dans un numéro de version."
+            exit 1
+          fi
+          echo "tag validé : $TAG"
+
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
@@ -106,7 +135,9 @@ jobs:
       #      openscale-v0.1-dirty-windows-amd64.zip, et le contrôle de cohérence
       #      ci-dessous refuserait de publier une version pourtant correcte.
       - name: Fabriquer les trois archives
-        run: make release VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: make release VERSION="$TAG"
 
       - name: Ce qui va être publié
         run: |
@@ -126,8 +157,10 @@ jobs:
       # checkout sans tags publierait sous un nom de révision, et le seul symptôme serait
       # un nom de fichier inattendu dans la page Releases — que personne ne relit.
       - name: Le nom des archives porte bien la version
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          version="${{ github.event.inputs.tag || github.ref_name }}"
+          version="$TAG"
           if ! ls dist/openscale-"$version"-windows-amd64.zip >/dev/null 2>&1; then
             echo "Les archives ne portent pas la version « $version » :"
             ls -1 dist/*.zip

