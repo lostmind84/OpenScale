@@ -1,8 +1,11 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,5 +149,105 @@ func TestTheDashboardStillDrawsWithoutADatabase(t *testing.T) {
 	got := decodeStatus[adminHealthDTO](t, b.get("/admin/api/health"), http.StatusOK)
 	if got.Counters.Journal != -1 {
 		t.Fatalf("nombre de lignes = %d, attendu -1 (« pas de journal »)", got.Counters.Journal)
+	}
+}
+
+// stubDashboard is the four facts of §14.4 a station gets from its composition root.
+type stubDashboard struct{ facts DashboardFacts }
+
+func (s stubDashboard) Dashboard(context.Context) DashboardFacts { return s.facts }
+
+// TestTheDashboardCarriesTheFourFactsOnlyTheStationKnows.
+//
+// The roll, the disk, the unattended restart and the watched path are on the dashboard of
+// §14.4 and in no other payload: /readyz says nothing about them and GET /admin/api/config
+// needs a password, which the volunteer page has not got (ADR-018).
+func TestTheDashboardCarriesTheFourFactsOnlyTheStationKnows(t *testing.T) {
+	b := newBench(t, func(o *benchOptions) {
+		o.dashboard = stubDashboard{DashboardFacts{
+			Roll: &RollGauge{Printed: 940, Capacity: 1000, Remaining: 60,
+				Level: domain.LevelWarn, Message: "rouleau à changer : environ 60 étiquettes restantes.",
+				Known: true},
+			Disk:    &DiskSpace{Path: "C:\\ProgramData\\OpenScale", FreeBytes: 734_003_200, TotalBytes: 128_000_000_000},
+			Restart: &RestartReadiness{Configured: false, Known: true, Detail: "NON", Remedy: "Relancez install.ps1."},
+			Source:  &CatalogSourceState{Type: domain.CatalogSourceLocalDrop, Label: "dépôt local, flv_2.csv dans D:\\data\\catalog\\incoming"},
+		}}
+		o.config = func(cfg *domain.Config) { cfg.Maintenance.DiskAlertMB = 500 }
+	})
+
+	got := decodeStatus[adminHealthDTO](t, b.get("/admin/api/health"), http.StatusOK)
+	if got.Roll == nil || got.Roll.Remaining != 60 || got.Roll.Level != domain.LevelWarn {
+		t.Fatalf("rouleau = %+v, attendu 60 restantes en « warn »", got.Roll)
+	}
+	if got.Disk == nil || got.Disk.FreeBytes != 734_003_200 {
+		t.Fatalf("disque = %+v", got.Disk)
+	}
+	// The threshold travels BESIDE the measurement (§10.4): a seuil with no relation to
+	// reality has to be visible at a glance, and only the configuration knows it.
+	if got.Disk.AlertMB != 500 {
+		t.Fatalf("seuil d'alerte disque = %d Mo, attendu celui de la configuration (500)", got.Disk.AlertMB)
+	}
+	if got.Restart == nil || got.Restart.Configured || got.Restart.Remedy == "" {
+		t.Fatalf("redémarrage sans intervention = %+v, attendu NON CONFIGURÉ avec sa consigne", got.Restart)
+	}
+	if got.CatalogSource == nil || !strings.Contains(got.CatalogSource.Label, "flv_2.csv") {
+		t.Fatalf("source de catalogue = %+v, attendu le fichier surveillé en clair", got.CatalogSource)
+	}
+	if !got.ScalePresent {
+		t.Fatal("le tableau de bord ne dit pas que ce poste a une balance : le feu ne peut pas s'éteindre")
+	}
+}
+
+// TestWhatNobodyMeasuredIsABSENTAndNeverZero.
+//
+// A station wired without a Dashboard has no roll counter, no free space and no answer
+// about the unattended restart. The payload leaves the three OUT. Sending zeroes would
+// have the screen draw « rouleau neuf », « disque plein » and « redémarrage : OK » in good
+// faith, and all three would be false.
+func TestWhatNobodyMeasuredIsABSENTAndNeverZero(t *testing.T) {
+	b := newBench(t)
+	got := decodeStatus[adminHealthDTO](t, b.get("/admin/api/health"), http.StatusOK)
+	if got.Roll != nil || got.Disk != nil || got.Restart != nil || got.CatalogSource != nil {
+		t.Fatalf("tableau de bord sans collaborateur = roll %+v, disk %+v, restart %+v, source %+v ; "+
+			"attendu quatre absences", got.Roll, got.Disk, got.Restart, got.CatalogSource)
+	}
+}
+
+// TestTheNonWeighableFigureIsBrokenDownByMotive is the line of §14.4 read out loud:
+// « 8 non pesables — préemballés (7), code interne 0490 (1) ».
+//
+// The breakdown comes from the FINDINGS of the last import, on the dashboard route, which
+// carries no password: a volunteer must not need one to learn that nothing is wrong.
+func TestTheNonWeighableFigureIsBrokenDownByMotive(t *testing.T) {
+	b := newBench(t)
+	b.store.imports = []domain.Import{{
+		ID: 7, OccurredAt: epoch, Source: domain.CatalogSourceLocalDrop,
+		FileName: "flv_2.csv", Result: domain.ImportApplied,
+		RowsRead: 355, Weighable: 331, NotWeighable: 8, Anomalies: 16, UnitMismatches: 1,
+	}}
+	for i := 0; i < 7; i++ {
+		b.store.findings[7] = append(b.store.findings[7], domain.Finding{
+			CSVLine: 10 + i, Code: domain.FindingPrepackagedProduct,
+			Issue: domain.IssueInfo, Value: "3760091721234",
+		})
+	}
+	b.store.findings[7] = append(b.store.findings[7],
+		domain.Finding{CSVLine: 88, Code: domain.FindingInternalCodeNotWeighable,
+			Issue: domain.IssueInfo, Value: "0490000000017"},
+		// An anomaly is NOT a motive of non-weighability: it has its own line in the
+		// inventory, and counting it here would rebuild « 46 produits en erreur ».
+		domain.Finding{CSVLine: 91, Code: domain.FindingInvalidBarcode,
+			Issue: domain.IssueAnomaly, Value: "0493021012366"})
+
+	got := decodeStatus[adminHealthDTO](t, b.get("/admin/api/health"), http.StatusOK)
+	want := []motiveDTO{
+		{Code: domain.FindingPrepackagedProduct, Count: 7},
+		{Code: domain.FindingInternalCodeNotWeighable, Value: "0490", Count: 1},
+	}
+	if !reflect.DeepEqual(got.CatalogMotives, want) {
+		t.Fatalf("motifs = %+v, attendu %+v", got.CatalogMotives, want)
+	}
+	if got.Catalog == nil || got.Catalog.NotWeighable != 8 {
+		t.Fatalf("inventaire = %+v, attendu 8 non pesables", got.Catalog)
 	}
 }

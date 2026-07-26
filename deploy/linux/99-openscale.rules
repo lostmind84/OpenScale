@@ -1,0 +1,42 @@
+# Règles udev du poste de pesée — docs/02-architecture.md §15.3.
+#
+# POURQUOI ELLES EXISTENT : /dev/ttyUSB0 devient ttyUSB1 après un rebranchement. Un poste
+# dont la configuration nomme ttyUSB0 tombe alors en saisie manuelle, et personne ne fait
+# le rapprochement avec le câble qu'on a débranché la veille pour passer l'aspirateur. Le
+# symlink, lui, suit l'appareil.
+#
+# La configuration du poste nomme donc /dev/openscale-serial dans scale.options.port, et
+# non un ttyUSB.
+#
+# Installées par install.sh dans /etc/udev/rules.d/99-openscale.rules.
+
+# --- La balance -----------------------------------------------------------------------
+# 0403:6001 est le FTDI FT232 des adaptateurs USB-série du parc. Le couple est celui que
+# §15.3 écrit ; il est à CONFIRMER par « lsusb » sur site (§21 n° 10), et le script
+# install.sh l'affiche pour qu'on puisse le comparer.
+#
+# /dev/balance-serial est conservé comme SECOND nom, et c'est la seule exception du
+# glossaire : « le mot français balance ne subsiste que là où ce n'est pas un identifiant,
+# et un nom d'objet système qui désigne l'appareil : le symlink udev /dev/balance-serial ».
+# Le nom du produit reste openscale.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", \
+  SYMLINK+="openscale-serial balance-serial", MODE="0660", GROUP="dialout"
+
+# --- L'imprimante ---------------------------------------------------------------------
+# LA RÈGLE CI-DESSOUS EST COMMENTÉE, ET C'EST VOLONTAIRE. Le couple idVendor/idProduct de
+# la SATO WS408 n'a pas été relevé : §15.3 écrit « XXXX » et ajoute « les idVendor sont
+# relevés par lsusb sur site — on ne les invente pas ». Une règle avec un faux identifiant
+# ne crée aucun symlink et fait chercher pendant une heure.
+#
+# POUR L'ACTIVER : branchez l'imprimante, lancez « lsusb », relevez la ligne de la SATO,
+# remplacez les deux valeurs ci-dessous, décommentez, puis :
+#     sudo udevadm control --reload && sudo udevadm trigger
+#     ls -l /dev/openscale-printer
+#
+# En attendant, l'imprimante est atteinte par son nœud noyau — /dev/usb/lp0 — que
+# printer.options.path accepte (transport devfile, §8.4). C'est ce que
+# platform.PrintQueues énumère sur cette plateforme. Le nœud n'est PAS stable après un
+# rebranchement : c'est exactement la raison de cette règle, et la raison de la relever.
+#
+#SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="XXXX", ATTRS{idProduct}=="XXXX", \
+#  SYMLINK+="openscale-printer sato-weighing", MODE="0660", GROUP="lp"

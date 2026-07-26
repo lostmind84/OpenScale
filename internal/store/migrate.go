@@ -104,6 +104,21 @@ func (d *DB) keepLastBackups(n int) {
 	}
 }
 
+// MigrationCount reports how many migration scripts this BINARY carries.
+//
+// It exists for the « migrations à jour » control of `openscale doctor` (§15.4), which
+// compares it against the PRAGMA user_version of the file on disk. The two numbers are the
+// whole answer: equal is up to date, a file ahead of the binary is ERR-DB-02 and a remedy
+// that updates the application, a file behind means the migrations never ran and the remedy
+// is elsewhere. A diagnosis that only read the file version could tell neither.
+func MigrationCount() int {
+	files, err := fs.Glob(migrationScripts, "migrations/*.sql")
+	if err != nil {
+		return 0
+	}
+	return len(files)
+}
+
 // backupStamp extracts the trailing timestamp of a backup file name.
 func backupStamp(path string) string {
 	if i := strings.LastIndex(path, "-"); i >= 0 {

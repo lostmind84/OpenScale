@@ -56,6 +56,14 @@ type Source struct {
 	clock      ports.Clock
 	log        ports.TechnicalLog
 
+	// wake carries ONE immediate poll, asked for from the screen (§14.4, « Recharger le
+	// catalogue » and the drag-and-drop of a CSV).
+	//
+	// Capacity one and a non-blocking send: a button pressed five times means one extra
+	// poll and not five, and pressing it must never wait for the watch loop — which may
+	// be in the middle of parsing 355 rows.
+	wake chan struct{}
+
 	// mu guards pending and closed, and NOTHING else.
 	//
 	// The two really do meet: Close runs on the goroutine that stops the station while
@@ -118,6 +126,7 @@ func New(c catalog.SourceConfig) (*Source, error) {
 		parse:  parse,
 		clock:  c.Clock,
 		log:    logOf(c),
+		wake:   make(chan struct{}, 1),
 		remove: os.Remove,
 	}, nil
 }
@@ -169,7 +178,25 @@ func (s *Source) Next(ctx context.Context) (*ports.Batch, error) {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-tick:
+		case <-s.wake:
+			// Somebody pressed « Recharger le catalogue » or dropped a file on the
+			// screen. The poll below is the SAME one the tick performs — same stability
+			// rule, same parser, same acknowledgement — because a button that read a
+			// file the watcher would have refused would be a second import path.
 		}
+	}
+}
+
+// Wake asks the watch to poll NOW rather than at the next tick.
+//
+// It is what makes « Recharger le catalogue » (§14.4) do something on a station whose
+// poll interval is five seconds, and it is what makes the drag-and-drop of a CSV take
+// service in a second instead of in ten. It changes NOTHING about how the file is read.
+func (s *Source) Wake() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+		// A poll is already asked for. Two are the same request.
 	}
 }
 

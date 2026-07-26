@@ -79,6 +79,12 @@ type Source struct {
 	clock      ports.Clock
 	log        ports.TechnicalLog
 
+	// wake carries ONE immediate poll, asked for from the screen (§14.4, « Recharger le
+	// catalogue »). On a share it is the button that matters most: the interval is
+	// measured in minutes there, and a volunteer who has just been told the producer
+	// re-exported must not wait for it.
+	wake chan struct{}
+
 	// mu guards pending and closed, and NOTHING else.
 	//
 	// The two really do meet: Close runs on the goroutine that stops the station while
@@ -144,6 +150,7 @@ func New(c catalog.SourceConfig) (*Source, error) {
 		parse: parse,
 		clock: c.Clock,
 		log:   logOf(c),
+		wake:  make(chan struct{}, 1),
 	}, nil
 }
 
@@ -222,7 +229,19 @@ func (s *Source) Next(ctx context.Context) (*ports.Batch, error) {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-tick:
+		case <-s.wake:
+			// « Recharger le catalogue » was pressed. The poll below is the SAME one the
+			// tick performs, share credentials and stability rule included.
 		}
+	}
+}
+
+// Wake asks the watch to poll NOW rather than at the next tick (§14.4).
+func (s *Source) Wake() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+		// A poll is already asked for. Two are the same request.
 	}
 }
 

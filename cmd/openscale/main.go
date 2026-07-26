@@ -5,7 +5,7 @@
 // copying one file.
 //
 // The subcommands of the V1 scope are serve, kiosk, doctor, capture, replay,
-// label and config. Five are present. barcode and price are the DEMONSTRATION
+// label, config and service. barcode and price are the DEMONSTRATION
 // commands of the first work package: they exercise the business core from a
 // terminal, with no scale, no printer and no browser. capture and replay are the
 // diagnostic pair of the third: capture needs a scale on the bench, replay needs
@@ -41,6 +41,25 @@ Le service :
   serve [--config f] [--data d]            lance le poste : balance, imprimante, base
         [--listen hôte:port]               et écran client. C'est ce que démarre le
                                            service Windows ou l'unité systemd
+  kiosk [--config f] [--url adresse]       ouvre l'écran client en plein écran et le
+        [--profile répertoire]             relance s'il se ferme. C'est la tâche
+                                           planifiée « OpenScale-Kiosk »
+  service install|uninstall|start|stop|status
+        [--start auto|demand]              enregistre le poste comme service Windows.
+        [--config f] [--data d]            Sous Linux, c'est l'unité systemd
+
+La configuration (§11.5) :
+  config validate [fichier]                liste TOUTES les fautes, en français
+  config export [fichier] [--hardware]     la configuration à cloner vers les autres
+                [--output f.json]          postes — sans le bloc matériel par défaut
+  config fingerprint [fichier]             l'empreinte de 8 caractères à comparer
+
+Diagnostic du poste (lot L8) :
+  doctor [--zip] [--output f.zip]          les quinze contrôles de §15.4 : ce qui a été
+         [--config f] [--data d]           vérifié, le verdict, et ce qu'il faut FAIRE si
+         [--listen hôte:port]              c'est rouge. Fonctionne même quand le service
+                                           ne démarre pas. --zip écrit en plus le fichier
+                                           de diagnostic à envoyer au support
 
 Commandes de démonstration du lot L1 :
   barcode <référence> --weight <grammes>   génère le code-barres EAN-13 d'une pesée
@@ -67,6 +86,10 @@ Autres :
   --help                                   ce message
 
 Exemples :
+  openscale doctor
+  openscale doctor --zip
+  openscale config export --hardware=false --output config-poste2.json
+  openscale config fingerprint
   openscale barcode 0493021000003 --weight 1236
   openscale price --unit-price 5,32 --weight 1236 --tiers cagette
   openscale capture --port COM8 --duration 30m
@@ -104,7 +127,19 @@ func main() {
 	var err error
 	switch os.Args[1] {
 	case "serve":
-		err = runServe(stopSignals(), os.Args[2:], os.Stdout)
+		// Supervised, not bare: the SAME station, plus whatever the supervisor that
+		// started it needs to hear — the Windows service control protocol, or the READY=1
+		// and the watchdog of a systemd unit (§15.2, §15.3). Started from a terminal it is
+		// exactly `serve` and nothing else happens.
+		err = runServeSupervised(stopSignals(), os.Args[2:], os.Stdout)
+	case "kiosk":
+		err = runKiosk(stopSignals(), os.Args[2:], os.Stdout)
+	case "service":
+		err = runService(os.Args[2:], os.Stdout)
+	case "config":
+		err = runConfig(os.Args[2:], os.Stdout)
+	case "doctor":
+		err = runDoctor(stopSignals(), os.Args[2:], os.Stdout)
 	case "barcode":
 		err = runBarcode(os.Args[2:], os.Stdout)
 	case "price":

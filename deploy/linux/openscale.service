@@ -1,0 +1,62 @@
+# Unité du poste de pesée — docs/02-architecture.md §15.3.
+#
+# Installée par deploy/linux/install.sh dans /etc/systemd/system/openscale.service.
+#
+# PAS de RequiresMountsFor ici, et pas de /srv/odoo dans ReadWritePaths : la
+# configuration LIVRÉE est catalog.type = "webdav" (§11.2), qui ne touche aucun point de
+# montage. Sous ProtectSystem=strict, un ReadWritePaths= qui pointe vers un chemin
+# inexistant fait ÉCHOUER le démarrage de l'unité, et un RequiresMountsFor= vers une
+# unité de montage absente ajoute une dépendance jamais satisfaite : le service ne
+# démarrerait pas du tout, en contradiction directe avec le principe directeur 7 (« le
+# poste démarre toujours »). L'autre source, local_drop, est un répertoire SOUS
+# /var/lib/openscale que le service crée lui-même, déjà couvert ci-dessous. Un
+# administrateur qui veut y faire arriver des fichiers depuis un partage monte ce qu'il
+# veut où il veut et y synchronise : c'est son affaire, elle est hors de l'unité.
+# PERSONNE N'ÉCRIT UN RequiresMountsFor POUR LIRE UN FICHIER DE 10 ko.
+
+[Unit]
+Description=Poste de pesée OpenScale — service
+Documentation=file:///usr/share/doc/openscale/TROUBLESHOOTING.md
+After=network.target
+
+[Service]
+Type=notify
+# NotifyAccess=main : seul le processus principal a le droit de dire READY=1 et de
+# nourrir le chien de garde. Le binaire respecte la contrepartie — il ignore
+# WATCHDOG_USEC quand WATCHDOG_PID désigne quelqu'un d'autre.
+NotifyAccess=main
+ExecStart=/usr/local/bin/openscale serve
+User=openscale
+Group=openscale
+
+# WatchdogSec est alimenté UNIQUEMENT par la vivacité de la boucle du Hub, via /healthz,
+# JAMAIS par /readyz. C'EST LA RÈGLE LA PLUS IMPORTANTE DE §15.3 : une imprimante hors
+# papier, une balance débranchée et un catalogue jamais reçu répondent 503 sur /readyz, et
+# un chien de garde qui le lirait redémarrerait le poste pour un rouleau d'étiquettes — en
+# perdant la pesée d'un client pour aller chercher le rouleau. Les pannes de périphérique
+# SE DÉGRADENT, elles ne redémarrent rien.
+WatchdogSec=30
+Restart=always
+RestartSec=2
+
+# TimeoutStopSec suit la SOMME DES BUDGETS D'ARRÊT du code (§13.4), avec le facteur 1,5
+# que le document demande : 1 s pour la boucle du Hub + 2 s pour le serveur HTTP + 8 s
+# pour l'étiquette en cours + 2 s pour le journal + 3 s pour la fermeture du port série
+# = 16 s, × 1,5 = 24 s, et la marge au-delà couvre les deux queues que personne ne borne
+# honnêtement — une transaction d'import qui se déroule en arrière, et le
+# wal_checkpoint(TRUNCATE) d'un journal qui a grossi.
+# L'arrêt MESURÉ est inférieur à 3 s avec 4 abonnés SSE : c'est une assertion du test
+# d'endurance, pas une intention. Le nombre ci-dessous n'est donc ni le budget observé ni
+# une valeur ronde choisie au hasard, et un test de deploy/ le compare à
+# station.ShutdownBudget() — augmenter un budget dans le code fait rougir ce test au lieu
+# de réintroduire le SIGKILL de §13.4.
+TimeoutStopSec=45
+
+ProtectSystem=strict
+ReadWritePaths=/var/lib/openscale /var/log/openscale /etc/openscale
+PrivateTmp=yes
+NoNewPrivileges=yes
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

@@ -73,8 +73,10 @@ type benchOptions struct {
 	configStore     ConfigStore
 	catalogAdmin    CatalogAdmin
 	hardware        Hardware
+	diagnostician   Diagnostician
 	printer         SelfTester
 	troubleshooting Troubleshooting
+	dashboard       Dashboard
 }
 
 // newBench starts a station, wires the routes over it and stops both when the test
@@ -114,7 +116,11 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		Assets: o.assets, Images: o.images,
 		Config: o.configStore, Catalog: o.catalogAdmin, Hardware: o.hardware,
 		Printer: o.printer, Troubleshooting: o.troubleshooting,
-		Binder: o.binder, Registries: domain.Registries{}, Version: "test",
+		// The archive is its OWN collaborator (§15.4): it is not a platform question and
+		// its route carries no password, so one nil must not disable both.
+		Diagnostic: o.diagnostician,
+		Dashboard:  o.dashboard,
+		Binder:     o.binder, Registries: domain.Registries{}, Version: "test",
 	}
 	if !o.noStore {
 		options.Store = b.store

@@ -152,6 +152,15 @@ type Options struct {
 	Store  Closer
 	// CatalogWait rolls an import transaction back before the database closes.
 	CatalogWait Waiter
+	// OnRevert is called when the 60 s window of §11.4 closed without a confirmation and
+	// the station has just gone back to the configuration it had.
+	//
+	// It exists because the countdown protects the RUNNING station and the file is written
+	// before it starts: without this hook, a station that rolled back would come back, at
+	// the next restart, on the very configuration nobody confirmed — which is exactly the
+	// branch the countdown was cutting. What it does is the caller's business; internal/
+	// station knows no file.
+	OnRevert func(previous domain.Config)
 }
 
 // Station is the running weighing station: the Hub, its two workers, its
@@ -207,6 +216,9 @@ type Station struct {
 	// same instant must not open two serial ports.
 	reloadMu     sync.Mutex
 	confirmation *pendingConfirmation
+	// onRevert puts the FILE back when nobody confirmed. Nil does nothing, which is what
+	// every test that does not care about the file gets.
+	onRevert func(previous domain.Config)
 
 	// started reports that Start launched the loop and the workers. Stop drains
 	// nothing that was never launched: a process that failed before Start must
@@ -265,6 +277,7 @@ func New(o Options) (*Station, error) {
 		newCatalogSource: o.NewCatalogSource,
 		server:           o.Server,
 		store:            o.Store,
+		onRevert:         o.OnRevert,
 		catalogWait:      o.CatalogWait,
 		sink:             o.TechnicalSink,
 		ready:            make(chan struct{}),
@@ -413,6 +426,13 @@ func (s *Station) revertIfUnconfirmed(now time.Time) {
 	s.hub.logTechnical(domain.LevelWarn, "config", "",
 		"Configuration non confirmée en 60 s : retour à la version précédente.", "")
 	s.apply(*s.hub.cfg.Load(), previous)
+	if s.onRevert != nil {
+		// The FILE goes back too, and it has to: the countdown protects the station that
+		// is running, and the write of §11.4 happened before the countdown started. A
+		// station that rolled back and then restarted on the unconfirmed configuration
+		// would have cut the branch sixty seconds later than announced.
+		s.onRevert(previous)
+	}
 }
 
 // apply stores the configuration and restarts what has to be restarted.

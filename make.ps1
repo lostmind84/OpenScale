@@ -21,7 +21,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('all', 'test', 'vet', 'boundary', 'build', 'dist', 'cover', 'front', 'front-check', 'clean', 'help')]
+  [ValidateSet('all', 'test', 'vet', 'boundary', 'build', 'dist', 'release', 'cover', 'front', 'front-check', 'clean', 'help')]
   [string]$Target = 'all'
 )
 
@@ -126,8 +126,55 @@ function Invoke-Dist {
   Get-Content dist/SHA256SUMS
 }
 
+function Invoke-Release {
+  <#
+  .SYNOPSIS
+    Fabrique les archives de §17.2 : ce qu'un bénévole copie sur une clé USB.
+  .DESCRIPTION
+    Une archive par cible, contenant le binaire, les scripts et unités de deploy/, les
+    deux documents écrits pour un bénévole, la licence, et la configuration livrée.
+
+    La configuration livrée est l'EXPORT SANS MATÉRIEL de testdata/config-lacagette.json,
+    produit par le binaire lui-même : §17.2 la décrit « SANS le bloc matériel », et une
+    simple copie emporterait le COM8 et la file SATO WS408_2 du poste de développement,
+    que la comparaison d'empreinte de §15.5 rejetterait.
+  #>
+  Invoke-Dist
+  Invoke-Build
+
+  $staging = 'dist/staging'
+  Remove-Item -Recurse -Force $staging -ErrorAction Ignore
+  foreach ($target in @('windows/amd64', 'linux/amd64', 'linux/arm64')) {
+    $os, $arch = $target -split '/'
+    $ext = if ($os -eq 'windows') { '.exe' } else { '' }
+    $deployDir = if ($os -eq 'windows') { 'deploy/windows' } else { 'deploy/linux' }
+    $name = "openscale-$version-$os-$arch"
+    $stage = Join-Path $staging $name
+    New-Item -ItemType Directory -Force $stage | Out-Null
+
+    Copy-Item "dist/openscale-$os-$arch$ext" (Join-Path $stage "openscale$ext")
+    Copy-Item "$deployDir/*" $stage
+    Copy-Item 'INSTALLATION.md', 'TROUBLESHOOTING.md', 'LICENSE', 'THIRD-PARTY.md' $stage
+
+    & ./bin/openscale.exe config export testdata/config-lacagette.json `
+      --output (Join-Path $stage 'config-lacagette.json') | Out-Null
+    Assert-Success 'openscale config export'
+
+    Get-ChildItem -File $stage | Get-FileHash -Algorithm SHA256 |
+      ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
+      Set-Content (Join-Path $stage 'SHA256SUMS') -Encoding utf8NoBOM
+
+    $archive = "dist/$name.zip"
+    Remove-Item $archive -ErrorAction Ignore
+    Compress-Archive -Path $stage -DestinationPath $archive
+    Write-Host "release : $archive"
+  }
+  Remove-Item -Recurse -Force $staging -ErrorAction Ignore
+  Get-ChildItem dist/*.zip | Select-Object Name, Length
+}
+
 switch ($Target) {
-  'help' { 'Cibles : test - vet - boundary - build - dist - cover - front - front-check - clean' }
+  'help' { 'Cibles : test - vet - boundary - build - dist - release - cover - front - front-check - clean' }
   'vet' { Invoke-Vet }
   'boundary' { Invoke-Boundary }
   'test' { Invoke-Test }
@@ -136,6 +183,7 @@ switch ($Target) {
   'front' { Invoke-Front }
   'front-check' { Invoke-FrontCheck }
   'dist' { Invoke-Dist }
+  'release' { Invoke-Release }
   'clean' { Remove-Item -Recurse -Force bin, dist, coverage.out -ErrorAction Ignore }
   'all' { Invoke-Test; Invoke-Build }
 }

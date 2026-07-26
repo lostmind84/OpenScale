@@ -147,3 +147,30 @@ func TestAnEmptyCatalogIsServedAsAnEmptyGrid(t *testing.T) {
 		t.Fatalf("catalogue vide = %+v, attendu une liste vide et non un nul", page)
 	}
 }
+
+// TestNoListOfThisPayloadIsEverNull.
+//
+// A nil slice marshals to `null`, and `null.filter(…)` is a TypeError. On a station whose
+// catalog has not arrived — a station installed this morning, the case §14.3 has a sentence
+// for — the categories were served as `null` and the client screen fell into the ERR-UI-01
+// overlay with its automatic reload every five seconds. The defect was invisible for as long
+// as the bundle could not mount at all; it showed up the minute a browser really ran it.
+//
+// The assertion is on the RAW bytes and not on the decoded structure, because
+// `json.Unmarshal` is exactly what hides the difference: `null` and `[]` both decode to a
+// nil slice in Go, and only a browser can tell them apart.
+func TestNoListOfThisPayloadIsEverNull(t *testing.T) {
+	// A catalog that EXISTS and is empty, which is what a station serves between its first
+	// tick and its first import: `o.catalog = nil` takes another path (the constant payload).
+	b := newBench(t, func(o *benchOptions) {
+		o.catalog = domain.NewCatalog(nil, nil)
+	})
+	raw := body(t, b.get("/api/v1/catalog"))
+
+	for _, list := range []string{"products", "categories", "tiers"} {
+		if strings.Contains(raw, `"`+list+`":null`) {
+			t.Fatalf("%q est servi à null : un écran qui filtre cette liste tombe en ERR-UI-01\n%s",
+				list, raw)
+		}
+	}
+}

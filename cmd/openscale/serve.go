@@ -18,6 +18,7 @@ import (
 
 	catalogpkg "openscale/internal/catalog"
 	"openscale/internal/catalog/importer"
+	"openscale/internal/diag"
 	"openscale/internal/domain"
 	"openscale/internal/platform"
 	"openscale/internal/printing"
@@ -232,11 +233,25 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		}
 	}()
 
+	// The configuration FILE, with its five rotating versions and its atomic write
+	// (§11.4). It is what makes the administration screen able to save, and what tells
+	// « ce que l'exploitant a demandé » from what the station is actually doing after a
+	// fallback to manual entry.
+	configFile, err := platform.NewConfigStore(o.configPath)
+	if err != nil {
+		return &serviceFailure{Exit: exitFailure, Err: err, Message: fmt.Sprintf(
+			"la configuration %s ne peut pas être gérée : %v", o.configPath, err)}
+	}
+
 	scales, printers := scaleRegistry(), printerRegistry()
 	registries := domain.Registries{
 		Scales:     scales.Descriptors(),
 		Printers:   printers.Descriptors(),
 		Transports: transport.Descriptors(),
+		// The catalog sources belong here too: without them control 9 cannot check
+		// catalog.type, and PUT /admin/api/config would accept a source no station can
+		// open — an amber light and an empty grid instead of a fault next to the field.
+		CatalogSources: catalogSourceDescriptors(),
 	}
 
 	// §11.3: an invalid configuration NEVER kills the process. The station starts on
@@ -259,7 +274,13 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// The two holders of admin.go: a reload REPLACES the printer and the catalog source,
+	// and the administration screens act on the one IN SERVICE, never on the one this
+	// process started with (§11.4).
+	live, liveSource := &livePrinter{}, &liveCatalog{}
+
 	printer := buildPrinter(cfg, printers, templates, clock, log, o.dataDir)
+	live.hold(printer)
 	weigher := buildScale(cfg, scales, clock, log)
 
 	catalog, err := db.LoadCatalog(ctx)
@@ -298,6 +319,7 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 			"La source du catalogue n'a pas pu être ouverte.", err.Error())
 		source = nil
 	}
+	liveSource.hold(source)
 
 	rootCtx, cancelRoot := context.WithCancel(ctx)
 	defer cancelRoot()
@@ -319,14 +341,43 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		Journal:       db,
 		TechnicalSink: technicalSink{db},
 		NewScale:      func(next domain.Config) (ports.Scale, error) { return newScale(next, scales, clock, log) },
+		// The two factories HOLD what they built, and only on success: the station keeps
+		// the printer that works when a new one cannot be built (§11.4), so a holder
+		// filled before that decision would name a printer nobody prints on.
 		NewPrinter: func(next domain.Config) (ports.Printer, error) {
-			return newPrinter(next, printers, templates, clock, log, o.dataDir)
+			rebuilt, err := newPrinter(next, printers, templates, clock, log, o.dataDir)
+			if err != nil {
+				return nil, err
+			}
+			live.hold(rebuilt)
+			return rebuilt, nil
 		},
-		CatalogSource:    source,
-		NewCatalogSource: newCatalog,
-		ApplyCatalog:     applier.Apply,
-		Server:           httpHolder,
-		Store:            db,
+		CatalogSource: source,
+		NewCatalogSource: func(next domain.Config) (ports.CatalogSource, error) {
+			rebuilt, err := newCatalog(next)
+			if err != nil {
+				return nil, err
+			}
+			liveSource.hold(rebuilt)
+			return rebuilt, nil
+		},
+		ApplyCatalog: applier.Apply,
+		Server:       httpHolder,
+		Store:        db,
+		// The rollback of §11.4 puts the FILE back as well as the running station: a
+		// station that went back on its own and then restarted on the configuration nobody
+		// confirmed would have cut the branch sixty seconds later than announced.
+		OnRevert: func(previous domain.Config) {
+			if err := configFile.Save(context.Background(), previous); err != nil {
+				log.Technical(domain.LevelError, "config", "",
+					"Retour arrière appliqué au poste mais non écrit : le fichier porte "+
+						"encore la configuration non confirmée.", err.Error())
+				return
+			}
+			log.Technical(domain.LevelWarn, "config", "",
+				"Configuration non confirmée : le fichier est revenu à la version précédente.",
+				previous.Fingerprint())
+		},
 	})
 	if err != nil {
 		return &serviceFailure{Exit: exitFailure, Err: err, Message: "le poste n'a pas pu être construit : " + err.Error()}
@@ -345,6 +396,19 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		return err
 	}
 
+	journal := adminStore{db}
+	// The archive of §15.4, wired even when it cannot be prepared: a station that refused to
+	// start because it could not get a SUPPORT file ready would be the joke version of
+	// guiding principle 7. A nil diagnostician answers 501 on that one route and nothing else.
+	diagnostic, err := newStationDiagnostic(o, clock, binder.Addr().String(), registries, db)
+	if err != nil {
+		st.Hub().TechnicalLog().Technical(domain.LevelWarn, "system", "",
+			"Le fichier de diagnostic n'a pas pu être préparé : le bouton « Télécharger le "+
+				"fichier de diagnostic » répondra que la fonction n'est pas disponible sur ce poste.",
+			err.Error())
+		diagnostic = nil
+	}
+
 	server, err := web.New(web.Options{
 		Clock:      clock,
 		Hub:        st.Hub(),
@@ -355,6 +419,34 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		Registries: registries,
 		Binder:     binder,
 		Version:    version,
+
+		// THE ADMINISTRATION ROUTES, wired to the real thing (§14.5). Every one of these
+		// collaborators is an interface internal/web declares for itself: the HTTP layer
+		// names no database, no serial port and no print queue, and this is the one place
+		// where the two halves meet (cut 3 of §5.2).
+		Store:  journal,
+		Config: adminConfig{configFile},
+		Catalog: adminCatalog{
+			source: liveSource, db: db, clock: clock,
+			log: st.Hub().TechnicalLog(), config: st.Hub().Config,
+		},
+		Hardware: adminHardware{
+			clock: clock, hub: st.Hub(), registries: registries,
+			technical: st.Hub().TechnicalLog(),
+		},
+		Printer:         live,
+		Troubleshooting: adminTroubleshooting{station: st, printer: live, file: configFile},
+		// diagnostic.zip is its OWN collaborator and not part of Hardware: it is not a
+		// platform question, and its route is the one route of that group with no password
+		// (§15.4, ADR-018).
+		Diagnostic: diagnostic,
+		// The four facts of the dashboard that live nowhere else: the roll counter belongs
+		// to the print service, the free space and the registry to the platform, and the
+		// watched path to the source in service (§14.4).
+		Dashboard: &adminDashboard{
+			printer: live, catalog: liveSource,
+			machine: diag.NewMachine(clock), dataDir: o.dataDir,
+		},
 	})
 	if err != nil {
 		_ = binder.Close()

@@ -3,9 +3,11 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
-**État au 26/07/2026** : **L1 à L7 livrés**, L8 en cours. `openscale serve` démarre un
+**État au 26/07/2026** : **L1 à L8 livrés.** Il ne reste que L0 (le banc) et L9 (la recette sur site). `openscale serve` démarre un
 poste complet : noyau métier, balance, étiquette, impression, Hub à horloge injectée,
-écran client Svelte et catalogue. **2 096 tests** (1 886 Go, 210 front), CI verte sur
+écran client Svelte, catalogue, écrans d'administration, `openscale doctor` et ses quinze
+contrôles, `diagnostic.zip`, installeurs Windows et Linux, `INSTALLATION.md` et
+`TROUBLESHOOTING.md`. **2 417 tests** (2 172 Go, 245 front), CI verte sur
 les trois cibles, `-race` vert.
 
 **Ce qui a été vérifié en faisant tourner le poste, et pas seulement en le lisant.**
@@ -35,7 +37,7 @@ comptage A/B au scanner de caisse est ce qui tranchera le tracé géométrique d
 | **L5** | Impression réelle — SBPL, transports, statut | 2,5 sem. | ✅ **26/07/2026** |
 | **L6** | Poste vivant et écran client — Hub, SSE, front | 4,5 sem. | ✅ **26/07/2026** |
 | **L7** | Catalogue — sources, import CSV, images | 2,5 sem. | ✅ **26/07/2026** |
-| **L8** | Admin et exploitation — écrans, diagnostic, installeurs | 4 sem. | ⬜ |
+| **L8** | Admin et exploitation — écrans, diagnostic, installeurs | 4 sem. | ✅ **26/07/2026** |
 | **L9** | Recette et mise en service — poste pilote 2 semaines | 3 sem. | ⬜ |
 
 **Total : ~27 semaines-homme.** L0 précède tout · L1→L5 sont linéaires · L6 dépend de

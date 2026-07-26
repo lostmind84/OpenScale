@@ -180,7 +180,12 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 
 	out := catalogDTO{
 		Products: make([]catalogProductDTO, 0, len(products)),
-		Fallback: cfg.Catalog.FallbackCategory,
+		// Allocated like Products, and for the same reason: a nil slice marshals to `null`,
+		// and `null.filter(…)` is a TypeError that lands on the client screen as ERR-UI-01
+		// with an automatic reload every five seconds. It happens on a station whose catalog
+		// has not arrived yet — the very case §14.3 has a sentence for.
+		Categories: make([]categoryDTO, 0, len(cfg.Catalog.Categories)),
+		Fallback:   cfg.Catalog.FallbackCategory,
 		Options: catalogPresentationDTO{
 			ShowGridPrices:       cfg.UI.ShowGridPrices,
 			IdleTimeoutSeconds:   cfg.UI.IdleTimeoutSeconds,

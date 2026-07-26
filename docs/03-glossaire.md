@@ -850,6 +850,7 @@ français.
 | `ERR-SCL-03` | `serial` — `codePortUnavailable` | « Le port de la balance ne peut pas être ouvert. » — absent, occupé, accès refusé. Remède différent d'`ERR-SCL-01`, donc code différent. |
 | `ERR-SCL-04` | `serial` — `codeUnusableOptions` | « Les réglages de la balance sont inutilisables. » — aucun nouvel essai ne les corrigera. |
 | `ERR-SCL-05` | `serial` — `codeCloseRefused` | « Le port de la balance n'a pas pu être refermé proprement. » — conséquence propre : la réouverture d'un port EXCLUSIF peut échouer ensuite. |
+| `ERR-SCL-09` | `station` — `codeManualEntryRequested` | « Le poste est passé en saisie manuelle du poids. » — **demandée** depuis l'écran de dépannage (§14.4). Code distinct d'`ERR-SCL-03` exprès : « quelqu'un l'a demandé » et « le port ne s'ouvre pas » sont les deux réponses possibles à *« pourquoi ce poste est-il en saisie manuelle ce matin ? »*, et un seul code les rendrait indiscernables dans le journal. |
 | `ERR-PRN-01` | `domain/machine.go` | Bandeau : « L'imprimante ne répond pas. Prévenez un responsable. » · Journal : « Impression échouée. » |
 | `ERR-CFG-01` | `domain/machine.go`, `NeutralProfile` | « Le poste ne peut pas calculer les prix (ERR-CFG-01). Prévenez un responsable. » |
 | `ERR-DB-01` | `store.ErrDatabaseUnusable` | Le fichier ou son répertoire est inutilisable. Le détail français est enveloppé au cas par cas : « ouverture de … impossible », « base endommagée : … », « contrôle d'intégrité impossible ». |

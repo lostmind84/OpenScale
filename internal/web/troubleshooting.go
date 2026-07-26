@@ -316,13 +316,13 @@ func (s *Server) importCatalog(w http.ResponseWriter, r *http.Request) {
 // diagnostic is GET /admin/api/diagnostic.zip: everything a support call needs, in
 // one file a volunteer can send (§15.4).
 func (s *Server) diagnostic(w http.ResponseWriter, r *http.Request) {
-	if s.hardware == nil {
+	if s.diagnostician == nil {
 		unavailable(w, "le fichier de diagnostic n'est pas câblé")
 		return
 	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="diagnostic.zip"`)
-	if err := s.hardware.Diagnostic(r.Context(), w); err != nil {
+	if err := s.diagnostician.Diagnostic(r.Context(), w); err != nil {
 		// The status line is already out. Saying so in the technical journal is all
 		// that is left, and it is what a support call will find.
 		s.technical.Technical(domain.LevelError, "system", "",

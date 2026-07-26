@@ -298,6 +298,10 @@ type serveBench struct {
 	address string
 	out     *syncBuffer
 	client  *http.Client
+	// cookie is the administration session, once a test has opened one. It is carried by
+	// hand rather than by a jar so that a test can assert what an UNAUTHENTICATED caller
+	// gets on the very same station (ADR-018).
+	cookie  *http.Cookie
 	streams []*http.Response
 	// ended is closed, one per stream, when the SSE body reaches its end. It is what
 	// proves the handlers left of their own accord rather than being cut off.

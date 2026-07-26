@@ -38,7 +38,17 @@ export default defineConfig({
     // exercise the server renderer and assert nothing about the DOM.
     server: { deps: { inline: ['svelte'] } },
   },
-  resolve: {
-    conditions: process.env.VITEST ? ['browser'] : [],
-  },
+  // `browser` is what makes `mount()` resolve to the CLIENT runtime of Svelte 5, and it
+  // is set for Vitest ONLY.
+  //
+  // `resolve.conditions` REPLACES Vite's defaults — it does not add to them — and
+  // `['browser']` was previously applied to the production build as well. Vite's own
+  // defaults (`module`, `browser`, `production`) were therefore lost there, `svelte`
+  // resolved to `src/index-server.js`, and both entries were built against a runtime whose
+  // `mount()` is `function(){ throw lifecycle_function_unavailable }`. The bundle could not
+  // start a single screen, and nothing failed loudly: esbuild even dropped the arguments of
+  // the parameterless stub, which is why the administration chunk came out 288 bytes long
+  // with none of its own code in it. `npm run budget` now refuses a bundle carrying that
+  // runtime, so the mistake cannot come back in silence.
+  ...(process.env.VITEST === undefined ? {} : { resolve: { conditions: ['browser'] } }),
 })

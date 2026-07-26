@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tâche planifiée du kiosque — §15.2.
+
+  %OPENSCALE_BINARY% et %OPENSCALE_ACCOUNT% sont substitués par install.ps1 : un chemin
+  en dur serait faux sur un poste dont le disque système n'est pas C:.
+
+  Le fichier est en UTF-8, et sa déclaration le dit. Windows EXPORTE ses tâches en
+  UTF-16 ; il en importe aussi en UTF-8 quand la déclaration est cohérente avec les
+  octets. install.ps1 réessaie en UTF-16 si schtasks refuse ce fichier-ci : l'un des deux
+  passe toujours, et un installeur qui échoue sur un encodage n'est pas un installeur.
+
+  <LogonType>InteractiveToken</LogonType> : AUCUN mot de passe à fournir à schtasks.
+  C'est ce qui rend l'installation reproductible — un mot de passe passé en argument
+  finit dans l'historique du shell, et une tâche enregistrée avec un mot de passe cesse
+  de démarrer le jour où il change.
+
+  ExecutionTimeLimit PT0S : aucune limite. Le kiosque tourne toute la journée ; une
+  limite de trois jours — la valeur par défaut de Windows — arrêterait l'écran client au
+  bout de trois jours d'ouverture continue, et personne ne rattacherait la panne à ça.
+
+  MultipleInstancesPolicy IgnoreNew : une session déjà ouverte ne lance pas un second
+  superviseur. Deux superviseurs, c'est deux navigateurs qui se relancent l'un l'autre.
+
+  RestartOnFailure : le superviseur relance le NAVIGATEUR tout seul (§15.2) ; ceci relance
+  le SUPERVISEUR, qui n'est censé s'arrêter que sur demande. C'est la ceinture par-dessus
+  les bretelles, comme SetThreadExecutionState par-dessus powercfg.
+-->
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Author>OpenScale</Author>
+    <Description>Ouvre l'écran client du poste de pesée en plein écran, à l'ouverture de session, et le relance s'il se ferme.</Description>
+    <URI>\OpenScale-Kiosk</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>%OPENSCALE_ACCOUNT%</UserId>
+      <Delay>PT5S</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>%OPENSCALE_ACCOUNT%</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <DisallowStartOnRemoteAppSession>false</DisallowStartOnRemoteAppSession>
+    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>5</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>%OPENSCALE_BINARY%</Command>
+      <Arguments>kiosk</Arguments>
+    </Exec>
+  </Actions>
+</Task>

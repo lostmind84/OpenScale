@@ -1,0 +1,45 @@
+# Unité du kiosque — docs/02-architecture.md §15.3.
+#
+# `cage` est un compositeur Wayland mono-application : il n'y a littéralement rien vers
+# quoi s'échapper. C'est le remplaçant du niveau 3 optionnel de Windows, et il est ici la
+# situation NORMALE et non un durcissement — sur un poste Debian minimal sans
+# environnement de bureau, il n'y a pas de bureau à quitter.
+
+[Unit]
+Description=Poste de pesée OpenScale — écran client
+Documentation=file:///usr/share/doc/openscale/TROUBLESHOOTING.md
+# Wants et non Requires : le kiosque doit s'ouvrir même sur un poste dont le service
+# refuse de démarrer, parce que ce qu'il affiche alors est la page de secours puis
+# l'écran d'administration qui liste les fautes (§11.3, principe directeur 7). Un
+# Requires= ferait un écran noir là où il faut une phrase.
+Wants=openscale.service
+After=openscale.service systemd-user-sessions.service
+
+[Service]
+Type=simple
+# PAMName=login ouvre une vraie session : c'est ce qui donne au processus un siège
+# (seatd), donc l'accès au clavier tactile, au GPU et au TTY. Sans lui, cage démarre et ne
+# trouve aucun périphérique d'entrée.
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+User=openscale
+Group=openscale
+# -d : cage lâche la main dès que le client est lancé. Le binaire du kiosque est SON
+# client : quand le superviseur s'arrête, cage s'arrête.
+ExecStart=/usr/bin/cage -d -- /usr/local/bin/openscale kiosk
+Restart=always
+RestartSec=2
+# Le superviseur relance le navigateur lui-même en moins de 2 s (§15.2) ; ceci relance le
+# superviseur, qui n'est censé s'arrêter que sur demande.
+
+[Install]
+# multi-user.target, et PAS graphical-session.target : systemd.special(7) déconseille
+# explicitement cette cible dans un WantedBy=, elle n'est activée que par un gestionnaire
+# de session, et sur un poste minimal l'unité ne démarrerait JAMAIS.
+WantedBy=multi-user.target

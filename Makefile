@@ -19,12 +19,12 @@ LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.dat
 
 TARGETS := windows/amd64 linux/amd64 linux/arm64
 
-.PHONY: all test vet boundary build dist front front-check clean cover help
+.PHONY: all test vet boundary build dist release front front-check clean cover help
 
 all: test build
 
 help:
-	@echo "Cibles : test · vet · boundary · build · dist · cover · front · front-check · clean"
+	@echo "Cibles : test · vet · boundary · build · dist · release · cover · front · front-check · clean"
 
 # front construit l'écran client vers internal/web/dist, qui est COMMITÉ : `go
 # build` doit fonctionner sur une machine sans Node (§14.1).
@@ -73,6 +73,38 @@ dist: test
 	    -ldflags "$(LDFLAGS)" -o dist/openscale-$$os-$$arch$$ext ./cmd/openscale || exit 1; \
 	done
 	cd dist && sha256sum * > SHA256SUMS
+
+# release fabrique CE QU'UN BÉNÉVOLE COPIE : une archive par cible, dont le contenu est
+# celui de §17.2, et rien qu'un décompresseur à savoir utiliser.
+#
+# Elle dépend de dist et non de build : les trois cibles se construisent depuis n'importe
+# quelle machine sans chaîne C (ADR-001), et livrer une seule d'entre elles serait perdre
+# la contrepartie du « zéro cgo ».
+#
+# La configuration livrée est l'EXPORT SANS MATÉRIEL de testdata/config-lacagette.json,
+# produit par le binaire lui-même (`config export`) et non recopié à la main : §17.2 la
+# décrit « SANS le bloc matériel », et un fichier recopié emporterait le COM8 et la file
+# SATO WS408_2 du poste de développement — deux valeurs qu'aucun poste du parc ne doit
+# hériter, et qui feraient échouer la comparaison d'empreinte du §15.5.
+release: dist build
+	@rm -rf dist/staging && mkdir -p dist/staging
+	@set -e; for t in $(TARGETS); do \
+	  os=$${t%/*}; arch=$${t#*/}; ext=""; deploydir="linux"; \
+	  if [ "$$os" = "windows" ]; then ext=".exe"; deploydir="windows"; fi; \
+	  name="openscale-$(VERSION)-$$os-$$arch"; \
+	  stage="dist/staging/$$name"; \
+	  mkdir -p "$$stage"; \
+	  cp "dist/openscale-$$os-$$arch$$ext" "$$stage/openscale$$ext"; \
+	  cp deploy/$$deploydir/* "$$stage/"; \
+	  cp INSTALLATION.md TROUBLESHOOTING.md LICENSE THIRD-PARTY.md "$$stage/"; \
+	  ./bin/openscale config export testdata/config-lacagette.json \
+	    --output "$$stage/config-lacagette.json" >/dev/null; \
+	  (cd "$$stage" && sha256sum * > SHA256SUMS); \
+	  (cd dist/staging && zip -qr "../$$name.zip" "$$name"); \
+	  echo "release : dist/$$name.zip"; \
+	done
+	@rm -rf dist/staging
+	@ls -l dist/*.zip
 
 clean:
 	rm -rf bin dist coverage.out

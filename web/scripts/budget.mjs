@@ -86,3 +86,69 @@ if (total > BUDGET_BYTES) {
   console.error(`\nÉCHEC : ${total} o gzip dépassent le budget de ${BUDGET_BYTES} o.`)
   process.exit(1)
 }
+
+/**
+ * Une chaîne qu'on ne trouve que dans l'administration : la route de son tableau de bord.
+ *
+ * Le budget se mesure en octets, mais un total sous le plafond ne prouve pas que la
+ * séparation existe : le jour où le code d'administration atterrit dans un morceau que
+ * `index.html` précharge, le chiffre monte sans que rien ne dise POURQUOI. Ce marqueur, lui,
+ * le dit.
+ */
+const ADMIN_MARKER = '/admin/api/health'
+
+/**
+ * La chaîne que porte le runtime SERVEUR de Svelte, et qu'aucun bundle ne doit contenir.
+ *
+ * Elle est le symptôme exact d'un défaut qui n'a fait aucun bruit : avec
+ * `resolve.conditions` privé de `browser`, `svelte` se résout sur `src/index-server.js`, où
+ * `mount()` est `function(){ throw lifecycle_function_unavailable }`. Le bundle se construit,
+ * pèse le bon poids, passe le budget — et ne monte AUCUN écran. Pire, esbuild supprime les
+ * arguments de cette fonction sans paramètre, si bien que le morceau d'administration est
+ * sorti à 288 octets, vidé de son propre code, sans un avertissement.
+ */
+const SERVER_RUNTIME_MARKER = 'lifecycle_function_unavailable'
+
+/** Lit un fichier en texte, ou une chaîne vide pour une police ou une image. */
+function text(file) {
+  return /\.(js|css|html)$/u.test(file) ? readFileSync(file, 'utf8') : ''
+}
+
+const leaking = client.filter((file) => text(file).includes(ADMIN_MARKER))
+if (leaking.length > 0) {
+  console.error(
+    `\nÉCHEC : l’administration est dans le chemin de chargement de l’écran client — ` +
+      `${leaking.map((file) => relative(DIST, file)).join(', ')}. La séparation en deux ` +
+      `entrées porte sur le POIDS et le CHARGEMENT (§14.1) : un poste qui n’ouvre jamais ` +
+      `l’administration ne doit en télécharger, analyser et exécuter aucun octet.`,
+  )
+  process.exit(1)
+}
+
+const adminFiles = excluded.filter((file) => text(file).includes(ADMIN_MARKER))
+if (adminFiles.length === 0) {
+  console.error(
+    `\nÉCHEC : le bundle d’administration ne contient pas son propre code — aucun fichier ` +
+      `hors budget ne porte « ${ADMIN_MARKER} ». Un morceau vide passe le budget en ` +
+      `silence et ne sert aucun écran.`,
+  )
+  process.exit(1)
+}
+
+const server = walk(DIST).filter((file) => text(file).includes(SERVER_RUNTIME_MARKER))
+if (server.length > 0) {
+  console.error(
+    `\nÉCHEC : le runtime SERVEUR de Svelte est dans le bundle — ` +
+      `${server.map((file) => relative(DIST, file)).join(', ')}. ` +
+      `« mount() » y lève lifecycle_function_unavailable : aucun écran ne démarre. ` +
+      `Vérifiez resolve.conditions dans vite.config.ts : il REMPLACE les valeurs par ` +
+      `défaut de Vite, il ne s’y ajoute pas.`,
+  )
+  process.exit(1)
+}
+
+console.log(
+  `\nSéparation vérifiée : « ${ADMIN_MARKER} » est dans ` +
+    `${adminFiles.map((file) => relative(DIST, file).replace(/\\/g, '/')).join(', ')} ` +
+    `et dans aucun octet chargé par l’écran client.`,
+)

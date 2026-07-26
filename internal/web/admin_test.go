@@ -459,7 +459,7 @@ func TestARouteWhoseCollaboratorIsMissingSays501(t *testing.T) {
 // TestTheHardwareRoutesAnswerWhenThePlatformIsWired.
 func TestTheHardwareRoutesAnswerWhenThePlatformIsWired(t *testing.T) {
 	hardware := &fakeHardware{}
-	b := adminBench(t, func(o *benchOptions) { o.hardware = hardware })
+	b := adminBench(t, func(o *benchOptions) { o.hardware, o.diagnostician = hardware, hardware })
 
 	ports := decodeStatus[struct {
 		Ports []portDTO `json:"ports"`

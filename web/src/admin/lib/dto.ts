@@ -1,0 +1,249 @@
+import type { StateDTO } from '../../lib/dto'
+
+/**
+ * Le contrat JSON des routes d'administration, recopié champ pour champ.
+ *
+ * La source de vérité est `internal/web/health.go`, `internal/web/admin.go`,
+ * `internal/web/config.go` et `internal/web/troubleshooting.go`. Ce fichier n'est que
+ * la même chose en TypeScript : il ne décide de rien et il n'ajoute aucun champ.
+ *
+ * `StateDTO` est importé de l'écran client et non recopié : c'est le MÊME instantané
+ * que le flux SSE diffuse, et deux définitions du même objet finiraient par diverger.
+ * Un `import type` disparaît à la compilation : l'admin n'emporte pas un octet de
+ * l'écran client pour cela.
+ */
+
+/** Ce qu'une action de dépannage répond : ce qui a été fait, en français. */
+export interface ActionDTO {
+  done: boolean
+  message: string
+}
+
+/** Un refus de la couche HTTP. `code` est vide quand aucun ERR-xxx-nn n'est alloué. */
+export interface ProblemDTO {
+  code: string
+  message: string
+  faults?: FaultDTO[]
+}
+
+/** Un des 45 contrôles de configuration qui a échoué (§11.3). */
+export interface FaultDTO {
+  field: string
+  message: string
+  /** Les valeurs qui MARCHERAIENT, quand le contrôle les connaît. */
+  allowed?: string[]
+}
+
+/** L'inventaire d'un import, tel que §14.4 le lit à voix haute. */
+export interface ImportDTO {
+  id: number
+  occurred_at: string
+  source: string
+  file_name: string
+  result: string
+  code: string
+  reason: string
+  rows_read_count: number
+  unreadable_rows_count: number
+  weighable_count: number
+  not_weighable_count: number
+  anomalies_count: number
+  unit_mismatches_count: number
+  images_decoded_count: number
+  images_rejected_count: number
+  products_withdrawn_count: number
+  duration_ms: number
+}
+
+/** Un motif de non-pesabilité et le nombre de lignes qui le partagent (§10.3). */
+export interface MotiveDTO {
+  code: string
+  /** Le préfixe à quatre chiffres quand le motif en est un, sinon vide. */
+  value: string
+  count: number
+}
+
+/** La ligne permanente du catalogue : la source, le chemin ou l'URL, le compte. */
+export interface CatalogSourceDTO {
+  type: string
+  label: string
+}
+
+/** Le compteur de rouleau de §8.5, tel que le feu « rouleau » le lit. */
+export interface RollDTO {
+  printed_count: number
+  capacity_count: number
+  /** Peut être NÉGATIF : un rouleau changé sans que personne l'ait dit (§8.5). */
+  remaining_count: number
+  level: string
+  message: string
+  known: boolean
+}
+
+/** La place qui reste là où le poste écrit, avec son seuil à côté (§10.4). */
+export interface DiskDTO {
+  path: string
+  free_bytes: number
+  total_bytes: number
+  alert_mb: number
+}
+
+/** « Redémarrage sans intervention : OK / NON CONFIGURÉ » (bloquant-7). */
+export interface RestartDTO {
+  configured: boolean
+  /** Faux quand la question n'a pas pu être posée : ce n'est pas « non configuré ». */
+  known: boolean
+  detail: string
+  remedy: string
+}
+
+/** Sur quelle imprimante les étiquettes sortent (§8.4). */
+export interface RoutingDTO {
+  fallback_available: boolean
+  on_fallback: boolean
+  name: string
+  banner: string
+}
+
+/** Une ligne du journal technique. */
+export interface TechnicalLineDTO {
+  id: number
+  occurred_at: string
+  level: string
+  source: string
+  code: string
+  message: string
+  detail: string
+}
+
+/** Une décision humaine en vigueur sur un produit (§10.6, ADR-017). */
+export interface DecisionDTO {
+  product_id: string
+  offered: boolean
+  min_weight_g: number | null
+  reason: string
+  decided_by: string
+  decided_at: string
+}
+
+/** La charge de `GET /admin/api/health` : le tableau de bord de §14.4. */
+export interface HealthDTO {
+  version: string
+  config_fingerprint: string
+  station: number
+  station_name: string
+  coop: string
+  alive: boolean
+  state: StateDTO
+  /** Le poste déclare-t-il une balance ? Sinon le feu s'ÉTEINT (§11.2). */
+  scale_present: boolean
+  counters: {
+    unlogged_weighings_count: number
+    /** -1 quand ce poste n'a pas de journal (ADR-013). */
+    journal_rows_count: number
+  }
+  events: TechnicalLineDTO[]
+  catalog: ImportDTO | null
+  catalog_motives: MotiveDTO[]
+  catalog_source: CatalogSourceDTO | null
+  decisions: DecisionDTO[]
+  roll: RollDTO | null
+  disk: DiskDTO | null
+  unattended_restart: RestartDTO | null
+  printing: RoutingDTO | null
+}
+
+/** Une ligne de tarif d'une pesée journalisée. */
+export interface JournalLineDTO {
+  tier_code: string
+  unit_price_cents: number
+  amount_cents: number
+}
+
+/** Une pesée du journal (§14.4, page Journal). */
+export interface WeighingDTO {
+  id: number
+  occurred_at: string
+  station: number
+  job_id: string
+  product_id: string
+  product_name: string
+  reference: string
+  mode: string
+  gross_g: number
+  tare_g: number
+  net_g: number
+  quantity: number
+  barcode: string
+  source: string
+  stability: string
+  rate_ms: number
+  /** La trame brute, corpus vivant du driver de rejeu (§15.4). */
+  frame: string
+  result: string
+  detail: string
+  duration_ms: number
+  lines: JournalLineDTO[]
+}
+
+/** Une ligne qu'un import a eu quelque chose à dire sur (§10.3 bis). */
+export interface FindingDTO {
+  csv_line: number
+  product_id: string
+  code: string
+  issue: string
+  message: string
+  value: string
+}
+
+/** Un port série énuméré, avec la description USB qui le rend reconnaissable. */
+export interface PortDTO {
+  name: string
+  description: string
+  vid: string
+  pid: string
+}
+
+/** Une file d'impression ou un nœud d'impression que la plateforme connaît. */
+export interface PrinterDeviceDTO {
+  name: string
+  detail: string
+  default: boolean
+}
+
+/** Ce qu'un port a répondu quand on lui a appliqué les parseurs (§14.4). */
+export interface DetectionDTO {
+  port: string
+  driver: string
+  valid_frames_count: number
+  frames: string[]
+  message: string
+}
+
+/** Une version restaurable du fichier de configuration (§11.4, cinq d'entre elles). */
+export interface ConfigVersionDTO {
+  version: number
+  modified_at: string
+  config_fingerprint: string
+}
+
+/** Le compte à rebours de 60 s de §11.4. */
+export interface ConfirmationDTO {
+  changed_blocks: string[]
+  confirm_before: string
+  seconds_left: number
+}
+
+/** `GET /admin/api/config` : le document, sans ses deux secrets. */
+export interface ConfigDTO {
+  config: Record<string, unknown>
+  config_fingerprint: string
+  retired_keys: string[]
+  pending_confirmation: ConfirmationDTO | null
+}
+
+/** Ce qu'une session ouverte répond. */
+export interface SessionDTO {
+  expires_at: string
+  session_minutes: number
+}

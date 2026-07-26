@@ -128,10 +128,101 @@ type Hardware interface {
 	CaptureFrames(ctx context.Context, port string, d time.Duration) ([]string, error)
 	// LabelPreview renders the label as a PNG, identical to what would print (A2).
 	LabelPreview(ctx context.Context, q PreviewQuery) ([]byte, error)
-	// Diagnostic writes diagnostic.zip.
-	Diagnostic(ctx context.Context, w io.Writer) error
 	// Replay pushes one recorded frame back through the decoder (§14.4, Journal).
 	Replay(ctx context.Context, frame string) error
+}
+
+// Diagnostician writes diagnostic.zip (§15.4).
+//
+// It is its OWN interface and not a method of Hardware, for two reasons that both matter.
+// The archive is not a platform question — internal/diag builds it out of the configuration,
+// the journal and the fifteen controls — and its route is the one route of this group that
+// carries NO password: §15.4 gives it « un seul bouton, sans mot de passe » because it is the
+// only realistic remote support mechanism for a team of volunteers. Grouping it with the
+// expert hardware calls would make one nil collaborator disable both.
+type Diagnostician interface {
+	// Diagnostic writes the archive into w. It never returns before the archive is complete
+	// or the reason it is not is recorded inside it.
+	Diagnostic(ctx context.Context, w io.Writer) error
+}
+
+// Dashboard answers the four questions of §14.4 that no HTTP layer can put to itself:
+// how far the roll has gone, how much room is left on the disk, whether this machine
+// comes back on its own after a power cut, and what the catalog source is watching.
+//
+// It is one collaborator and not four because it has one caller — the dashboard route —
+// and because the composition root holds all four in the same hand: the print service,
+// the data directory, the platform and the source in service. Nil leaves the four facts
+// out of the payload, and the screen SAYS what it cannot see.
+type Dashboard interface {
+	// Dashboard reports what it could establish. Every field is optional and its absence
+	// is the honest answer: nothing here is worth a 500 on the one page a volunteer opens
+	// when the station is already broken.
+	Dashboard(ctx context.Context) DashboardFacts
+}
+
+// DashboardFacts is what only the composition root knows.
+type DashboardFacts struct {
+	Roll    *RollGauge
+	Disk    *DiskSpace
+	Restart *RestartReadiness
+	Source  *CatalogSourceState
+	Routing *PrintRouting
+}
+
+// PrintRouting is which printer the labels are coming out of.
+//
+// Available is what decides whether the troubleshooting page offers « Imprimer sur
+// l'imprimante du poste N » (§14.4) — a button offered on a station with no fallback
+// configured would be a button that answers 501 to somebody already in trouble.
+type PrintRouting struct {
+	Available  bool
+	OnFallback bool
+	// Name is the FRENCH name of the printer in use, and Banner the permanent line of
+	// §8.4 — both come from the print service, which is where the wording belongs.
+	Name   string
+	Banner string
+}
+
+// RollGauge is the label counter of §8.5 as the « rouleau » light reads it.
+//
+// The wording travels WITH the numbers, because it is printing.RollCounter that knows
+// when « environ 100 étiquettes restantes » becomes « le rouleau est probablement fini »,
+// and a screen that recomputed the sentence from the numbers would be a second opinion on
+// a threshold that already has an owner.
+type RollGauge struct {
+	Printed  int64
+	Capacity int
+	// Remaining CAN be negative: a roll that held more than the configured capacity, or
+	// one changed without anybody saying so, which is the ordinary case (§8.5).
+	Remaining int64
+	Level     string
+	Message   string
+	Known     bool
+}
+
+// DiskSpace is the room left on the volume the station writes to.
+type DiskSpace struct {
+	Path       string
+	FreeBytes  int64
+	TotalBytes int64
+}
+
+// RestartReadiness is bloquant-7: after a power cut, does this station come back to the
+// client screen without anybody typing a Windows password?
+type RestartReadiness struct {
+	Configured bool
+	// Known is false when the question could not be put to the system at all.
+	Known  bool
+	Detail string
+	Remedy string
+}
+
+// CatalogSourceState is the permanent catalog line of §14.4: the source, the path or the
+// URL watched, and the account used.
+type CatalogSourceState struct {
+	Type  string
+	Label string
 }
 
 // SelfTester prints one of the three built-in patterns (§8.6). ports.Printer
@@ -174,6 +265,13 @@ type Options struct {
 	Hardware        Hardware
 	Printer         SelfTester
 	Troubleshooting Troubleshooting
+	// Diagnostic builds diagnostic.zip. Nil answers 501 on that route and nothing else:
+	// a station that cannot produce an archive still weighs.
+	Diagnostic Diagnostician
+	// Dashboard feeds the roll light, the disk light, the catalog line and the unattended
+	// restart indicator of §14.4. Nil leaves those four absent from GET /admin/api/health
+	// and never fails it.
+	Dashboard Dashboard
 
 	// Assets is the built front end (internal/web/dist through //go:embed). Nil
 	// serves a placeholder page rather than a 404: a station whose front end has not
@@ -205,6 +303,8 @@ type Server struct {
 	hardware        Hardware
 	printer         SelfTester
 	troubleshooting Troubleshooting
+	diagnostician   Diagnostician
+	dashboard       Dashboard
 	assets          fs.FS
 	images          fs.FS
 	registries      domain.Registries
@@ -240,6 +340,7 @@ func New(o Options) (*Server, error) {
 		clock: o.Clock, hub: o.Hub, controller: o.Controller, technical: o.Technical,
 		store: o.Store, configStore: o.Config, catalog: o.Catalog,
 		hardware: o.Hardware, printer: o.Printer, troubleshooting: o.Troubleshooting,
+		diagnostician: o.Diagnostic, dashboard: o.Dashboard,
 		assets: o.Assets, images: o.Images, registries: o.Registries,
 		binder: o.Binder, version: o.Version,
 		sessions: newSessionStore(o.Clock),

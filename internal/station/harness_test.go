@@ -228,6 +228,10 @@ type benchOptions struct {
 	// which belong to internal/catalog (L7) and are handed in here by the tests
 	// that need one.
 	applyCatalog CatalogApplier
+	// onRevert is what the composition root uses to put the FILE back when nobody
+	// confirmed a hardware change (§11.4). The tests that watch the rollback hand one
+	// in; the others leave it nil, and nothing writes anything.
+	onRevert func(domain.Config)
 }
 
 // newBench starts a station and stops it when the test ends.
@@ -259,6 +263,7 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		Clock: clock, Config: cfg, Catalog: o.catalog,
 		Printer: b.printer, Journal: b.journal, TechnicalSink: b.technical,
 		NewScale: o.newScale, CatalogSource: o.source, ApplyCatalog: o.applyCatalog,
+		OnRevert: o.onRevert,
 	}
 	if !o.noScale {
 		options.Scale = b.scale
