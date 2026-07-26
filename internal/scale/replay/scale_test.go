@@ -115,13 +115,17 @@ func (s *started) drainUntilDone(t *testing.T) []domain.ScaleEvent {
 				t.Fatal("le canal du Hub a été FERMÉ par le driver (bloquant-2)")
 			}
 			events = append(events, event)
-			select {
-			case <-s.done:
-				// done is closed AFTER the last event is published, so what is left in the
-				// buffer now is the whole tail: drain it and stop.
-				return append(events, remaining(s.out)...)
-			default:
-			}
+		case <-s.done:
+			// done is closed AFTER the last event is published, so whatever is in the
+			// buffer now is the whole tail: drain it and stop.
+			//
+			// This case belongs in THIS select and not after a received event, which is
+			// where it used to be. A capture whose frames mostly do not decode publishes
+			// few events — the degraded corpus yields two — so the loop sat waiting for an
+			// event that would never come while done had already been closed. It passed on
+			// a fast machine, where the last event and the closure land in the same
+			// scheduling slot, and hung for the full watchdog on the CI.
+			return append(events, remaining(s.out)...)
 		case <-time.After(watchdog):
 			t.Fatal("le rejeu n'a pas rendu la main")
 			return nil
