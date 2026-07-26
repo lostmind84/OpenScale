@@ -5,10 +5,12 @@
   %OPENSCALE_BINARY% et %OPENSCALE_ACCOUNT% sont substitués par install.ps1 : un chemin
   en dur serait faux sur un poste dont le disque système n'est pas C:.
 
-  Le fichier est en UTF-8, et sa déclaration le dit. Windows EXPORTE ses tâches en
-  UTF-16 ; il en importe aussi en UTF-8 quand la déclaration est cohérente avec les
-  octets. install.ps1 réessaie en UTF-16 si schtasks refuse ce fichier-ci : l'un des deux
-  passe toujours, et un installeur qui échoue sur un encodage n'est pas un installeur.
+  Le fichier est en UTF-8, et sa déclaration le dit : c'est une SOURCE, faite pour se lire
+  et se comparer dans le dépôt. Ce n'est PAS ce que schtasks reçoit. install.ps1 substitue
+  les deux marqueurs ci-dessous puis réécrit le fichier temporaire en UTF-16, parce que
+  schtasks /xml refuse l'UTF-8 — mesuré sur Windows 10 : « syntaxe du document incorrecte »
+  avec marque d'ordre des octets, « impossible de changer d'encodage » sans. Le repli en
+  UTF-8 reste, pour un Windows qui se comporterait autrement.
 
   <LogonType>InteractiveToken</LogonType> : AUCUN mot de passe à fournir à schtasks.
   C'est ce qui rend l'installation reproductible — un mot de passe passé en argument

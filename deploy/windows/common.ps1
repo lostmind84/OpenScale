@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Fonctions partagées par install.ps1, update.ps1, uninstall.ps1 et harden.ps1.
 
@@ -86,6 +86,32 @@ function Assert-Success {
   if ($ExitCode -ne 0) {
     throw "$What a échoué (code $ExitCode) — installation interrompue"
   }
+}
+
+function Set-NativeOutputEncoding {
+  <#
+  .SYNOPSIS
+    Fait lire à PowerShell la sortie des exécutables natifs en UTF-8.
+  .DESCRIPTION
+    PowerShell 5.1 décode ce qu'écrit un exécutable natif avec la page de codes de la
+    CONSOLE — 850 sur un Windows français — alors qu'openscale.exe écrit de l'UTF-8. Sans
+    cet appel, « compilé » revient « compil├® » : les octets C3 A9 lus en CP850.
+
+    Ce serait sans importance si ce texte restait à l'écran. Mais $version part dans le
+    journal d'installation ET sur la FICHE qu'on imprime et qu'on range dans le classeur du
+    magasin, à la ligne « Version installée ».
+
+    UTF8Encoding($false) et non [Text.Encoding]::UTF8 : la seconde porte une marque d'ordre
+    des octets en préambule, que PowerShell écrirait en tête de sa propre sortie.
+
+    L'affectation échoue quand le script tourne sans console attachée. Ce n'est pas une
+    raison d'interrompre une installation : sans console, personne ne lit le charabia.
+  #>
+  [CmdletBinding()]
+  param()
+
+  try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) }
+  catch { }
 }
 
 function Write-Step {
@@ -236,6 +262,100 @@ function Restore-File {
   if (-not (Test-Path $Backup)) { throw "la sauvegarde $Backup est introuvable" }
   Copy-Item -Path $Backup -Destination $Target -Force
   $Target
+}
+
+function Wait-FileReplaceable {
+  <#
+  .SYNOPSIS
+    Attend qu'un fichier ne soit plus tenu ouvert par un processus.
+  .DESCRIPTION
+    La question est posée en OUVRANT le fichier en écriture exclusive, ce qui est exactement
+    ce que Copy-Item tentera juste après. Y répondre autrement — compter les processus,
+    dormir deux secondes — répondrait à une question voisine, et c'est la voisine qui laisse
+    passer.
+
+    L'attente existe parce que « schtasks /end » rend la main sans attendre que le processus
+    soit sorti. Elle est BORNÉE : au-delà, ce n'est pas un délai qu'il faut rallonger, c'est
+    un humain qu'il faut prévenir — un openscale.exe lancé à la main par start.bat n'est ni
+    le service ni la tâche, et aucune attente ne le fera partir.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string]$Path, [int]$TimeoutSeconds = 15)
+
+  if (-not (Test-Path $Path)) { return $true }
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while ($true) {
+    try {
+      $stream = [IO.File]::Open($Path, 'Open', 'ReadWrite', 'None')
+      $stream.Close()
+      return $true
+    }
+    catch {
+      if ((Get-Date) -ge $deadline) { return $false }
+      Start-Sleep -Milliseconds 250
+    }
+  }
+}
+
+function Stop-OpenScaleBinaryHolders {
+  <#
+  .SYNOPSIS
+    Arrête ce qui exécute openscale.exe, pour que le fichier puisse être remplacé.
+  .DESCRIPTION
+    DEUX processus exécutent ce binaire sur un poste en service : le SERVICE
+    (« openscale serve ») et la TÂCHE DU KIOSQUE (« openscale kiosk »). Chacun tient le
+    fichier ouvert, et une copie par-dessus échoue avec « le processus ne peut pas accéder
+    au fichier, car il est en cours d'utilisation par un autre processus ».
+
+    C'est ce qui rendait FAUSSE la promesse d'idempotence de l'en-tête d'install.ps1 :
+    relancer l'installeur échouait sur les postes qui marchent, et sur eux seuls — alors que
+    c'est précisément le geste que TROUBLESHOOTING.md et « openscale doctor » recommandent.
+    update.ps1 arrêtait bien le service, mais pas le kiosque, qui tient le même fichier.
+
+    Aucun de ces appels n'est gardé par Assert-Success, et ce n'est pas un oubli : sur une
+    machine vierge il n'y a ni service ni tâche, et l'absence est ici le cas nominal. Ce qui
+    est vérifié, c'est le RÉSULTAT — le fichier est-il remplaçable — et non le code de
+    retour de chaque étape, qui n'en est qu'un indice.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)]$Paths, [string]$LogFile)
+
+  if (Get-Service -Name $script:ServiceName -ErrorAction Ignore) {
+    if (Test-Path $Paths.Binary) {
+      # La commande du produit et non Stop-Service : elle ATTEND l'arrêt effectif, sur le
+      # budget de §13.4. C'est ce que fait update.ps1, pour cette raison-là.
+      & $Paths.Binary service stop | Out-Null
+    }
+    else {
+      # Un service déclaré dont le binaire a disparu : le gestionnaire de services est alors
+      # le seul à pouvoir encore l'arrêter.
+      Stop-Service -Name $script:ServiceName -Force -ErrorAction Ignore
+    }
+    Write-Step 'service arrêté' $LogFile
+  }
+
+  if (Get-ScheduledTask -TaskName $script:TaskName -ErrorAction Ignore) {
+    schtasks /end /tn $script:TaskName | Out-Null
+    Write-Step 'écran client arrêté' $LogFile
+  }
+
+  Wait-FileReplaceable -Path $Paths.Binary
+}
+
+function Get-BinaryHolders {
+  <#
+  .SYNOPSIS
+    Les processus openscale.exe encore vivants, sous une forme qui se lit.
+  .DESCRIPTION
+    Sert le message d'erreur et lui seul. « le fichier est tenu » n'apprend rien à qui doit
+    agir ; « PID 4812 » se cherche dans le gestionnaire des tâches.
+  #>
+  [CmdletBinding()]
+  param()
+
+  $processes = @(Get-Process -Name 'openscale' -ErrorAction Ignore)
+  if ($processes.Count -eq 0) { return '' }
+  ' (openscale.exe encore en vie : PID ' + (($processes | ForEach-Object { $_.Id }) -join ', ') + ')'
 }
 
 function Get-RegistryValue {

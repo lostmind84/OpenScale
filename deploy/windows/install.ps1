@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Installe un poste de pesée OpenScale sur ce PC Windows.
 
@@ -57,6 +57,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot 'common.ps1')
+Set-NativeOutputEncoding
 
 $paths = if ($InstallDir -and $DataRoot) { Get-OpenScalePaths -InstallDir $InstallDir -DataRoot $DataRoot }
 elseif ($InstallDir) { Get-OpenScalePaths -InstallDir $InstallDir }
@@ -127,6 +128,17 @@ Assert-Success "icacls $($paths.DataRoot)"
 Write-Step "droits posés sur $($paths.DataRoot)" $paths.LogFile
 
 # --- 2 bis. Le binaire, la configuration livrée, la documentation -------------------
+# ★ ARRÊTER AVANT DE COPIER. Un poste déjà installé exécute son propre binaire — le service
+# et la tâche du kiosque — et chacun tient le fichier ouvert. Sans cet arrêt, Copy-Item
+# échoue avec « le processus ne peut pas accéder au fichier », et l'installeur ne rate QUE
+# les postes qui marchent : exactement ceux sur lesquels TROUBLESHOOTING.md et
+# « openscale doctor » demandent de le relancer. L'idempotence annoncée en tête de ce
+# fichier tient à ces trois lignes.
+if (-not (Stop-OpenScaleBinaryHolders -Paths $paths -LogFile $paths.LogFile)) {
+  throw "$($paths.Binary) est encore tenu par un processus après l'arrêt du service et de " +
+  "l'écran client$(Get-BinaryHolders). Fermez la fenêtre ouverte par start.bat, ou " +
+  'redémarrez le poste, puis relancez install.ps1.'
+}
 Copy-Item -Path $source -Destination $paths.Binary -Force
 foreach ($name in 'INSTALLATION.md', 'TROUBLESHOOTING.md', 'SHA256SUMS', 'flv_demo.csv') {
   $file = Join-Path $PSScriptRoot $name
@@ -184,14 +196,26 @@ $taskXml = (Get-Content -Path $taskFile -Raw -Encoding utf8).
   Replace('%OPENSCALE_BINARY%', $paths.Binary).
   Replace('%OPENSCALE_ACCOUNT%', "$env:COMPUTERNAME\$($script:AccountName)")
 $temporaryTask = Join-Path $env:TEMP 'openscale-kiosk.resolved.xml'
-Set-Content -Path $temporaryTask -Value $taskXml -Encoding utf8
+
+# UTF-16 D'ABORD, et ce n'est pas une préférence. MESURÉ sur Windows 10 : schtasks /xml
+# refuse les DEUX formes d'UTF-8. Avec marque d'ordre des octets — ce que produit
+# « Set-Content -Encoding utf8 » sous PowerShell 5.1 — il répond « (1,2)::ERREUR : syntaxe
+# du document incorrecte » ; sans marque, « (1,40)::ERREUR : impossible de changer
+# d'encodage », la position 40 étant celle de la déclaration. L'UTF-16 passe.
+#
+# L'ordre inverse échouait donc au premier essai à CHAQUE installation, sur CHAQUE poste.
+# Le repli rattrapait, mais schtasks avait déjà écrit son refus sur la sortie d'erreur, que
+# PowerShell peint en rouge : l'installation se terminait bien et l'opérateur avait vu une
+# erreur. Le prix n'est pas la ligne rouge, c'est qu'on apprend à ignorer le rouge pendant
+# une installation.
+Set-Content -Path $temporaryTask -Value $taskXml.Replace('encoding="UTF-8"', 'encoding="UTF-16"') -Encoding unicode
 schtasks /create /tn $script:TaskName /xml $temporaryTask /f | Out-Null
 if ($LASTEXITCODE -ne 0) {
-  # Windows exporte ses tâches en UTF-16. Il en importe aussi en UTF-8, mais des versions
-  # anciennes de schtasks refusent le fichier : on réessaie dans l'autre encodage plutôt
-  # que d'arrêter une installation pour une histoire d'octets.
-  Write-Step 'schtasks a refusé le XML en UTF-8 : nouvel essai en UTF-16' $paths.LogFile
-  Set-Content -Path $temporaryTask -Value $taskXml.Replace('encoding="UTF-8"', 'encoding="UTF-16"') -Encoding unicode
+  # Le repli, pour un Windows qui ne se comporterait pas comme celui sur lequel la ligne
+  # ci-dessus a été mesurée : un installeur qui échoue sur une histoire d'octets n'est pas
+  # un installeur.
+  Write-Step 'schtasks a refusé le XML en UTF-16 : nouvel essai en UTF-8' $paths.LogFile
+  Set-Content -Path $temporaryTask -Value $taskXml -Encoding utf8
   schtasks /create /tn $script:TaskName /xml $temporaryTask /f | Out-Null
 }
 Assert-Success "schtasks /create $($script:TaskName)"

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Durcissement OPTIONNEL d'un poste OpenScale : niveau 3 du kiosque, et secrets LSA.
 
