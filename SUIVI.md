@@ -3,18 +3,23 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
-**État au 25/07/2026** : conception terminée et validée. **L1 à L4 livrés** — le noyau
-métier est complet (garde-fous, stabilité, trames, gabarit, configuration, chemin unique,
-machine à états, stockage SQLite) et la balance est lue : boucle série reconnectante,
-drivers GRAM XFOC, source vide de la saisie manuelle, rejeu, suite de conformité,
-commandes `capture` et `replay`. L'étiquette se rend : symbole à module
-fractionnaire, HRI relue sur le rendu, aperçu PDF mesurable au réglet. 1056 tests. L5 (impression réelle) est le lot suivant.
+**État au 26/07/2026** : **L1 à L7 livrés**, L8 en cours. `openscale serve` démarre un
+poste complet : noyau métier, balance, étiquette, impression, Hub à horloge injectée,
+écran client Svelte et catalogue. **2 096 tests** (1 886 Go, 210 front), CI verte sur
+les trois cibles, `-race` vert.
 
-**Ce que L3 attend encore du banc (L0).** `OpenSystemPort` n'a jamais parlé à un vrai port :
-baud, parité, préfixage `\\.\` de `COM10`, timeout réel et fermeture d'une lecture en vol
-sont les tests `//go:build hardware` de §16.1. Et le timeout de lecture d'une seconde repose
-sur une cadence nominale de 400 ms qui est le timer de polling du formulaire Access, pas une
-mesure — `openscale capture` existe pour remplacer ce chiffre par un chiffre mesuré.
+**Ce qui a été vérifié en faisant tourner le poste, et pas seulement en le lisant.**
+Déposer le vrai `flv.csv` dans le répertoire d'un poste neuf sert **331 tuiles** et vide
+le répertoire. C'est cet essai qui a trouvé le défaut le plus coûteux de la série : sur
+un poste dont la balance ne répond pas — l'état de tout poste avant qu'on branche le
+câble — le premier catalogue était **perdu**, pas différé, alors que le fichier venait
+d'être supprimé et que la suppression vaut acquittement.
+
+**Ce que le banc (L0) doit encore trancher.** `OpenSystemPort` n'a jamais parlé à un
+vrai port série ; aucune étiquette n'est sortie d'une vraie SATO WS408 ; le timeout de
+lecture d'une seconde repose sur les 400 ms du timer de polling d'Access, pas sur une
+mesure — `openscale capture` existe pour le remplacer par un chiffre mesuré ; et le
+comptage A/B au scanner de caisse est ce qui tranchera le tracé géométrique d'ADR-019.
 
 ---
 
@@ -27,9 +32,9 @@ mesure — `openscale capture` existe pour remplacer ce chiffre par un chiffre m
 | **L2** | Noyau complet — garde-fous, trames, machine à états, stockage | 3 sem. | ✅ **25/07/2026** |
 | **L3** | Balance — drivers série, capture, rejeu | 2 sem. | ✅ **25/07/2026** |
 | **L4** | Étiquette et rendu raster — gabarits, symbole, aperçu | 3 sem. | ✅ **25/07/2026** |
-| **L5** | Impression réelle — SBPL, transports, statut | 2,5 sem. | ⬜ |
-| **L6** | Poste vivant et écran client — Hub, SSE, front | 4,5 sem. | ⬜ |
-| **L7** | Catalogue — sources, import CSV, images | 2,5 sem. | ⬜ |
+| **L5** | Impression réelle — SBPL, transports, statut | 2,5 sem. | ✅ **26/07/2026** |
+| **L6** | Poste vivant et écran client — Hub, SSE, front | 4,5 sem. | ✅ **26/07/2026** |
+| **L7** | Catalogue — sources, import CSV, images | 2,5 sem. | ✅ **26/07/2026** |
 | **L8** | Admin et exploitation — écrans, diagnostic, installeurs | 4 sem. | ⬜ |
 | **L9** | Recette et mise en service — poste pilote 2 semaines | 3 sem. | ⬜ |
 
