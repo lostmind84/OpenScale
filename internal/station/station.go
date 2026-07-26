@@ -875,6 +875,16 @@ func (s *Station) Stopped() <-chan struct{} { return s.stopped }
 // Windows serial port. §13.4 leaves it unbounded; bounding it is what keeps the
 // measured budget true, and the process is going away anyway.
 func (s *Station) closeDevices() {
+	// The devices are the fields a RELOAD replaces — scale, printer, catalogSource —
+	// and a reload runs on the goroutine of an HTTP handler while this runs on the
+	// one calling Stop. Taking reloadMu is what stops the two from interleaving, and
+	// it is the right mutex here where it was the wrong one for catalogSource alone:
+	// a shutdown genuinely SHOULD wait for a reload in flight to finish rather than
+	// close a serial port somebody is in the middle of reopening. The wait is bounded
+	// anyway — every step a reload takes is (§11.4).
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+
 	if s.scale != nil {
 		closed := make(chan struct{})
 		driver := s.scale
