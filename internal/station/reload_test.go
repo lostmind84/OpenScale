@@ -199,12 +199,12 @@ func TestACloseThatNeverReturnsIsBounded(t *testing.T) {
 		t.Fatalf("le rechargement a pris %s de temps mural : le budget n'est pas sur l'horloge injectée", elapsed)
 	}
 
-	if !b.technical.has("ERR-SCL-08") {
-		b.tick() // the technical line travels through the journal worker
-	}
-	if !b.technical.has("ERR-SCL-08") {
-		t.Fatal("ERR-SCL-08 n'a pas été journalisé alors que la fermeture n'a pas été confirmée")
-	}
+	// The technical line travels through the journal WORKER, on its own goroutine, so
+	// it is not there the instant Reload returns. A single tick was enough on a quiet
+	// machine and not on a loaded CI runner, which is the definition of a flaky test.
+	b.tick()
+	awaitCondition(t, func() bool { return b.technical.has("ERR-SCL-08") },
+		"ERR-SCL-08 n'a pas été journalisé alors que la fermeture n'a pas été confirmée")
 	if got := b.station.Counters().UnconfirmedScaleCloses.Load(); got != 1 {
 		t.Fatalf("fermetures non confirmées = %d, attendu 1", got)
 	}
@@ -295,15 +295,55 @@ func TestAnUnconfirmedHardwareChangeGoesBack(t *testing.T) {
 
 }
 
+// The two bounds of the wait below. They are POLLING intervals and not budgets: no
+// decision of this application rests on them, and nothing they measure is business time.
+const (
+	// spinsBeforeSleeping is how many yields are tried before the wait goes to sleep.
+	// Sixty-four costs a few microseconds and covers every case where the goroutine
+	// that satisfies the condition is already runnable, which is the nominal one.
+	spinsBeforeSleeping = 64
+	// minPollDelay and maxPollDelay bound the sleep that follows. The ceiling is what
+	// keeps a genuinely broken wait from taking the full five seconds to notice, and
+	// the floor is what keeps the first retry after the spins nearly free.
+	minPollDelay = 50 * time.Microsecond
+	maxPollDelay = 2 * time.Millisecond
+)
+
 // awaitCondition yields until a condition holds, and fails rather than hanging.
+//
+// IT REALLY GIVES THE PROCESSOR BACK, and that is the whole of it. A bare loop of
+// runtime.Gosched stays RUNNABLE: it keeps its P for the entire wait, and under
+// `go test ./...`, where packages run side by side on a machine that has other work,
+// it starves the very goroutine it is waiting for. TestAClockJumpIsReported failed that
+// way on code that was right, and passed alone in a millisecond.
+//
+// So it spins first and sleeps afterwards. The spin is what keeps the NOMINAL cost
+// unchanged — a condition satisfied by a goroutine that is already runnable holds
+// within the first few yields, so no passing test gets slower. The sleep is what makes
+// the loaded case cheap: it takes the waiter OFF the processor instead of competing
+// with what it waits for.
+//
+// It sleeps, and the injected clock is not the answer here. « Aucun test ne dort » is
+// about TIME THE APPLICATION MEASURES — a stability window, an expiry, a print budget —
+// and every one of those is on fake.Clock. What this waits for is the Go SCHEDULER
+// running a goroutine of the process under test, which no fake clock drives and no
+// station budget describes.
 func awaitCondition(t *testing.T, holds func() bool, message string) {
 	t.Helper()
 	deadline := time.Now().Add(hang)
-	for time.Now().Before(deadline) {
+	delay := minPollDelay
+	for attempt := 0; time.Now().Before(deadline); attempt++ {
 		if holds() {
 			return
 		}
-		runtime.Gosched()
+		if attempt < spinsBeforeSleeping {
+			runtime.Gosched()
+			continue
+		}
+		time.Sleep(delay)
+		if delay < maxPollDelay {
+			delay *= 2
+		}
 	}
 	t.Fatal(message)
 }
