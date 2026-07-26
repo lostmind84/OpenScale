@@ -6,6 +6,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 // This file is the only place in the package that calls a Windows API, and it is
@@ -54,6 +56,18 @@ func systemUptime() (time.Duration, error) {
 	}
 	return time.Duration(millis) * time.Millisecond, nil
 }
+
+// sessionIsElevated says whether this process holds an elevated token.
+//
+// It answers ONE narrow question, for kioskTaskState: did we have the right to read the
+// folder of scheduled tasks? Without it, « schtasks a échoué » cannot be turned into a
+// verdict, because the failure of an unprivileged read looks exactly like the failure of a
+// task that is not there.
+//
+// x/sys/windows and not another lazy DLL: the module is already a direct dependency —
+// internal/platform/service_windows.go registers the service with it — and a token opened
+// by hand here would be a second way of asking the same question.
+func sessionIsElevated() bool { return windows.GetCurrentProcessToken().IsElevated() }
 
 // systemRelease is left empty on Windows.
 //

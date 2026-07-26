@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -464,15 +465,25 @@ func TestTheScriptsAndTheBinaryAgreeOnTheNames(t *testing.T) {
 // --- La sauvegarde et la restauration, sur un répertoire factice ---------------------
 
 // powershellPath finds a PowerShell able to dot-source common.ps1.
-func powershellPath(t *testing.T) string {
+// powershellPaths returns EVERY PowerShell installed on this machine, and not the first one.
+//
+// The plural is the whole point, and it is what v0.1 cost. The singular version tried
+// « pwsh » first and CI runs on ubuntu-latest, so these scripts had never once been read by
+// the shell they are written for — common.ps1 says so in its own header: « le poste sur
+// lequel ces scripts tournent n'a que 5.1 ». Running under every shell present costs one
+// subtest on Linux, where only pwsh exists, and finds on Windows what no Linux runner can.
+func powershellPaths(t *testing.T) []string {
 	t.Helper()
+	var found []string
 	for _, candidate := range []string{"pwsh", "powershell"} {
 		if path, err := exec.LookPath(candidate); err == nil {
-			return path
+			found = append(found, path)
 		}
 	}
-	t.Skip("ni pwsh ni powershell : les scripts ne peuvent pas être analysés sur cette machine")
-	return ""
+	if len(found) == 0 {
+		t.Skip("ni pwsh ni powershell : les scripts ne peuvent pas être analysés sur cette machine")
+	}
+	return found
 }
 
 // runPowerShell runs a script and returns its output.
@@ -484,20 +495,148 @@ func runPowerShell(t *testing.T, shell, script string) (string, error) {
 	return string(output), err
 }
 
+// writeScript writes a test harness the way a .ps1 has to be written: with the mark.
+//
+// The harnesses below carry French, and a test bench that broke on its own accents would
+// accuse the script it is exercising. It obeys the rule it enforces — see
+// TestEveryPowerShellScriptCarriesTheMarkWindowsPowerShellNeeds.
+func writeScript(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, append(append([]byte{}, utf8Mark...), body...), 0o644); err != nil {
+		t.Fatalf("écriture du banc %s : %v", path, err)
+	}
+}
+
+// utf8Mark is the byte order mark, EF BB BF.
+var utf8Mark = []byte{0xEF, 0xBB, 0xBF}
+
+// TestEveryPowerShellScriptCarriesTheMarkWindowsPowerShellNeeds is the encoding contract,
+// and it exists because v0.1 shipped without it.
+//
+// Windows PowerShell 5.1 — the ONLY PowerShell on a station, and the one a right-click
+// « Exécuter avec PowerShell » starts — decodes a .ps1 with no mark as ANSI. PowerShell 7
+// assumes UTF-8. The two therefore read every accent in these scripts differently, and one
+// sequence is fatal rather than merely ugly: « — » is E2 80 94 in UTF-8, which CP1252 reads
+// as « â€” » whose last character is U+201D, a closing DOUBLE QUOTE for the PowerShell
+// parser. The string literal ends on the dash, the rest of the line becomes code, and the
+// installer stops parsing. That is what v0.1 did on the machine it was written for: five
+// scripts, thirteen parse errors, and not one line executed.
+//
+// The rule is « all of them » and not « those with an accent », because a script that is
+// ASCII today gets its first French message tomorrow, and whoever writes that message will
+// not be thinking about byte order marks.
+//
+// The whole repository is walked rather than deploy/windows: make.ps1 lives at the root and
+// carries the same trap.
+func TestEveryPowerShellScriptCarriesTheMarkWindowsPowerShellNeeds(t *testing.T) {
+	var scripts []string
+	walk := func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			// dist and bin are git-ignored: what they hold is build OUTPUT, not source. A
+			// `make release` left in place puts a copy of the scripts there, and the test
+			// would accuse a file that is not in the repository.
+			switch entry.Name() {
+			case ".git", "node_modules", "dist", "bin":
+				return fs.SkipDir
+			}
+			return nil
+		}
+		switch strings.ToLower(filepath.Ext(path)) {
+		case ".ps1", ".psm1":
+			scripts = append(scripts, path)
+		}
+		return nil
+	}
+	if err := filepath.WalkDir("..", walk); err != nil {
+		t.Fatalf("parcours du dépôt : %v", err)
+	}
+	if len(scripts) == 0 {
+		t.Fatal("aucun script PowerShell trouvé dans le dépôt : ce test ne prouve plus rien")
+	}
+
+	for _, script := range scripts {
+		raw, err := os.ReadFile(script)
+		if err != nil {
+			t.Errorf("lecture de %s : %v", script, err)
+			continue
+		}
+		if bytes.HasPrefix(raw, utf8Mark) {
+			continue
+		}
+		t.Errorf("%s n'a pas de marque d'ordre des octets (EF BB BF) : Windows PowerShell 5.1 "+
+			"le lira en ANSI.\n%s", script, whatFiveOneWillRead(raw))
+	}
+}
+
+// whatFiveOneWillRead shows the first line a mark-less file would lose, as CP1252 reads it.
+//
+// The failure message names the damage instead of citing three magic bytes: whoever adds a
+// script sees the line that will break and why, not a constant to silence.
+func whatFiveOneWillRead(raw []byte) string {
+	for number, line := range bytes.Split(raw, []byte("\n")) {
+		decoded, differs := decodeCP1252(line)
+		if !differs {
+			continue
+		}
+		return fmt.Sprintf("      ligne %d, écrite en UTF-8      : %s\n"+
+			"      ligne %d, telle que 5.1 la lira : %s",
+			number+1, strings.TrimRight(string(line), "\r"),
+			number+1, strings.TrimRight(decoded, "\r"))
+	}
+	return "      (ce fichier est en ASCII pur, donc il survivrait aujourd'hui — la règle vaut " +
+		"pour tous, parce qu'il ne le restera pas)"
+}
+
+// cp1252Extras is the 0x80–0x9F range of CP1252, the only place it differs from Latin-1.
+//
+// COPIED from the Windows code page table, never derived. Five positions are unassigned
+// (0x81, 0x8D, 0x8F, 0x90, 0x9D) and Windows maps them to the control character of the same
+// value; they are written out here so the table has thirty-two entries and no hole to
+// misread. 0x94 is U+201D, the one that ends a string literal, and 0x97 is the em dash it
+// comes from.
+var cp1252Extras = [32]rune{
+	0x20AC, 0x0081, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
+	0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008D, 0x017D, 0x008F,
+	0x0090, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+	0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178,
+}
+
+// decodeCP1252 reads bytes the way Windows PowerShell 5.1 reads a script with no mark, and
+// says whether that reading differs from the UTF-8 one.
+func decodeCP1252(raw []byte) (string, bool) {
+	var text strings.Builder
+	differs := false
+	for _, b := range raw {
+		switch {
+		case b < 0x80:
+			text.WriteByte(b)
+		case b < 0xA0:
+			text.WriteRune(cp1252Extras[b-0x80])
+			differs = true
+		default:
+			text.WriteRune(rune(b))
+			differs = true
+		}
+	}
+	return text.String(), differs
+}
+
 // TestEveryPowerShellScriptParses is the syntactic check: a script with a typo in it is a
 // station half-installed, and the typo is found by whoever runs it as administrator on a
 // Saturday morning.
 //
 // It uses the PowerShell parser itself rather than a heuristic, and it checks the four
-// scripts plus the shared file.
+// scripts plus the shared file — under EVERY PowerShell installed, because the encoding
+// defect above is invisible to PowerShell 7 and fatal to 5.1.
 func TestEveryPowerShellScriptParses(t *testing.T) {
-	shell := powershellPath(t)
 	scripts, err := filepath.Glob(filepath.Join("windows", "*.ps1"))
 	if err != nil || len(scripts) == 0 {
 		t.Fatalf("aucun script PowerShell trouvé : %v", err)
 	}
 
-	harness := filepath.Join(t.TempDir(), "parse.ps1")
 	body := `$ErrorActionPreference = 'Stop'
 $failed = 0
 foreach ($path in $args) { }
@@ -517,19 +656,22 @@ foreach ($script in $scripts) {
 }
 exit $failed
 `
-	if err := os.WriteFile(harness, []byte(body), 0o644); err != nil {
-		t.Fatalf("écriture du banc : %v", err)
+	for _, shell := range powershellPaths(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			harness := filepath.Join(t.TempDir(), "parse.ps1")
+			writeScript(t, harness, body)
+			output, err := runPowerShell(t, shell, harness)
+			if err != nil {
+				t.Fatalf("un script PowerShell ne s'analyse pas sous %s :\n%s", shell, output)
+			}
+			for _, script := range scripts {
+				if !strings.Contains(output, "OK "+script) && !strings.Contains(output, filepath.Base(script)) {
+					t.Errorf("%s n'a pas été analysé :\n%s", script, output)
+				}
+			}
+			t.Logf("%s", strings.TrimSpace(output))
+		})
 	}
-	output, err := runPowerShell(t, shell, harness)
-	if err != nil {
-		t.Fatalf("un script PowerShell ne s'analyse pas :\n%s", output)
-	}
-	for _, script := range scripts {
-		if !strings.Contains(output, "OK "+script) && !strings.Contains(output, filepath.Base(script)) {
-			t.Errorf("%s n'a pas été analysé :\n%s", script, output)
-		}
-	}
-	t.Logf("%s", strings.TrimSpace(output))
 }
 
 // quoteForPowerShell renders a list of paths as a PowerShell array literal.
@@ -564,15 +706,19 @@ func TestTheBackupAndTheRestoreWorkOnAThrowawayDirectory(t *testing.T) {
 		t.Skip("common.ps1 dérive ses chemins de %ProgramFiles% et %ProgramData% : " +
 			"ce banc n'a de sens que sur Windows")
 	}
-	shell := powershellPath(t)
-	work := t.TempDir()
 	common, err := filepath.Abs(filepath.Join("windows", "common.ps1"))
 	if err != nil {
 		t.Fatalf("chemin de common.ps1 : %v", err)
 	}
 
-	harness := filepath.Join(work, "harness.ps1")
-	body := `$ErrorActionPreference = 'Stop'
+	// One work directory PER SHELL, and not one for both: step 2 proves that a second
+	// install.ps1 does not overwrite the first snapshot, so a reused directory would make
+	// the second subtest fail on step 1 for a reason that has nothing to do with the shell.
+	for _, shell := range powershellPaths(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			work := t.TempDir()
+			harness := filepath.Join(work, "harness.ps1")
+			body := `$ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . '` + strings.ReplaceAll(common, "'", "''") + `'
 
@@ -640,16 +786,16 @@ foreach ($expected in @('MOT-DE-PASSE-TEST', 'a1b2c3d4', 'openscale', 'CODE DE S
 
 Write-Output 'TOUT-EST-VERIFIE'
 `
-	if err := os.WriteFile(harness, []byte(body), 0o644); err != nil {
-		t.Fatalf("écriture du banc : %v", err)
-	}
+			writeScript(t, harness, body)
 
-	output, err := runPowerShell(t, shell, harness)
-	if err != nil {
-		t.Fatalf("la sauvegarde ou la restauration a échoué :\n%s", output)
-	}
-	if !strings.Contains(output, "TOUT-EST-VERIFIE") {
-		t.Fatalf("le banc ne s'est pas terminé :\n%s", output)
+			output, err := runPowerShell(t, shell, harness)
+			if err != nil {
+				t.Fatalf("la sauvegarde ou la restauration a échoué sous %s :\n%s", shell, output)
+			}
+			if !strings.Contains(output, "TOUT-EST-VERIFIE") {
+				t.Fatalf("le banc ne s'est pas terminé :\n%s", output)
+			}
+		})
 	}
 }
 
@@ -710,9 +856,17 @@ func TestTheInstallerDoesTheStepsOfSection15_2InOrder(t *testing.T) {
 	// the call. A test that read the explanation would forbid explaining.
 	installer := codeOnly(readFile(t, filepath.Join("windows", "install.ps1")))
 	positions := map[string]int{
-		"sauvegarde":   strings.Index(installer, "Get-SystemSettings"),
-		"compte":       strings.Index(installer, "New-LocalUser"),
-		"acl":          strings.Index(installer, "icacls"),
+		"sauvegarde": strings.Index(installer, "Get-SystemSettings"),
+		"compte":     strings.Index(installer, "New-LocalUser"),
+		"acl":        strings.Index(installer, "icacls"),
+		// ★ L'arrêt AVANT la copie, et c'est un ordre payé cher. Un poste déjà installé
+		// exécute son propre binaire — le service, et la tâche du kiosque — et chacun tient
+		// le fichier ouvert. Sans cet arrêt, Copy-Item échoue avec « le processus ne peut
+		// pas accéder au fichier », et l'installeur ne rate QUE les postes qui marchent :
+		// exactement ceux sur lesquels TROUBLESHOOTING.md et doctor demandent de le relancer.
+		// L'idempotence annoncée dans l'en-tête d'install.ps1 tient à cette ligne-ci.
+		"arrêt":        strings.Index(installer, "Stop-OpenScaleBinaryHolders"),
+		"binaire":      strings.Index(installer, "Copy-Item -Path $source"),
 		"session auto": strings.Index(installer, "AutoAdminLogon"),
 		"service":      strings.Index(installer, "service install"),
 		"tâche":        strings.Index(installer, "schtasks /create"),
@@ -723,7 +877,9 @@ func TestTheInstallerDoesTheStepsOfSection15_2InOrder(t *testing.T) {
 			t.Fatalf("l'étape « %s » est absente de install.ps1", name)
 		}
 	}
-	order := []string{"sauvegarde", "compte", "acl", "session auto", "service", "tâche", "fiche"}
+	order := []string{
+		"sauvegarde", "compte", "acl", "arrêt", "binaire", "session auto", "service",
+		"tâche", "fiche"}
 	for i := 1; i < len(order); i++ {
 		if positions[order[i-1]] >= positions[order[i]] {
 			t.Fatalf("« %s » vient après « %s » dans install.ps1 : §15.2 fixe l'ordre inverse",
@@ -737,7 +893,10 @@ func TestTheInstallerDoesTheStepsOfSection15_2InOrder(t *testing.T) {
 func TestTheUpdaterVerifiesHealthzAndRestoresOnFailure(t *testing.T) {
 	updater := readFile(t, filepath.Join("windows", "update.ps1"))
 	for what, needle := range map[string]string{
-		"l'arrêt du service avec contrôle d'erreur": "service stop",
+		// « service stop » ne suffit pas à nommer cette exigence, et c'est la correction :
+		// la tâche du kiosque exécute le MÊME binaire, donc arrêter le service seul laissait
+		// le fichier verrouillé. Le mot cherché est celui du geste complet.
+		"l'arrêt de TOUT ce qui tient le binaire":   "Stop-OpenScaleBinaryHolders",
 		"la sauvegarde horodatée du binaire":        "Backup-File",
 		"la vérification de /healthz":               "Test-StationHealth",
 		"la restauration automatique":               "Restore-File",

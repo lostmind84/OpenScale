@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Expose les cibles du Makefile sur un poste Windows sans GNU make.
 

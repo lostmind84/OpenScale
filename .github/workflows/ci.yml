@@ -1,18 +1,24 @@
 # CI d'OpenScale — docs/02-architecture.md §16.4.
 #
-# Deux jobs, et la raison de chacun :
+# Quatre jobs, et la raison de chacun :
 #
-#   test  — la qualité. Il fait DEUX passes de `go test` : une avec cgo, parce que
-#           `-race` exige ThreadSanitizer, et une sans, parce que c'est la
-#           configuration réellement livrée (ADR-001). Un `CGO_ENABLED=0` global
-#           casserait `-race`, et le premier contributeur qui rencontre l'erreur
-#           retirerait `-race` — on perdrait la seule vérification automatique des
-#           invariants de concurrence du Hub (important-3).
+#   test    — la qualité. Il fait DEUX passes de `go test` : une avec cgo, parce que
+#             `-race` exige ThreadSanitizer, et une sans, parce que c'est la
+#             configuration réellement livrée (ADR-001). Un `CGO_ENABLED=0` global
+#             casserait `-race`, et le premier contributeur qui rencontre l'erreur
+#             retirerait `-race` — on perdrait la seule vérification automatique des
+#             invariants de concurrence du Hub (important-3).
 #
-#   build — la livraison. Les trois cibles compilent en zéro cgo depuis une machine
-#           Linux, sans chaîne C et sans Docker. C'est la contrepartie directe de
-#           la contrainte 2, et elle se vérifie à chaque commit plutôt qu'au moment
-#           de livrer.
+#   build   — la livraison. Les trois cibles compilent en zéro cgo depuis une machine
+#             Linux, sans chaîne C et sans Docker. C'est la contrepartie directe de
+#             la contrainte 2, et elle se vérifie à chaque commit plutôt qu'au moment
+#             de livrer.
+#
+#   scripts — les scripts d'installation, sur le SYSTÈME QUI LES EXÉCUTE. Voir sa
+#             propre note : ce job existe parce que son absence a livré une v0.1
+#             qu'aucun poste ne pouvait installer.
+#
+#   front   — l'écran client : types, tests et budget de poids.
 name: CI
 
 on:
@@ -99,6 +105,38 @@ jobs:
             echo "::error::ces fichiers ne sont pas formatés : $unformatted"
             exit 1
           fi
+
+  # Le seul job qui ne tourne pas sur Linux, et il ne s'agit pas d'un scrupule.
+  #
+  # deploy/windows/*.ps1 est écrit pour Windows PowerShell 5.1 — common.ps1 le dit dans
+  # son en-tête, et c'est le seul PowerShell d'un poste de balance. La CI n'avait que des
+  # runners ubuntu, où seul `pwsh` existe : ces scripts n'avaient donc JAMAIS été lus par
+  # le shell auquel ils sont destinés. Les deux ne décodent pas de la même façon un
+  # fichier sans marque d'ordre des octets, et v0.1 est partie avec cinq scripts que 5.1
+  # ne pouvait pas même analyser. `TestEveryPowerShellScriptParses` faisait exactement le
+  # bon contrôle, sous le mauvais interpréteur.
+  #
+  # `-run` plutôt que le paquet entier : ce job répond à « les scripts tournent-ils sur un
+  # vrai Windows », pas à « le paquet passe-t-il deux fois ». Le reste de deploy/ est déjà
+  # couvert par le job test, et TestTheBackupAndTheRestoreWorkOnAThrowawayDirectory se
+  # déclare lui-même Windows seulement : ici est le seul endroit où il s'exécute.
+  scripts:
+    name: Scripts d'installation, sous Windows PowerShell 5.1
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+
+      - name: go test ./deploy
+        env:
+          CGO_ENABLED: "0"
+        run: >
+          go test ./deploy/ -count=1 -v
+          -run 'TestEveryPowerShellScript|TestTheBackupAndTheRestoreWorkOnAThrowawayDirectory'
 
   build:
     name: Compilation croisée, zéro cgo

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Désinstalle OpenScale et REMET le poste dans l'état où install.ps1 l'a trouvé.
 

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Met à jour le binaire d'un poste OpenScale, et revient en arrière si ça casse.
 
@@ -48,6 +48,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot 'common.ps1')
+Set-NativeOutputEncoding
 
 $paths = if ($InstallDir -and $DataRoot) { Get-OpenScalePaths -InstallDir $InstallDir -DataRoot $DataRoot }
 elseif ($InstallDir) { Get-OpenScalePaths -InstallDir $InstallDir }
@@ -73,9 +74,19 @@ $address = Get-ListenAddress -ConfigPath $paths.Config
 # --- 1. Arrêt, avec contrôle d'erreur -----------------------------------------------
 # `openscale service stop` attend l'arrêt effectif, sur le budget de §13.4. Un arrêt qu'on
 # n'attend pas, c'est un binaire copié par-dessus un processus qui le tient encore.
-& $paths.Binary service stop
-Assert-Success 'openscale service stop'
-Write-Step 'service arrêté' $paths.LogFile
+#
+# Et le service n'était pas seul à le tenir : la TÂCHE DU KIOSQUE exécute le MÊME binaire.
+# Sur un poste en service, l'arrêt du service seul laissait le fichier verrouillé par
+# l'écran client ; la copie échouait, et le retour arrière de l'étape 4 restaurait
+# consciencieusement une version qui n'avait jamais été remplacée.
+#
+# Ce qui est contrôlé ici est le RÉSULTAT — le fichier est-il remplaçable — et non le code
+# de retour de l'arrêt, qui n'en est qu'un indice.
+if (-not (Stop-OpenScaleBinaryHolders -Paths $paths -LogFile $paths.LogFile)) {
+  throw "$($paths.Binary) est encore tenu par un processus$(Get-BinaryHolders) : la mise à " +
+  'jour ne peut pas remplacer le binaire.'
+}
+Write-Step 'poste arrêté, le binaire est remplaçable' $paths.LogFile
 
 # --- 2. Sauvegarde horodatée --------------------------------------------------------
 $backup = Backup-File -Path $paths.Binary -Directory $paths.Backups
