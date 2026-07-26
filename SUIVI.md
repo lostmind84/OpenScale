@@ -7,7 +7,7 @@
 poste complet : noyau métier, balance, étiquette, impression, Hub à horloge injectée,
 écran client Svelte, catalogue, écrans d'administration, `openscale doctor` et ses quinze
 contrôles, `diagnostic.zip`, installeurs Windows et Linux, `INSTALLATION.md` et
-`TROUBLESHOOTING.md`. **2 417 tests** (2 172 Go, 245 front), CI verte sur
+`TROUBLESHOOTING.md`. **2 425 tests** (2 180 Go, 245 front), CI verte sur
 les trois cibles, `-race` vert.
 
 **Ce qui a été vérifié en faisant tourner le poste, et pas seulement en le lisant.**
@@ -39,6 +39,10 @@ comptage A/B au scanner de caisse est ce qui tranchera le tracé géométrique d
 | **L7** | Catalogue — sources, import CSV, images | 2,5 sem. | ✅ **26/07/2026** |
 | **L8** | Admin et exploitation — écrans, diagnostic, installeurs | 4 sem. | ✅ **26/07/2026** |
 | **L9** | Recette et mise en service — poste pilote 2 semaines | 3 sem. | ⬜ |
+
+**Ce qui reste, et il n'y a que ça.** L0 approvisionne le banc (SATO WS408, GRAM XFOC,
+rouleau, lecteur) ; L9 est la recette sur site. **Aucun des deux ne demande d'écrire du
+code** : ils demandent du matériel et deux semaines d'exploitation réelle.
 
 **Total : ~27 semaines-homme.** L0 précède tout · L1→L5 sont linéaires · L6 dépend de
 L2+L3+L5 · L7 et L8 se parallélisent après L6 · L9 clôt.
