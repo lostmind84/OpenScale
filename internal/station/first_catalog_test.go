@@ -1,10 +1,8 @@
 package station
 
 import (
-	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"openscale/internal/domain"
 )
@@ -47,15 +45,7 @@ func TestTheFirstCatalogTakesServiceWithoutAScale(t *testing.T) {
 		ID: "9999", Name: "POIREAU", Reference: "0493022000002",
 		Mode: domain.ByWeight, UnitPrice: 300, Qualification: domain.Weighable,
 	}}, nil)
-	if err := b.hub.PushCatalog(context.Background(), &CatalogBatch{Catalog: first}); err != nil {
-		t.Fatalf("PushCatalog : %v", err)
-	}
-	b.advance(domain.MaxSwitchIdle + time.Second)
-
-	if b.hub.Catalog() != first {
-		t.Fatal("le premier catalogue n'a pas pris service : sur un poste dont la balance " +
-			"ne répond pas, la grille resterait vide alors que le fichier est déjà supprimé")
-	}
+	b.offerCatalog(&CatalogBatch{Catalog: first})
 	// The scale is still missing, and the screen must keep saying so: only the grid
 	// behind the message was filled.
 	if got := b.hub.State().State; got != domain.ScaleLost {

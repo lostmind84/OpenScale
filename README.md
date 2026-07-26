@@ -28,33 +28,113 @@ qui l'exigent portent l'étiquette `//go:build hardware` et attendent le banc.
 ## Essayer, sans balance et sans imprimante
 
 Quatre commandes, et un poste complet tourne sur votre machine. C'est le chemin le plus
-court pour voir ce que fait ce dépôt.
+court pour voir ce que fait ce dépôt. **Les deux colonnes font la même chose** — prenez
+celle de votre système.
+
+### 1. Construire et lancer le poste
+
+<table>
+<tr><th align="left">Linux · macOS</th><th align="left">Windows (PowerShell 7)</th></tr>
+<tr valign="top"><td>
 
 ```bash
-make build                                  # ou : pwsh -File ./make.ps1 build
-./bin/openscale serve --config testdata/config-demo.json --data /tmp/openscale-demo
+make build
+
+./bin/openscale serve \
+  --config testdata/config-demo.json \
+  --data /tmp/openscale-demo
 ```
 
-Ouvrez <http://127.0.0.1:8085> : c'est l'écran client, avec sa grille vide. Dans un
-second terminal, déposez le catalogue de démonstration — 60 produits tirés d'un vrai
-export, une photo sur deux :
+</td><td>
+
+```powershell
+pwsh -File ./make.ps1 build
+
+.\bin\openscale.exe serve `
+  --config testdata\config-demo.json `
+  --data $env:TEMP\openscale-demo
+```
+
+</td></tr></table>
+
+Ouvrez <http://127.0.0.1:8085> : c'est l'écran client, avec sa grille vide. **Laissez-le
+tourner** et ouvrez un second terminal pour la suite.
+
+### 2. Déposer le catalogue de démonstration
+
+60 produits tirés d'un vrai export, une photo sur deux :
+
+<table>
+<tr><th align="left">Linux · macOS</th><th align="left">Windows (PowerShell 7)</th></tr>
+<tr valign="top"><td>
 
 ```bash
-cp testdata/catalog/flv_demo.csv /tmp/openscale-demo/catalog/incoming/flv_2.csv
+cp testdata/catalog/flv_demo.csv \
+  /tmp/openscale-demo/catalog/incoming/flv_2.csv
 ```
+
+</td><td>
+
+```powershell
+Copy-Item testdata\catalog\flv_demo.csv `
+  $env:TEMP\openscale-demo\catalog\incoming\flv_2.csv
+```
+
+</td></tr></table>
 
 La grille se remplit en quelques secondes, et le fichier disparaît : **sa suppression est
-l'acquittement** (§10.1). Le poste n'a pas de balance, donc il est en saisie manuelle et
-le dit. Pesez quand même :
+l'acquittement** (§10.1). Le nom compte — `flv_2.csv` — parce que c'est le poste n° 2 que
+`config-demo.json` déclare, et chaque poste ne lit que le fichier qui porte son numéro.
+
+### 3. Peser, sans balance
+
+Le poste n'en a pas, donc il est en saisie manuelle et le dit à l'écran.
+
+<table>
+<tr><th align="left">Linux · macOS</th><th align="left">Windows (PowerShell 7)</th></tr>
+<tr valign="top"><td>
 
 ```bash
-curl -X POST http://127.0.0.1:8085/api/v1/weigh -H "Content-Type: application/json" \
+curl -X POST http://127.0.0.1:8085/api/v1/weigh \
+  -H "Content-Type: application/json" \
   -d '{"product_id":"894","manual_weight_g":1236,"key":"essai-1"}'
 ```
 
-L'étiquette est écrite dans `/tmp/openscale-demo/labels/` — 16 310 octets de trame, ceux
-qu'une vraie imprimante recevrait. C'est le transport `file` de §8.4, qui existe pour
-exactement cet usage.
+</td><td>
+
+```powershell
+$corps = @{
+  product_id      = "894"
+  manual_weight_g = 1236
+  key             = "essai-1"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri http://127.0.0.1:8085/api/v1/weigh `
+  -ContentType "application/json" -Body $corps
+```
+
+</td></tr></table>
+
+L'étiquette est écrite dans le sous-répertoire `labels/` des données — 16 310 octets de
+trame, ceux qu'une vraie imprimante recevrait. C'est le transport `file` de §8.4, qui
+existe pour exactement cet usage.
+
+<table>
+<tr><th align="left">Linux · macOS</th><th align="left">Windows (PowerShell 7)</th></tr>
+<tr valign="top"><td>
+
+```bash
+ls -l /tmp/openscale-demo/labels/
+```
+
+</td><td>
+
+```powershell
+Get-ChildItem $env:TEMP\openscale-demo\labels\
+```
+
+</td></tr></table>
 
 **`config-demo.json` diffère de la configuration de production sur trois points et
 trois seulement** : `scale.present` est `false` (pas de balance), le transport de
@@ -64,16 +144,48 @@ est celui de la coopérative.
 
 ### Voir l'étiquette sans rien lancer
 
+<table>
+<tr><th align="left">Linux · macOS</th><th align="left">Windows (PowerShell 7)</th></tr>
+<tr valign="top"><td>
+
 ```bash
-./bin/openscale label --template weighing_identical --demo --dual --pdf etiquette.pdf
+./bin/openscale label \
+  --template weighing_identical \
+  --demo --dual --pdf etiquette.pdf
 ```
+
+</td><td>
+
+```powershell
+.\bin\openscale.exe label `
+  --template weighing_identical `
+  --demo --dual --pdf etiquette.pdf
+```
+
+</td></tr></table>
 
 Un PDF **à imprimer à 100 %** et mesurable au réglet. Et le diagnostic, qui fonctionne
 même quand rien ne démarre :
 
+<table>
+<tr><th align="left">Linux · macOS</th><th align="left">Windows (PowerShell 7)</th></tr>
+<tr valign="top"><td>
+
 ```bash
-./bin/openscale doctor --config testdata/config-demo.json --data /tmp/openscale-demo
+./bin/openscale doctor \
+  --config testdata/config-demo.json \
+  --data /tmp/openscale-demo
 ```
+
+</td><td>
+
+```powershell
+.\bin\openscale.exe doctor `
+  --config testdata\config-demo.json `
+  --data $env:TEMP\openscale-demo
+```
+
+</td></tr></table>
 
 Quinze contrôles qui disent chacun ce qui a été vérifié, le verdict, et **ce qu'il faut
 faire** si c'est rouge.

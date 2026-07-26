@@ -302,6 +302,25 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 	return b
 }
 
+// offerCatalog pushes a batch and WAITS for the loop to have taken it.
+//
+// PushCatalog writes to a channel the Hub reads in its select, and a select picks at
+// RANDOM among the cases that are ready. Advancing the clock right after therefore proves
+// nothing: the Tick may be served before the batch, and a test that asserted immediately
+// read a catalog that had not been swapped yet. It passed on this machine and failed on the
+// CI, three times, in three different tests — the third one broke a release.
+//
+// Waiting for the effect rather than for a number of turns is what makes it deterministic.
+func (b *bench) offerCatalog(batch *CatalogBatch) {
+	b.t.Helper()
+	if err := b.hub.PushCatalog(context.Background(), batch); err != nil {
+		b.t.Fatalf("PushCatalog : %v", err)
+	}
+	b.advance(domain.MaxSwitchIdle + time.Second)
+	awaitCondition(b.t, func() bool { return b.hub.Catalog() == batch.Catalog },
+		"le catalogue offert n'a jamais pris service")
+}
+
 // tick advances the fake clock by one Hub tick and lets the machine see it.
 func (b *bench) tick() {
 	b.t.Helper()

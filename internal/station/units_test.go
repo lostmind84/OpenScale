@@ -342,13 +342,7 @@ func TestAStationWithoutACatalogStartsAnyway(t *testing.T) {
 	}
 
 	// And the first catalog puts it in service.
-	if err := b.hub.PushCatalog(context.Background(), &CatalogBatch{Catalog: garlicCatalog()}); err != nil {
-		t.Fatalf("PushCatalog : %v", err)
-	}
-	b.advance(domain.MaxSwitchIdle + time.Second)
-	if b.hub.Catalog() == nil {
-		t.Fatal("le premier catalogue n'a jamais pris service")
-	}
+	b.offerCatalog(&CatalogBatch{Catalog: garlicCatalog()})
 }
 
 // TestAnUnusableConfigurationStartsOutOfService is §11.3: the station always
