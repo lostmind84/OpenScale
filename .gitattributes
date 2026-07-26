@@ -1,0 +1,62 @@
+# Les fins de ligne, déclarées ici plutôt que laissées à la configuration de chaque poste.
+#
+# CE FICHIER EXISTE À CAUSE D'UNE PANNE RÉELLE. `deploy/linux/install.sh` a été commité
+# depuis un poste Windows avec des CRLF, et son shebang est devenu `#!/bin/sh\r` : sur
+# Debian, dash reçoit le retour chariot comme un caractère de syntaxe et répond
+# « Syntax error: word unexpected ». Le test qui garde ce défaut passait sur le poste de
+# développement — le fichier y était en LF — et la CI Linux le voyait tel que git l'avait
+# enregistré. Rien dans les deux messages ne pointe vers les fins de ligne.
+#
+# `core.autocrlf` ne suffit pas : c'est un réglage de POSTE, donc absent d'un clone neuf
+# et différent d'un contributeur à l'autre. Ce fichier-ci voyage avec le dépôt.
+
+# Par défaut, git décide du texte et normalise en LF dans l'objet.
+* text=auto eol=lf
+
+# --- Ce qui DOIT rester en LF, même extrait sur Windows -----------------------------
+# Un script exécuté par /bin/sh, une unité systemd ou une règle udev en CRLF ne
+# fonctionne pas, et sa panne ne ressemble pas à un problème de fins de ligne.
+*.sh            text eol=lf
+*.service       text eol=lf
+*.rules         text eol=lf
+Makefile        text eol=lf
+*.mk            text eol=lf
+
+# --- Ce qui DOIT rester en CRLF ------------------------------------------------------
+# start.bat est lu par cmd.exe, et deploy/deploy_test.go l'exempte nommément.
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+# PowerShell tolère les deux ; CRLF est ce que l'écosystème Windows attend.
+*.ps1           text eol=crlf
+*.psm1          text eol=crlf
+
+# --- Binaire : jamais touché ---------------------------------------------------------
+# Une police dont git « corrige » les fins de ligne est une police corrompue, et
+# l'étiquette ne se rend plus. Les golden sont comparés OCTET À OCTET : les convertir
+# les ferait échouer sur l'autre plateforme.
+*.ttf           binary
+*.otf           binary
+*.woff2         binary
+*.png           binary
+*.jpg           binary
+*.pdf           binary
+*.zip           binary
+*.mdb           binary
+*.accdb         binary
+*.sbpl          binary
+*.db            binary
+
+# --- Données de test : le format EST la donnée ----------------------------------------
+# Rien ici ne doit être normalisé, et ce n'est pas une précaution de principe.
+#
+# Une trame GRAM XFOC fait EXACTEMENT 18 octets, CRLF compris — c'est ce chiffre que le
+# critère de démonstration du lot L3 met en jeu, « décoder 100 trames sur 100 en tranches
+# de 18 octets ». Normaliser ce corpus fait tomber le fichier de 126 à 119 octets : les
+# trames font 17 octets, et le test qui prouve la correction du défaut historique échoue
+# sur la plateforme où on l'a normalisé. Ce piège a été rencontré en écrivant ce fichier.
+#
+# Les exports Odoo sont la référence contre laquelle le parseur est écrit : les
+# normaliser changerait la donnée qui sert de preuve.
+testdata/catalog/*.csv                 -text
+internal/scale/testdata/frames/*.txt   -text
+web/testdata/*.json                    -text
