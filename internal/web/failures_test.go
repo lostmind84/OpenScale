@@ -13,10 +13,12 @@ import (
 
 // The HTTP half of the recette of §16.2.
 //
-// Three lines of the table cannot be asserted anywhere else: 3 ter, whose refusal is a
-// POST; the dashboard of 7, which is a route; and 16, whose subject is the socket. The
-// twenty others live in internal/station, and internal/station/failures_test.go carries
-// the index of the whole table.
+// Three lines of the table reach into this package: 3 ter, whose refusal is a POST; the
+// dashboard of 7, which is a route; and the LOCK of 16, which is a socket this package
+// owns — though the sentence and the exit code of 16 belong to `openscale serve`, which
+// is the only caller that can probe an address. The twenty others live in
+// internal/station, and internal/station/failures_test.go carries the index of the
+// whole table.
 
 // --- 3 ter: an expired measurement ------------------------------------------
 
@@ -183,24 +185,24 @@ func TestAFullDiskLightsTheDashboardRedAndRefusesNobody(t *testing.T) {
 	}
 }
 
-// --- 16: two instances ------------------------------------------------------
+// --- 16: two instances, the half that belongs to the socket ------------------
 
-// TestASecondInstanceCannotTakeTheSocket is failure test 16.
+// TestTheSocketIsTheSingleInstanceLock is the LOCK of failure test 16, and only the
+// lock.
 //
 // THE SOCKET IS THE SINGLE-INSTANCE LOCK: no lock file left behind by a crash, no
-// Windows named mutex, nothing to clean up by hand. A second `serve` cannot bind, so
-// it cannot serve, so two processes can never answer the same screen.
+// Windows named mutex, nothing to clean up by hand. A second bind on the same address
+// fails, so a second station cannot serve, so two processes can never answer the same
+// screen.
 //
-// It also exercises the discrimination §13.4 asks for, because the two failures need
-// two different sentences: an address that REFUSES a bind AND answers a probe is
-// another instance (ERR-SYS-01, « une autre instance est déjà lancée ») ; one that
-// refuses and answers nothing is an address this station cannot have (ERR-SYS-02).
-// Sending a volunteer hunting for a ghost process is the failure this tells apart.
-//
-// TO REPLAY IN L8: the mapping to ERR-SYS-01 / ERR-SYS-02 and the exit code 3 belong
-// to `openscale serve`, which is not written yet — cmd/openscale has no serve
-// subcommand, so there is nothing here that can exit with a code.
-func TestASecondInstanceCannotTakeTheSocket(t *testing.T) {
+// It also proves that the two facts the DISCRIMINATION of §13.4 rests on are real: an
+// address that refuses a bind AND answers a probe is another instance; one that refuses
+// and answers nothing is an address this station cannot have. The discrimination itself
+// — ERR-SYS-01 against ERR-SYS-02, and the exit code 3 — belongs to the CALLER, which is
+// the only one that can probe the address, and this package documents that on
+// web.Listen. That caller is `openscale serve`, and the test that carries the name of
+// failure test 16 lives there: cmd/openscale/serve_test.go.
+func TestTheSocketIsTheSingleInstanceLock(t *testing.T) {
 	clock := fake.NewClock(epoch)
 
 	first, err := Listen(clock, "127.0.0.1:0", nil)

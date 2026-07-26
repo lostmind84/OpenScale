@@ -52,7 +52,8 @@ import (
 //	 14    | TestALockedDatabaseNeverReachesTheCustomer             | HERE
 //	 15    | TestDoubleTapPrintsOneLabel                            | hub_test.go
 //	       | TestTheSameKeyTwiceYieldsOneJobAndTwoIdenticalAnswers  | web
-//	 16    | TestASecondInstanceCannotTakeTheSocket                 | web
+//	 16    | TestASecondInstanceCannotTakeTheSocket                 | cmd/openscale
+//	       | TestTheSocketIsTheSingleInstanceLock                   | web
 //	 17    | TestArmingExpiresBeforeNextCustomerBag                 | hub_test.go
 //
 // None of them sleeps. The clock is injected, and every test that could be read as

@@ -1068,6 +1068,21 @@ func scaleLost(m Model, ev Event, ctx TransitionContext) (Model, []Effect) {
 		}
 		return next, nil
 
+	case CatalogReady:
+		// A catalog does NOT need a scale to take service, and refusing it here loses
+		// it for good: the source deletes the file once the batch is acknowledged —
+		// the deletion IS the acknowledgement (§10.1) — so a batch this machine
+		// ignores is a catalog nobody will offer again until somebody drops another
+		// file. A station whose scale did not answer at start-up sat in this state
+		// showing « Catalogue vide » while its 331 tiles were already in the base.
+		//
+		// The state does NOT change: the scale is still missing, and that is what the
+		// screen must keep saying. Only the grid behind the message is filled.
+		if e.Catalog == nil || e.Catalog.Len() == 0 {
+			return m, nil
+		}
+		return m, []Effect{ApplyCatalogEffect{Catalog: e.Catalog}}
+
 	case ProductTapped:
 		// The manual entry a volunteer reaches through the troubleshooting button
 		// of §15.4: "you can type the weight in".

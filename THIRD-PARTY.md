@@ -13,7 +13,7 @@ c'est une condition d'entrée, pas une observation (ADR-001).
 |---|---|---|
 | `modernc.org/sqlite` | base de données | BSD-3-Clause |
 | `go.bug.st/serial` | port série, énumération VID/PID | BSD-3-Clause |
-| `golang.org/x/image` | `font/sfnt`, `font/opentype`, `vector` | BSD-3-Clause |
+| `golang.org/x/image` | `font/sfnt`, `font/opentype`, `vector`, `bmp` | BSD-3-Clause |
 | `golang.org/x/text` | NFD, désaccentuation | BSD-3-Clause |
 | `golang.org/x/crypto` | argon2id | BSD-3-Clause |
 | `golang.org/x/sys` | appels système Windows et Linux | BSD-3-Clause |

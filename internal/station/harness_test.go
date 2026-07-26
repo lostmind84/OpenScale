@@ -442,36 +442,69 @@ func (b *bench) awaitJournal() domain.Weighing {
 	return b.journal.last()
 }
 
-// settle waits for the goroutine count to come back to want, yielding rather than
-// sleeping, and reports what it settled on.
+// settleBudget bounds both waits below. It never elapses when the count converges,
+// which is every passing run.
+const settleBudget = 2 * time.Second
+
+// steadyReads is how many consecutive identical observations make a count « settled ».
+//
+// One is not enough, and that is the whole bug this constant fixes: two reads
+// separated by a runtime.Gosched are equal whenever a dying goroutine has simply not
+// been scheduled yet, so a baseline taken that way can count a transient budget
+// goroutine that is already on its way out. The assertion then compares a baseline of
+// nine against a steady state of eight and fails a station that leaks nothing.
+const steadyReads = 5
+
+// settle waits for the goroutine count to come back to want and reports what it
+// settled on.
 //
 // It converges rather than snapshots, and that is the honest shape of the
 // assertion: the transient goroutine of ports.WithBudget ends WITH the context it
 // bounds, and « ends » is not « has already been scheduled ». A real leak never
 // converges, so the bound is what makes the difference visible.
+//
+// It spins first and sleeps afterwards, for the reason awaitCondition spells out: a
+// loop of runtime.Gosched stays RUNNABLE and holds its processor, which starves the
+// very goroutines whose exit is being waited for.
 func settle(want int) int {
-	got := runtime.NumGoroutine()
-	for i := 0; i < 20000 && got != want; i++ {
-		runtime.Gosched()
-		got = runtime.NumGoroutine()
+	deadline := time.Now().Add(settleBudget)
+	delay := minPollDelay
+	for attempt := 0; ; attempt++ {
+		got := runtime.NumGoroutine()
+		if got == want || !time.Now().Before(deadline) {
+			return got
+		}
+		if attempt < spinsBeforeSleeping {
+			runtime.Gosched()
+			continue
+		}
+		time.Sleep(delay)
+		if delay < maxPollDelay {
+			delay *= 2
+		}
 	}
-	return got
 }
 
 // stableCount reads the goroutine count once it has stopped moving.
 //
-// It yields rather than sleeping. The transient goroutine of ports.WithBudget ends
-// with the context it bounds, and « ends » is not « has already been scheduled »:
-// what a test can honestly assert is that the count converges.
+// « Stopped moving » means steadyReads identical observations IN A ROW, each separated
+// by a real yield of the processor — not two equal reads separated by a
+// runtime.Gosched, which is satisfied by a goroutine that is merely not scheduled yet.
+// What a test can honestly assert is that the count converges, and this is what makes
+// the convergence mean something.
 func stableCount() int {
-	previous := runtime.NumGoroutine()
-	for i := 0; i < 20000; i++ {
-		runtime.Gosched()
+	deadline := time.Now().Add(settleBudget)
+	previous, repeats := runtime.NumGoroutine(), 1
+	for time.Now().Before(deadline) {
+		time.Sleep(minPollDelay)
 		current := runtime.NumGoroutine()
-		if current == previous {
+		if current != previous {
+			previous, repeats = current, 1
+			continue
+		}
+		if repeats++; repeats >= steadyReads {
 			return current
 		}
-		previous = current
 	}
 	return previous
 }

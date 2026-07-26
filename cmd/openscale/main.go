@@ -14,9 +14,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 // Injected by the linker (see the Makefile). The zero values are what a plain
@@ -33,6 +36,11 @@ const usage = `openscale — poste de pesée libre-service
 
 Usage :
   openscale <commande> [options]
+
+Le service :
+  serve [--config f] [--data d]            lance le poste : balance, imprimante, base
+        [--listen hôte:port]               et écran client. C'est ce que démarre le
+                                           service Windows ou l'unité systemd
 
 Commandes de démonstration du lot L1 :
   barcode <référence> --weight <grammes>   génère le code-barres EAN-13 d'une pesée
@@ -95,6 +103,8 @@ func main() {
 
 	var err error
 	switch os.Args[1] {
+	case "serve":
+		err = runServe(stopSignals(), os.Args[2:], os.Stdout)
 	case "barcode":
 		err = runBarcode(os.Args[2:], os.Stdout)
 	case "price":
@@ -115,9 +125,23 @@ func main() {
 	}
 
 	if err != nil {
-		// One sentence on stderr and exit code 1. A volunteer reading this has no
-		// stack trace to make sense of, and the message names what to fix.
+		// One sentence on stderr. A volunteer reading this has no stack trace to make
+		// sense of, and the message names what to fix. The CODE is not always 1: §13.4
+		// reserves 3 for a station that cannot take its socket or stopped serving, and
+		// that is what the service manager reads to tell « it failed » from « another
+		// one is already running ».
 		fmt.Fprintf(os.Stderr, "openscale : %s\n", explain(err))
-		os.Exit(1)
+		os.Exit(exitCodeFor(err))
 	}
+}
+
+// stopSignals is the context that ends when the service is asked to stop.
+//
+// SIGTERM is what systemd sends and what `sc stop` becomes on Windows; Ctrl+C is what
+// whoever is standing in front of the station presses. Both lead to the SAME ordered
+// shutdown of §13.4, because a station that stopped differently depending on who asked
+// would have two shutdowns and one of them would be untested.
+func stopSignals() context.Context {
+	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	return ctx
 }

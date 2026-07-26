@@ -477,10 +477,16 @@ func (h *Hub) run(ctx context.Context, ticks <-chan time.Time) {
 			h.message = nil
 		}
 
-		// « Idle AND untouched for MaxSwitchIdle » is one clock: the last instant
-		// the station was doing anything at all. A Tick is deliberately not one —
-		// it is what MEASURES the wait, so counting it would reset it for ever.
-		if h.model.State != domain.Idle || isInteraction(ev) {
+		// « quiet for MaxSwitchIdle » is one clock: the last instant the station was
+		// doing anything at all. A Tick is deliberately not one — it is what MEASURES
+		// the wait, so counting it would reset it for ever.
+		//
+		// The states that keep the clock running are the same ones the swap refuses,
+		// and they have to be: reading `State != Idle` here meant that a station with
+		// no scale sat in ScaleLost refreshing this instant on every tick, so the wait
+		// never elapsed and the FIRST catalog never took service. Two conditions that
+		// must agree are written once.
+		if !swapIsSafeIn(h.model.State) || isInteraction(ev) {
 			h.lastInteraction = now
 		}
 
@@ -561,13 +567,39 @@ func (h *Hub) expiry(cfg domain.Config) time.Duration {
 	return h.rate.Expiry(cfg.Stability, time.Duration(h.nominalRate.Load()))
 }
 
+// swapIsSafeIn reports the states a catalog may be swapped in.
+//
+// The rule the deferred swap enforces is « never reorder the tiles under a
+// customer's finger » (failure test 13), and the states where there IS no finger are
+// more than Idle alone. Requiring Idle strictly was found by running a real station:
+// with no scale plugged in the machine sits in ScaleLost for ever, so the FIRST
+// catalog of a fresh station never took service — the file was read, the 355 rows
+// were written to the base, the archive was made, and the grid stayed empty. A
+// station that cannot show its catalog until somebody plugs a scale in is not the
+// station §15.4 describes, which says « Catalogue vide. En attente de flv_<n>.csv »
+// precisely because it expects to leave that state on a file and not on a cable.
+//
+// So: every state that carries a weighing in progress, or a label the customer is
+// still looking at, refuses the swap. The rest accept it.
+func swapIsSafeIn(state domain.State) bool {
+	switch state {
+	case domain.Idle, domain.Initializing, domain.ScaleLost, domain.ManualMode:
+		return true
+	default:
+		// ProductArmed, WeightPresent, WeightStable, AwaitingStability, EnteringTare,
+		// EnteringWeight, Validating, Printing, Succeeded, Rejected, Faulted and
+		// OutOfService all mean somebody is mid-cycle or reading a result.
+		return false
+	}
+}
+
 // applyPendingBatch swaps the catalog in, but only when nobody is weighing.
 //
 // MaxSwitchIdle is a CODE CONSTANT of the domain and never a configuration key:
 // setting it to zero would reopen the failure mode where an import reorders the
 // tiles under a customer's finger (failure test 13).
 func (h *Hub) applyPendingBatch(now time.Time) {
-	if h.pendingBatch == nil || h.model.State != domain.Idle {
+	if h.pendingBatch == nil || !swapIsSafeIn(h.model.State) {
 		return
 	}
 	if now.Sub(h.lastInteraction) < domain.MaxSwitchIdle {
