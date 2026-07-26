@@ -45,11 +45,17 @@ ADDRESS=$(listen)
 healthy() {
   attempt=0
   while [ "$attempt" -lt 60 ]; do
-    if command -v curl >/dev/null 2>&1; then
-      curl -fsS -m 2 "$ADDRESS/healthz" >/dev/null 2>&1 && return 0
-    elif command -v wget >/dev/null 2>&1; then
-      wget -q -T 2 -O /dev/null "$ADDRESS/healthz" && return 0
-    else
+    # L'adresse du fichier, PUIS celle du profil neutre : un poste dont la configuration
+    # est fautive sert sur la seconde (§11.3), et le conclure mort restaurerait la version
+    # précédente d'un poste parfaitement sain.
+    for candidate in "$ADDRESS" 'http://127.0.0.1:8085'; do
+      if command -v curl >/dev/null 2>&1; then
+        curl -fsS -m 2 "$candidate/healthz" >/dev/null 2>&1 && return 0
+      elif command -v wget >/dev/null 2>&1; then
+        wget -q -T 2 -O /dev/null "$candidate/healthz" && return 0
+      fi
+    done
+    if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
       # Sans client HTTP, on se rabat sur systemd : Type=notify signifie que « active »
       # veut déjà dire « le poste a dit READY=1 », donc qu'il sert.
       systemctl is-active --quiet "$SERVICE" && return 0

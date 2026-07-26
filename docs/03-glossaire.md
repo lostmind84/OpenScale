@@ -633,9 +633,11 @@ Ils sont ici parce que la **règle de complétude** l'exige, et ils obéissent a
 conventions que le reste : anglais, `PascalCase` exporté, `Err` + condition pour les
 sentinelles, familles de constantes préfixées par leur type, unités portées par le nom.
 
-> **Périmètre.** L1, L2 et L3 uniquement — noyau métier, stockage, balance. Les paquets
-> `printing`, `catalog`, `web`, `kiosk` n'ont encore livré que ce qui est listé plus bas ;
-> le reste de leurs identifiants sera ajouté au fil des lots, selon la même règle.
+> **Périmètre.** L1, L2, L3 — noyau métier, stockage, balance — plus ce que L8 a ajouté à
+> `internal/platform` (service, notification systemd, inhibition de veille) et le paquet
+> `internal/kiosk` entier. Les paquets `printing`, `catalog` et `web` n'ont encore livré
+> que ce qui est listé plus bas ; le reste de leurs identifiants sera ajouté au fil des
+> lots, selon la même règle.
 
 > **Ce qui n'est PAS répété ici.** Un verbe déjà traduit une fois dans
 > [Fonctions et méthodes](#fonctions-et-méthodes) vaut pour tous ses porteurs :
@@ -826,6 +828,26 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | --- | --- |
 | `platform.SystemClock` · `NewSystemClock` | La seule implémentation réelle de `ports.Clock`, et **le seul endroit du dépôt où `time.Now()` a le droit d'être appelé**. `go run ./tools/boundary` le vérifie. |
 | `(fake.Clock).Set` · `Now` · `After` · `Ticker` · `Pending` | L'horloge des tests : elle n'avance que quand un test le lui dit. `Pending` compte les attentes enregistrées — c'est ce qui permet d'assurer qu'un arrêt n'a laissé fuir aucun timer. |
+| `platform.ServiceName` | Le nom sous lequel le SCM enregistre le poste : `OpenScale`. Épelé UNE fois, du côté Go comme du côté PowerShell (`$script:ServiceName`), et un test de `deploy/` compare les deux. |
+| `platform.ServiceSpec` · `ServiceState` | Ce qu'on dit au gestionnaire de services une fois, à l'installation, et ce qu'il en dit ensuite. `ServiceSpec.StopBudget` est le budget d'arrêt que le superviseur doit accorder — il vient de `station.ShutdownBudget`, jamais d'un nombre écrit à côté. |
+| `platform.InstallService` · `RemoveService` · `StartService` · `StopService` · `QueryService` | Les cinq gestes de `openscale service …`. `QueryService` ouvre le SCM en LECTURE SEULE : lire un état n'est pas administrer, et un `status` qui exigerait l'élévation répondrait « accès refusé » au bénévole qui suit TROUBLESHOOTING.md. |
+| `platform.ErrServiceUnsupported` | Sentinelle du jumeau non-Windows : sous Linux, ce travail est celui de l'unité systemd, et le message le dit au lieu d'annoncer un refus du SCM. |
+| `platform.StartedByServiceManager` · `RunAsService` | Ce qui permet à `openscale serve` d'être la MÊME sous-commande tapée dans un terminal et lancée par le SCM. Un binaire qui n'aurait parlé le protocole que derrière un drapeau supplémentaire ne démarrerait pas pour qui l'oublie. |
+| `platform.ServiceNotifier` · `(ServiceNotifier).Ready` · `Alive` · `Stopping` · `Status` · `WatchdogInterval` | Le `Type=notify` de §15.3 : trois phrases dites à systemd sur une socket datagramme, et la période que l'unité attend. Le notificateur d'un poste que personne n'écoute — tout poste Windows, tout poste lancé à la main — répond sans échouer. |
+| `platform.KeepAwake` | `SetThreadExecutionState`, la ceinture par-dessus les bretelles de `powercfg` (§15.2). Le jumeau Linux ne refuse pas : sur un poste sous `cage`, il n'y a aucun économiseur d'écran à inhiber. |
+| `station.ShutdownBudget` | La somme des attentes BORNÉES de l'arrêt de §13.4. Elle existe pour que ni `TimeoutStopSec` ni le `WaitHint` du SCM ne recopient ces durées : §13.4 raconte ce que coûte un budget écrit à côté du code qu'il devait couvrir. |
+
+### `internal/kiosk`
+
+| Identifiant | Ce qu'il désigne |
+| --- | --- |
+| `Browser` · `Find` · `WindowsCandidates` · `LinuxCandidates` · `LookBrowser` | Le navigateur du kiosque et l'ordre de recherche de §15.2 — `msedge.exe`, `chrome.exe`, `chromium.exe`. `LookBrowser` cherche aussi dans les répertoires de programmes, là où Edge et Chrome se cachent du PATH d'un compte de service. |
+| `Arguments` · `(Browser).IsEdge` | La ligne de commande de §15.2, dont `--edge-kiosk-type=fullscreen` qui n'existe que chez Edge. |
+| `Supervisor` · `Options` · `New` · `(Supervisor).Run` | Le superviseur : il relance le navigateur en moins de deux secondes et n'a aucun autre pouvoir. `Options.Alive` interroge `/healthz` et JAMAIS `/readyz`. |
+| `Process` · `ExecLauncher` | Le navigateur vu d'ici — quelque chose qui se termine et qu'on peut terminer — et son unique implémentation réelle. L'interface existe pour que toute la supervision soit prouvable sans navigateur sur la machine. |
+| `CrashCounter` · `(CrashCounter).Record` · `ShortLives` · `CrashLimit` · `ShortLife` · `CrashWindow` | La règle « au-delà de 20 morts en moins de 10 s dans l'heure » de §15.2, et les trois nombres avec lesquels elle est écrite. Une vie longue remet le compte à zéro. |
+| `RescueReason` · `RescueWaiting` · `RescueCrashLoop` · `WriteRescuePage` · `RescueFileName` · `CodeCrashLoop` | Les deux pages locales : « Le poste redémarre… » pendant que le service démarre, et la page `ERR-KSK-02` quand l'affichage n'arrive pas à rester ouvert. Deux raisons distinctes parce qu'on quitte la première dès que le poste répond, jamais la seconde. |
+| `AliveProbe` · `DefaultProfileDir` · `RelaunchDelay` · `AwakePeriod` · `StationRecheck` · `ProbeBudget` | La sonde de vivacité, le profil dédié effacé à chaque démarrage, et les quatre périodes de la boucle. |
 
 ### `internal/printing`
 
@@ -855,6 +877,7 @@ français.
 | `ERR-CFG-01` | `domain/machine.go`, `NeutralProfile` | « Le poste ne peut pas calculer les prix (ERR-CFG-01). Prévenez un responsable. » |
 | `ERR-DB-01` | `store.ErrDatabaseUnusable` | Le fichier ou son répertoire est inutilisable. Le détail français est enveloppé au cas par cas : « ouverture de … impossible », « base endommagée : … », « contrôle d'intégrité impossible ». |
 | `ERR-DB-02` | `store.ErrSchemaFromNewerVersion` | « base créée par une version plus récente (schéma N, ce binaire connaît M). Mettez l'application à jour. » |
+| `ERR-KSK-02` | `kiosk.CodeCrashLoop` — page de secours du superviseur | « Le poste rencontre un problème » + « l'affichage n'arrive pas à rester ouvert (N arrêts en moins de 10 secondes dans la dernière heure) ». C'est le seul code que §15.2 attribue au kiosque, et il est réservé à la BOUCLE DE PLANTAGE : la page d'attente (« Le poste redémarre… ») n'en porte aucun, parce que §15.4 n'en donne aucun à cette ligne et qu'un code inventé serait répété au téléphone comme si un binaire l'émettait. |
 
 > **Codes cités mais pas encore alloués.** `ERR-SCL-08` (poignée déjà relâchée, journalisée
 > par le Hub), `ERR-CAT-03` et `ERR-CAT-05` (échec de contenu, fichier lu mais non

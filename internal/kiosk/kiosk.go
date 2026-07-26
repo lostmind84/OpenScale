@@ -76,7 +76,21 @@ func Find(candidates []string, look func(string) (string, bool)) (Browser, bool)
 
 // IsEdge reports whether this browser takes the extra Edge switch.
 func (b Browser) IsEdge() bool {
-	return strings.HasPrefix(strings.ToLower(filepath.Base(b.Path)), "msedge")
+	return strings.HasPrefix(strings.ToLower(baseName(b.Path)), "msedge")
+}
+
+// baseName is filepath.Base that also cuts on a BACKSLASH.
+//
+// filepath.Base only knows the separator of the machine it runs on, so on Linux it
+// hands back « c:\program files\...\msedge.exe » whole — a backslash is a legal
+// character in a POSIX file name. The browser is identified by the NAME of its binary
+// and never by the shape of the path leading to it, so cutting on both separators is
+// what the question actually asks. The same trap cost a test in internal/store.
+func baseName(path string) string {
+	if cut := strings.LastIndexAny(path, `/\`); cut >= 0 {
+		return path[cut+1:]
+	}
+	return path
 }
 
 // Arguments is the command line of §15.2, and every switch on it is there for a

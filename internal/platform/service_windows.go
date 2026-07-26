@@ -201,18 +201,30 @@ func StartService(name string) error {
 }
 
 // QueryService reports what the SCM knows about the service.
+//
+// It opens the service manager READ-ONLY, and that is not a detail of style: mgr.Connect
+// asks for full control, which needs an elevated session, so a `service status` built on
+// it would answer « accès refusé » to the volunteer who is following TROUBLESHOOTING.md
+// on a station that shows nothing. Reading a state is not administering.
 func QueryService(name string) (ServiceState, error) {
-	m, err := mgr.Connect()
+	manager, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
 	if err != nil {
 		return ServiceState{}, fmt.Errorf("le gestionnaire de services est inaccessible : %w", err)
 	}
+	m := &mgr.Mgr{Handle: manager}
 	defer func() { _ = m.Disconnect() }()
 
-	service, err := m.OpenService(name)
+	unicodeName, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return ServiceState{}, fmt.Errorf("nom de service illisible %q : %w", name, err)
+	}
+	handle, err := windows.OpenService(manager, unicodeName,
+		windows.SERVICE_QUERY_STATUS|windows.SERVICE_QUERY_CONFIG)
 	if err != nil {
 		return ServiceState{Detail: fmt.Sprintf(
 			"le service %s n'est pas installé sur ce poste : lancez install.ps1 en administrateur", name)}, nil
 	}
+	service := &mgr.Service{Name: name, Handle: handle}
 	defer func() { _ = service.Close() }()
 
 	status, err := service.Query()

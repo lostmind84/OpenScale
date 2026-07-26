@@ -204,6 +204,13 @@ premier.
 une **empreinte de 8 caractères**. Les quatre postes doivent afficher **exactement la
 même chaîne**.
 
+> **Comparez-la seulement quand les sept étapes sont finies.** Tant que le numéro de
+> poste, la balance et l'imprimante ne sont pas réglés, la configuration est incomplète :
+> le poste tourne en **configuration d'usine** et affiche l'empreinte de cette
+> configuration-là, pas celle du fichier. Ce n'est pas une panne, et c'est aussi pour ça
+> que l'étape 3 — le redémarrage — se fait avant : à ce moment-là, l'écran client affiche
+> « Poste en configuration d'usine » et c'est normal.
+
 ```
 Poste 1 : a3f81c04
 Poste 2 : a3f81c04     ✔ identique

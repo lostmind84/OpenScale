@@ -1,12 +1,14 @@
 package deploy
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -87,10 +89,18 @@ func directive(unit, name string) (string, bool) {
 	return value, found
 }
 
+// environmentComplaints are the systemd-analyze lines that describe the MACHINE and not
+// the unit: an ExecStart pointing at a binary this machine has not installed.
+//
+// It is the only complaint this test forgives, and the reason is that forgiving nothing
+// would make the test runnable only on a station where OpenScale is ALREADY installed —
+// where it would prove nothing new. Every other complaint still fails.
+var environmentComplaints = regexp.MustCompile(`(?m)^.*(is not executable|does not exist).*$\r?\n?`)
+
 // TestTheUnitIsValidAccordingToSystemdItself runs systemd-analyze when the machine has
 // one, which is the only authority on whether systemd will accept a unit.
 //
-// It skips on Windows, where there is no systemd to ask. The test below covers what
+// It skips on Windows, where there is no systemd to ask. The tests below cover what
 // matters even there, because a unit is also a document read by whoever debugs the
 // station at 8 a.m.
 func TestTheUnitIsValidAccordingToSystemdItself(t *testing.T) {
@@ -100,8 +110,18 @@ func TestTheUnitIsValidAccordingToSystemdItself(t *testing.T) {
 	}
 	output, err := exec.Command(analyze, "verify",
 		unitPath("openscale.service"), unitPath("openscale-kiosk.service")).CombinedOutput()
+	// systemd-analyze checks that ExecStart points at something EXECUTABLE, which on a
+	// CI runner it never is: nothing is installed there. That complaint is about the
+	// MACHINE, not about the unit, and failing on it would mean this test can only run
+	// on a station that is already installed — where it proves nothing new. Every other
+	// complaint is real and still fails.
 	if err != nil {
-		t.Fatalf("systemd-analyze verify refuse les unités : %v\n%s", err, output)
+		remaining := environmentComplaints.ReplaceAll(output, nil)
+		if len(bytes.TrimSpace(remaining)) > 0 {
+			t.Fatalf("systemd-analyze verify refuse les unités : %v\n%s", err, remaining)
+		}
+		t.Logf("systemd-analyze ne trouve pas les binaires, ce qui est normal ici :\n%s", output)
+		return
 	}
 	if len(output) > 0 {
 		t.Logf("systemd-analyze verify a des remarques :\n%s", output)
@@ -535,6 +555,15 @@ func quoteForPowerShell(paths []string) string {
 // snapshot: ConvertTo-Json's default depth of 2, which writes
 // « System.Collections.Hashtable » in place of a nested object.
 func TestTheBackupAndTheRestoreWorkOnAThrowawayDirectory(t *testing.T) {
+	// WINDOWS ONLY, and not out of laziness: common.ps1 derives every path it touches
+	// from $env:ProgramFiles and $env:ProgramData, which are EMPTY on Linux. PowerShell
+	// is installed on the CI runner, so the harness starts and then fails on a
+	// Join-Path with a null argument — a failure that says nothing about the backup and
+	// everything about the machine it ran on.
+	if runtime.GOOS != "windows" {
+		t.Skip("common.ps1 dérive ses chemins de %ProgramFiles% et %ProgramData% : " +
+			"ce banc n'a de sens que sur Windows")
+	}
 	shell := powershellPath(t)
 	work := t.TempDir()
 	common, err := filepath.Abs(filepath.Join("windows", "common.ps1"))
@@ -771,6 +800,43 @@ func TestTheInstallersRefuseToRunWithoutAdministrator(t *testing.T) {
 		script := readFile(t, filepath.Join("linux", name))
 		if !strings.Contains(script, "id -u") {
 			t.Errorf("%s ne vérifie pas qu'il est lancé en root", name)
+		}
+	}
+}
+
+// TestNoShellScriptExitsOnATestThatIsSimplyFalse guards a trap `sh -n` cannot see, and
+// that a Saturday-morning installation would find instead.
+//
+// Under `set -e`, a standalone `[ … ] && commande` whose TEST is false returns a non-zero
+// status, and the shell exits. It reads like « fais ceci si », it behaves like « arrête-toi
+// si ce n'est pas le cas ». It was really in install.sh: an optional file that is not
+// shipped — flv_demo.csv — aborted the installation half-way, silently. `if … then … fi`
+// says the same thing and cannot do that.
+//
+// `|| true` at the end of the line is the documented way out, because it makes the status
+// of the whole list zero.
+func TestNoShellScriptExitsOnATestThatIsSimplyFalse(t *testing.T) {
+	scripts, err := filepath.Glob(filepath.Join("linux", "*.sh"))
+	if err != nil || len(scripts) == 0 {
+		t.Fatalf("aucun script shell trouvé : %v", err)
+	}
+	andList := regexp.MustCompile(`^\s*(\[|command\s|test\s).*&&`)
+
+	for _, script := range scripts {
+		source := readFile(t, script)
+		if !strings.Contains(source, "set -e") {
+			continue
+		}
+		for number, line := range strings.Split(codeOnly(source), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if !andList.MatchString(trimmed) || strings.HasPrefix(trimmed, "if ") {
+				continue
+			}
+			if strings.HasSuffix(trimmed, "|| true") || strings.HasSuffix(trimmed, "|| :") {
+				continue
+			}
+			t.Errorf("%s ligne %d : sous « set -e », un ET dont le test est FAUX fait sortir "+
+				"le script — écrivez « if … then … fi »\n    %s", script, number+1, trimmed)
 		}
 	}
 }

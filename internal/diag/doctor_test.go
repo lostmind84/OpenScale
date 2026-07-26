@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -168,7 +169,10 @@ func TestAnUninstalledServiceIsADifferentRemedyFromAStoppedOne(t *testing.T) {
 	if strings.Contains(found.Remedy, "sc start") || strings.Contains(found.Remedy, "systemctl start") {
 		t.Errorf("on ne démarre pas un service qui n'existe pas :\n%s", found.Remedy)
 	}
-	if !strings.Contains(found.Remedy, "install") {
+	// Case-INSENSITIVE, and that is the fix: the Windows remedy names install.ps1, the
+	// Linux one opens with « Installez l'unité ». A case-sensitive search passed on
+	// Windows and failed on Linux against a remedy that was perfectly correct.
+	if !strings.Contains(strings.ToLower(found.Remedy), "install") {
 		t.Errorf("la consigne devrait mener à l'installation :\n%s", found.Remedy)
 	}
 }
@@ -215,7 +219,14 @@ func TestAnUnconfiguredUnattendedRestartIsErrSys08AndDemandsTheRecipe(t *testing
 	}
 	// bloquant-7: the previous plan wrote the key and told a human to finish the job, which
 	// was done once and never verified again. The recipe IS the remedy.
-	for _, want := range []string{"install.ps1", "15.5"} {
+	// §15.5 — the recipe — is demanded on BOTH platforms; the file that carries it is
+	// not the same. Requiring install.ps1 everywhere failed on Linux against a remedy
+	// that correctly says « systemctl enable », which is why the two were written.
+	wanted := []string{"15.5", "install.ps1"}
+	if runtime.GOOS != "windows" {
+		wanted = []string{"15.5", "systemctl enable"}
+	}
+	for _, want := range wanted {
 		if !strings.Contains(found.Remedy, want) {
 			t.Errorf("la consigne ne cite pas %q :\n%s", want, found.Remedy)
 		}

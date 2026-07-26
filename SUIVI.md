@@ -111,6 +111,55 @@ tranché : Apache-2.0, portée par `oklog/ulid`, n'est compatible qu'avec la GPL
 
 ---
 
+## L8 — installation et exploitation : ce qui est livré, et ce qui reste
+
+**Critère de démonstration de §18.** « Un bénévole installe un poste seul en 15 minutes,
+redémarre la machine et le poste revient seul sur l'écran client, règle le décalage
+d'étiquette, clone la configuration vers les 3 autres postes et vérifie l'empreinte. »
+
+| Membre du critère | Ce qui le porte |
+|---|---|
+| installer seul, sans développeur | `deploy/windows/install.ps1` — compte local, ACL, service, tâche, alimentation, Windows Update, fiche d'installation. Idempotent, chaque appel natif gardé |
+| **revenir seul sur l'écran client** | ouverture de session automatique écrite par l'installeur (bloquant-7) + tâche `OpenScale-Kiosk` en `InteractiveToken` + `openscale kiosk` (`internal/kiosk`) |
+| en 15 minutes | `INSTALLATION.md` **compte les étapes : 17 minutes** pour le premier poste, ~7 pour les suivants. L'écart est dit, pas caché |
+| régler le décalage avec l'aperçu | écran Étiquette (front admin) — étape 6 de la notice, celle qui fait dépasser le compte |
+| cloner et **vérifier l'empreinte** | `openscale config export` / `fingerprint`, et le test qui prouve les deux sens : même empreinte pour deux postes réglés à l'identique, empreinte différente dès qu'un réglage métier diverge |
+| mettre à jour sans risque | `update.ps1` / `update.sh` : arrêt borné, sauvegarde horodatée, vérification de `/healthz`, **restauration automatique** |
+| désinstaller sans casser le retour en arrière | `uninstall.ps1` restaure `restore.json` et **garde les données** (important-15) |
+
+**Le chiffre qui ne se recopie plus.** `TimeoutStopSec=45` et le `WaitHint` donné au SCM
+dérivent tous deux de `station.ShutdownBudget()` — la somme des attentes bornées de §13.4,
+**16 s** aujourd'hui. Un test de `deploy/` compare l'unité livrée à cette fonction :
+augmenter un budget de drain dans le code fait rougir le test au lieu de réintroduire le
+SIGKILL que §13.4 raconte.
+
+**Ce que faire tourner le poste a révélé** (et qu'aucune relecture n'aurait montré) :
+
+1. **`--listen` est ignoré quand la configuration est fautive.** `serve` applique
+   l'override *avant* `Validate`, puis remplace toute la configuration par le profil
+   neutre : un poste fraîchement installé sert donc sur `127.0.0.1:8085` quoi qu'on
+   demande. Les scripts interrogent désormais l'adresse du fichier **puis** celle du
+   profil neutre — sans quoi `update.ps1` restaurerait la version précédente d'un poste
+   parfaitement sain. **Correctif d'une ligne dans `serve.go`, non appliqué.**
+2. **`powercfg /query` rend des SECONDES, `powercfg /change` attend des MINUTES.**
+   Restaurer un délai lu par le premier avec le second posait 300 minutes là où il y avait
+   5. La restauration passe par `/setacvalueindex`, qui prend la même unité que la lecture.
+3. **Sous `set -e`, un `[ … ] && commande` dont le test est faux fait SORTIR le script.**
+   `install.sh` s'arrêtait à la moitié quand un fichier optionnel manquait — et
+   `flv_demo.csv` manque. Corrigé, et un test l'interdit désormais.
+4. **`service status` exigeait l'élévation** : `mgr.Connect` demande le contrôle total. Un
+   bénévole qui suit `TROUBLESHOOTING.md` lisait « accès refusé » au lieu de l'état. Le
+   SCM est maintenant ouvert en lecture seule.
+
+**Ce qui reste ouvert sur ce lot :** `flv_demo.csv` (§17.2) n'existe pas ; les
+identifiants USB de l'imprimante ne sont pas relevés, donc sa règle udev est livrée
+commentée (§21 n° 10) ; le binaire n'est pas signé, et `INSTALLATION.md` documente
+SmartScreen en conséquence ; sous Windows, la sortie du service n'est capturée par rien
+(pas de `internal/obs` : le journal texte de §11.1 n'existe pas encore) — `doctor` et le
+journal technique en base sont ce qui reste pour comprendre un démarrage manqué.
+
+---
+
 ## Ce qui bloque, et qui peut le débloquer
 
 | # | Sujet | Bloque | Comment lever |
@@ -178,3 +227,5 @@ de référence produit, pas une correction cosmétique.
 | 25/07/2026 | **L2 (2/3)** : gabarit d'étiquette, 9 règles dures. Mesure du PDF de test : §7.2 confirmé à 40 µm près |
 | 25/07/2026 | **ADR-029** : barres uniformes, décision du commanditaire. +30 % de hauteur réellement lisible |
 | 25/07/2026 | **L2 (3/3)** livré : 45 contrôles de configuration, stockage SQLite, `Prepare`, machine à états. 660 tests |
+| 26/07/2026 | **L8 (4/4)** livré : installeurs Windows et Linux avec sauvegarde/restauration, unités systemd, `openscale kiosk`, `service` et `config`, `INSTALLATION.md` et `TROUBLESHOOTING.md` |
+| 26/07/2026 | La chaîne d'arrêt cesse d'être recopiée : `TimeoutStopSec` et le `WaitHint` du SCM dérivent de `station.ShutdownBudget()`, et un test compare l'unité livrée au code |

@@ -557,10 +557,16 @@ COMPTE WINDOWS DU POSTE
 
 CONFIGURATION
   Numéro de poste .......... $StationNumber
-  Empreinte ................ $Fingerprint
+  Empreinte du fichier ..... $Fingerprint
   Les quatre postes doivent afficher la MÊME empreinte de 8 caractères.
   Elle se lit en bas de l'écran d'administration, ou avec :
       "$(Join-Path $script:InstallDir $script:BinaryName)" config fingerprint
+
+  ATTENTION, c'est normal : tant que le numéro de poste, la balance et
+  l'imprimante ne sont pas réglés, la configuration est incomplète, le poste
+  tourne en CONFIGURATION D'USINE et l'écran affiche une AUTRE empreinte que
+  celle ci-dessus. Les deux se rejoignent dès que l'assistant est terminé.
+  C'est à ce moment-là qu'on compare les quatre postes.
 
 CODE DE SECOURS D'ADMINISTRATION
   ........................................................

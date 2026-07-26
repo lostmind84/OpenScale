@@ -70,8 +70,11 @@ install -d -o "$ACCOUNT" -g "$ACCOUNT" -m 0750 \
   "$DATA_DIR/catalog" "$DATA_DIR/catalog/incoming" \
   "$DATA_DIR/catalog/archives" "$DATA_DIR/catalog/rejected"
 install -d -m 0755 "$DOC_DIR"
+# `if` et non `[ … ] && …` : sous « set -eu », un ET dont le test échoue rend un code non
+# nul, et le script SORT. Un fichier optionnel absent — flv_demo.csv, par exemple —
+# interromprait l'installation en silence, à la moitié.
 for doc in INSTALLATION.md TROUBLESHOOTING.md SHA256SUMS flv_demo.csv; do
-  [ -f "$HERE/$doc" ] && install -m 0644 "$HERE/$doc" "$DOC_DIR/$doc"
+  if [ -f "$HERE/$doc" ]; then install -m 0644 "$HERE/$doc" "$DOC_DIR/$doc"; fi
 done
 log "binaire installé : $("$BINARY" --version)"
 
@@ -97,7 +100,7 @@ if [ -f "$HERE/99-openscale.rules" ]; then
   else
     log 'aucun /dev/openscale-serial : la balance est débranchée, ou son adaptateur porte'
     log "d'autres identifiants USB. Relevez-les avec « lsusb » et corrigez la règle :"
-    command -v lsusb >/dev/null 2>&1 && lsusb || true
+    if command -v lsusb >/dev/null 2>&1; then lsusb; fi
   fi
 fi
 
@@ -130,20 +133,30 @@ case "$LISTEN" in
 esac
 ADDRESS="http://$LISTEN"
 
+# DEUX adresses, et la seconde n'est pas une précaution vague : un poste dont la
+# configuration est fautive démarre sur le PROFIL NEUTRE (§11.3) et sert donc sur
+# l'adresse de ce profil — c'est exactement l'état d'un poste fraîchement installé, dont il
+# reste à régler le numéro, la balance et l'imprimante.
+FACTORY_ADDRESS='http://127.0.0.1:8085'
 healthy=0
 attempt=0
 while [ "$attempt" -lt 30 ]; do
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsS -m 2 "$ADDRESS/healthz" >/dev/null 2>&1 && { healthy=1; break; }
-  elif command -v wget >/dev/null 2>&1; then
-    wget -q -T 2 -O /dev/null "$ADDRESS/healthz" && { healthy=1; break; }
-  else
-    log 'ni curl ni wget : vérification de /healthz sautée'
-    break
-  fi
+  for candidate in "$ADDRESS" "$FACTORY_ADDRESS"; do
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsS -m 2 "$candidate/healthz" >/dev/null 2>&1 && { healthy=1; break; }
+    elif command -v wget >/dev/null 2>&1; then
+      wget -q -T 2 -O /dev/null "$candidate/healthz" && { healthy=1; break; }
+    else
+      log 'ni curl ni wget : vérification de /healthz sautée'
+      healthy=2
+      break
+    fi
+  done
+  if [ "$healthy" -ne 0 ]; then break; fi
   attempt=$((attempt + 1))
   sleep 1
 done
+if [ "$healthy" -eq 2 ]; then healthy=0; fi
 if [ "$healthy" -eq 1 ]; then
   log "le poste répond sur $ADDRESS/healthz"
 else
@@ -167,9 +180,14 @@ Compte système ............. $ACCOUNT (sans mot de passe, sans shell)
 
 CONFIGURATION
   Numéro de poste .......... (à choisir dans l'assistant de premier démarrage)
-  Empreinte ................ $FINGERPRINT
+  Empreinte du fichier ..... $FINGERPRINT
   Les quatre postes doivent afficher la MÊME empreinte de 8 caractères :
       $BINARY config fingerprint
+
+  ATTENTION, c'est normal : tant que le numéro de poste, la balance et
+  l'imprimante ne sont pas réglés, la configuration est incomplète, le poste
+  tourne en CONFIGURATION D'USINE et l'écran affiche une AUTRE empreinte que
+  celle ci-dessus. Les deux se rejoignent dès que l'assistant est terminé.
 
 CODE DE SECOURS D'ADMINISTRATION
   ........................................................
