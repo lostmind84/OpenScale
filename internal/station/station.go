@@ -170,7 +170,16 @@ type Station struct {
 	// every restart, and it is nil until the first one.
 	cancelScale context.CancelFunc
 
-	printer       ports.Printer
+	printer ports.Printer
+	// catalogMu guards catalogSource ALONE, and it is deliberately not reloadMu.
+	//
+	// The source is written by a reload — on the goroutine of an HTTP handler — and
+	// read by watchCatalog on its own goroutine, so the two race. Guarding it with
+	// reloadMu instead would be worse than the race: that mutex is held for the whole
+	// duration of a reload, which opens a serial port and can wait seconds on a driver
+	// that will not close (§11.4), and watchCatalog would queue behind it for no
+	// reason. This one is only ever held across a pointer read or a pointer write.
+	catalogMu     sync.Mutex
 	catalogSource ports.CatalogSource
 	applyCatalog  CatalogApplier
 
@@ -582,8 +591,7 @@ func (s *Station) restartCatalog(next domain.Config) {
 			"Source de catalogue non reconstruite.", err.Error())
 		return
 	}
-	previous := s.catalogSource
-	s.catalogSource = built
+	previous := s.swapCatalogSource(built)
 	if previous != nil {
 		s.logIfErr(previous.Close())
 	}
@@ -673,6 +681,27 @@ func canonicalJSON(raw []byte) ([]byte, error) {
 
 // --- The catalog watch (§13.1 n° 5) ----------------------------------------
 
+// currentCatalogSource reports the source in service.
+//
+// It exists because a reload replaces that source while watchCatalog is reading from
+// it: -race caught the write of restartCatalog against the read of the watch loop.
+func (s *Station) currentCatalogSource() ports.CatalogSource {
+	s.catalogMu.Lock()
+	defer s.catalogMu.Unlock()
+	return s.catalogSource
+}
+
+// swapCatalogSource puts next in service and returns the one it replaced, so the
+// caller closes the old source OUTSIDE the lock — Close talks to a file system or to
+// a WebDAV server and has no business being held against the watch loop.
+func (s *Station) swapCatalogSource(next ports.CatalogSource) ports.CatalogSource {
+	s.catalogMu.Lock()
+	defer s.catalogMu.Unlock()
+	previous := s.catalogSource
+	s.catalogSource = next
+	return previous
+}
+
 // watchCatalog reads whole catalogs from the source and hands them to the loop.
 //
 // The swap itself is the Hub's business and it is DEFERRED: this goroutine never
@@ -680,7 +709,7 @@ func canonicalJSON(raw []byte) ([]byte, error) {
 func (s *Station) watchCatalog(ctx context.Context) {
 	defer close(s.catalogDone)
 	for {
-		source := s.catalogSource
+		source := s.currentCatalogSource()
 		if source == nil {
 			<-ctx.Done()
 			return
@@ -860,8 +889,8 @@ func (s *Station) closeDevices() {
 	if s.catalogWait != nil {
 		s.catalogWait.Wait()
 	}
-	if s.catalogSource != nil {
-		s.logIfErr(s.catalogSource.Close())
+	if source := s.currentCatalogSource(); source != nil {
+		s.logIfErr(source.Close())
 	}
 	if s.printer != nil {
 		s.logIfErr(s.printer.Close())

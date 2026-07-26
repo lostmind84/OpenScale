@@ -460,7 +460,7 @@ func TestTheCatalogBlockFollowsTheStationNumber(t *testing.T) {
 	first := newDropSource(nil)
 	second := newDropSource(nil)
 	b := newBench(t)
-	b.station.catalogSource = first
+	b.station.swapCatalogSource(first)
 	b.station.newCatalogSource = func(domain.Config) (ports.CatalogSource, error) { return second, nil }
 
 	next := b.hub.Config()
@@ -476,7 +476,7 @@ func TestTheCatalogBlockFollowsTheStationNumber(t *testing.T) {
 	if outcome.ConfirmBefore.IsZero() != true {
 		t.Fatal("un changement de catalogue arme un compte à rebours : il ne coupe rien")
 	}
-	if b.station.catalogSource != second {
+	if b.station.currentCatalogSource() != second {
 		t.Fatal("la veille n'a pas été relancée sur la nouvelle source")
 	}
 }

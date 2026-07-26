@@ -213,7 +213,7 @@ func TestTheJournalIsReadableAndExportable(t *testing.T) {
 	b.feed(1236, 2)
 	b.post("/api/v1/weigh", weighRequestBody).Body.Close()
 	b.awaitPrint()
-	settle(t, func() bool { return len(b.store.weighings) > 0 })
+	settle(t, func() bool { return b.store.weighingCount() > 0 })
 
 	page := decodeStatus[struct {
 		Weighings []weighingDTO `json:"weighings"`

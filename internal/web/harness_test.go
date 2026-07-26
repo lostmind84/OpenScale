@@ -406,6 +406,18 @@ func (m *memoryStore) RecordWeighing(_ context.Context, w *domain.Weighing) erro
 	return nil
 }
 
+// weighingCount reports how many rows the journal worker has recorded.
+//
+// It exists because a test polling len(m.weighings) reads the slice header while the
+// worker goroutine appends to it — a race -race caught on the CI, and one that no
+// amount of care in the test body can avoid: the write is on another goroutine by
+// construction.
+func (m *memoryStore) weighingCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.weighings)
+}
+
 func (m *memoryStore) PurgeWeighings(context.Context) (int64, error) { return 0, nil }
 
 func (m *memoryStore) RecordTechnical(_ context.Context, e station.TechnicalEntry) error {

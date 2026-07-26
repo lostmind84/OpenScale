@@ -158,6 +158,16 @@ type Hub struct {
 	sound           string
 	armExpiresAt    time.Time
 	pendingReply    chan<- domain.Ack
+	// subscribersMu guards subscribers, and it is NOT a retreat from the design.
+	//
+	// The map is still written in ONE place — applySubscription, inside the select —
+	// so subscriptions stay serialised and ordered without anybody taking a lock to
+	// reason about them. What the mutex covers is the shutdown: CloseSubscribers is
+	// documented as running only AFTER the loop has returned, and nothing at run time
+	// enforces that. -race caught the map being deleted from under publish on the CI,
+	// which is the one machine that runs the detector. An invariant a comment asserts
+	// and no code holds is the kind this project bounds rather than trusts.
+	subscribersMu   sync.Mutex
 	subscribers     map[chan Snapshot]struct{}
 	lastPublished   Snapshot
 	lastPublishedAt time.Time
@@ -334,6 +344,8 @@ func (h *Hub) request(req subscription) bool {
 //     never both.
 func (h *Hub) CloseSubscribers() {
 	h.closeOnce.Do(func() {
+		h.subscribersMu.Lock()
+		defer h.subscribersMu.Unlock()
 		for ch := range h.subscribers {
 			close(ch)
 			delete(h.subscribers, ch)
@@ -574,14 +586,21 @@ func (h *Hub) applyPendingBatch(now time.Time) {
 func (h *Hub) applySubscription(req subscription) {
 	switch {
 	case req.add != nil:
+		h.subscribersMu.Lock()
 		h.subscribers[req.add] = struct{}{}
+		h.subscribersMu.Unlock()
 		// A new subscriber gets the current state at once rather than waiting for
 		// the next change: a browser that has just restarted must be correct
 		// immediately.
 		req.add <- h.lastPublished
 	case req.remove != nil:
-		if _, live := h.subscribers[req.remove]; live {
+		h.subscribersMu.Lock()
+		_, live := h.subscribers[req.remove]
+		if live {
 			delete(h.subscribers, req.remove)
+		}
+		h.subscribersMu.Unlock()
+		if live {
 			close(req.remove)
 		}
 	}
@@ -768,6 +787,13 @@ func (h *Hub) publish(now time.Time) {
 	// as soon as a snapshot has carried it.
 	h.sound = ""
 
+	// The whole fan-out happens UNDER the lock, and that is deliberate: every send
+	// below is a select with a default, so nothing here can block, and holding the
+	// lock is what makes a close impossible between choosing a channel and sending on
+	// it. Copying the channels out first and sending outside would reintroduce exactly
+	// the send-on-closed-channel that CloseSubscribers is ordered to avoid.
+	h.subscribersMu.Lock()
+	defer h.subscribersMu.Unlock()
 	for ch := range h.subscribers {
 		select {
 		case ch <- s:
