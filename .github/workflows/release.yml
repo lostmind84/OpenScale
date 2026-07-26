@@ -1,0 +1,175 @@
+# Publication d'une version d'OpenScale — docs/02-architecture.md §17.
+#
+# CE QUE CE WORKFLOW SUPPRIME : le téléversement à la main. Poser un tag suffit, et les
+# trois archives de §17.2 apparaissent dans la page « Releases » du dépôt, avec leurs
+# empreintes. Personne n'a plus à se demander si le fichier publié est bien celui qui a
+# été construit, ni sur quelle machine il l'a été.
+#
+#   git tag -a 2.0.0 -m "Version 2.0.0"
+#   git push origin 2.0.0
+#
+# Le déclenchement est le TAG et non la branche : une version est un point figé de
+# l'histoire, pas l'état d'une branche au moment où quelqu'un a cliqué.
+name: Release
+
+on:
+  push:
+    tags:
+      # Les versions livrées : 2.0.0, 2.1.0, 2.0.1-rc1. Un tag qui ne ressemble pas à une
+      # version ne déclenche rien — un `git tag banc-de-test` ne publie pas.
+      - "[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+-*"
+  # Pour reconstruire une version sans re-poser son tag, ou pour essayer le workflow.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag à construire (il doit exister)"
+        required: true
+
+permissions:
+  # Écrire est ce qui permet de créer la Release et d'y attacher les archives. C'est la
+  # SEULE permission élevée de ce dépôt, et elle ne vaut que pour ce workflow.
+  contents: write
+
+env:
+  # La même version qu'en intégration continue, et pour la même raison : les golden de
+  # rendu de §7.4 ne doivent pas dépendre de la chaîne d'outils.
+  GO_VERSION: "1.26.5"
+  NODE_VERSION: "22"
+
+jobs:
+  release:
+    name: Archives et publication
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          # fetch-depth: 0 EST OBLIGATOIRE ICI, et son absence ne se voit pas tout de
+          # suite. Le clone par défaut est superficiel et sans tags, si bien que le
+          # `git describe --tags` dont le Makefile tire VERSION répond par un SHA : les
+          # archives sortiraient sous le nom openscale-a1b2c3d-linux-amd64.zip alors que
+          # la Release s'appelle 2.0.0, et personne ne saurait dire six mois plus tard ce
+          # que contenait la version publiée.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # L'écran client est RECONSTRUIT, jamais pris tel qu'il est commité.
+      #
+      # internal/web/dist est dans le dépôt pour que `go build` fonctionne sur une machine
+      # sans Node (§14.1), et c'est un cache : rien ne garantit qu'il corresponde aux
+      # sources du tag. Une version qui embarquerait un écran d'il y a trois commits est
+      # la panne la plus difficile à croire, parce que le binaire est juste et l'écran ne
+      # l'est pas.
+      - name: Construire l'écran client
+        run: make front
+
+      - name: Vérifier que le dist commité était à jour
+        # Si cette étape trouve une différence, la version publiée est correcte — elle
+        # vient d'être reconstruite — mais le dépôt porte un dist périmé, et le prochain
+        # `go build` sans Node produira un binaire différent. C'est un AVERTISSEMENT et
+        # non un échec : la release, elle, est bonne.
+        run: |
+          if ! git diff --quiet -- internal/web/dist; then
+            echo "::warning::internal/web/dist committed in the repository was stale; the release embeds the freshly built screen. Run 'make front' and commit the result."
+            git diff --stat -- internal/web/dist
+          fi
+
+      # release dépend de dist, qui dépend de test : la suite complète tourne avant
+      # qu'une archive existe. Une version n'est pas un endroit où gagner du temps.
+      - name: Fabriquer les trois archives
+        run: make release
+
+      - name: Ce qui va être publié
+        run: |
+          ls -l dist/*.zip
+          echo '--- empreintes des binaires ---'
+          cat dist/SHA256SUMS
+
+      # L'empreinte des ARCHIVES, qui n'est pas celle des binaires : SHA256SUMS de dist
+      # porte les trois exécutables, et c'est le zip que le bénévole télécharge. Sans ce
+      # fichier, personne ne peut vérifier ce qu'il a reçu.
+      - name: Empreintes des archives
+        run: |
+          cd dist && sha256sum *.zip > SHA256SUMS-archives.txt
+          cat SHA256SUMS-archives.txt
+
+      # Le nom du tag doit se retrouver dans le nom des archives. Sans ce contrôle, un
+      # checkout sans tags publierait sous un nom de révision, et le seul symptôme serait
+      # un nom de fichier inattendu dans la page Releases — que personne ne relit.
+      - name: Le nom des archives porte bien la version
+        run: |
+          version="${{ github.event.inputs.tag || github.ref_name }}"
+          if ! ls dist/openscale-"$version"-windows-amd64.zip >/dev/null 2>&1; then
+            echo "Les archives ne portent pas la version « $version » :"
+            ls -1 dist/*.zip
+            echo "git describe rend : $(git describe --tags --always --dirty)"
+            exit 1
+          fi
+          echo "version publiée : $version"
+
+      - name: Publier la Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: OpenScale ${{ github.event.inputs.tag || github.ref_name }}
+          # Les notes sont générées par GitHub à partir des commits depuis le tag
+          # précédent. Les messages de commit de ce dépôt sont écrits pour être lus, donc
+          # elles valent quelque chose sans travail supplémentaire.
+          generate_release_notes: true
+          # Une version qui porte un suffixe — 2.0.1-rc1 — est une préversion, et le dire
+          # évite qu'un bénévole installe une release candidate en croyant faire une mise
+          # à jour ordinaire.
+          prerelease: ${{ contains(github.event.inputs.tag || github.ref_name, '-') }}
+          body: |
+            ## Installer un poste
+
+            Téléchargez l'archive de votre plateforme, puis suivez
+            [`INSTALLATION.md`](https://github.com/${{ github.repository }}/blob/${{ github.event.inputs.tag || github.ref_name }}/INSTALLATION.md)
+            — il est écrit pour un bénévole et compte les étapes une par une.
+
+            | Plateforme | Archive |
+            |---|---|
+            | Windows (les postes de la coopérative) | `openscale-${{ github.event.inputs.tag || github.ref_name }}-windows-amd64.zip` |
+            | Linux 64 bits | `openscale-${{ github.event.inputs.tag || github.ref_name }}-linux-amd64.zip` |
+            | Linux ARM 64 bits (Raspberry Pi 4 et suivants) | `openscale-${{ github.event.inputs.tag || github.ref_name }}-linux-arm64.zip` |
+
+            Chaque archive contient le binaire, les scripts d'installation et de mise à
+            jour, la configuration livrée **sans le bloc matériel**, `INSTALLATION.md`,
+            `TROUBLESHOOTING.md`, la licence et `SHA256SUMS`.
+
+            **Vérifier ce que vous avez téléchargé** — les empreintes sont dans
+            `SHA256SUMS-archives.txt`, publié ci-dessous :
+
+            ```
+            sha256sum -c SHA256SUMS-archives.txt
+            ```
+
+            Sous Windows : `Get-FileHash openscale-*.zip -Algorithm SHA256`
+
+            ## Essayer sans balance et sans imprimante
+
+            Le [démarrage rapide du README](https://github.com/${{ github.repository }}#essayer-sans-balance-et-sans-imprimante)
+            fait tourner un poste complet sur une machine ordinaire, avec un catalogue de
+            démonstration : la grille se remplit, et l'étiquette est écrite dans un
+            fichier au lieu d'être imprimée.
+
+            ## Ce que cette version n'a pas encore vu
+
+            Aucune étiquette n'est sortie d'une imprimante SATO réelle et aucun octet n'est
+            venu d'une balance GRAM réelle : les tests qui l'exigent portent
+            `//go:build hardware` et attendent le banc. Voir
+            [`SUIVI.md`](https://github.com/${{ github.repository }}/blob/${{ github.event.inputs.tag || github.ref_name }}/SUIVI.md).
+          files: |
+            dist/*.zip
+            dist/SHA256SUMS-archives.txt

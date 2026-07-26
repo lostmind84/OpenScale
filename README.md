@@ -257,3 +257,32 @@ rejetterait.
 Ensuite, tout est dans [`INSTALLATION.md`](INSTALLATION.md), qui est écrit pour un
 bénévole et non pour un développeur — et qui annonce honnêtement **17 minutes** pour le
 premier poste, pas les 15 du plan.
+
+### Publier une version : poser un tag suffit
+
+**Rien à téléverser à la main.** Pousser un tag de version déclenche
+[`.github/workflows/release.yml`](.github/workflows/release.yml), qui construit les trois
+archives et les attache à la page *Releases* du dépôt, avec leurs empreintes :
+
+```bash
+git tag -a 2.0.0 -m "Version 2.0.0"
+git push origin 2.0.0
+```
+
+Le workflow reconstruit l'écran client — `internal/web/dist` est commité pour que
+`go build` marche sans Node, mais rien ne garantit qu'il corresponde aux sources du tag,
+et une version qui embarquerait un écran d'il y a trois commits est une panne difficile à
+croire — puis lance la suite de tests complète, fabrique les archives, et **vérifie que
+leur nom porte bien le tag** avant de publier quoi que ce soit.
+
+Ce dernier contrôle existe pour une raison précise : `actions/checkout` fait un clone
+superficiel **sans les tags**, si bien que le `git describe` dont vient la version répond
+par un numéro de révision. Le workflow demande donc `fetch-depth: 0`, et refuse de publier
+si les noms ne concordent pas.
+
+Un tag qui ne ressemble pas à une version — `banc-de-test`, `avant-migration` — ne
+déclenche rien. Un tag suffixé (`2.0.1-rc1`) est publié comme **préversion**, pour qu'un
+bénévole n'installe pas une release candidate en croyant faire une mise à jour ordinaire.
+
+Pour reconstruire une version sans reposer son tag, la page *Actions* du dépôt propose
+`Release` → *Run workflow*, avec le tag en paramètre.
