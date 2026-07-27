@@ -261,8 +261,9 @@ tenue ; c'est sa *forme* qui change.
 `internal/domain/config.go` (contrôles 11 et 13, table `retiredKeys`).
 
 **Fichiers livrés** — `testdata/config-lacagette.json`, `testdata/config-demo.json`.
-`internal/domain/profiles.go` passe par `SingleTierRules()` et ne cite aucun coefficient :
-seul `pricing.go` change pour lui.
+`internal/domain/profiles.go` cite bien un coefficient, en commentaire, à la ligne 86
+(« one tier, coefficient 1/1 ») : ce mot-là aussi est repris. `cmd/openscale/price.go`
+cite le coefficient dans son texte d'aide (`--tiers`) et manquait à cette liste.
 
 **Front** — `web/src/admin/pages/Rules.svelte` (la colonne, la ligne verrouillée, la
 saisie décimale), `web/src/admin/lib/diff.ts` (un commentaire cite
@@ -346,6 +347,7 @@ une valeur inexprimable met la ligne en lecture seule.
 - **L'ordre des opérations** (A7) : intact.
 - **Les deux arrondis** et l'écart au centime documenté (A6, ADR-008) : intacts.
 - **Le double tarif comme cardinal de la grille** (ADR-009) : intact.
-- **Le code-barres** : le prix encodé reste celui du tarif de référence, inchangé.
+- **Le code-barres** : inchangé. Il ne porte aucun prix, seulement la référence produit
+  et le poids ou le nombre d'unités ; `reference_code` reste ce qu'il était.
 - **Les deux écarts à §14.4 connus** de la page Règles — les messages des garde-fous non
   éditables et l'aperçu en direct — restent ouverts, et restent hors périmètre.

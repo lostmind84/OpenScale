@@ -59,7 +59,7 @@ func (p RoundingPolicy) String() string {
 // PRECONDITION: den > 0. Price's two call sites pass positive CONSTANTS --
 // FullDiscount for the tier coefficient, 1000 for the gram-to-kilogram
 // conversion -- so no tier grid can reach this precondition any more. It used
-// to be reachable: coef_den came from the file, check 11 was what kept it
+// to be reachable: coef_den came from the file, control 11 was what kept it
 // positive, and a negative denominator would have panicked in the Hub
 // goroutine and killed the process (ADR-034). The third caller, Quantize,
 // derives its denominator from the plan's Decimals, which the plan check keeps

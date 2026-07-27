@@ -29,15 +29,15 @@ func runPrice(args []string, out io.Writer) error {
 		fmt.Fprint(out, `Usage : openscale price --unit-price <prix> --weight <grammes>
 
 Calcule les prix d'une pesée par le chemin unique de l'application. L'ordre des
-opérations n'est pas négociable : le coefficient s'applique au PRIX UNITAIRE,
-puis le montant en découle. Autrement, le prix au kilo imprimé, multiplié par le
-poids imprimé, ne redonnerait pas le montant imprimé.
+opérations n'est pas négociable : la remise s'applique au PRIX UNITAIRE, puis le
+montant en découle. Autrement, le prix au kilo imprimé, multiplié par le poids
+imprimé, ne redonnerait pas le montant imprimé.
 
 Options :
   --unit-price <prix>   prix unitaire du catalogue, en euros
   --weight <grammes>    poids net, en grammes entiers
   --units <nombre>      nombre d'unités, à la place de --weight
-  --tiers <grille>      cagette (adhérent 9/10 + solidaire) ou single
+  --tiers <grille>      cagette (adhérent 10 % + solidaire) ou single
   --rounding <mode>     half_up (défaut), truncate ou half_even
   --suffix <texte>      suffixe de prix : " €/kg", " € le litre", " € l'unité"
 `)

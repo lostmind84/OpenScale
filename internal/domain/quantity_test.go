@@ -108,10 +108,10 @@ func TestRoundHalfToEvenMatchesVBARound(t *testing.T) {
 // vector of §6.3: garlic at 5.32 EUR/kg, 1.236 kg, member discount of 10 %.
 func TestReferenceVectorAmounts(t *testing.T) {
 	const (
-		basePrice   = int64(532)  // cents per kilogram
-		netWeight   = int64(1236) // grams
-		numerator   = int64(9)
-		denominator = int64(10)
+		basePrice     = int64(532)  // cents per kilogram
+		netWeight     = int64(1236) // grams
+		discount      = int64(100)  // tenths of a percent: 10 % (ADR-034)
+		discountScale = int64(FullDiscount)
 	)
 	cases := []struct {
 		name                                      string
@@ -132,7 +132,7 @@ func TestReferenceVectorAmounts(t *testing.T) {
 			if got := c.amountPolicy.Divide(solidarityUnitPrice*netWeight, 1000); got != c.wantSolidarityAmount {
 				t.Errorf("solidarity amount = %d, want %d", got, c.wantSolidarityAmount)
 			}
-			memberUnitPrice := c.unitPricePolicy.Divide(basePrice*numerator, denominator)
+			memberUnitPrice := c.unitPricePolicy.Divide(basePrice*(discountScale-discount), discountScale)
 			if memberUnitPrice != c.wantMemberUnitPrice {
 				t.Fatalf("member unit price = %d, want %d", memberUnitPrice, c.wantMemberUnitPrice)
 			}

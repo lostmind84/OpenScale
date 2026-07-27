@@ -234,7 +234,7 @@ func TestDeliveredConfigurationCarriesTheProductionValues(t *testing.T) {
 		t.Errorf("tarif solidaire = %s remise %s %%, attendu SOLIDARITY sans remise",
 			solidarity.Code, solidarity.Discount)
 	}
-	// The till never under-charges: the encoded price is the solidarity one (A7).
+	// The till never under-charges: the solidarity tier is the one it charges (A7).
 	if config.Pricing.ReferenceCode != "SOLIDARITY" {
 		t.Errorf("reference_code = %q, attendu SOLIDARITY", config.Pricing.ReferenceCode)
 	}

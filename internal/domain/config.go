@@ -75,7 +75,7 @@ const (
 // application never allowed.
 const fingerprintLength = 8
 
-// retiredKeys are the keys check 20 REFUSES outright, each with the reason §11.2
+// retiredKeys are the keys control 20 REFUSES outright, each with the reason §11.2
 // gives for its removal.
 //
 // Two families, and refusing rather than ignoring is the whole point of both.
@@ -952,7 +952,8 @@ func (c *Config) Validate(reg Registries) []Fault {
 	//        inconsistent plan must stop the process AT START-UP, never at print time.
 	faults = append(faults, validateNumberingPlan(internalPlan)...)
 
-	// 20. A configuration still carrying a retired plan key is REFUSED.
+	// 20. A configuration still carrying a retired key -- numbering plan or pricing
+	//     coefficient -- is REFUSED.
 	for _, path := range c.retired {
 		key := path[strings.LastIndexByte(path, '.')+1:]
 		fail(path, "clé supprimée : %s", retiredKeys[key])

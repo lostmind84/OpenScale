@@ -665,27 +665,35 @@
                       {tier.written} — le tarif de référence est le prix du catalogue : il
                       ne peut pas porter de remise, et l’enregistrement la refusera.
                     </span>
-                  {:else if tier.discount === null}
+                  {:else if tier.written !== null && tier.discount === null}
                     <span class="locked">
                       {tier.written} — une remise s’écrit au dixième de point ; celle-ci se
                       change dans le fichier de configuration.
                     </span>
                   {:else}
+                    <!--
+                      Catches BOTH the ordinary case (tier.discount holds a value) and a
+                      non-reference tier that carries no `discount_percent` key at all
+                      (tier.written === null): for a tier that is not the reference, an
+                      absent key means exactly 0 % (the kernel's own rule), and an editable
+                      field showing 0 is honest, not invented -- unlike the reference row
+                      above, which has nothing to show because it has no discount to hold.
+                    -->
                     <input
                       type="text"
                       inputmode="decimal"
                       aria-label="Remise du tarif {index + 1}"
-                      value={discountText(tier.discount)}
+                      value={discountText(tier.discount ?? 0)}
                       oninput={(event) =>
                         writeDiscount(
                           `pricing.tiers.${String(index)}.discount_percent`,
                           event.currentTarget.value,
                         )}
                       onfocusout={(event) =>
-                        restoreBox(event.currentTarget, discountText(tier.discount))}
+                        restoreBox(event.currentTarget, discountText(tier.discount ?? 0))}
                     /> %
                     <span class="hint">
-                      un produit à 10,00 €/kg s’affiche {previewOf(tier.discount)} €/kg
+                      un produit à 10,00 €/kg s’affiche {previewOf(tier.discount ?? 0)} €/kg
                     </span>
                   {/if}
                 </td>
@@ -709,10 +717,10 @@
       onchange={(value) => draft.set('pricing.primary_code', value)}
     />
     <Field
-      label="Tarif encodé dans le code-barres"
+      label="Tarif qui serait encodé si le code-barres portait un prix"
       path="pricing.reference_code"
       value={draft.text('pricing.reference_code')}
-      hint="Celui que la caisse lit. La caisse ne doit jamais sous-facturer."
+      hint="Le plan livré ne porte pas de prix, mais un poids ou un nombre d’unités : la caisse retrouve le prix par la référence, dans Odoo, et ne doit jamais sous-facturer."
       onchange={(value) => draft.set('pricing.reference_code', value)}
     />
   </Panel>
@@ -722,7 +730,7 @@
       label="Arrondi du prix unitaire dérivé"
       path="pricing.unit_price_rounding"
       value={draft.text('pricing.unit_price_rounding')}
-      hint="Il s’applique au prix au kilo calculé par un coefficient."
+      hint="Il s’applique au prix au kilo calculé par la remise."
       onchange={(value) => draft.set('pricing.unit_price_rounding', value)}
     />
     <Field

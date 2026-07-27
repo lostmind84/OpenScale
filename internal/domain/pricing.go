@@ -68,8 +68,14 @@ func (d Discount) MarshalJSON() ([]byte, error) {
 // A second decimal digit is an ERROR and not a fault, for the same reason an
 // unknown rounding word is one: there is no value to hold, and holding it
 // rounded would hold a price nobody declared. A discount that is merely OUT OF
-// BOUNDS is read, so that check 13 names it together with every other fault
+// BOUNDS is read, so that control 13 names it together with every other fault
 // (§11.3) instead of aborting the whole document on the first one.
+//
+// A JSON `null` is refused here too, which departs from the usual Go convention
+// that UnmarshalJSON treats `null` as a no-op leaving the receiver untouched.
+// The departure is deliberate: this type's whole rule is "there is no value to
+// hold", so `null` gets exactly the same refusal as any other unparsable text
+// instead of a silent no-op that would hide which value survived.
 func (d *Discount) UnmarshalJSON(raw []byte) error {
 	tenths, err := parseTenths(strings.TrimSpace(string(raw)))
 	if err != nil {
@@ -223,7 +229,7 @@ func Price(p Product, m Measurement, rules PricingRules) (Label, error) {
 		// precondition and kill the Hub goroutine -- that failure mode is gone by
 		// construction (ADR-034). What remains is the SIGN of the price: a
 		// discount outside [0, 100 %] would print a negative price, or one above
-		// the catalog's. Check 13 makes it unreachable from a file; this keeps it
+		// the catalog's. Control 13 makes it unreachable from a file; this keeps it
 		// unreachable from a grid built in code.
 		if tier.Discount < 0 || tier.Discount > FullDiscount {
 			return Label{}, fmt.Errorf("%w: tier %s, discount %s %%",

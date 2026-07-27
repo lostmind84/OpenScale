@@ -43,7 +43,7 @@ func mustCompose(t *testing.T, twelve string) EAN13 {
 }
 
 // machineGarlic is the reference vector of §16.1: solidarity unit price 5,32 €/kg,
-// member coefficient 9/10, weighed at 1,236 kg.
+// member discount of 10 %, weighed at 1,236 kg.
 func machineGarlic(t *testing.T) Product {
 	t.Helper()
 	return Product{

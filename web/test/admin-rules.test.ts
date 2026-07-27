@@ -583,12 +583,34 @@ describe('la remise se saisit en pourcentage', () => {
     expect(text).not.toContain('ne peut pas porter de remise')
   })
 
+  it('sans clé déclarée, un tarif qui N’EST PAS la référence est éditable et vaut 0', () => {
+    // L'absence de `discount_percent` sur un tarif qui n'est PAS la référence signifie
+    // exactement 0 % (la règle du noyau, tenue par le contrôle 13 et par `Price`) :
+    // c'est le cas d'un fichier tout juste migré depuis l'ancien format, ou d'un tarif
+    // déjà enregistré une fois à 0 % — `omitempty` a fait disparaître la clé pour de
+    // bon. Un champ éditable qui affiche 0 est honnête, pas inventé : avant ce
+    // correctif, la ligne tombait dans la branche « lecture seule » du tarif de
+    // référence par erreur, et personne ne pouvait plus jamais reposer de remise.
+    const draft = open({
+      pricing: {
+        tiers: [{ code: 'MEMBER', label: 'Adhérent', abbrev: 'A', rank: 1 }],
+        reference_code: 'SOLIDARITY',
+      },
+    })
+
+    const field = tierField('Remise du tarif 1')
+    expect(field.value).toBe('0')
+
+    type(field, '12,5')
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(12.5)
+  })
+
   it('retargeter la référence sur un tarif remisé dit que la remise sera refusée, sans jamais prétendre qu’elle est absente', () => {
-    // Le champ « Tarif encodé dans le code-barres », juste sous ce tableau, écrit
-    // `pricing.reference_code` exactement comme ceci — sans toucher au fichier, en
-    // cours de session. Il expose un tarif de référence qui porte pourtant une remise
-    // ORDINAIRE et légale (10 %, celle du tarif MEMBER) : la ligne ne doit pas se taire
-    // dessus.
+    // Le champ « Tarif qui serait encodé si le code-barres portait un prix », juste
+    // sous ce tableau, écrit `pricing.reference_code` exactement comme ceci — sans
+    // toucher au fichier, en cours de session. Il expose un tarif de référence qui
+    // porte pourtant une remise ORDINAIRE et légale (10 %, celle du tarif MEMBER) :
+    // la ligne ne doit pas se taire dessus.
     const draft = open()
     expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10)
 
@@ -700,5 +722,43 @@ describe('la remise se saisit en pourcentage', () => {
     const text = panelAbout('Grille de tarifs')
     expect(text).not.toContain('Numérateur')
     expect(text).not.toContain('Dénominateur')
+  })
+})
+
+describe('dropRetired ne ment jamais sur ce qu’il a fait', () => {
+  // `Draft.dropRetired` est testée directement, sans monter `Rules` : c'est
+  // `App.svelte` qui l'appelle, depuis le bandeau des clés retirées, quel que soit
+  // l'onglet ouvert.
+
+  it('refuse une clé logée dans un tableau au lieu de faire semblant de l’avoir retirée', () => {
+    // `pricing.tiers[0].coef_num` est le chemin que le service nomme pour ce cas
+    // précis (`scanRetired`, internal/domain/config.go) : le segment `tiers[0]` n'est
+    // pas une clé de `this.config`, et l'ancien code retombait en silence sans avoir
+    // rien fait ni le dire — un bouton qui ment sur ce qu'il vient de faire.
+    const admin = new Admin()
+    const draft = new Draft(admin)
+    draft.config = { pricing: { tiers: [{ code: 'MEMBER' }] } }
+    draft.retired = ['pricing.tiers[0].coef_num']
+
+    draft.dropRetired('pricing.tiers[0].coef_num')
+
+    expect(draft.retired).toEqual(['pricing.tiers[0].coef_num'])
+    expect(draft.dirty).toBe(false)
+    expect(admin.actionError).toContain('tableau')
+  })
+
+  it('retire bien une clé qui ne loge pas dans un tableau', () => {
+    const admin = new Admin()
+    const draft = new Draft(admin)
+    draft.config = { barcode: { weight_decimals: 3, verify_reference_check_digit: true } }
+    draft.retired = ['barcode.weight_decimals']
+
+    draft.dropRetired('barcode.weight_decimals')
+
+    expect(draft.retired).toEqual([])
+    expect(draft.dirty).toBe(true)
+    expect(draft.value('barcode.weight_decimals')).toBeUndefined()
+    // Le reste du bloc n'est pas touché.
+    expect(draft.value('barcode.verify_reference_check_digit')).toBe(true)
   })
 })
