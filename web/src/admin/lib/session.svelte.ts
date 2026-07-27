@@ -35,6 +35,28 @@ export function needsPassword(page: PageID): boolean {
   return EXPERT_PAGES.includes(page)
 }
 
+/** Ce que le panneau de mot de passe doit demander, et pourquoi. */
+export interface PendingCredentials {
+  /**
+   * `password` quand la session manque ou a expiré ; `first-password` quand ce poste
+   * n'a jamais eu de mot de passe — il n'y a alors rien à taper qu'un code de secours.
+   */
+  kind: 'password' | 'first-password'
+  /** La phrase du service, celle qui dit pourquoi il a refusé. */
+  message: string
+}
+
+/**
+ * Vrai quand un refus se règle en s'authentifiant, et non en corrigeant sa saisie.
+ *
+ * 401 « session absente ou expirée » et 409 « aucun mot de passe n'est posé » sont les
+ * deux seuls ; un 422 se règle en changeant le champ fautif, et rouvrir un panneau de mot
+ * de passe par-dessus cacherait la faute qu'il faut lire.
+ */
+function needsCredentials(failure: unknown): failure is AdminError {
+  return failure instanceof AdminError && (failure.status === 401 || failure.status === 409)
+}
+
 /**
  * Tout ce que l'écran d'administration sait de son poste.
  *
@@ -74,8 +96,12 @@ export class Admin {
    * quel champ est un message qui ne sert à rien.
    */
   lastFaults = $state<FaultDTO[]>([])
+  /** L'acte qui attend une réponse du panneau de mot de passe, ou null. */
+  pending = $state<PendingCredentials | null>(null)
 
   #timer: ReturnType<typeof setInterval> | null = null
+  /** Ce qui rend la main à {@link protect} quand le panneau a répondu. */
+  #answered: ((opened: boolean) => void) | null = null
 
   constructor(private readonly periodMs = REFRESH_PERIOD_MS) {}
 
@@ -191,6 +217,80 @@ export class Admin {
     }
   }
 
+  /**
+   * Exécute un acte PROTÉGÉ, en ne demandant le mot de passe que s'il le faut.
+   *
+   * ADR-033 : on peut tout voir, on ne peut pas tout écrire. Le mot de passe n'est donc
+   * plus une porte franchie avant de regarder, mais une question posée au moment d'agir.
+   *
+   * Ce qui rend la chose supportable est le REJEU. Sans lui, l'exploitant qui vient de
+   * modifier sept champs et touche « Enregistrer » perdrait sa saisie et devrait tout
+   * refaire après s'être authentifié — et il ne le ferait qu'une fois.
+   *
+   * @param action - l'appel protégé, qui sera peut-être passé DEUX fois.
+   * @returns ce que l'acte a répondu, ou null s'il a échoué ou s'il a été abandonné.
+   */
+  async protect<T>(action: () => Promise<T>): Promise<T | null> {
+    try {
+      return await action()
+    } catch (failure) {
+      if (!needsCredentials(failure)) {
+        this.#failAction(failure)
+        return null
+      }
+      if (!(await this.#askForCredentials(failure))) return null
+      try {
+        return await action()
+      } catch (again) {
+        this.#failAction(again)
+        return null
+      }
+    }
+  }
+
+  /** Ouvre le panneau et rend la main quand il a répondu. */
+  #askForCredentials(failure: AdminError): Promise<boolean> {
+    this.pending = {
+      kind: failure.status === 409 ? 'first-password' : 'password',
+      message: failure.message,
+    }
+    return new Promise<boolean>((resolve) => {
+      this.#answered = resolve
+    })
+  }
+
+  /**
+   * Le panneau répond par un mot de passe.
+   *
+   * @param password - ce qui a été tapé.
+   */
+  async answerPassword(password: string): Promise<void> {
+    if (await this.login(password)) this.#settle(true)
+  }
+
+  /**
+   * Le panneau répond par le code de secours de la fiche, et un mot de passe neuf.
+   *
+   * @param code - les huit caractères de la fiche d'installation.
+   * @param password - le mot de passe à poser.
+   */
+  async answerRecovery(code: string, password: string): Promise<void> {
+    if (await this.recover(code, password)) this.#settle(true)
+  }
+
+  /** Le panneau est refermé sans réponse : l'acte est abandonné, jamais rejoué. */
+  cancelPassword(): void {
+    this.#settle(false)
+  }
+
+  /** Referme le panneau et rend la main à l'acte qui attendait. */
+  #settle(opened: boolean): void {
+    this.pending = null
+    const answered = this.#answered
+    this.#answered = null
+    answered?.(opened)
+  }
+
   /** Ferme la session et revient au tableau de bord. */
   async logout(): Promise<void> {
     await api.closeSession()
@@ -231,6 +331,20 @@ export class Admin {
       this.#failAction(failure)
       return null
     }
+  }
+
+  /**
+   * Enregistre un refus qui n'est pas passé par {@link run} ni par {@link load}.
+   *
+   * Un acte protégé doit LAISSER REMONTER les refus d'authentification, sans quoi
+   * {@link protect} ne les voit jamais et ne peut ni demander le mot de passe ni rejouer.
+   * Ce qui reste — un 422 et ses quarante-cinq contrôles — s'affiche par ici.
+   *
+   * @param failure - ce que l'appel a levé.
+   */
+  report(failure: unknown): void {
+    this.lastFaults = failure instanceof AdminError ? failure.faults : []
+    this.#failAction(failure)
   }
 
   /** Une session refusée est une session à rouvrir, jamais une panne à signaler. */

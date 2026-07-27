@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -83,6 +83,22 @@ function sources(dir: string): string[] {
 
 const styles = sources(SOURCE_DIR).map((path) => readFileSync(path, 'utf8'))
 
+/**
+ * L'ÉCRAN CLIENT seul, pour la règle des cibles tactiles.
+ *
+ * Cette règle vient d'une contrainte physique — 20 mm sous un doigt, à 60-80 cm — et
+ * l'administration n'y est pas soumise : elle se conduit à la souris, sur des pages de
+ * réglages qui portent 45 champs, et imposer 72 px à chacun donnait une page Règles de
+ * 1 900 px de haut (ADR-033). Ce que ce test garde est donc l'écran que le CLIENT touche,
+ * où la contrainte s'applique vraiment.
+ *
+ * Les neuf gros boutons du mode bénévole, que §14.4 veut gros et qu'on touche au
+ * comptoir, ont leur propre test dans `admin-troubleshooting.test.ts`.
+ */
+const clientStyles = sources(SOURCE_DIR)
+  .filter((path) => !path.includes(`${sep}admin`))
+  .map((path) => readFileSync(path, 'utf8'))
+
 describe('les contrastes de §14.2', () => {
   it.each(TEXT_PAIRS)('$fg sur $bg, à $px px', ({ fg, bg, px }) => {
     const ratio = contrast(TOKENS[fg] as string, TOKENS[bg] as string)
@@ -119,9 +135,9 @@ describe('les cibles tactiles de §14.2', () => {
     expect(Number(declared?.[1]) * 16).toBeGreaterThanOrEqual(72)
   })
 
-  it('donne la classe .touch-target à CHAQUE bouton du front', () => {
+  it('donne la classe .touch-target à CHAQUE bouton de l’écran client', () => {
     const offenders: string[] = []
-    for (const [index, style] of styles.entries()) {
+    for (const [index, style] of clientStyles.entries()) {
       for (const match of style.matchAll(/<button\b[^>]*>/gsu)) {
         if (!match[0].includes('touch-target')) offenders.push(`${index}: ${match[0]}`)
       }

@@ -1,5 +1,6 @@
 import * as api from './api'
-import type { ConfirmationDTO, FaultDTO } from './dto'
+import { AdminError } from './api'
+import type { ConfigDTO, ConfirmationDTO, FaultDTO } from './dto'
 import type { Admin } from './session.svelte'
 
 /**
@@ -108,11 +109,21 @@ export class Draft {
     if (this.config === null) return false
     this.faults = []
     const document = this.config
-    const body = await this.admin.load(() => api.saveConfig(document))
-    if (body === null) {
+
+    let body: ConfigDTO
+    try {
+      body = await api.saveConfig(document)
+    } catch (failure) {
+      // Les refus d'AUTHENTIFICATION remontent : c'est `Admin.protect` qui les traite,
+      // en demandant le mot de passe puis en REJOUANT cet enregistrement (ADR-033). Les
+      // avaler ici, comme `admin.load` le faisait, rendait le rejeu impossible et
+      // renvoyait un « échec » muet à l'exploitant qui venait de saisir sept champs.
+      if (isCredentialRefusal(failure)) throw failure
+      this.admin.report(failure)
       this.faults = faultsOfLastRefusal(this.admin)
       return false
     }
+
     this.config = body.config
     this.fingerprint = body.config_fingerprint
     // `?? []` bien que le service ne serve plus `null` : ce poste peut tourner un binaire
@@ -123,10 +134,24 @@ export class Draft {
     return true
   }
 
-  /** Confirme la configuration en service et arrête le compte à rebours. */
+  /**
+   * Confirme la configuration en service et arrête le compte à rebours.
+   *
+   * Comme {@link save}, elle laisse remonter les refus d'authentification : la
+   * confirmation est un acte protégé, et le compte à rebours court pendant qu'on
+   * s'authentifie — c'est le pire moment pour perdre le geste.
+   */
   async confirm(): Promise<void> {
-    await this.admin.run(() => api.confirmConfig())
+    try {
+      await api.confirmConfig()
+    } catch (failure) {
+      if (isCredentialRefusal(failure)) throw failure
+      this.admin.report(failure)
+      return
+    }
+    this.admin.notice = 'La configuration est confirmée.'
     this.pending = null
+    await this.admin.refresh()
   }
 
   /** Laisse tomber une clé que ce binaire refuse (§11.3, contrôle 20). */
@@ -156,4 +181,15 @@ export class Draft {
  */
 function faultsOfLastRefusal(admin: Admin): FaultDTO[] {
   return admin.lastFaults
+}
+
+/**
+ * Vrai quand un refus se règle en s'authentifiant, et non en corrigeant sa saisie.
+ *
+ * Ces deux-là REMONTENT jusqu'à `Admin.protect`, qui demande de quoi s'authentifier puis
+ * rejoue l'acte. Tous les autres — un 422 et ses contrôles en tête — s'affichent ici :
+ * rouvrir un panneau de mot de passe par-dessus cacherait la faute qu'il faut lire.
+ */
+function isCredentialRefusal(failure: unknown): boolean {
+  return failure instanceof AdminError && (failure.status === 401 || failure.status === 409)
 }
