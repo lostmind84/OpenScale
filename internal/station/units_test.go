@@ -421,8 +421,11 @@ func TestAStillBrokenConfigurationLeavesTheStationOutOfService(t *testing.T) {
 // shape.
 func repairedProfile() domain.Config {
 	cfg := domain.NeutralProfile()
+	// Une empreinte comme argon2id en produit : 32 octets dont plusieurs ne sont pas du
+	// texte. Le corps lisible qui figurait ici est précisément ce que le contrôle 31
+	// refuse désormais — c'est le remplissage qui avait enfermé un poste dehors.
 	cfg.Admin.PasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$" +
-		"c2VsLXBvdXItbGUtdGVzdA$Y2xlLWRlLXRlc3QtcG91ci1sYS12YWxpZGF0aW9u"
+		"c2VsLXBvdXItbGUtdGVzdA$AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
 	return cfg
 }
 

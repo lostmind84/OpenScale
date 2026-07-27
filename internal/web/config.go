@@ -92,13 +92,12 @@ func (s *Server) configPayload(cfg domain.Config, pending *confirmationDTO) conf
 	redacted.Admin.PasswordHash = ""
 	redacted.Admin.RecoveryCodeHash = ""
 
-	// A nil map marshals to `null`, and a screen that reads `scale.options.port` off
-	// `null` throws. The three option maps are empty on a station running the neutral
-	// profile — which is every station between its installation and its first save.
-	redacted.Scale.Options = optionsOrEmpty(redacted.Scale.Options)
-	redacted.Printer.Options = optionsOrEmpty(redacted.Printer.Options)
-	redacted.Catalog.Options = optionsOrEmpty(redacted.Catalog.Options)
-
+	// The three option maps are deliberately left as they are, `null` included. Turning
+	// them into `{}` here looked like the same repair as `retired_keys` and is not: this
+	// document is what the screen EDITS AND SAVES BACK, so an empty map written where the
+	// file had none is a block that moved — the station then asked for a sixty-second
+	// confirmation on a `scale` block nobody had touched. The screen reads them by path
+	// and answers `undefined` for a missing one, which is what a screen should do.
 	raw, err := json.Marshal(redacted)
 	if err != nil {
 		raw = []byte(`{}`)
@@ -121,14 +120,6 @@ func retiredOrEmpty(keys []string) []string {
 		return []string{}
 	}
 	return keys
-}
-
-// optionsOrEmpty returns a driver option map that marshals to `{}` and never to `null`.
-func optionsOrEmpty(options domain.DriverOptions) domain.DriverOptions {
-	if options == nil {
-		return domain.DriverOptions{}
-	}
-	return options
 }
 
 // writeConfig is PUT /admin/api/config — the five steps of §11.4, in order.

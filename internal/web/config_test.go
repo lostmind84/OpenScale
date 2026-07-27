@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -33,9 +34,42 @@ func TestNoListOfTheAdminPayloadIsEverNull(t *testing.T) {
 		t.Fatalf("lecture du corps : %v", err)
 	}
 
-	for _, forbidden := range []string{`"retired_keys":null`, `"options":null`} {
-		if strings.Contains(string(raw), forbidden) {
-			t.Errorf("la charge utile porte %s : l'écran lève sur .length", forbidden)
-		}
+	if strings.Contains(string(raw), `"retired_keys":null`) {
+		t.Error(`la charge utile porte "retired_keys":null : l'écran lève sur .length`)
+	}
+}
+
+// TestTheEditedDocumentIsServedAsItIsOnDisk.
+//
+// The other half of the repair above, and it was learnt the hard way: the payload is the
+// document the screen EDITS AND SAVES BACK. Filling in a `null` option map there — which
+// looks like exactly the same fix as `retired_keys` — writes an empty map where the file
+// had none, so a save reported a `scale` block that nobody had touched and the station
+// asked for a sixty-second confirmation on it. What is served is what is on disk.
+func TestTheEditedDocumentIsServedAsItIsOnDisk(t *testing.T) {
+	b := newBench(t)
+	b.setPassword("openscale", "ABCDEFGH")
+	b.login("openscale")
+
+	response := b.get("/admin/api/config")
+	defer response.Body.Close()
+	raw, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("lecture du corps : %v", err)
+	}
+
+	var payload struct {
+		Config struct {
+			Scale struct {
+				Options map[string]any `json:"options"`
+			} `json:"scale"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("charge utile illisible : %v", err)
+	}
+	if payload.Config.Scale.Options != nil && len(payload.Config.Scale.Options) == 0 {
+		t.Error("une carte d'options vide a été inventée : le premier enregistrement " +
+			"déclarera un bloc « scale » modifié que personne n'a touché")
 	}
 }

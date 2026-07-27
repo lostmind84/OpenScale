@@ -89,8 +89,8 @@ func benchConfig() domain.Config {
 // The two argon2id strings of the delivered configuration file. They are the shape §11.2
 // validates, and the shape the archive must never carry.
 const (
-	benchPasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$b3BlbnNjYWxlLXNhbHQxMg$Zm9yLXRoZS1kZWxpdmVyZWQtY29uZmlndXJhdGlvbmc"
-	benchRecoveryHash = "$argon2id$v=19$m=65536,t=3,p=2$cmVjb3Zlcnktc2FsdC0wMQ$Zm9yLXRoZS1yZWNvdmVyeS1jb2RlLW9mLXRoZS1zaGVldA"
+	benchPasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$b3BlbnNjYWxlLXNhbHQxMg$AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+	benchRecoveryHash = "$argon2id$v=19$m=65536,t=3,p=2$cmVjb3Zlcnktc2FsdC0wMQ$AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
 )
 
 // tweak edits the configuration before it is written to disk.

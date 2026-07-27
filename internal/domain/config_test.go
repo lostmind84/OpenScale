@@ -2,6 +2,7 @@ package domain
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -152,6 +153,69 @@ func TestDeliveredConfigurationValidatesWithoutAFault(t *testing.T) {
 	if faults := config.Validate(testRegistries()); len(faults) != 0 {
 		t.Fatalf("le fichier livré doit passer sans faute, obtenu :\n%s",
 			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
+// TestTheDeliveredConfigurationCarriesNoSecret — §14.4 le dit d'elle mot pour mot : « la
+// configuration livrée est l'export de §11.5, qui ne porte aucun secret ».
+//
+// Le fichier a porté un remplissage tapé à la main. Trois conséquences en chaîne : aucun
+// mot de passe ne pouvait y correspondre ; le contrôle 31 ne vérifiait que la forme, donc
+// « config validate » et « doctor » le déclaraient sain ; et install.ps1, voyant un champ
+// de code de secours NON VIDE, sautait le tirage — la fiche d'installation partait avec
+// des pointillés et le poste était enfermé dehors, définitivement.
+func TestTheDeliveredConfigurationCarriesNoSecret(t *testing.T) {
+	config := loadDelivered(t)
+
+	if config.Admin.PasswordHash != "" {
+		t.Errorf("la configuration livrée porte un mot de passe : %q", config.Admin.PasswordHash)
+	}
+	if config.Admin.RecoveryCodeHash != "" {
+		t.Errorf("la configuration livrée porte un code de secours : %q", config.Admin.RecoveryCodeHash)
+	}
+}
+
+// TestAStationWithoutAPasswordStillWeighs — un champ vide n'est PAS une faute.
+//
+// Il l'était, et une configuration fautive met le poste hors service (§11.3) : un poste
+// neuf n'aurait donc pas pesé. Peser est la seule chose qu'il doive faire quoi qu'il
+// arrive ; c'est l'administration, et non le validateur, qui répond « aucun mot de passe
+// n'est posé » et propose le code de secours de la fiche.
+func TestAStationWithoutAPasswordStillWeighs(t *testing.T) {
+	config := loadDelivered(t)
+	config.Admin.PasswordHash = ""
+	config.Admin.RecoveryCodeHash = ""
+
+	if fault := findFault(config.Validate(testRegistries()), "admin.password_hash"); fault != nil {
+		t.Fatalf("un poste sans mot de passe est déclaré hors service : %s", fault.Message)
+	}
+}
+
+// TestAHandTypedHashIsRefused — la longueur ne suffisait pas à l'attraper.
+//
+// « for-the-delivered-configurationg » fait EXACTEMENT les 32 octets qu'argon2id produit.
+// Ce qui le trahit est son alphabet : 32 octets tirés au sort sont tous imprimables une
+// fois sur 10^14.
+func TestAHandTypedHashIsRefused(t *testing.T) {
+	const placeholder = "$argon2id$v=19$m=65536,t=3,p=2$b3BlbnNjYWxlLXNhbHQxMg$Zm9yLXRoZS1kZWxpdmVyZWQtY29uZmlndXJhdGlvbmc"
+
+	if !wellFormedArgon2id(placeholder) {
+		t.Fatal("le remplissage serait attrapé par la vérification de forme : le test ne prouve rien")
+	}
+	if usableArgon2id(placeholder) {
+		t.Fatal("le remplissage est déclaré utilisable")
+	}
+
+	// Une empreinte comme argon2id en produit : 32 octets dont plusieurs ne sont pas du
+	// texte. C'est ce que le contrôle doit continuer d'accepter.
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	drawn := "$argon2id$v=19$m=65536,t=3,p=2$b3BlbnNjYWxlLXNhbHQxMg$" +
+		base64.RawStdEncoding.EncodeToString(key)
+	if !usableArgon2id(drawn) {
+		t.Fatalf("une empreinte tirée au sort est refusée : %s", drawn)
 	}
 }
 
@@ -382,9 +446,14 @@ func brokenConfigurations() []brokenConfiguration {
 			mutate: func(_ *testing.T, c *Config) { c.Journal.MaxRows = 50 },
 			field:  "journal.max_rows",
 		}, {
-			control: "31", name: "aucun mot de passe d'administration",
-			mutate: func(_ *testing.T, c *Config) { c.Admin.PasswordHash = "" },
-			field:  "admin.password_hash",
+			// Le remplissage RÉEL que la configuration livrée a porté. Il passe la
+			// vérification de forme, et son corps fait EXACTEMENT les 32 octets
+			// d'argon2id : seule la nature de ces octets le trahit.
+			control: "31", name: "empreinte de remplissage, tapée à la main",
+			mutate: func(_ *testing.T, c *Config) {
+				c.Admin.PasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$b3BlbnNjYWxlLXNhbHQxMg$Zm9yLXRoZS1kZWxpdmVyZWQtY29uZmlndXJhdGlvbmc"
+			},
+			field: "admin.password_hash",
 		}, {
 			control: "31", name: "mot de passe en clair au lieu d'une empreinte argon2id",
 			mutate: func(_ *testing.T, c *Config) { c.Admin.PasswordHash = "admin" },
@@ -499,8 +568,8 @@ func brokenConfigurations() []brokenConfiguration {
 			// défaut : l'exploitant verrait la grille ne pas bouger et conclurait que
 			// le réglage ne sert à rien.
 			control: "46", name: "taille de tuile inconnue",
-			mutate:  func(_ *testing.T, c *Config) { c.UI.TileSize = "moyen" },
-			field:   "ui.tile_size",
+			mutate: func(_ *testing.T, c *Config) { c.UI.TileSize = "moyen" },
+			field:  "ui.tile_size",
 		},
 	}
 }
@@ -642,14 +711,15 @@ func TestControls17To19OnTheCompiledPlan(t *testing.T) {
 // next one.
 func TestValidateReportsEveryFaultAtOnce(t *testing.T) {
 	config := loadDelivered(t)
-	config.Station.Number = 0                          // 1
-	config.Network.Listen = "pas une adresse"          // 2
-	config.Pricing.Tiers[0].CoefDen = 0                // 11
-	config.Pricing.PrimaryCode = "GHOST"               // 14
-	config.Limits.MaxUnits = 500                       // 24
-	config.Stability.Mode = "bloquant"                 // 28
-	config.Journal.MaxRows = 1                         // 30
-	config.Admin.PasswordHash = ""                     // 31
+	config.Station.Number = 0                 // 1
+	config.Network.Listen = "pas une adresse" // 2
+	config.Pricing.Tiers[0].CoefDen = 0       // 11
+	config.Pricing.PrimaryCode = "GHOST"      // 14
+	config.Limits.MaxUnits = 500              // 24
+	config.Stability.Mode = "bloquant"        // 28
+	config.Journal.MaxRows = 1                // 30
+	// 31 : un remplissage tapé à la main, qui passe la vérification de forme.
+	config.Admin.PasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$b3BlbnNjYWxlLXNhbHQxMg$Zm9yLXRoZS1kZWxpdmVyZWQtY29uZmlndXJhdGlvbmc"
 	config.Catalog.FallbackCategory = "divers"         // 32
 	config.Catalog.Categories[0].Color = "vert"        // 35
 	setOption(t, config.Printer.Options, "copies", 99) // 37

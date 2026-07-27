@@ -120,8 +120,8 @@
   "journal": { "max_rows": 5000, "max_days": 90, "max_technical": 2000 },
 
   "admin": {
-    "password_hash": "$argon2id$v=19$m=65536,t=3,p=2$b3BlbnNjYWxlLXNhbHQxMg$Zm9yLXRoZS1kZWxpdmVyZWQtY29uZmlndXJhdGlvbmc",
-    "recovery_code_hash": "$argon2id$v=19$m=65536,t=3,p=2$cmVjb3Zlcnktc2FsdC0wMQ$Zm9yLXRoZS1yZWNvdmVyeS1jb2RlLW9mLXRoZS1zaGVldA",
+    "password_hash": "",
+    "recovery_code_hash": "",
     "session_minutes": 30,
     "attempts_per_minute": 5
   },
