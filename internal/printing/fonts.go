@@ -69,6 +69,17 @@ type faceKey struct {
 // every one of them holds a rasterizer. Left unclosed, printing an afternoon of labels
 // leaks steadily.
 type Library struct {
+	// drawing is held for the DURATION of a rasterisation, whereas mu is held only long
+	// enough to read or fill the two maps. The distinction is the whole point: neither
+	// sfnt.Font nor opentype.Face is safe for concurrent use — each reuses a scratch
+	// buffer and a vector rasterizer from one glyph to the next — so protecting the
+	// memoisation while handing the faces out to be drawn with in parallel protects
+	// nothing. Two overlapping label previews crashed the station that way.
+	//
+	// Serialising is the honest answer rather than a compromise: a render costs a few
+	// milliseconds, and a station prints one label at a time.
+	drawing sync.Mutex
+
 	mu     sync.Mutex
 	parsed map[Font][2]*sfnt.Font
 	faces  map[faceKey]font.Face
@@ -172,7 +183,13 @@ func (l *Library) Face(family Font, sizeUM int, dotsPerMM float64, bold bool) (f
 
 // Close releases every memoised face. The library is unusable afterwards, and says so
 // rather than handing out faces backed by a freed rasterizer.
+//
+// It waits for the render in flight: freeing a rasterizer under a goroutine still
+// drawing with it is the same crash as two goroutines drawing at once.
 func (l *Library) Close() error {
+	l.drawing.Lock()
+	defer l.drawing.Unlock()
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.closed {

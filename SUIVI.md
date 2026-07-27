@@ -10,6 +10,21 @@ contrôles, `diagnostic.zip`, installeurs Windows et Linux, `INSTALLATION.md` et
 `TROUBLESHOOTING.md`. **2 564 tests** verts (2 319 Go comptés en `--- PASS`, 245 front), suite passée sur ce
 poste Windows — `-race` sautée faute de gcc, la CI Linux la couvre.
 
+**Deux aperçus à la fois plantaient le poste (27/07/2026).** Le commanditaire a rapporté
+« des exceptions dans la console en cliquant un peu partout », sans savoir lesquelles :
+quatre panics Go, toutes sur `GET /admin/api/label/preview.png`, toutes dans
+`x/image/font/sfnt` — et toutes sur **le même pointeur de police**, depuis quatre
+goroutines différentes. Ni `sfnt.Font` ni `opentype.Face` ne sont sûrs en concurrence ; le
+mutex de la bibliothèque ne gardait que la **carte** des faces mémoïsées, distribuées
+ensuite hors verrou. Il suffisait de deux aperçus simultanés, c'est-à-dire d'un bénévole
+qui clique deux fois — l'aperçu se rafraîchit à chaque frappe dans l'éditeur de gabarit.
+
+Un rendu prend désormais l'exclusivité de sa bibliothèque pour toute sa durée, et `Close()`
+la prend aussi. `internal/printing/concurrency_test.go` **plantait** sans le correctif ;
+sur le poste réel, 96 aperçus concurrents puis 60 requêtes sur toutes les routes ouvertes
+répondent 200 sans une panic. *(Le pilote d'impression a sa propre bibliothèque : la
+collision était aperçu contre aperçu, jamais impression contre aperçu.)*
+
 **L'administration, reprise en entier (27/07/2026).** Le commanditaire a signalé un mot de
 passe qui « affiche une page d'erreur sans détails », demandé si ce mot de passe servait à
 quelque chose, et demandé de reprendre le design des neuf pages. Les trois se sont révélés

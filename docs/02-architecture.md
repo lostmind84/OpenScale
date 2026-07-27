@@ -1284,6 +1284,19 @@ applyThreshold(img, restOfLabel, g.TextThreshold) // default 0x68
 
 **Trois corrections d'ingénierie** (mineur-1) : les `font.Face` sont **mémoïsées** dans une `map[faceKey]font.Face` où **`faceKey = struct{ Font string; PPEM int; Bold bool }`** — une clé réduite au seul ppem confondrait Regular et Bold au même corps, ce qui, avec le passage automatique en Bold sous 20 dots, rendrait un style pour l'autre ou écraserait l'entrée à chaque alternance — et fermées à la destruction du rastériseur — la boucle de réduction automatique en créait jusqu'à 20 par champ et par étiquette, jamais fermées ; la réduction descend par pas de 0,1 mm jusqu'à `MinFontSizeUM` puis **tronque avec ellipse** au dernier corps valide en journalisant une anomalie technique, au lieu de sortir silencieusement ; et le repli de police est `gofont/gobold` + `goregular` (`[]byte` en dur, BSD-3) si le fichier embarqué manque.
 
+> **Mémoïser une face ne suffit pas à la partager, et la différence est un plantage.**
+> Ni `sfnt.Font` ni `opentype.Face` ne sont sûrs en concurrence : chacun réutilise d'un
+> glyphe au suivant un tampon de travail et un rastériseur vectoriel. Protéger la *carte*
+> des faces mémoïsées tout en distribuant les faces elles-mêmes à des goroutines qui
+> tracent en parallèle ne protège donc rien. Deux aperçus d'étiquette simultanés ont
+> planté le poste ainsi — l'aperçu se rafraîchit à chaque frappe dans l'éditeur de
+> gabarit, et « quatre consommateurs » veut dire quatre goroutines. **Un rendu prend
+> l'exclusivité de sa bibliothèque pour toute sa durée** : quelques millisecondes, et un
+> poste imprime une étiquette à la fois. Le verrou est distinct de celui qui garde la
+> carte, et `Close()` le prend aussi — libérer un rastériseur sous une goroutine qui
+> trace encore est le même plantage. `internal/printing/concurrency_test.go` fait
+> échouer la version sans verrou en quelques dizaines de rendus.
+
 ### 7.4 Le symbole, tracé à module fractionnaire
 
 C'est **le** point technique de l'arbitrage A1. Le module vaut 0,293 mm, soit **2,344 dots** à 203 dpi : il n'est **pas entier**. Tout rendu de ce symbole doit donc caser 2,344 dots par module, et aucun ne peut faire autrement qu'alterner des barres de 2 et de 3 dots. C'est ce qu'aucun langage d'imprimante ne sait exprimer, puisque le module s'y déclare en dots entiers : **seul un rendu raster y parvient, et c'est la justification arithmétique du choix « raster par défaut » (A2).**
