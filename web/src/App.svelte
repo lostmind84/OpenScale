@@ -162,14 +162,12 @@
   /**
    * Loads the administration bundle, lazily, into this same window (§14.1).
    *
-   * Guarded, because the way in is now a key one can press twice (ADR-032): a
-   * second mount would put two administrations in the same document, each with its
-   * own session and its own polling.
+   * `mountAdmin` refuses a second mount BY ITSELF, and releases that refusal when the
+   * screen closes. A guard kept here instead — as ADR-032 first shipped — never released,
+   * so the key answered exactly once per page load: after one trip to the administration
+   * and back, the way in was dead for good.
    */
-  let adminMounted = false
   async function openAdmin(): Promise<void> {
-    if (adminMounted) return
-    adminMounted = true
     const module = await import('./admin/mount')
     module.mountAdmin(document.body)
   }

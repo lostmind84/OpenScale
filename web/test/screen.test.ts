@@ -139,6 +139,12 @@ beforeEach(() => {
       posted.push({ route: input, body: JSON.parse(String(init.body)) as Record<string, unknown> })
       return new Response('{}', { status: 202 })
     }
+    // L'administration a son propre contrat : lui servir le catalogue la ferait rendre un
+    // tableau de bord sur des champs absents. Ce fichier teste l'écran CLIENT ; il vérifie
+    // que l'administration s'ouvre et se ferme, pas ce qu'elle affiche.
+    if (String(input).startsWith('/admin/api/')) {
+      return new Response('{"message":"Poste indisponible dans ce test."}', { status: 503 })
+    }
     return new Response(JSON.stringify(catalog), { status: 200 })
   })
   host = document.createElement('div')
@@ -240,6 +246,27 @@ describe('ce que l’écran dit en permanence', () => {
     expect(key).toBeDefined()
     // Le coin muet de trois secondes n'existe plus : rien à trouver à l'aveugle.
     expect(host.querySelector('.admin-corner')).toBeNull()
+  })
+
+  it('rouvre l’administration après un retour à l’écran client', async () => {
+    // Le garde d'ADR-032 ne se relâchait jamais : après un aller-retour, la touche
+    // Réglages ne répondait plus JAMAIS. `mountAdmin` se garde déjà d'un doublon.
+    await open()
+    const key = [...host.querySelectorAll<HTMLElement>('.filters button')].find((b) =>
+      b.textContent?.includes('Réglages'),
+    ) as HTMLElement
+
+    key.click()
+    await vi.waitUntil(() => document.querySelector('[data-admin]') !== null)
+
+    const back = [...document.querySelectorAll<HTMLElement>('[data-admin] button')].find((b) =>
+      b.textContent?.includes('Revenir à l’écran client'),
+    ) as HTMLElement
+    back.click()
+    await vi.waitUntil(() => document.querySelector('[data-admin]') === null)
+
+    key.click()
+    await vi.waitUntil(() => document.querySelector('[data-admin]') !== null)
   })
 
   it('applique la densité de tuile que le poste configure', async () => {
