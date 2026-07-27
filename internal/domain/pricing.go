@@ -4,12 +4,103 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 // ErrInconsistentTiers reports a price grid that cannot be applied: a
 // non-positive denominator, a negative numerator, or a primary or reference code
 // that names no tier.
 var ErrInconsistentTiers = errors.New("domain: inconsistent price grid")
+
+// Discount is a price reduction in TENTHS OF A PERCENT: 102 is 10,2 %.
+//
+// An integer and not a float. 10,2 has no exact binary representation, and the
+// price runs on exact integer arithmetic from the catalog price to the printed
+// cent; a float64 in the middle would put between the file and the till a
+// rounding that nobody declared (ADR-034).
+type Discount int64
+
+// FullDiscount is a discount of 100 %, and it is also the SCALE of the type: a
+// tier at discount d costs (FullDiscount - d) / FullDiscount of the catalog
+// price. One constant, because "the whole" and "100 %" are the same quantity.
+const FullDiscount = Discount(1000)
+
+// String writes the discount the way a volunteer reads it: a French comma, and
+// no trailing zero. MarshalJSON writes a dot because JSON does -- two spellings
+// of one value, and neither is the other's job.
+func (d Discount) String() string {
+	sign, tenths := "", int64(d)
+	if tenths < 0 {
+		sign, tenths = "-", -tenths
+	}
+	if tenths%10 == 0 {
+		return fmt.Sprintf("%s%d", sign, tenths/10)
+	}
+	return fmt.Sprintf("%s%d,%d", sign, tenths/10, tenths%10)
+}
+
+// MarshalJSON writes the shortest exact decimal: 102 is "10.2", 100 is "10".
+//
+// Deterministic on purpose: the SHA-256 fingerprint of the canonical JSON
+// (ADR-012) is what four stations compare by eye, and two spellings of the same
+// discount would make them differ over nothing.
+func (d Discount) MarshalJSON() ([]byte, error) {
+	sign, tenths := "", int64(d)
+	if tenths < 0 {
+		sign, tenths = "-", -tenths
+	}
+	if tenths%10 == 0 {
+		return fmt.Appendf(nil, "%s%d", sign, tenths/10), nil
+	}
+	return fmt.Appendf(nil, "%s%d.%d", sign, tenths/10, tenths%10), nil
+}
+
+// UnmarshalJSON reads a percentage written with AT MOST ONE decimal digit.
+//
+// A second decimal digit is an ERROR and not a fault, for the same reason an
+// unknown rounding word is one: there is no value to hold, and holding it
+// rounded would hold a price nobody declared. A discount that is merely OUT OF
+// BOUNDS is read, so that check 13 names it together with every other fault
+// (§11.3) instead of aborting the whole document on the first one.
+func (d *Discount) UnmarshalJSON(raw []byte) error {
+	tenths, err := parseTenths(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return err
+	}
+	*d = Discount(tenths)
+	return nil
+}
+
+// parseTenths converts the TEXT of a JSON number into tenths of a percent.
+//
+// Hand-written rather than strconv.ParseFloat: the whole point is that no float
+// ever carries the value. "10.2" is 102 tenths because the text says so, not
+// because a binary approximation happened to round back to it.
+func parseTenths(text string) (int64, error) {
+	negative := strings.HasPrefix(text, "-")
+	digits := strings.TrimPrefix(text, "-")
+	whole, fraction, hasFraction := strings.Cut(digits, ".")
+	if whole == "" || !isDigits(whole) {
+		return 0, fmt.Errorf("domain: %q n'est pas une remise en pourcentage", text)
+	}
+	if hasFraction && (len(fraction) != 1 || !isDigits(fraction)) {
+		return 0, fmt.Errorf(
+			"domain: la remise %q s'écrit au dixième de point, un seul chiffre après la virgule", text)
+	}
+	percent, err := strconv.ParseInt(whole, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("domain: remise %q illisible : %w", text, err)
+	}
+	tenths := percent * 10
+	if hasFraction {
+		tenths += int64(fraction[0] - '0')
+	}
+	if negative {
+		tenths = -tenths
+	}
+	return tenths, nil
+}
 
 // PriceTier is one configured price level, such as member or solidarity.
 //

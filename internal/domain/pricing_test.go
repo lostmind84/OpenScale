@@ -1,8 +1,10 @@
 package domain
 
 import (
+	"encoding/json"
 	"errors"
 	"math/rand/v2"
+	"strings"
 	"testing"
 )
 
@@ -287,6 +289,104 @@ func TestNegativeNetWeightStaysSymmetric(t *testing.T) {
 		if got, want := negative.Lines[i].Amount, -positive.Lines[i].Amount; got != want {
 			t.Errorf("tier %s: amount at -282 g = %d, want %d",
 				positive.Lines[i].Tier.Code, got, want)
+		}
+	}
+}
+
+// --- La remise -----------------------------------------------------------------
+
+// TestDiscountReadsTheTextOfTheNumber: the value that reaches the till is the one
+// the file carries. 10.2 has no exact binary representation, so a float64 in the
+// middle would be a rounding nobody declared (ADR-034).
+func TestDiscountReadsTheTextOfTheNumber(t *testing.T) {
+	for text, want := range map[string]Discount{
+		"0":     0,
+		"10":    100,
+		"10.2":  102,
+		"0.5":   5,
+		"100":   1000,
+		"33.3":  333,
+		"-5":    -50,  // out of bounds is READ: check 13 names it with the others
+		"120":   1200, // idem
+	} {
+		var got Discount
+		if err := json.Unmarshal([]byte(text), &got); err != nil {
+			t.Errorf("%s : %v", text, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s lu %d dixièmes, attendu %d", text, got, want)
+		}
+	}
+}
+
+// TestDiscountRefusesWhatItCannotHold: a second decimal digit is an ERROR and not
+// a fault, for the reason RoundingPolicy gives (config.go): there is no value to
+// hold. Holding it rounded would be holding a price nobody declared.
+func TestDiscountRefusesWhatItCannotHold(t *testing.T) {
+	for _, text := range []string{"33.333", "10.25", `"10"`, "1e2", "10.", ".5", "abc", "true", "null"} {
+		var got Discount
+		if err := json.Unmarshal([]byte(text), &got); err == nil {
+			t.Errorf("%s accepté (%d dixièmes), refus attendu", text, got)
+		}
+	}
+}
+
+// TestDiscountRefusalNamesTheRule: the message has to tell a volunteer what to
+// type, not merely that the file is wrong.
+func TestDiscountRefusalNamesTheRule(t *testing.T) {
+	var got Discount
+	err := json.Unmarshal([]byte("33.333"), &got)
+	if err == nil {
+		t.Fatal("33.333 accepté, refus attendu")
+	}
+	if !strings.Contains(err.Error(), "dixième") {
+		t.Errorf("message %q : il doit nommer le dixième de point", err)
+	}
+}
+
+// TestDiscountWritesTheShortestExactDecimal: the SHA-256 fingerprint of the
+// canonical JSON (ADR-012) is what four stations compare by eye, so the writing
+// has to be deterministic -- and short enough to be read.
+func TestDiscountWritesTheShortestExactDecimal(t *testing.T) {
+	for want, discount := range map[string]Discount{
+		"0": 0, "10": 100, "10.2": 102, "100": 1000, "-0.5": -5,
+	} {
+		raw, err := json.Marshal(discount)
+		if err != nil {
+			t.Errorf("%d dixièmes : %v", discount, err)
+			continue
+		}
+		if string(raw) != want {
+			t.Errorf("%d dixièmes écrit %s, attendu %s", discount, raw, want)
+		}
+	}
+}
+
+// TestDiscountRoundTripsOnEveryTenth walks all 1001 admissible values: the file
+// says exactly what the type holds, and back.
+func TestDiscountRoundTripsOnEveryTenth(t *testing.T) {
+	for tenths := Discount(0); tenths <= FullDiscount; tenths++ {
+		raw, err := json.Marshal(tenths)
+		if err != nil {
+			t.Fatalf("%d dixièmes : %v", tenths, err)
+		}
+		var back Discount
+		if err := json.Unmarshal(raw, &back); err != nil {
+			t.Fatalf("%s relu : %v", raw, err)
+		}
+		if back != tenths {
+			t.Fatalf("%d dixièmes écrit %s puis relu %d", tenths, raw, back)
+		}
+	}
+}
+
+// TestDiscountSpeaksFrenchOnScreen: MarshalJSON writes a dot because JSON does;
+// String writes a comma because a volunteer reads it. Two spellings, one value.
+func TestDiscountSpeaksFrenchOnScreen(t *testing.T) {
+	for want, discount := range map[string]Discount{"10,2": 102, "10": 100, "0": 0} {
+		if got := discount.String(); got != want {
+			t.Errorf("%d dixièmes affiché %q, attendu %q", discount, got, want)
 		}
 	}
 }
