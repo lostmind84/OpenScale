@@ -594,6 +594,20 @@ func brokenConfigurations() []brokenConfiguration {
 	}
 }
 
+// TestValidateAcceptsAFreeTier is the other edge of check 13 (config.go:914): a
+// hundred percent off is a discount a cooperative may legitimately declare, not
+// merely the value the "remise au-dessus de 100 %" case in brokenConfigurations
+// stops just short of. The zero edge is already pinned by
+// TestDeliveredConfigurationValidatesWithoutAFault, whose SOLIDARITY tier carries
+// no discount at all.
+func TestValidateAcceptsAFreeTier(t *testing.T) {
+	config := loadDelivered(t)
+	config.Pricing.Tiers[0].Discount = FullDiscount
+	if fault := findFault(config.Validate(testRegistries()), "pricing.tiers[0].discount_percent"); fault != nil {
+		t.Errorf("une remise de 100 %% est refusée : %s", fault.Message)
+	}
+}
+
 func TestValidateNamesTheRightField(t *testing.T) {
 	for _, testCase := range brokenConfigurations() {
 		t.Run("contrôle "+testCase.control+" — "+testCase.name, func(t *testing.T) {
@@ -733,7 +747,7 @@ func TestValidateReportsEveryFaultAtOnce(t *testing.T) {
 	config := loadDelivered(t)
 	config.Station.Number = 0                 // 1
 	config.Network.Listen = "pas une adresse" // 2
-	config.Pricing.Tiers[1].Discount = 200 // 11
+	config.Pricing.Tiers[1].Discount = 200    // 11
 	config.Pricing.PrimaryCode = "GHOST"      // 14
 	config.Limits.MaxUnits = 500              // 24
 	config.Stability.Mode = "bloquant"        // 28
@@ -876,7 +890,7 @@ func TestFingerprintIgnoresWhatDiffersFromStationToStation(t *testing.T) {
 func TestFingerprintChangesWhenASharedValueChanges(t *testing.T) {
 	reference := loadDelivered(t)
 	for name, mutate := range map[string]func(*Config){
-		"un coefficient de tarif": func(c *Config) { c.Pricing.Tiers[0].Discount = 200 },
+		"une remise de tarif":     func(c *Config) { c.Pricing.Tiers[0].Discount = 200 },
 		"un seuil de panier":      func(c *Config) { c.Limits.BasketMin = -300 },
 		"le gabarit":              func(c *Config) { c.Printer.Template = "weighing_integer_module" },
 		"une catégorie":           func(c *Config) { c.Catalog.Categories[0].Visible = false },

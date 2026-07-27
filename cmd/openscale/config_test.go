@@ -82,7 +82,7 @@ func TestOneBusinessSettingApartAndTheFingerprintDiverges(t *testing.T) {
 	referenceFingerprint := reference.Fingerprint()
 
 	for name, diverge := range map[string]func(*domain.Config){
-		"un coefficient de tarif": func(c *domain.Config) { c.Pricing.Tiers[0].Discount = 200 },
+		"une remise de tarif":     func(c *domain.Config) { c.Pricing.Tiers[0].Discount = 200 },
 		"le seuil de panier vide": func(c *domain.Config) { c.Limits.EmptyMax = 12 },
 		"le gabarit d'étiquette":  func(c *domain.Config) { c.Printer.Template = "weighing_neutral_single" },
 		"une catégorie masquée":   func(c *domain.Config) { c.Catalog.Categories[0].Visible = false },

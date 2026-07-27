@@ -70,10 +70,10 @@ func TestPriceReferenceVector(t *testing.T) {
 	}
 }
 
-// TestPriceAppliesTheCoefficientToTheUnitPriceNotToTheAmount is the ORDER of
+// TestPriceAppliesTheDiscountToTheUnitPriceNotToTheAmount is the ORDER of
 // operations of A7, and the reason for it: the printed price per kilo, multiplied
 // by the printed weight, must give back the printed amount.
-func TestPriceAppliesTheCoefficientToTheUnitPriceNotToTheAmount(t *testing.T) {
+func TestPriceAppliesTheDiscountToTheUnitPriceNotToTheAmount(t *testing.T) {
 	rules := LaCagetteRules()
 	label, err := Price(garlic(), Measurement{Gross: 1236}, rules)
 	if err != nil {
@@ -111,9 +111,9 @@ func TestPriceAppliesTheCoefficientToTheUnitPriceNotToTheAmount(t *testing.T) {
 	}
 }
 
-// TestPriceIsMonotonicInTheCoefficient is the property of invariant §6.7-6, over
+// TestPriceIsMonotonicInTheDiscount is the property of invariant §6.7-6, over
 // 10 000 draws. A cheaper tier can never cost more.
-func TestPriceIsMonotonicInTheCoefficient(t *testing.T) {
+func TestPriceIsMonotonicInTheDiscount(t *testing.T) {
 	// Fixed seed: a property test that cannot be replayed is a flake.
 	r := rand.New(rand.NewPCG(20260725, 1236))
 	for i := 0; i < 10_000; i++ {
@@ -212,9 +212,8 @@ func TestSingleTierPrintsOnePrice(t *testing.T) {
 	}
 }
 
-// TestPriceRefusesAnInconsistentGrid: a bad grid must return an error and NEVER
-// reach Divide, whose precondition would panic in the Hub goroutine and kill the
-// process. This is what makes invariant §6.7-5 true for configuration values too.
+// TestPriceRefusesAnInconsistentGrid: a bad grid must return an error, never a
+// panic. This is what makes invariant §6.7-5 true for configuration values too.
 func TestPriceRefusesAnInconsistentGrid(t *testing.T) {
 	base := LaCagetteRules()
 	cases := []struct {
@@ -319,14 +318,14 @@ func TestTranslationMovesNoCent(t *testing.T) {
 // middle would be a rounding nobody declared (ADR-034).
 func TestDiscountReadsTheTextOfTheNumber(t *testing.T) {
 	for text, want := range map[string]Discount{
-		"0":     0,
-		"10":    100,
-		"10.2":  102,
-		"0.5":   5,
-		"100":   1000,
-		"33.3":  333,
-		"-5":    -50,  // out of bounds is READ: check 13 names it with the others
-		"120":   1200, // idem
+		"0":    0,
+		"10":   100,
+		"10.2": 102,
+		"0.5":  5,
+		"100":  1000,
+		"33.3": 333,
+		"-5":   -50,  // out of bounds is READ: check 13 names it with the others
+		"120":  1200, // idem
 	} {
 		var got Discount
 		if err := json.Unmarshal([]byte(text), &got); err != nil {

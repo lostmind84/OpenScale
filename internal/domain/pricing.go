@@ -194,7 +194,7 @@ func (l *Label) Find(code string) *PriceLine {
 //  1. derived unit price = unitPriceRounding(base x (FullDiscount - discount) / FullDiscount)
 //  2. amount             = amountRounding(derivedUnitPrice x netWeight / 1000)
 //
-// and NOT amountRounding(base x weight / 1000) x num / den.
+// and NOT amountRounding(base x weight / 1000) x (FullDiscount - discount) / FullDiscount.
 //
 // WHY: the derived unit price is the one PRINTED on the label ("A: 4,79 €/kg")
 // and the one recorded in Odoo. Applying the coefficient to the amount would
@@ -275,8 +275,8 @@ func Price(p Product, m Measurement, rules PricingRules) (Label, error) {
 // the demonstration commands and the tests.
 //
 // In production this grid lives in config-lacagette.json -- a delivered,
-// versioned file, NOT a compiled profile (ADR-026): changing a coefficient must
-// not be a recompilation followed by a redeployment on four stations.
+// versioned file, NOT a compiled profile (ADR-026): changing a discount must not
+// be a recompilation followed by a redeployment on four stations.
 func LaCagetteRules() PricingRules {
 	return PricingRules{
 		Tiers: []PriceTier{

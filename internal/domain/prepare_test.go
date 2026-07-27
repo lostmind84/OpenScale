@@ -685,7 +685,7 @@ func TestPrepareZeroPrice(t *testing.T) {
 		mutil func(*PrepareInput)
 	}{
 		{"the catalog price is zero", func(in *PrepareInput) { in.Product.UnitPrice = 0 }},
-		{"the primary tier coefficient is zero", func(in *PrepareInput) {
+		{"the primary tier is free", func(in *PrepareInput) {
 			rules := LaCagetteRules()
 			rules.Tiers[0].Discount = FullDiscount
 			in.Rules = rules
