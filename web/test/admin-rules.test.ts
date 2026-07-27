@@ -572,6 +572,38 @@ describe('la remise se saisit en pourcentage', () => {
     expect(panelAbout('Grille de tarifs')).toContain('Prix du catalogue Odoo')
   })
 
+  it('sans remise déclarée, le tarif de référence garde son message rassurant et aucune valeur', () => {
+    // Garde de non-régression pour la branche « written === null » : c'est le cas
+    // normal que le noyau garantit (aucune clé `discount_percent` sur le tarif de
+    // référence), et il ne doit pas glisser vers le message de refus ci-dessous.
+    open()
+
+    const text = panelAbout('Grille de tarifs')
+    expect(text).toContain('Prix du catalogue Odoo — pas de remise')
+    expect(text).not.toContain('ne peut pas porter de remise')
+  })
+
+  it('retargeter la référence sur un tarif remisé dit que la remise sera refusée, sans jamais prétendre qu’elle est absente', () => {
+    // Le champ « Tarif encodé dans le code-barres », juste sous ce tableau, écrit
+    // `pricing.reference_code` exactement comme ceci — sans toucher au fichier, en
+    // cours de session. Il expose un tarif de référence qui porte pourtant une remise
+    // ORDINAIRE et légale (10 %, celle du tarif MEMBER) : la ligne ne doit pas se taire
+    // dessus.
+    const draft = open()
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10)
+
+    draft.set('pricing.reference_code', 'MEMBER')
+    flushSync()
+
+    expect(() => tierField('Remise du tarif 1')).toThrow()
+    const text = panelAbout('Grille de tarifs')
+    expect(text).toContain('10')
+    expect(text).not.toContain('Prix du catalogue Odoo — pas de remise')
+    expect(text).toContain('ne peut pas porter de remise')
+    // Rien n'a été écrasé par ce constat : la remise déclarée reste 10 dans le brouillon.
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10)
+  })
+
   it('accepte la virgule du clavier français comme le point', () => {
     const draft = open()
 
@@ -580,6 +612,21 @@ describe('la remise se saisit en pourcentage', () => {
 
     type(tierField('Remise du tarif 1'), '12.5')
     expect(draft.value('pricing.tiers.0.discount_percent')).toBe(12.5)
+  })
+
+  it('garde à l’écran une remise valide tapée, une fois le champ quitté', () => {
+    // `restoreBox` restaure dès que la case affichée diffère du brouillon, et plus
+    // seulement quand elle est vide (elle a été généralisée à partir de
+    // `restoreEmptyBox`) : ce test épingle qu'une saisie valide n'est pas écrasée par
+    // sa propre restauration.
+    const draft = open()
+    const field = tierField('Remise du tarif 1')
+
+    type(field, '15,5')
+    leave(field)
+
+    expect(field.value).toBe('15,5')
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(15.5)
   })
 
   it('n’écrit pas une deuxième décimale, et la case retrouve ce que le brouillon porte', () => {
@@ -632,10 +679,12 @@ describe('la remise se saisit en pourcentage', () => {
   })
 
   it('met la ligne en lecture seule devant une valeur qu’elle ne sait pas montrer', () => {
+    // Le tarif n'est PAS le tarif de référence ici : c'est ce qui isole le cas « valeur
+    // illisible » du cas « c'est le prix Odoo », que deux tests dédiés couvrent plus bas.
     open({
       pricing: {
         tiers: [{ code: 'MEMBER', label: 'Adhérent', abbrev: 'A', discount_percent: 33.333, rank: 1 }],
-        reference_code: 'MEMBER',
+        reference_code: 'SOLIDARITY',
       },
     })
 

@@ -73,10 +73,10 @@
     code: string
     label: string
     abbrev: string
-    /** The discount in percent, or null when the tier carries none. */
+    /** The raw value of `discount_percent` as the document carries it, or null when the tier declares none. */
+    written: string | null
+    /** The discount in percent when this field can show it exactly, null otherwise. */
     discount: number | null
-    /** The raw value, when it is not a discount this screen can put in its field. */
-    unreadable: string | null
     rank: number
   }
 
@@ -92,14 +92,13 @@
     if (!Array.isArray(value)) return []
     return value.map((raw) => {
       const row = (raw ?? {}) as Record<string, unknown>
-      const written = row.discount_percent
-      const shown = showable(written)
+      const discountValue = row.discount_percent
       return {
         code: String(row.code ?? ''),
         label: String(row.label ?? ''),
         abbrev: String(row.abbrev ?? ''),
-        discount: shown ? (written as number) : null,
-        unreadable: written === undefined || shown ? null : String(written),
+        written: discountValue === undefined ? null : String(discountValue),
+        discount: showable(discountValue) ? (discountValue as number) : null,
         rank: Number(row.rank ?? 0),
       }
     })
@@ -138,8 +137,8 @@
    * cannot contradict the label coming out of the printer. It reads no product and
    * calls no route.
    */
-  function previewOf(discount: number | null): string {
-    const cents = 1000 - Math.round((discount ?? 0) * 10)
+  function previewOf(discount: number): string {
+    const cents = 1000 - Math.round(discount * 10)
     return `${String(Math.trunc(cents / 100))},${String(cents % 100).padStart(2, '0')}`
   }
 
@@ -650,19 +649,27 @@
                 </td>
                 <td>
                   <!--
-                    `unreadable` is checked BEFORE `referenceCode`: a hand-edited file can
-                    put a discount on the reference tier, which the backend refuses at save
-                    time but this screen still has to name for a value it received. « Prix
-                    du catalogue Odoo » would say the row carries no discount, which is
-                    false the moment a written value sits there unread.
+                    The reference tier is split in two by PRESENCE, not by legality. An
+                    operator can retarget `pricing.reference_code` onto a tier that already
+                    carries an ordinary, legal discount (the field just below does exactly
+                    that, mid-session, with no file edit involved) -- and a screen that then
+                    printed « pas de remise » over a document that says 20 % would be
+                    hiding a declared value, which is as dishonest as inventing one. So the
+                    reference tier with NO key gets the reassuring sentence, and the
+                    reference tier WITH one gets told what saving will do to it.
                   -->
-                  {#if tier.unreadable !== null}
-                    <span class="locked">
-                      {tier.unreadable} — une remise s’écrit au dixième de point ; celle-ci
-                      se change dans le fichier de configuration.
-                    </span>
-                  {:else if tier.code === referenceCode}
+                  {#if tier.code === referenceCode && tier.written === null}
                     <span class="locked">Prix du catalogue Odoo — pas de remise</span>
+                  {:else if tier.code === referenceCode}
+                    <span class="locked">
+                      {tier.written} — le tarif de référence est le prix du catalogue : il
+                      ne peut pas porter de remise, et l’enregistrement la refusera.
+                    </span>
+                  {:else if tier.discount === null}
+                    <span class="locked">
+                      {tier.written} — une remise s’écrit au dixième de point ; celle-ci se
+                      change dans le fichier de configuration.
+                    </span>
                   {:else}
                     <input
                       type="text"
