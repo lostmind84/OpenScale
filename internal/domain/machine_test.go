@@ -1561,16 +1561,16 @@ func TestTransitionCatalogArrivesOnlyWhereItIsSafe(t *testing.T) {
 }
 
 // TestTransitionInconsistentPriceGridFaultsRatherThanCrashes: configuration checks
-// 10 to 16 exist to make this unreachable, and Divide panics on a non-positive
-// denominator. Reaching it must therefore be a full-screen fault, never a dead
-// process.
+// 10 to 16 exist to make this unreachable, and Price refuses a grid it cannot
+// apply. Reaching it must therefore be a full-screen fault, never a dead process.
 func TestTransitionInconsistentPriceGridFaultsRatherThanCrashes(t *testing.T) {
 	for name, rules := range map[string]PricingRules{
-		"no tier at all":         {PrimaryCode: "MEMBER", ReferenceCode: "MEMBER"},
-		"a zero denominator":     {Tiers: []PriceTier{{Code: "M", CoefNum: 9, CoefDen: 0}}, PrimaryCode: "M", ReferenceCode: "M"},
-		"a negative denominator": {Tiers: []PriceTier{{Code: "M", CoefNum: 9, CoefDen: -10}}, PrimaryCode: "M", ReferenceCode: "M"},
+		"no tier at all": {PrimaryCode: "MEMBER", ReferenceCode: "MEMBER"},
+		"a discount above a hundred percent": {
+			Tiers: []PriceTier{{Code: "M", Discount: FullDiscount + 1}}, PrimaryCode: "M", ReferenceCode: "M",
+		},
 		"a primary code naming no tier": {
-			Tiers: []PriceTier{{Code: "M", CoefNum: 1, CoefDen: 1}}, PrimaryCode: "GHOST", ReferenceCode: "M",
+			Tiers: []PriceTier{{Code: "M"}}, PrimaryCode: "GHOST", ReferenceCode: "M",
 		},
 	} {
 		r := newRun(t)

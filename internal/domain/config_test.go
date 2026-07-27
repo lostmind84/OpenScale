@@ -226,12 +226,13 @@ func TestDeliveredConfigurationCarriesTheProductionValues(t *testing.T) {
 		t.Fatalf("grille à %d tarif(s), attendu 2 (adhérent 9/10 + solidaire)", got)
 	}
 	member := config.Pricing.Tiers[0]
-	if member.Code != "MEMBER" || member.CoefNum != 9 || member.CoefDen != 10 {
-		t.Errorf("tarif adhérent = %s %d/%d, attendu MEMBER 9/10", member.Code, member.CoefNum, member.CoefDen)
+	if member.Code != "MEMBER" || member.Discount != 100 {
+		t.Errorf("tarif adhérent = %s remise %s %%, attendu MEMBER 10 %%", member.Code, member.Discount)
 	}
 	solidarity := config.Pricing.Tiers[1]
-	if solidarity.Code != "SOLIDARITY" || solidarity.CoefNum != 1 || solidarity.CoefDen != 1 {
-		t.Errorf("tarif solidaire = %s %d/%d, attendu SOLIDARITY 1/1", solidarity.Code, solidarity.CoefNum, solidarity.CoefDen)
+	if solidarity.Code != "SOLIDARITY" || solidarity.Discount != 0 {
+		t.Errorf("tarif solidaire = %s remise %s %%, attendu SOLIDARITY sans remise",
+			solidarity.Code, solidarity.Discount)
 	}
 	// The till never under-charges: the encoded price is the solidarity one (A7).
 	if config.Pricing.ReferenceCode != "SOLIDARITY" {
@@ -247,6 +248,25 @@ func TestDeliveredConfigurationCarriesTheProductionValues(t *testing.T) {
 	if config.Stability.Mode != ModeAdvisory {
 		t.Errorf("stability.mode = %q, attendu %q : l'impression n'est jamais bloquée par défaut (A3)",
 			config.Stability.Mode, ModeAdvisory)
+	}
+}
+
+// TestReferenceTierLosesAnExplicitZeroOnSave: check 11 refuses a discount, not a
+// key at zero -- after decoding the two are the same value. What makes the file
+// converge on its canonical form anyway is `omitempty` on the way out.
+func TestReferenceTierLosesAnExplicitZeroOnSave(t *testing.T) {
+	config := loadDelivered(t)
+	config.Pricing.Tiers[1].Discount = 0
+
+	raw, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if strings.Contains(string(raw), `"discount_percent":0`) {
+		t.Error("le tarif de référence réécrit une remise à zéro ; omitempty doit l'effacer")
+	}
+	if !strings.Contains(string(raw), `"discount_percent":10`) {
+		t.Error("la remise adhérent a disparu de la réécriture")
 	}
 }
 
@@ -349,21 +369,21 @@ func brokenConfigurations() []brokenConfiguration {
 			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers = nil },
 			field:  "pricing.tiers",
 		}, {
-			control: "11", name: "dénominateur négatif — il tuerait la goroutine du Hub",
-			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[0].CoefDen = -10 },
-			field:  "pricing.tiers[0].coef_den",
-		}, {
-			control: "11", name: "dénominateur nul",
-			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[0].CoefDen = 0 },
-			field:  "pricing.tiers[0].coef_den",
+			control: "11", name: "une remise sur le tarif de référence",
+			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[1].Discount = 200 },
+			field:  "pricing.tiers[1].discount_percent",
 		}, {
 			control: "12", name: "code de tarif déclaré deux fois",
 			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[1].Code = c.Pricing.Tiers[0].Code },
 			field:  "pricing.tiers[1].code",
 		}, {
-			control: "13", name: "numérateur négatif",
-			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[0].CoefNum = -9 },
-			field:  "pricing.tiers[0].coef_num",
+			control: "13", name: "remise négative",
+			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[0].Discount = -1 },
+			field:  "pricing.tiers[0].discount_percent",
+		}, {
+			control: "13", name: "remise au-dessus de 100 %",
+			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[0].Discount = FullDiscount + 1 },
+			field:  "pricing.tiers[0].discount_percent",
 		}, {
 			control: "14", name: "primary_code hors grille",
 			mutate: func(_ *testing.T, c *Config) { c.Pricing.PrimaryCode = "GHOST" },
@@ -713,7 +733,7 @@ func TestValidateReportsEveryFaultAtOnce(t *testing.T) {
 	config := loadDelivered(t)
 	config.Station.Number = 0                 // 1
 	config.Network.Listen = "pas une adresse" // 2
-	config.Pricing.Tiers[0].CoefDen = 0       // 11
+	config.Pricing.Tiers[1].Discount = 200 // 11
 	config.Pricing.PrimaryCode = "GHOST"      // 14
 	config.Limits.MaxUnits = 500              // 24
 	config.Stability.Mode = "bloquant"        // 28
@@ -727,7 +747,7 @@ func TestValidateReportsEveryFaultAtOnce(t *testing.T) {
 
 	faults := config.Validate(testRegistries())
 	wanted := []string{
-		"station.number", "network.listen", "pricing.tiers[0].coef_den",
+		"station.number", "network.listen", "pricing.tiers[1].discount_percent",
 		"pricing.primary_code", "limits.max_units", "stability.mode",
 		"journal.max_rows", "admin.password_hash", "catalog.fallback_category",
 		"catalog.categories[0].color", "printer.options.copies", "printer.options.offset_y",
@@ -856,7 +876,7 @@ func TestFingerprintIgnoresWhatDiffersFromStationToStation(t *testing.T) {
 func TestFingerprintChangesWhenASharedValueChanges(t *testing.T) {
 	reference := loadDelivered(t)
 	for name, mutate := range map[string]func(*Config){
-		"un coefficient de tarif": func(c *Config) { c.Pricing.Tiers[0].CoefNum = 8 },
+		"un coefficient de tarif": func(c *Config) { c.Pricing.Tiers[0].Discount = 200 },
 		"un seuil de panier":      func(c *Config) { c.Limits.BasketMin = -300 },
 		"le gabarit":              func(c *Config) { c.Printer.Template = "weighing_integer_module" },
 		"une catégorie":           func(c *Config) { c.Catalog.Categories[0].Visible = false },

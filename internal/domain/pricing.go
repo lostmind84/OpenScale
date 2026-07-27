@@ -8,9 +8,8 @@ import (
 	"strings"
 )
 
-// ErrInconsistentTiers reports a price grid that cannot be applied: a
-// non-positive denominator, a negative numerator, or a primary or reference code
-// that names no tier.
+// ErrInconsistentTiers reports a price grid that cannot be applied: a discount
+// outside [0, 100 %], or a primary or reference code that names no tier.
 var ErrInconsistentTiers = errors.New("domain: inconsistent price grid")
 
 // Discount is a price reduction in TENTHS OF A PERCENT: 102 is 10,2 %.
@@ -112,16 +111,15 @@ func parseTenths(text string) (int64, error) {
 
 // PriceTier is one configured price level, such as member or solidarity.
 //
-// The coefficient is RATIONAL and not a float: 0.9 becomes 9/10, and a third off
-// becomes 1/3 exactly. The hard-coded 0.9 of the legacy application disappears
-// with it.
+// The tier that `reference_code` names carries NO discount: it is the catalog
+// price, the one the till charges, and zero is not a setting there but its
+// definition. The absence of the key IS that statement (ADR-034).
 type PriceTier struct {
-	Code    string `json:"code"`   // "MEMBER", "SOLIDARITY" -- stable, used as a key
-	Label   string `json:"label"`  // "Adhérent" -- customer facing, stays French
-	Abbrev  string `json:"abbrev"` // "A" -- prefix printed on the label
-	CoefNum int64  `json:"coef_num"`
-	CoefDen int64  `json:"coef_den"`
-	Rank    int    `json:"rank"`
+	Code     string   `json:"code"`   // "MEMBER", "SOLIDARITY" -- stable, used as a key
+	Label    string   `json:"label"`  // "Adhérent" -- customer facing, stays French
+	Abbrev   string   `json:"abbrev"` // "A" -- prefix printed on the label
+	Discount Discount `json:"discount_percent,omitempty"`
+	Rank     int      `json:"rank"`
 }
 
 // PricingRules is the whole price policy of a station.
@@ -193,7 +191,7 @@ func (l *Label) Find(code string) *PriceLine {
 // ORDER OF OPERATIONS -- not negotiable, it reproduces the legacy application
 // (FormulaireCalcul.cls:3478) and arbitration A7:
 //
-//  1. derived unit price = unitPriceRounding(base x num / den)
+//  1. derived unit price = unitPriceRounding(base x (FullDiscount - discount) / FullDiscount)
 //  2. amount             = amountRounding(derivedUnitPrice x netWeight / 1000)
 //
 // and NOT amountRounding(base x weight / 1000) x num / den.
@@ -220,12 +218,16 @@ func Price(p Product, m Measurement, rules PricingRules) (Label, error) {
 	}
 	seen := make(map[string]bool, len(rules.Tiers))
 	for _, tier := range rules.SortedTiers() {
-		// Last-resort guard: a grid whose denominator is zero or negative is
-		// REFUSED here, never propagated to Divide (which would panic in the Hub
-		// goroutine and kill the process).
-		if tier.CoefDen <= 0 || tier.CoefNum < 0 {
-			return Label{}, fmt.Errorf("%w: tier %s, coefficient %d/%d",
-				ErrInconsistentTiers, tier.Code, tier.CoefNum, tier.CoefDen)
+		// Last-resort guard, and it no longer guards the same thing. The
+		// denominator is a CONSTANT now, so no grid can reach Divide's
+		// precondition and kill the Hub goroutine -- that failure mode is gone by
+		// construction (ADR-034). What remains is the SIGN of the price: a
+		// discount outside [0, 100 %] would print a negative price, or one above
+		// the catalog's. Check 13 makes it unreachable from a file; this keeps it
+		// unreachable from a grid built in code.
+		if tier.Discount < 0 || tier.Discount > FullDiscount {
+			return Label{}, fmt.Errorf("%w: tier %s, discount %s %%",
+				ErrInconsistentTiers, tier.Code, tier.Discount)
 		}
 		if seen[tier.Code] {
 			return Label{}, fmt.Errorf("%w: tier code %s appears twice", ErrInconsistentTiers, tier.Code)
@@ -233,7 +235,7 @@ func Price(p Product, m Measurement, rules PricingRules) (Label, error) {
 		seen[tier.Code] = true
 
 		unitPrice := Cents(rules.UnitPriceRounding.Divide(
-			int64(p.UnitPrice)*tier.CoefNum, tier.CoefDen))
+			int64(p.UnitPrice)*int64(FullDiscount-tier.Discount), int64(FullDiscount)))
 
 		var amount Cents
 		switch p.Mode {
@@ -278,8 +280,8 @@ func Price(p Product, m Measurement, rules PricingRules) (Label, error) {
 func LaCagetteRules() PricingRules {
 	return PricingRules{
 		Tiers: []PriceTier{
-			{Code: "MEMBER", Label: "Adhérent", Abbrev: "A", CoefNum: 9, CoefDen: 10, Rank: 1},
-			{Code: "SOLIDARITY", Label: "Solidaire", Abbrev: "S", CoefNum: 1, CoefDen: 1, Rank: 2},
+			{Code: "MEMBER", Label: "Adhérent", Abbrev: "A", Discount: 100, Rank: 1},
+			{Code: "SOLIDARITY", Label: "Solidaire", Abbrev: "S", Rank: 2},
 		},
 		PrimaryCode:       "MEMBER",               // the BIG one, 11 pt bold, right aligned
 		SecondaryCodes:    []string{"SOLIDARITY"}, // the SMALL one, 7 pt
@@ -293,7 +295,7 @@ func LaCagetteRules() PricingRules {
 // the label prints one price.
 func SingleTierRules() PricingRules {
 	return PricingRules{
-		Tiers:             []PriceTier{{Code: "STANDARD", Label: "Prix", Abbrev: "", CoefNum: 1, CoefDen: 1, Rank: 1}},
+		Tiers:             []PriceTier{{Code: "STANDARD", Label: "Prix", Abbrev: "", Rank: 1}},
 		PrimaryCode:       "STANDARD",
 		ReferenceCode:     "STANDARD",
 		AmountRounding:    RoundHalfUp,

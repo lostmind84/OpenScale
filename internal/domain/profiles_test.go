@@ -103,11 +103,11 @@ func TestNeutralProfileCarriesNoSiteValue(t *testing.T) {
 			t.Errorf("le profil neutre porte %q :\n%s", forbidden, document)
 		}
 	}
-	// The single tier is neutral: coefficient 1/1, no discount established from any
-	// cooperative's evidence.
+	// The single tier is neutral: no discount established from any cooperative's
+	// evidence.
 	tier := profile.Pricing.Tiers[0]
-	if tier.CoefNum != 1 || tier.CoefDen != 1 {
-		t.Errorf("coefficient = %d/%d, attendu 1/1", tier.CoefNum, tier.CoefDen)
+	if tier.Discount != 0 {
+		t.Errorf("remise = %s %%, attendu aucune", tier.Discount)
 	}
 	if profile.Station.Coop != "" || profile.Station.Name != "" {
 		t.Errorf("station = %+v, le profil neutre ne nomme aucune coopérative", profile.Station)

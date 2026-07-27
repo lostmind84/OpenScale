@@ -896,12 +896,13 @@ func (c *Config) Validate(reg Registries) []Fault {
 	}
 	codes := make(map[string]bool, len(c.Pricing.Tiers))
 	for i, tier := range c.Pricing.Tiers {
-		// 11. coef_den > 0, and NOT "!= 0". A negative denominator would pass, reach
-		//     RoundingPolicy.Divide whose precondition is den > 0, and kill the
-		//     goroutine of the Hub (§6.1, §6.3).
-		if tier.CoefDen <= 0 {
-			fail(fmt.Sprintf("pricing.tiers[%d].coef_den", i),
-				"%d doit être strictement positif", tier.CoefDen)
+		// 11. The tier reference_code names is the catalog price -- the one the
+		//     till charges. Its discount is not a setting, it is zero by
+		//     definition, so a file that gives it one is REFUSED rather than
+		//     quietly obeyed (ADR-034).
+		if tier.Code == c.Pricing.ReferenceCode && tier.Discount != 0 {
+			fail(fmt.Sprintf("pricing.tiers[%d].discount_percent", i),
+				"le tarif de référence est le prix du catalogue : il ne porte pas de remise")
 		}
 		// 12. Codes unique: the code is the key of a tier, in the file, on the label
 		//     and in the journal.
@@ -909,10 +910,11 @@ func (c *Config) Validate(reg Registries) []Fault {
 			fail(fmt.Sprintf("pricing.tiers[%d].code", i), "le code %q est déclaré deux fois", tier.Code)
 		}
 		codes[tier.Code] = true
-		// 13. coef_num ≥ 0: a negative coefficient would print a negative price.
-		if tier.CoefNum < 0 {
-			fail(fmt.Sprintf("pricing.tiers[%d].coef_num", i),
-				"%d ne peut pas être négatif", tier.CoefNum)
+		// 13. A discount is a percentage between 0 and 100. A hundred is free, and
+		//     that is a grid a cooperative may legitimately declare.
+		if tier.Discount < 0 || tier.Discount > FullDiscount {
+			fail(fmt.Sprintf("pricing.tiers[%d].discount_percent", i),
+				"%s %% n'est pas une remise entre 0 et 100 %%", tier.Discount)
 		}
 	}
 	tierCodes := make([]string, 0, len(c.Pricing.Tiers))
