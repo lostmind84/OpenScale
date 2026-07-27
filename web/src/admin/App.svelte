@@ -148,8 +148,11 @@
   {#if admin.notice !== ''}
     <p class="notice" data-notice>{admin.notice}</p>
   {/if}
-  {#if admin.error !== ''}
-    <p class="failure" data-failure>{admin.error}</p>
+  {#if admin.linkError !== ''}
+    <p class="failure" data-link-failure>{admin.linkError}</p>
+  {/if}
+  {#if admin.actionError !== ''}
+    <p class="failure" data-failure>{admin.actionError}</p>
   {/if}
 
   {#if draft.pending !== null}

@@ -45,7 +45,7 @@
    */
   async function replay(frame: string): Promise<void> {
     if (frame === '') {
-      admin.error = 'Cette ligne ne porte aucune trame brute : il n’y a rien à rejouer.'
+      admin.actionError = 'Cette ligne ne porte aucune trame brute : il n’y a rien à rejouer.'
       return
     }
     await admin.run(() => api.replayFrame(frame))

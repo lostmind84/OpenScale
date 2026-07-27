@@ -48,10 +48,20 @@ export class Admin {
   health = $state<HealthDTO | null>(null)
   /** La page affichée. Le tableau de bord est celle qui s'ouvre. */
   page = $state<PageID>('dashboard')
-  /** Une session d'administration est ouverte : les pages expertes sont accessibles. */
+  /** Une session d'administration est ouverte : les actes protégés passent sans rien demander. */
   expert = $state(false)
-  /** La phrase française du dernier refus, vide quand il n'y a rien à signaler. */
-  error = $state('')
+  /**
+   * Ce que le SONDAGE a à dire du lien avec le poste, et lui seul.
+   *
+   * Il tourne toutes les trois secondes. Tant qu'il partageait son champ avec les actes,
+   * il effaçait « Mot de passe incorrect. » avant qu'on ait fini de le lire — pendant tout
+   * le temps où l'administration a existé, aucun refus n'a jamais tenu à l'écran.
+   */
+  linkError = $state('')
+  /** Ce que le dernier ACTE a à dire. Rien ne l'efface qu'un autre acte. */
+  actionError = $state('')
+  /** Vrai quand le poste répond « aucun mot de passe n'est posé » : le code de secours ouvre. */
+  needsFirstPassword = $state(false)
   /** La phrase française de la dernière action réussie. */
   notice = $state('')
   /** Vrai pendant qu'une action est en vol : les boutons se désarment. */
@@ -91,10 +101,29 @@ export class Admin {
   async refresh(): Promise<void> {
     try {
       this.health = await api.fetchHealth()
-      this.error = ''
+      this.linkError = ''
     } catch (failure) {
-      this.error = sentenceOf(failure)
+      this.linkError = sentenceOf(failure)
     }
+  }
+
+  /**
+   * Ouvre un acte : ce qui reste à l'écran de l'acte précédent s'en va, et rien d'autre.
+   *
+   * Le sondage n'est pas un acte, et c'est tout l'intérêt de la distinction.
+   */
+  #beginAction(): void {
+    this.busy = true
+    this.notice = ''
+    this.actionError = ''
+    this.needsFirstPassword = false
+  }
+
+  /** Enregistre le refus d'un acte, et ce qu'il implique de la session. */
+  #failAction(failure: unknown): void {
+    this.actionError = sentenceOf(failure)
+    this.needsFirstPassword = failure instanceof AdminError && failure.status === 409
+    this.#forgetSessionIfRefused(failure)
   }
 
   /**
@@ -107,15 +136,12 @@ export class Admin {
    * @param action - l'appel à passer.
    */
   async run(action: () => Promise<{ message: string }>): Promise<void> {
-    this.busy = true
-    this.notice = ''
-    this.error = ''
+    this.#beginAction()
     try {
       const done = await action()
       this.notice = done.message
     } catch (failure) {
-      this.error = sentenceOf(failure)
-      this.#forgetSessionIfRefused(failure)
+      this.#failAction(failure)
     } finally {
       this.busy = false
     }
@@ -129,8 +155,7 @@ export class Admin {
    * @returns vrai quand la session est ouverte.
    */
   async login(password: string): Promise<boolean> {
-    this.busy = true
-    this.error = ''
+    this.#beginAction()
     try {
       await api.openSession(password)
       this.expert = true
@@ -138,7 +163,7 @@ export class Admin {
       return true
     } catch (failure) {
       this.expert = false
-      this.error = sentenceOf(failure)
+      this.#failAction(failure)
       return false
     } finally {
       this.busy = false
@@ -152,15 +177,14 @@ export class Admin {
    * @param password - le nouveau mot de passe.
    */
   async recover(code: string, password: string): Promise<boolean> {
-    this.busy = true
-    this.error = ''
+    this.#beginAction()
     try {
       await api.recoverSession(code, password)
       this.expert = true
       this.notice = 'Le mot de passe est remplacé et la session est ouverte.'
       return true
     } catch (failure) {
-      this.error = sentenceOf(failure)
+      this.#failAction(failure)
       return false
     } finally {
       this.busy = false
@@ -181,8 +205,9 @@ export class Admin {
    * @param page - la page voulue.
    */
   open(page: PageID): void {
-    this.error = ''
+    this.actionError = ''
     this.notice = ''
+    this.needsFirstPassword = false
     this.page = page
   }
 
@@ -198,13 +223,12 @@ export class Admin {
   async load<T>(load: () => Promise<T>): Promise<T | null> {
     try {
       const value = await load()
-      this.error = ''
+      this.actionError = ''
       this.lastFaults = []
       return value
     } catch (failure) {
-      this.error = sentenceOf(failure)
       this.lastFaults = failure instanceof AdminError ? failure.faults : []
-      this.#forgetSessionIfRefused(failure)
+      this.#failAction(failure)
       return null
     }
   }

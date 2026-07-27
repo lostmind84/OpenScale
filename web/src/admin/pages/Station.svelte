@@ -53,7 +53,7 @@
     try {
       parsed = JSON.parse(text)
     } catch {
-      admin.error = `${file.name} n’est pas un fichier JSON lisible.`
+      admin.actionError = `${file.name} n’est pas un fichier JSON lisible.`
       return
     }
     candidate = parsed as Record<string, unknown>
