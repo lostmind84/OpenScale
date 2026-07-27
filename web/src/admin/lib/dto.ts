@@ -246,4 +246,12 @@ export interface ConfigDTO {
 export interface SessionDTO {
   expires_at: string
   session_minutes: number
+  /**
+   * Absent d'ordinaire. Posé par une réinitialisation qui n'a pas pu écrire le
+   * nouveau mot de passe sur le disque — le fichier porte encore une clé que ce
+   * binaire refuse (ADR-034) — pour dire que la session s'ouvre quand même, mais que
+   * ce mot de passe ne survivra pas à un redémarrage tant que le fichier n'est pas
+   * corrigé. Français : c'est la phrase lue telle quelle.
+   */
+  warning?: string
 }

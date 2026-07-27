@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -744,6 +745,40 @@ func TestRetiredCoefficientMessagesPointAtTheNewKey(t *testing.T) {
 		if !strings.Contains(reason, "discount_percent") {
 			t.Errorf("%s : message %q, il doit nommer discount_percent", key, reason)
 		}
+	}
+}
+
+// TestRefuseIfRetiredNamesTheKeys is the guard ConfigStore.Save calls before writing a
+// single byte (ADR-034). It exists because control 20 alone is not enough: Validate
+// only runs where a caller remembers to call it, and the recovery route -- the one
+// that matters most, because it is a station's only way back in -- never did.
+func TestRefuseIfRetiredNamesTheKeys(t *testing.T) {
+	raw := []byte(`{"pricing":{"tiers":[{"code":"MEMBER","coef_num":9}]}}`)
+	var config Config
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatalf("décodage : %v", err)
+	}
+
+	err := config.RefuseIfRetired()
+	if err == nil {
+		t.Fatal("une configuration carrying coef_num n'a pas été refusée")
+	}
+	var retired *RetiredKeysError
+	if !errors.As(err, &retired) {
+		t.Fatalf("l'erreur n'est pas un *RetiredKeysError : %v", err)
+	}
+	if len(retired.Keys) != 1 || !strings.Contains(retired.Keys[0], "coef_num") {
+		t.Fatalf("clés = %v, coef_num attendu", retired.Keys)
+	}
+}
+
+// TestRefuseIfRetiredAcceptsAConfigBuiltInGo: Retired is filled by UnmarshalJSON
+// alone, so a configuration assembled in code -- the neutral profile, or one a test
+// builds by hand -- carries none, and nothing legitimate is blocked.
+func TestRefuseIfRetiredAcceptsAConfigBuiltInGo(t *testing.T) {
+	profile := NeutralProfile()
+	if err := profile.RefuseIfRetired(); err != nil {
+		t.Fatalf("un profil compilé est refusé : %v", err)
 	}
 }
 

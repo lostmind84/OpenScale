@@ -96,6 +96,19 @@ func (s *ConfigStore) Read(_ context.Context) (domain.Config, error) {
 // the test that matters, and it is written. Interrupted between 3 and 4, config.json.1
 // holds a copy of the configuration still in force, which is harmless and honest.
 func (s *ConfigStore) Save(_ context.Context, cfg domain.Config) error {
+	// This is where a Config becomes a file, which makes it the ONE place a retired
+	// key can be stopped for every caller at once -- the ones already careful about
+	// it (writeConfig, config.go) and the ones that never will be, because checking
+	// first is not always possible: recoverSession reads whatever the file already
+	// holds and cannot refuse to save on a rescue without also refusing the rescue.
+	// Marshalling cfg is what LAUNDERS a retired key: encoding/json already dropped
+	// it once, at decode, and with coef_num goes the discount it stood for -- the
+	// file that comes out the other end decodes clean, control 20 finds nothing on
+	// the next read, and every member pays full price with nothing on any screen to
+	// say why (ADR-034).
+	if err := cfg.RefuseIfRetired(); err != nil {
+		return err
+	}
 	raw, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("configuration non sérialisable : %w", err)

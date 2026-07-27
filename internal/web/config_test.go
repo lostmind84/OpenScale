@@ -85,6 +85,21 @@ func TestTheEditedDocumentIsServedAsItIsOnDisk(t *testing.T) {
 // testdata/config-lacagette.json, and equally valid.
 func legacyLaCagette(t *testing.T) domain.Config {
 	t.Helper()
+	var cfg domain.Config
+	if err := json.Unmarshal(legacyLaCagetteRaw(t), &cfg); err != nil {
+		t.Fatalf("configuration reconstruite illisible : %v", err)
+	}
+	return cfg
+}
+
+// legacyLaCagetteRaw is the BYTES legacyLaCagette decodes.
+//
+// A separate function because one test needs the bytes THEMSELVES, written straight
+// to a file: ConfigStore.Save now refuses to write a configuration carrying coef_num
+// (ADR-034), so seeding the on-disk fixture through Save would prove nothing about a
+// file that got there some other way — an upgrade, or a hand edit.
+func legacyLaCagetteRaw(t *testing.T) []byte {
+	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "config-lacagette.json"))
 	if err != nil {
 		t.Fatalf("lecture de la configuration livrée : %v", err)
@@ -97,11 +112,7 @@ func legacyLaCagette(t *testing.T) domain.Config {
 	if edited == string(raw) {
 		t.Fatal("le remplacement de discount_percent n'a rien trouvé : le test ne prouve rien")
 	}
-	var cfg domain.Config
-	if err := json.Unmarshal([]byte(edited), &cfg); err != nil {
-		t.Fatalf("configuration reconstruite illisible : %v", err)
-	}
-	return cfg
+	return []byte(edited)
 }
 
 // TestASaveIsRefusedWhileTheFileOnDiskStillCarriesARetiredKey (C1).

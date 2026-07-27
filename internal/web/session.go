@@ -340,6 +340,13 @@ type sessionDTO struct {
 	// Minutes is repeated so that a screen can show a countdown without parsing two
 	// instants and subtracting them.
 	Minutes int `json:"session_minutes"`
+	// Warning is set only by a recovery that could not write the new password to
+	// disk because the file still carries a retired key (ADR-034): the session opens
+	// anyway — refusing would lock the volunteer out of the one door left on a
+	// station the same retired key already put out of service — but the password
+	// will not survive a restart until the file is repaired, which this says, in
+	// French, naming the keys.
+	Warning string `json:"warning,omitempty"`
 }
 
 // openSession is POST /admin/api/session.
@@ -370,7 +377,7 @@ func (s *Server) openSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.sessions.succeeded(address)
-	s.issueSession(w, cfg)
+	s.issueSession(w, cfg, "")
 }
 
 // closeSession is DELETE /admin/api/session.
@@ -464,10 +471,33 @@ func (s *Server) recoverSession(w http.ResponseWriter, r *http.Request) {
 		stored = onDisk
 	}
 	stored.Admin.PasswordHash = hash
+
+	// The write can be refused for exactly one reason that must NOT lock the
+	// volunteer out: the file still carries a key control 20 refuses (ADR-034), which
+	// is precisely what put this station on the neutral profile and sent somebody
+	// looking for the recovery code in the first place. Persisting is refused --
+	// ConfigStore.Save launders the key otherwise, and with it the discount it stood
+	// for -- but the door this request opens is the only one this volunteer has, and
+	// the screen that would explain the problem is behind it. So the session opens
+	// regardless, with the password in force IN MEMORY, and `warning` says plainly
+	// that it will not survive a restart until the file itself is repaired. Any other
+	// failure to write (a full disk, a read-only mount) is not this case and stays a
+	// hard failure, as it always has.
+	var warning string
 	if err := s.configStore.Save(r.Context(), stored); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "",
-			"Configuration non écrite : "+err.Error())
-		return
+		var retired *domain.RetiredKeysError
+		if !errors.As(err, &retired) {
+			writeProblem(w, http.StatusInternalServerError, "",
+				"Configuration non écrite : "+err.Error())
+			return
+		}
+		warning = fmt.Sprintf(
+			"Mot de passe actif, mais NON enregistré : le fichier de configuration porte "+
+				"encore %s. Il ne survivra pas à un redémarrage tant que le fichier n'est "+
+				"pas corrigé.", strings.Join(retired.Keys, ", "))
+		s.technical.Technical(domain.LevelError, "config", "ERR-CFG-01",
+			"Mot de passe réinitialisé en mémoire seulement : le fichier de configuration "+
+				"porte encore une clé retirée.", strings.Join(retired.Keys, ", "))
 	}
 	// And the station keeps running what it was running, with the new password in force:
 	// a recovery is not a moment to hand a station a configuration nobody has validated.
@@ -485,7 +515,7 @@ func (s *Server) recoverSession(w http.ResponseWriter, r *http.Request) {
 	s.sessions.succeeded(address)
 	s.technical.Technical(domain.LevelWarn, "config", "",
 		"Mot de passe d'administration réinitialisé par le code de secours.", address)
-	s.issueSession(w, next)
+	s.issueSession(w, next, warning)
 }
 
 // issueSession mints the cookie and answers.
@@ -494,7 +524,11 @@ func (s *Server) recoverSession(w http.ResponseWriter, r *http.Request) {
 // make the browser send it, and Path=/admin so that it never travels on the client
 // screen's own requests. No Secure flag: the station serves 127.0.0.1 over plain
 // HTTP, and a cookie marked Secure would simply never be sent.
-func (s *Server) issueSession(w http.ResponseWriter, cfg domain.Config) {
+//
+// warning is empty on the ordinary path (openSession) and carries the French sentence
+// of an incomplete recovery on the other (recoverSession): the session opens the same
+// way either time, only the sentence handed back differs.
+func (s *Server) issueSession(w http.ResponseWriter, cfg domain.Config, warning string) {
 	minutes := sessionMinutes(cfg)
 	token, expiry, err := s.sessions.open(cfg.Admin.PasswordHash, minutes)
 	if err != nil {
@@ -508,7 +542,9 @@ func (s *Server) issueSession(w http.ResponseWriter, cfg domain.Config) {
 		// instant read from the injected one would be a date in a test's past.
 		MaxAge: minutes * 60,
 	})
-	writeJSON(w, http.StatusOK, sessionDTO{ExpiresAt: stamp(expiry), Minutes: minutes})
+	writeJSON(w, http.StatusOK, sessionDTO{
+		ExpiresAt: stamp(expiry), Minutes: minutes, Warning: warning,
+	})
 }
 
 // sessionMinutes is how long a session lasts, with the shipped default standing in

@@ -1719,3 +1719,38 @@ func (c *Config) Export(includeHardware bool) Config {
 func (c *Config) Retired() []string {
 	return append([]string(nil), c.retired...)
 }
+
+// RetiredKeysError reports that a Config still carries a key control 20 refuses.
+//
+// It is what ConfigStore.Save returns instead of writing: the struct is about to be
+// marshalled, and marshalling is what LAUNDERS the key -- encoding/json already
+// dropped it once, at decode, and the field it stood for (a member's discount, for
+// coef_num) goes with it. A caller that reaches Save without having checked first
+// gets this instead of a file that decodes clean on the very next read.
+type RetiredKeysError struct {
+	// Keys are the dotted paths Config.Retired returned.
+	Keys []string
+}
+
+// Error names the retired keys.
+func (e *RetiredKeysError) Error() string {
+	return fmt.Sprintf("domain: config still carries retired key(s): %s", strings.Join(e.Keys, ", "))
+}
+
+// RefuseIfRetired reports a *RetiredKeysError when the configuration still carries a
+// key control 20 refuses, and nil otherwise.
+//
+// It is deliberately narrower than Validate: Validate needs Registries and can fail
+// on a print queue this station does not have, which is not a reason to refuse
+// WRITING a configuration that was already sitting on disk. This checks the one
+// thing that must never reach a file regardless of everything else about it -- and
+// it is cheap enough to run on every save, by every caller, including the ones that
+// will never think to call Validate first (the recovery route does not: a rescue
+// cannot be made to depend on the very validation that put the station out of
+// service to begin with).
+func (c *Config) RefuseIfRetired() error {
+	if keys := c.Retired(); len(keys) > 0 {
+		return &RetiredKeysError{Keys: keys}
+	}
+	return nil
+}

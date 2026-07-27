@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"openscale/internal/domain"
 )
@@ -19,6 +20,20 @@ import (
 // where / what / why -- with the difference that the report also carries the Odoo
 // id and the CSV line number, which a command line does not have.
 func frenchMessage(err error) string {
+	// Not a sentinel value like the ones below: RetiredKeysError carries the keys a
+	// FILE happened to name, so errors.As and not errors.Is is what finds it. The
+	// same file `openscale config password` and `openscale config recovery-code`
+	// write through — ConfigStore.Save (ADR-034) — is the one the administration
+	// screen writes, and a volunteer at a terminal deserves the same French sentence
+	// as one reading a browser.
+	var retired *domain.RetiredKeysError
+	if errors.As(err, &retired) {
+		return fmt.Sprintf(
+			"le fichier de configuration porte encore une clé que ce binaire refuse (%s) : "+
+				"corrigez-la dans le fichier lui-même, cette commande ne peut pas l'écrire.",
+			strings.Join(retired.Keys, ", "))
+	}
+
 	switch {
 	case errors.Is(err, domain.ErrEAN13Format):
 		return "ce n'est pas un code-barres : il faut treize chiffres, sans lettre ni espace."
