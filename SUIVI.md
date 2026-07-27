@@ -3,12 +3,14 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
-**État au 26/07/2026** : **L1 à L8 livrés.** Il ne reste que L0 (le banc) et L9 (la recette sur site). `openscale serve` démarre un
+**État au 27/07/2026** : **L1 à L8 livrés.** Il ne reste que L0 (le banc) et L9 (la recette sur site). `openscale serve` démarre un
 poste complet : noyau métier, balance, étiquette, impression, Hub à horloge injectée,
 écran client Svelte, catalogue, écrans d'administration, `openscale doctor` et ses quinze
 contrôles, `diagnostic.zip`, installeurs Windows et Linux, `INSTALLATION.md` et
-`TROUBLESHOOTING.md`. **2 774 tests** verts (2 344 Go comptés en `--- PASS`, 430 front), suite passée sur ce
-poste Windows — `-race` sautée faute de gcc, la CI Linux la couvre.
+`TROUBLESHOOTING.md`. **2 774 tests** verts (2 344 Go comptés en `--- PASS`, 430 front — le
+bandeau restait sur 245, figé depuis plusieurs sessions : le journal plus bas en comptait
+déjà 418 avant ce chantier, qui en ajoute une douzaine), suite passée sur ce poste Windows
+— `-race` sautée faute de gcc, la CI Linux la couvre.
 
 **La remise change de forme, sur demande du commanditaire (27/07/2026).** Sur la page
 Règles, il n'a pas su lire les colonnes « Numérateur » et « Dénominateur » : une remise

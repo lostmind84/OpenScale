@@ -55,7 +55,7 @@ Conventions : les montants sont en **centimes entiers**, les masses en **grammes
 | **A4** | **Import manuel de CSV au périmètre V1** (glisser-déposer dans l'admin). | §10.4, ADR-011 |
 | **A5** | **Transport d'impression LOCAL par défaut** (winspool RAW / devfile). TCP:9100 disponible mais pas défaut. Imprimante de secours configurable. | §8.4, ADR-007 |
 | **A6** | **Arrondi commercial** (half-up), configurable. VBA `Round()` est un arrondi au pair : l'écart est documenté, borné à 1 centime, et seulement sur une égalité exacte au demi-centime. | §6.1, §6.3, ADR-008 |
-| **A7** | **Double tarif optionnel**, rendu établi par les preuves : prix **adhérent en gros**, solidaire en petit ; coefficient appliqué **au prix unitaire** puis multiplié par le poids ; coefficient configurable ; **appliqué sur tous les chemins de saisie**. | §6.3, §7.2, ADR-009 |
+| **A7** | **Double tarif optionnel**, rendu établi par les preuves : prix **adhérent en gros**, solidaire en petit ; remise appliquée **au prix unitaire** puis multiplié par le poids ; remise configurable en pourcentage ; **appliquée sur tous les chemins de saisie**. | §6.3, §7.2, ADR-009 *(amendé par ADR-034)* |
 
 ---
 
@@ -1108,7 +1108,7 @@ stateDiagram-v2
 4. Aucun cycle sans passage par `Idle` : pas d'étiquettes en rafale sur une même pose de sac.
 5. `Transition` ne panique jamais — test exhaustif du produit cartésien (16 états × 14 événements = **224** couples).
    *(Le produit avait maigri de 224 à 208 : `EnteringUnits` s'en allait et `ProductArmed` prenait sa place — 16 états inchangés —, mais l'événement `UnitsConfirmed` disparaissait avec la surcouche qui l'émettait, soit 16 couples de moins à couvrir. Supprimer un écran allège aussi le test. Il revient à 224 avec `ConfigurationRepaired`, quatorzième événement et seule sortie de `OutOfService` — un état ne se quitte pas en dehors de la machine.)*
-6. `Price` est monotone : `coef(t1) ≤ coef(t2) ⇒ montant(t1) ≤ montant(t2)` (10⁴ tirages).
+6. `Price` est monotone : `remise(t1) ≥ remise(t2) ⇒ montant(t1) ≤ montant(t2)` — une remise plus grande ne coûte jamais plus cher (10⁴ tirages).
 7. `Divide` est exacte : comparaison à `big.Rat` sur `num ∈ [−3000, 3000] × den ∈ {1,3,10,100,1000}` = 30 005 cas, et `D(−n) == −D(n)`.
 8. **L'armement expire.** Depuis `ProductArmed`, `MaxArmingTime` + 1 tic sans mesure hors zone vide ramène à `Idle` avec `CurrentProduct == nil` : **aucune sélection ne survit au départ d'un client**, et aucune étiquette ne peut être imprimée pour le sac du suivant.
 
@@ -4078,7 +4078,7 @@ Le kiosque : unité séparée, `ExecStart=/usr/bin/cage -d -- /usr/local/bin/bal
 |---|---|---|---|
 | `domain.RoundingPolicy.Divide` | **exhaustif** vs `big.Rat` | 30 005 cas × 3 politiques | égalité exacte ; `D(−n) == −D(n)` ; `RoundHalfToEven` == VBA `Round` sur les demis |
 | `domain.CheckDigit`, `Generate`, **plan de numérotation** | table + propriété + golden | **35 cas** (Annexe A : T1–T34 + T14 bis) + 10⁵ tirages | reproduction au digit près ; **les 16 codes réels refusés de `flv.csv` un par un** (T31), le contre-exemple `0493100100006` → `0493100112368` lu 11,236 kg (T32) et la collision des 3 étiquettes (T33) ; **la largeur n'est jamais un paramètre libre** — `width ≠ plan[prefix].PayloadWidth` rend `ErrWidthNotInPlan` (T9, T10) |
-| `domain.Price` | table + propriété | vecteur ail (PU solidaire 5,32 €/kg, coefficient adhérent 9/10, 1,236 kg) × **3 politiques** × **2 portées** (`amount_rounding` seul / `amount_rounding` **et** `unit_price_rounding`) × mono/double + monotonie sur 10⁴ tirages | **normatif, dans l'ordre montant solidaire / montant adhérent / PU adhérent** : `half_up` partout (défaut A6) → **6,58 / 5,92 / 4,79** ; `amount_rounding = truncate` **seul**, `unit_price_rounding` restant `half_up` → **6,57 / 5,92 / 4,79** ; **les deux** politiques en `truncate` → **6,57 / 5,90 / 4,78** (le PU adhérent tombe à 4,78, d'où 4,78 × 1,236 = 5,908… → 5,90) |
+| `domain.Price` | table + propriété | vecteur ail (PU solidaire 5,32 €/kg, remise adhérent 10 %, 1,236 kg) × **3 politiques** × **2 portées** (`amount_rounding` seul / `amount_rounding` **et** `unit_price_rounding`) × mono/double + monotonie sur 10⁴ tirages | **normatif, dans l'ordre montant solidaire / montant adhérent / PU adhérent** : `half_up` partout (défaut A6) → **6,58 / 5,92 / 4,79** ; `amount_rounding = truncate` **seul**, `unit_price_rounding` restant `half_up` → **6,57 / 5,92 / 4,79** ; **les deux** politiques en `truncate` → **6,57 / 5,90 / 4,78** (le PU adhérent tombe à 4,78, d'où 4,78 × 1,236 = 5,908… → 5,90) |
 | `domain.Evaluate` | table de **frontières** | −283, −282, −271, −270, −269, −6, −5, 0, 5, 6, 10, 11, 99 999, 100 000 | l'ensemble **exact** de codes attendus, **dans l'ordre** |
 | `domain.Evaluate` — **âge de la mesure** ← défaut 1 | table de **frontières**, sur l'âge | `age` = péremption − 1 ms · péremption **exacte** · péremption + 1 ms, pour péremption = 1 200 ms (plancher), 1 260 ms (dérivée) et 5 000 ms (plafond) | la règle 2 `MEASUREMENT_EXPIRED` est **absente** à −1 ms **et à l'égalité** (la condition est `age > Expiry`, pas `≥`), **présente** à +1 ms ; elle est **bloquante dans les deux modes de stabilité** (§6.5) |
 | `domain.Normalize` | table + **fixture partagée** | `web/testdata/normalization.json`, 120 paires | idempotence ; **le test Vitest lit la même fixture** |
@@ -4576,9 +4576,16 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 
 **Conséquences vérifiées.** Rail à 256 px et colonne de lecture à 1 088 px sur les huit pages, aucun défilement horizontal, aucune erreur console. La cible tactile de 20 mm sort de l'administration — elle se conduit à la souris — et l'écran client garde la sienne, avec son test ; les neuf gros boutons du Dépannage ont désormais le leur.
 
+---
+
 ### ADR-034 — La remise d'un tarif est un pourcentage, dans le fichier comme à l'écran
+
+**Statut** : accepté · **Date** : 27/07/2026 · **Portée** : §6.3, §11.2, §11.3, §14.4 · **Amende** : ADR-009
+
 **Contexte.** ADR-009 a posé le coefficient **rationnel** (`coef_num`/`coef_den`) contre le `0.9` en dur de l'existant, avec l'exactitude pour justification. La forme a été mise à l'épreuve de son premier lecteur : le commanditaire a ouvert la page Règles et n'a pas su lire les colonnes « Numérateur » et « Dénominateur ». Une remise de 10,2 % s'y écrit 449/500. Par ailleurs, le tarif de référence — le prix Odoo, celui que la caisse encaisse — portait un coefficient modifiable comme les autres, alors que sa valeur 1/1 n'est pas un réglage mais sa définition.
+
 **Décision.** La remise se déclare en **pourcentage au dixième de point** (`discount_percent`), stocké en dixièmes entiers. Le tarif désigné par `reference_code` **ne porte aucune clé de remise** : l'absence *est* le prix du catalogue. `coef_num` et `coef_den` rejoignent les clés retirées du contrôle 20.
+
 **Conséquences.** L'exactitude est tenue : le calcul reste entier de bout en bout, et aucun prix imprimé ne bouge. Le dénominateur devient une constante, ce qui **supprime par construction** la panne que le contrôle 11 retenait — un dénominateur non positif atteignant `Divide` et tuant la goroutine du Hub. « Le tarif solidaire n'est pas configurable » devient un fait du format et non une règle d'écran. Le fichier redevient lisible par un humain, ce qui compte pour un artefact que quatre postes comparent à l'œil. **Contrepartie assumée** : les majorations et les remises non décimales — dont le `1/3 exactement` dont ADR-009 se réclamait — deviennent inexprimables ; un tiers se saisit 33,3 %. ADR-009 est **amendé** sur la forme du coefficient, et confirmé sur tout le reste : ordre des opérations, application sur tous les chemins de saisie, double tarif comme cardinal de la grille.
 
 ---
