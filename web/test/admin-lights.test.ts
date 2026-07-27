@@ -258,7 +258,7 @@ describe('les six feux du tableau de bord', () => {
     render(health)
     const cadence = host.querySelector('[data-cadence]')?.textContent ?? ''
     expect(cadence.replace(/\s+/gu, ' ')).toContain('620 ms')
-    expect(cadence.replace(/\s+/gu, ' ')).toContain('12 intervalles mesurés')
+    expect(cadence.replace(/\s+/gu, ' ')).toContain('sur 12 intervalles')
   })
 
   it('nomme la source du catalogue, son chemin surveillé et son dernier essai', () => {

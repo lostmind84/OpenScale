@@ -12,13 +12,18 @@
   import type { Admin } from '../lib/session.svelte'
 
   /**
-   * La page Dépannage de §14.4 : les neuf gros boutons, sans mot de passe (ADR-018).
+   * La page Dépannage de §14.4 : les neuf gros boutons.
    *
-   * **Pourquoi ces actions ne sont pas protégées.** Quiconque est derrière le comptoir peut
-   * déjà débrancher l'imprimante : le mot de passe n'ajouterait là aucune sécurité et
-   * supprimerait tout le dépannage. Le mot de passe reste exigé pour tout ce qui ÉCRIT la
-   * configuration, et aucun de ces boutons ne l'écrit — ils lisent un port, interrogent un
-   * statut, sortent une étiquette de démonstration, ou font entrer le poste dans un ÉTAT.
+   * **Sept sont libres, deux demandent le mot de passe** (ADR-033). Quiconque est derrière
+   * le comptoir peut déjà débrancher l'imprimante : exiger un mot de passe pour tester la
+   * balance, réimprimer ou déclarer un rouleau neuf n'ajouterait aucune sécurité et
+   * supprimerait tout le dépannage, qui est le premier geste d'une mauvaise matinée.
+   *
+   * Les deux exceptions ne testent rien, et c'est ce qui les distingue : « basculer en
+   * saisie manuelle » coupe la balance et laisse LE CLIENT taper son propre poids, et le
+   * dépôt d'un CSV remplace toute la grille par un fichier apporté. L'une et l'autre
+   * changent ce que le poste vend ou la façon dont il pèse, et laissent leur trace en
+   * caisse. Elles portent la mention « CLÉ » avant d'être touchées.
    *
    * Le dixième bouton, « Imprimer sur l'imprimante du poste voisin », n'apparaît que si une
    * imprimante de secours est configurée : un bouton qui répondrait « fonction non
@@ -49,17 +54,60 @@
   /** Le fichier déposé sur la zone de glisser-déposer. */
   let dropping = $state(false)
 
+  /**
+   * Le bouton qui travaille en ce moment, ou une chaîne vide.
+   *
+   * Trois des neuf actions n'avaient AUCUN état « en cours » : les deux tests de matériel
+   * et l'import passent par `admin.load`, qui — contrairement à `admin.run` — ne lève pas
+   * `busy`. Un bénévole appuyait, rien ne bougeait pendant que le port s'ouvrait, et il
+   * appuyait de nouveau.
+   */
+  let working = $state('')
+
+  const busy = $derived(admin.busy || working !== '')
+
   /** Passe une action de dépannage et garde sa phrase. */
-  async function run(action: () => Promise<{ message: string }>): Promise<void> {
+  async function run(label: string, action: () => Promise<{ message: string }>): Promise<void> {
     report = ''
-    await admin.run(action)
+    working = label
+    try {
+      await admin.run(action)
+    } finally {
+      working = ''
+    }
   }
 
   /** Passe un test de matériel, dont la réponse est une PHRASE et non une action. */
-  async function probe(test: () => Promise<{ message: string }>): Promise<void> {
+  async function probe(label: string, test: () => Promise<{ message: string }>): Promise<void> {
     report = ''
-    const answer = await admin.load(test)
-    if (answer !== null) report = answer.message
+    working = label
+    try {
+      const answer = await admin.load(test)
+      if (answer !== null) report = answer.message
+    } finally {
+      working = ''
+    }
+  }
+
+  /**
+   * Passe un acte PROTÉGÉ : la bascule en saisie manuelle et le dépôt d'un catalogue.
+   *
+   * Ces deux-là ne testent rien — l'une coupe la balance et laisse le client taper son
+   * propre poids, l'autre remplace toute la grille — et ADR-033 les protège pour cette
+   * raison. Le mot de passe est demandé au moment du geste, puis le geste est rejoué.
+   */
+  async function guarded(label: string, action: () => Promise<{ message: string }>): Promise<void> {
+    report = ''
+    working = label
+    try {
+      const done = await admin.protect(action)
+      if (done !== null) {
+        admin.notice = done.message
+        await admin.refresh()
+      }
+    } finally {
+      working = ''
+    }
   }
 
   /**
@@ -73,12 +121,24 @@
     dropping = false
     if (file === null || file === undefined) return
     report = ''
-    const record = await admin.load(() => api.importCatalog(file))
-    if (record === null) return
-    report =
-      `${file.name} : ${String(record.rows_read_count)} lignes lues, ` +
-      `${String(record.weighable_count)} pesables. La veille l’appliquera dans la seconde.`
-    await admin.refresh()
+    working = 'import'
+    try {
+      // Acte protégé (ADR-033) : il remplace toute la grille par un fichier apporté.
+      const record = await admin.protect(() => api.importCatalog(file))
+      if (record === null) return
+      // Un fichier REFUSÉ était annoncé comme appliqué : « la veille l'appliquera dans la
+      // seconde » se lisait sous un import que le service venait d'écarter, et le
+      // bénévole repartait en croyant son catalogue à jour.
+      report =
+        record.result === 'rejected' || record.result === 'failed'
+          ? `${file.name} : REFUSÉ${record.reason === '' ? '' : ' — ' + record.reason}. ` +
+            'Le catalogue en service n’a pas changé.'
+          : `${file.name} : ${String(record.rows_read_count)} lignes lues, ` +
+            `${String(record.weighable_count)} pesables. La veille l’appliquera dans la seconde.`
+      await admin.refresh()
+    } finally {
+      working = ''
+    }
   }
 </script>
 
@@ -95,32 +155,37 @@
     <BigButton
       label="Tester la balance"
       hint="Ce que le poste a déjà observé — le port n’est pas rouvert."
-      disabled={admin.busy}
-      onrun={() => void probe(api.testScale)}
+      busy={working === 'scale'}
+      disabled={busy}
+      onrun={() => void probe('scale', api.testScale)}
     />
     <BigButton
       label="Tester l’imprimante"
       hint="Ce que le superviseur a vu il y a moins d’une seconde."
-      disabled={admin.busy}
-      onrun={() => void probe(api.testPrinter)}
+      busy={working === 'printer'}
+      disabled={busy}
+      onrun={() => void probe('printer', api.testPrinter)}
     />
     <BigButton
       label="Imprimer une étiquette de test"
       hint="Une étiquette de démonstration sort de l’imprimante du poste."
-      disabled={admin.busy}
-      onrun={() => void run(api.testLabel)}
+      busy={working === 'label'}
+      disabled={busy}
+      onrun={() => void run('label', api.testLabel)}
     />
     <BigButton
       label="Réimprimer la dernière"
       hint="La dernière étiquette imprimée sort une seconde fois."
-      disabled={admin.busy}
-      onrun={() => void run(api.reprintLast)}
+      busy={working === 'reprint'}
+      disabled={busy}
+      onrun={() => void run('reprint', api.reprintLast)}
     />
     <BigButton
       label="Recharger le catalogue"
       hint="La veille refait tout de suite le contrôle qu’elle fait toutes les cinq secondes."
-      disabled={admin.busy}
-      onrun={() => void run(api.reloadCatalog)}
+      busy={working === 'reload'}
+      disabled={busy}
+      onrun={() => void run('reload', api.reloadCatalog)}
     />
     <BigButton
       label={manual ? 'Revenir à la balance' : 'Basculer en saisie manuelle'}
@@ -128,14 +193,17 @@
         ? 'Le poids sera de nouveau lu sur la balance.'
         : 'Le poids se tape à la main : le poste continue de servir sans balance.'}
       engaged={manual}
-      disabled={admin.busy}
-      onrun={() => void run(() => api.setManualEntry(!manual))}
+      protected
+      busy={working === 'manual'}
+      disabled={busy}
+      onrun={() => void guarded('manual', () => api.setManualEntry(!manual))}
     />
     <BigButton
       label="J’ai changé le rouleau"
       hint="Le compteur d’étiquettes repart à zéro. C’est le seul geste qui dise quelque chose de vrai du papier."
-      disabled={admin.busy}
-      onrun={() => void run(api.rollChanged)}
+      busy={working === 'roll'}
+      disabled={busy}
+      onrun={() => void run('roll', api.rollChanged)}
     />
     {#if routing !== null && routing.fallback_available}
       <BigButton
@@ -144,8 +212,9 @@
           ? 'Les étiquettes repartiront sur l’imprimante de ce poste.'
           : 'Les étiquettes sortiront sur l’imprimante voisine, pour cette session seulement.'}
         engaged={onFallback}
-        disabled={admin.busy}
-        onrun={() => void run(() => api.useFallbackPrinter(!onFallback))}
+        busy={working === 'fallback'}
+        disabled={busy}
+        onrun={() => void run('fallback', () => api.useFallbackPrinter(!onFallback))}
       />
     {/if}
     <a class="big touch-target" href={api.DIAGNOSTIC_URL} download>
