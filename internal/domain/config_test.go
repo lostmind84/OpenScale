@@ -710,6 +710,43 @@ func TestControl20IgnoresARetiredKeyOutsideTheFile(t *testing.T) {
 	}
 }
 
+// TestOldCoefficientKeysAreRefused is the safety net of ADR-034. encoding/json
+// drops what no field claims, so a file of the old format would decode WITHOUT A
+// WORD, with every discount at zero: every member would pay the full price, and
+// nothing on any screen would say why. Check 20 refuses the file instead.
+func TestOldCoefficientKeysAreRefused(t *testing.T) {
+	for _, key := range []string{"coef_num", "coef_den"} {
+		raw := []byte(`{"pricing":{"tiers":[{"code":"MEMBER","` + key + `":9}]}}`)
+		var config Config
+		if err := json.Unmarshal(raw, &config); err != nil {
+			t.Fatalf("%s : %v", key, err)
+		}
+		retired := config.Retired()
+		if len(retired) == 0 {
+			t.Errorf("%s : aucune clé retirée signalée", key)
+			continue
+		}
+		if !strings.Contains(retired[0], key) {
+			t.Errorf("%s : clé retirée %q, elle doit nommer la clé", key, retired[0])
+		}
+	}
+}
+
+// TestRetiredCoefficientMessagesPointAtTheNewKey: refusing is only half of it --
+// the message has to say what to write instead, or a volunteer is stuck.
+func TestRetiredCoefficientMessagesPointAtTheNewKey(t *testing.T) {
+	for _, key := range []string{"coef_num", "coef_den"} {
+		reason, known := retiredKeys[key]
+		if !known {
+			t.Errorf("%s absente de la table des clés retirées", key)
+			continue
+		}
+		if !strings.Contains(reason, "discount_percent") {
+			t.Errorf("%s : message %q, il doit nommer discount_percent", key, reason)
+		}
+	}
+}
+
 // --- Controls 17 to 19: the compiled numbering plan -----------------------------
 
 func TestControls17To19OnTheCompiledPlan(t *testing.T) {

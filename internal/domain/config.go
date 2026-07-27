@@ -75,22 +75,27 @@ const (
 // application never allowed.
 const fingerprintLength = 8
 
-// retiredPlanKeys are the six keys control 20 REFUSES outright, each with the
-// reason §11.2 gives for its removal.
+// retiredKeys are the keys check 20 REFUSES outright, each with the reason §11.2
+// gives for its removal.
 //
-// Every one of them used to declare a piece of the numbering plan from a file. The
+// Two families, and refusing rather than ignoring is the whole point of both.
+// The first six used to declare a piece of the numbering plan from a file; the
 // plan is now a CONSTANT OF THE BINARY indexed by prefix and self-checked at
-// start-up (ADR-028): a field that changes the MEANING of the code the till reads
-// is not a setting, it is an external contract. Refusing rather than ignoring is
-// the whole point -- after an update, a station must not be left believing that
-// its old field-width setting still applies.
-var retiredPlanKeys = map[string]string{
+// start-up (ADR-028), because a field that changes the MEANING of the code the
+// till reads is not a setting, it is an external contract. The last two are the
+// rational coefficient ADR-034 replaced by a percentage: encoding/json drops
+// what no field claims, so an old file would decode in silence with every
+// discount at zero -- and every member would pay the full price with nothing to
+// say why.
+var retiredKeys = map[string]string{
 	"weight_decimals":   "les décimales du poids sont déclarées par le plan compilé, indexé par préfixe (ADR-028)",
 	"units_field_width": "la largeur du champ des unités est déclarée par le plan compilé, indexé par préfixe (ADR-028)",
 	"weight_prefix":     "les préfixes au poids sont déclarés par le plan compilé (0493 à 0498), jamais par un fichier",
 	"unit_prefix":       "le préfixe à l'unité est déclaré par le plan compilé (0499), jamais par un fichier",
 	"content":           "ce que transporte la charge utile est déclaré par le plan compilé, jamais par un fichier",
 	"rules_by_prefix":   "la table de règles par préfixe est remplacée par le plan compilé, auto-contrôlé au démarrage",
+	"coef_num":          "la remise d'un tarif se déclare en pourcentage : discount_percent, au dixième de point (ADR-034)",
+	"coef_den":          "la remise d'un tarif se déclare en pourcentage : discount_percent, il n'y a plus de dénominateur (ADR-034)",
 }
 
 // retiredScaleTypes are the two values that LEFT the scale enumeration (§9.3),
@@ -490,7 +495,7 @@ func scanRetired(prefix string, value any, out *[]string) {
 			if prefix != "" {
 				path = prefix + "." + key
 			}
-			if _, retired := retiredPlanKeys[key]; retired {
+			if _, retired := retiredKeys[key]; retired {
 				*out = append(*out, path)
 			}
 			scanRetired(path, typed[key], out)
@@ -950,7 +955,7 @@ func (c *Config) Validate(reg Registries) []Fault {
 	// 20. A configuration still carrying a retired plan key is REFUSED.
 	for _, path := range c.retired {
 		key := path[strings.LastIndexByte(path, '.')+1:]
-		fail(path, "clé supprimée : %s", retiredPlanKeys[key])
+		fail(path, "clé supprimée : %s", retiredKeys[key])
 	}
 
 	// 21. template.media.dots_per_mm is the SINGLE source of resolution (mineur-3):
