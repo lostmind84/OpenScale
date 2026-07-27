@@ -7,9 +7,9 @@
 poste complet : noyau métier, balance, étiquette, impression, Hub à horloge injectée,
 écran client Svelte, catalogue, écrans d'administration, `openscale doctor` et ses quinze
 contrôles, `diagnostic.zip`, installeurs Windows et Linux, `INSTALLATION.md` et
-`TROUBLESHOOTING.md`. **2 774 tests** verts (2 344 Go comptés en `--- PASS`, 430 front — le
+`TROUBLESHOOTING.md`. **2 785 tests** verts (2 352 Go comptés en `--- PASS`, 433 front — le
 bandeau restait sur 245, figé depuis plusieurs sessions : le journal plus bas en comptait
-déjà 418 avant ce chantier, qui en ajoute une douzaine), suite passée sur ce poste Windows
+déjà 418 avant ce chantier, qui en ajoute une quinzaine), suite passée sur ce poste Windows
 — `-race` sautée faute de gcc, la CI Linux la couvre.
 
 **La remise change de forme, sur demande du commanditaire (27/07/2026).** Sur la page
