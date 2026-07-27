@@ -391,7 +391,7 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `Etiquette.Lignes` / `Principale` / `Reference` (lignes de tarif) | `Label.Lines` / `PrimaryLine` / `ReferenceLine` |
 | `Etiquette.CodeBarre` / `JobID` | `Label.Barcode` / `JobID` |
 | `LigneTarif.Tarif` / `PrixUnitaire` / `Montant` | `PriceLine.Tier` / `UnitPrice` / `Amount` |
-| `Tarif.Code` / `Libelle` / `Abrege` / `CoefNum` / `CoefDen` / `Ordre` | `PriceTier.Code` / `Label` / `Abbrev` / `CoefNum` / `CoefDen` / `Rank` |
+| `Tarif.Code` / `Libelle` / `Abrege` / `CoefNum` / `CoefDen` / `Ordre` | `PriceTier.Code` / `Label` / `Abbrev` / `Discount` / `Rank` |
 | `ReglesTarification.Tarifs` / `CodePrincipal` / `CodeSecondaires` / `CodeReference` / `ArrondiPrix` / `ArrondiTarif` | `PricingRules.Tiers` / `PrimaryCode` / `SecondaryCodes` / `ReferenceCode` / `AmountRounding` / `UnitPriceRounding` |
 | Codes de tarif `"ADHERENT"` / `"SOLIDAIRE"` | `"MEMBER"` / `"SOLIDARITY"` |
 | `Produit.ID` / `Nom` / `Reference` / `Mode` / `PrixUnitaire` | `Product.ID` / `Name` / `Reference` / `Mode` / `UnitPrice` |
@@ -558,10 +558,10 @@ portent.
 | `imprimante.options.secours{actif, transport, file}` | `printer.options.fallback{enabled, transport, queue}` |
 | `imprimante.options{noircissement, vitesse, decalage_x, decalage_y, inverser_bits, capacite_rouleau}` | `printer.options{darkness, speed, offset_x, offset_y, invert_bits, roll_capacity}` |
 | `tarification{tarifs, code_principal, code_secondaires, code_reference, arrondi_prix, arrondi_tarif}` | `pricing{tiers, primary_code, secondary_codes, reference_code, amount_rounding, unit_price_rounding}` |
-| `tarifs[]{code, libelle, abrege, coef_num, coef_den, ordre}` | `tiers[]{code, label, abbrev, coef_num, coef_den, rank}` |
+| `tarifs[]{code, libelle, abrege, remise_pourcent, ordre}` | `tiers[]{code, label, abbrev, discount_percent, rank}` |
 | `arrondi : commercial \| tronque \| pair` | `rounding : half_up \| truncate \| half_even` |
 | `code_barre{verifier_cle_reference}` | `barcode{verify_reference_check_digit}` |
-| clés refusées par le contrôle 20 : `decimales_poids`, `largeur_champ_unites`, `prefixe_poids`, `prefixe_unite`, `contenu`, `regles_par_prefixe` | `weight_decimals`, `units_field_width`, `weight_prefix`, `unit_prefix`, `content`, `rules_by_prefix` |
+| clés refusées par le contrôle 20 : `decimales_poids`, `largeur_champ_unites`, `prefixe_poids`, `prefixe_unite`, `contenu`, `regles_par_prefixe`, `coef_num`, `coef_den` | `weight_decimals`, `units_field_width`, `weight_prefix`, `unit_prefix`, `content`, `rules_by_prefix`, `coef_num`, `coef_den` |
 | `seuils{vide_max, panier_actif, panier_min, panier_max}` | `limits{empty_max_g, basket_check_enabled, basket_min_g, basket_max_g}` |
 | `seuils{poids_min, poids_max, tare_max, unites_min, unites_max, montant_max}` | `limits{min_weight_g, max_weight_g, max_tare_g, min_units, max_units, max_amount_cents}` |
 | `stabilite{mode, duree_min_ms, tolerance_grammes, timeout_ms, au_timeout}` | `stability{mode, min_duration_ms, tolerance_g, timeout_ms, on_timeout}` |

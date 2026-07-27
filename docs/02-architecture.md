@@ -504,12 +504,15 @@ const (
 // It is symmetric around zero: negative weights do exist (the "basket
 // missing" safeguard), and an asymmetric rounding would surprise there.
 //
-// PRECONDITION: den > 0. It is guaranteed UPSTREAM, not merely hoped for:
-// configuration checks 10-13 require coef_den > 0 (and not "!= 0"), and Price
-// runs the check again and returns ErrInconsistentTiers -- never a panic --
-// should a programmatically built tier grid escape them. That is what makes
-// invariant §6.7-5 ("Transition never panics") true for configuration values
-// as well, and not only for state x event pairs.
+// PRECONDITION: den > 0. Price's two call sites pass positive CONSTANTS --
+// FullDiscount for the tier coefficient, 1000 for the gram-to-kilogram
+// conversion -- so no tier grid can reach this precondition any more. It used
+// to be reachable: coef_den came from the file, check 11 was what kept it
+// positive, and a negative denominator would have panicked in the Hub
+// goroutine and killed the process (ADR-034). The third caller, Quantize,
+// derives its denominator from the plan's Decimals, which the plan check keeps
+// non-negative (ean13.go:99) -- there the guarantee is still UPSTREAM, not
+// structural.
 func (p RoundingPolicy) Divide(num, den int64) int64 {
     if den <= 0 {
         panic("domain: zero or negative denominator") // programming defect, never data
@@ -704,16 +707,20 @@ func Generate(pattern EAN13, payload int64, width int) (EAN13, error) {
 ```go
 // PriceTier is one configured price level, such as member or solidarity.
 type PriceTier struct {
-    Code    string `json:"code"`   // "MEMBER", "SOLIDARITY" -- stable, used as a key
-    Label   string `json:"label"`  // "Adhérent" -- customer facing, stays French
-    Abbrev  string `json:"abbrev"` // "A" -- prefix printed on the label
-    CoefNum int64  `json:"coef_num"`
-    CoefDen int64  `json:"coef_den"`
-    Rank    int    `json:"rank"`
+    Code     string   `json:"code"`   // "MEMBER", "SOLIDARITY" -- stable, used as a key
+    Label    string   `json:"label"`  // "Adhérent" -- customer facing, stays French
+    Abbrev   string   `json:"abbrev"` // "A" -- prefix printed on the label
+    Discount Discount `json:"discount_percent,omitempty"`
+    Rank     int      `json:"rank"`
 }
 ```
 
-> **Coefficient rationnel, pas flottant.** 0,9 devient 9/10 ; une remise d'un tiers devient 1/3 **exactement**. Le `0.9` en dur de l'existant disparaît.
+> **Remise en pourcentage, jamais en flottant.** Une remise se déclare `discount_percent`
+> au dixième de point et se stocke en dixièmes **entiers** : 10,2 % vaut 102. Le `0.9` en
+> dur de l'existant disparaît, et aucun flottant ne s'interpose entre le fichier et le
+> centime imprimé. **Le tarif désigné par `reference_code` ne porte aucune remise** :
+> c'est le prix du catalogue, celui que la caisse encaisse, et l'absence de la clé *est*
+> cette affirmation (ADR-034).
 
 ```go
 // Price is the ONLY implementation of the pricing rule of the application.
@@ -721,9 +728,9 @@ type PriceTier struct {
 //
 // ORDER OF OPERATIONS -- not negotiable, it reproduces the legacy application
 // (FormulaireCalcul.cls:3478) and arbitration A7:
-//   1. derived unit price = unitPriceRounding(base x num / den)
+//   1. derived unit price = unitPriceRounding(base x (FullDiscount - discount) / FullDiscount)
 //   2. amount             = amountRounding(derivedUnitPrice x netWeight / 1000)
-// and NOT amountRounding(base x weight / 1000) x num / den.
+// and NOT amountRounding(base x weight / 1000) x (FullDiscount - discount) / FullDiscount.
 //
 // WHY: the derived unit price is the one PRINTED on the label
 // ("A: 4,79 €/kg") and the one recorded in Odoo. Applying the coefficient to
@@ -737,15 +744,18 @@ func Price(p Product, m Measurement, rules PricingRules) (Label, error) {
         Quantity: m.Quantity,
     }
     for _, tier := range rules.SortedTiers() {
-        // Last-resort guard: a grid whose denominator is zero or negative is
-        // REFUSED here, never propagated to Divide (which would panic in the
-        // Hub goroutine and kill the process).
-        if tier.CoefDen <= 0 || tier.CoefNum < 0 {
-            return Label{}, fmt.Errorf("%w: tier %s, coefficient %d/%d",
-                ErrInconsistentTiers, tier.Code, tier.CoefNum, tier.CoefDen)
+        // Last-resort guard, and it no longer guards the same thing. The
+        // denominator is a CONSTANT now, so no grid can reach Divide's
+        // precondition and kill the Hub goroutine -- that failure mode is gone
+        // by construction (ADR-034). What remains is the SIGN of the price: a
+        // discount outside [0, 100 %] would print a negative price, or one
+        // above the catalog's.
+        if tier.Discount < 0 || tier.Discount > FullDiscount {
+            return Label{}, fmt.Errorf("%w: tier %s, discount %s %%",
+                ErrInconsistentTiers, tier.Code, tier.Discount)
         }
         unitPrice := Cents(rules.UnitPriceRounding.Divide(
-            int64(p.UnitPrice)*tier.CoefNum, tier.CoefDen))
+            int64(p.UnitPrice)*int64(FullDiscount-tier.Discount), int64(FullDiscount)))
 
         var amount Cents
         switch p.Mode {
@@ -777,8 +787,8 @@ func Price(p Product, m Measurement, rules PricingRules) (Label, error) {
 // (§11.5).
 PricingRules{
     Tiers: []PriceTier{
-        {Code: "MEMBER",     Label: "Adhérent",  Abbrev: "A", CoefNum: 9, CoefDen: 10, Rank: 1},
-        {Code: "SOLIDARITY", Label: "Solidaire", Abbrev: "S", CoefNum: 1, CoefDen: 1,  Rank: 2},
+        {Code: "MEMBER",     Label: "Adhérent",  Abbrev: "A", Discount: 100, Rank: 1},
+        {Code: "SOLIDARITY", Label: "Solidaire", Abbrev: "S", Rank: 2},
     },
     PrimaryCode:       "MEMBER",               // the BIG one, legacy control `Prix`, 11 pt bold, right aligned
     SecondaryCodes:    []string{"SOLIDARITY"}, // the SMALL one, legacy control `LabelAPayer`, 7 pt
@@ -792,9 +802,9 @@ PricingRules{
 
 | Étape | Calcul | Résultat |
 |---|---|---|
-| PU solidaire | `RoundHalfUp(532×1, 1)` | `532` → **5,32 €/kg** |
+| PU solidaire | `RoundHalfUp(532×(1000−0), 1000)` = 532 000/1000, r = 0 | `532` → **5,32 €/kg** |
 | Montant solidaire | `RoundHalfUp(532×1236, 1000)` = 657 552/1000, r = 552, 552×2 ≥ 1000 | `658` → **6,58 €** |
-| PU adhérent | `RoundHalfUp(532×9, 10)` = 4788/10, r = 8, 8×2 ≥ 10 | `479` → **4,79 €/kg** |
+| PU adhérent | `RoundHalfUp(532×(1000−100), 1000)` = 478 800/1000, r = 800, 800×2 ≥ 1000 | `479` → **4,79 €/kg** |
 | Montant adhérent | `RoundHalfUp(479×1236, 1000)` = 592 044/1000, r = 44, 44×2 < 1000 | `592` → **5,92 €** |
 | Charge utile | poids net en grammes | `1236` → `"01236"` |
 | 12 digits | `"0493021"` + `"01236"` | `049302101236` |
@@ -2370,8 +2380,8 @@ Surcharges : `--config`, `--data`, `OPENSCALE_CONFIG`, `OPENSCALE_DATA`. **Aucun
 
   "pricing": {
     "tiers": [
-      { "code":"MEMBER",     "label":"Adhérent",  "abbrev":"A", "coef_num":9, "coef_den":10, "rank":1 },
-      { "code":"SOLIDARITY", "label":"Solidaire", "abbrev":"S", "coef_num":1, "coef_den":1,  "rank":2 }
+      { "code":"MEMBER",     "label":"Adhérent",  "abbrev":"A", "discount_percent":10, "rank":1 },
+      { "code":"SOLIDARITY", "label":"Solidaire", "abbrev":"S", "rank":2 }
     ],
     "primary_code": "MEMBER",                 // A7 — printed LARGE
     "secondary_codes": ["SOLIDARITY"],        // A7 — printed small
@@ -2480,8 +2490,8 @@ Surcharges : `--config`, `--data`, `OPENSCALE_CONFIG`, `OPENSCALE_DATA`. **Aucun
 ```go
 // Fault is a single configuration error, named by the field that carries it.
 type Fault struct {
-    Field   string   `json:"field"`   // "pricing.tiers[1].coef_den"
-    Message string   `json:"message"` // "doit être strictement positif"
+    Field   string   `json:"field"`   // "pricing.tiers[1].discount_percent"
+    Message string   `json:"message"` // "le tarif de référence est le prix du catalogue : il ne porte pas de remise"
     Values  []string `json:"values,omitempty"`
 }
 
@@ -2495,7 +2505,7 @@ func (c *Config) Validate(reg Registries) []Fault
 
 `Registries` porte les descripteurs de drivers, ce qui permet de valider **les options de chaque driver** et pas seulement « type inconnu » : `port` dans la liste énumérée, `queue` parmi les files **réellement visibles**, `address` en `host:port`.
 
-1–2 `station.number ∈ [1,99]`, `network.listen` parseable · 3–5 types de balance/imprimante/source connus, **liste des valeurs disponibles dans `Fault.Values`** — pour la balance, **exactement les deux protocoles du registre** (§9.3), et les options série ne sont exigées que si `scale.present` — pour l'imprimante, exactement les trois descripteurs enregistrés, `raster` (défaut), `sbpl` et `preview` (§1.1-3, §8.1, §8.2) · 6–9 options de driver validées par leur schéma · 10–13 au moins un tarif, **`coef_den > 0`** (et non « ≠ 0 » : un dénominateur négatif passerait la validation, atteindrait `RoundingPolicy.Divide` dont la précondition est `den > 0` — §6.1, §6.3 — et tuerait la goroutine du Hub), codes uniques, `coef_num ≥ 0` · 14–16 `primary_code`, `reference_code`, chaque `secondary_codes` appartiennent à la grille · 17–18 **le plan de numérotation interne s'auto-contrôle au démarrage** (§6.2, ADR-028) : chaque préfixe déclaré fait exactement 4 chiffres, et `4 + RefWidth + PayloadWidth + 1 = 13` — un plan incohérent **arrête le processus au démarrage**, jamais à l'impression · 19 aucun préfixe déclaré deux fois dans le plan · 20 **une configuration qui porte encore `weight_decimals`, `units_field_width`, `weight_prefix`, `unit_prefix`, `content` ou `rules_by_prefix` est refusée**, avec un message qui renvoie au plan compilé : après mise à jour, un poste ne doit surtout pas croire que son ancien réglage de largeur s'applique encore · 21 **`template.media.dots_per_mm` unique source de résolution** (mineur-3) · 22 `basket_min_g ≤ basket_max_g ≤ 0` · 23 `min_weight_g < max_weight_g ≤ 99999` · 24 `min_units ≤ max_units ≤ 99` · 25 `max_amount_cents ≤ 99999` · 26 `timeout_ms > min_duration_ms` · 27 `expiry_floor_ms ≥ 1000` et `< expiry_ceiling_ms` · 28 `stability.mode` et `on_timeout` dans la liste · 29 **`template` existe ET `Template.Validate()` passe (les 9 règles, §7.5)** · 30 `journal.max_rows ≥ 100` · 31 `admin.password_hash` non vide et bien formé · 32 `catalog.fallback_category ∈ categories` · 33 codes de catégorie uniques · 34 `min_readable_ratio ∈ [0,1]` · 35 couleurs `#RRGGBB` · 36 `poll_interval_s ≥ 1` · 37 `copies ∈ [1,10]` · 38 **`offset_x/y` recomposé avec la géométrie du gabarit** (mineur-2) · 39 **pas d'hôte HTTP(S) derrière un chemin de dépôt** (important-11) · 40 `max_weighable_drop ∈ [0, 0.5]` · 41 `roll_capacity ≥ 50` · 42 **transport série interdit pour l'imprimante** (16 ko/étiquette, §8.3) · 43 **tout prix porté par un fichier de configuration livré (`config-lacagette.json`, produits de démonstration, `flv_demo.csv`) vérifie `0 ≤ prix ≤ 999 999` centimes** — 3ᵉ et dernière imposition de `MaxUnitPrice` (§6.1), avec le DDL (§12.3) et la règle de prix de §10.3. *Depuis §11.5 c'est un contrôle de configuration **ordinaire**, appliqué à un fichier comme tous les autres ; il validait auparavant des valeurs compilées, c'est-à-dire du code source* · 44 `catalog.images.source` dans la liste, et `path` lisible **depuis le contexte du service** quand la source est `image_directory` · 45 `max_image_size_kb ∈ [16, 4096]` **et** `max_image_size_kb × 1024 ≤ max_file_size_mb × 1 048 576` — une image ne peut pas être autorisée à dépasser le fichier qui la contient (§10.7).
+1–2 `station.number ∈ [1,99]`, `network.listen` parseable · 3–5 types de balance/imprimante/source connus, **liste des valeurs disponibles dans `Fault.Values`** — pour la balance, **exactement les deux protocoles du registre** (§9.3), et les options série ne sont exigées que si `scale.present` — pour l'imprimante, exactement les trois descripteurs enregistrés, `raster` (défaut), `sbpl` et `preview` (§1.1-3, §8.1, §8.2) · 6–9 options de driver validées par leur schéma · 10–13 au moins un tarif, **le tarif désigné par `reference_code` ne porte pas de remise** (c'est le prix du catalogue, pas un réglage), codes uniques, **`discount_percent ∈ [0 %, 100 %]`** au dixième de point — *le dénominateur constant d'ADR-034 a supprimé la panne que cette ligne retenait : un `coef_den` non positif atteignait `RoundingPolicy.Divide` et tuait la goroutine du Hub* · 14–16 `primary_code`, `reference_code`, chaque `secondary_codes` appartiennent à la grille · 17–18 **le plan de numérotation interne s'auto-contrôle au démarrage** (§6.2, ADR-028) : chaque préfixe déclaré fait exactement 4 chiffres, et `4 + RefWidth + PayloadWidth + 1 = 13` — un plan incohérent **arrête le processus au démarrage**, jamais à l'impression · 19 aucun préfixe déclaré deux fois dans le plan · 20 **une configuration qui porte encore `weight_decimals`, `units_field_width`, `weight_prefix`, `unit_prefix`, `content`, `rules_by_prefix`, `coef_num` ou `coef_den` est refusée**, avec un message qui renvoie au plan compilé pour les six premières et à `discount_percent` (ADR-034) pour les deux dernières : après mise à jour, un poste ne doit surtout pas croire que son ancien réglage de largeur ou son ancien coefficient s'applique encore · 21 **`template.media.dots_per_mm` unique source de résolution** (mineur-3) · 22 `basket_min_g ≤ basket_max_g ≤ 0` · 23 `min_weight_g < max_weight_g ≤ 99999` · 24 `min_units ≤ max_units ≤ 99` · 25 `max_amount_cents ≤ 99999` · 26 `timeout_ms > min_duration_ms` · 27 `expiry_floor_ms ≥ 1000` et `< expiry_ceiling_ms` · 28 `stability.mode` et `on_timeout` dans la liste · 29 **`template` existe ET `Template.Validate()` passe (les 9 règles, §7.5)** · 30 `journal.max_rows ≥ 100` · 31 `admin.password_hash` non vide et bien formé · 32 `catalog.fallback_category ∈ categories` · 33 codes de catégorie uniques · 34 `min_readable_ratio ∈ [0,1]` · 35 couleurs `#RRGGBB` · 36 `poll_interval_s ≥ 1` · 37 `copies ∈ [1,10]` · 38 **`offset_x/y` recomposé avec la géométrie du gabarit** (mineur-2) · 39 **pas d'hôte HTTP(S) derrière un chemin de dépôt** (important-11) · 40 `max_weighable_drop ∈ [0, 0.5]` · 41 `roll_capacity ≥ 50` · 42 **transport série interdit pour l'imprimante** (16 ko/étiquette, §8.3) · 43 **tout prix porté par un fichier de configuration livré (`config-lacagette.json`, produits de démonstration, `flv_demo.csv`) vérifie `0 ≤ prix ≤ 999 999` centimes** — 3ᵉ et dernière imposition de `MaxUnitPrice` (§6.1), avec le DDL (§12.3) et la règle de prix de §10.3. *Depuis §11.5 c'est un contrôle de configuration **ordinaire**, appliqué à un fichier comme tous les autres ; il validait auparavant des valeurs compilées, c'est-à-dire du code source* · 44 `catalog.images.source` dans la liste, et `path` lisible **depuis le contexte du service** quand la source est `image_directory` · 45 `max_image_size_kb ∈ [16, 4096]` **et** `max_image_size_kb × 1024 ≤ max_file_size_mb × 1 048 576` — une image ne peut pas être autorisée à dépasser le fichier qui la contient (§10.7).
 
 > **Quatre contrôles ont disparu et il faut dire lesquels, sinon on croit à un oubli.** L'ancien n° 32 (`catalog.pattern` contient `%d`) protégeait d'un dégât qu'on vient de rendre impossible en supprimant `pattern` (§11.2). L'ancien n° 34 (valeurs de `mappings ∈ categories`) protégeait d'un dégât qu'on vient de rendre impossible en faisant de `F/L/V/A` une constante de l'adaptateur. L'ancien n° 38 (pas de lettre de lecteur si le processus tourne comme service) n'a plus d'objet : `local_drop` est un répertoire que le service crée lui-même. L'ancien n° 37 (`ui.open_category ∈ categories`) non plus : **il n'y a plus d'onglet ouvert au repos**, la vue au repos est la grille complète et les catégories sont des filtres (§14.3). **Un contrôle de validation dont la seule fonction est de rattraper un réglage qui n'aurait pas dû exister est un symptôme, pas une garantie.**
 
@@ -3746,7 +3756,7 @@ Contrastes **AAA** (≥ 7:1) sur tout texte ≥ 24 px, **AA** partout ailleurs �
 |---|---|
 | Matériel | Balance : **protocole** (deux entrées, §9.3), **liste déroulante des ports détectés avec description USB**, **« Détecter automatiquement »** (ouvre chaque port 3 s, applique le parseur, annonce « COM8 : 12 trames valides, GRAM XFOC » — **c'est la détection qui répond à « y a-t-il une balance ? », pas l'exploitant**), case **« ce poste n'a pas de balance »** (`scale.present`, qui éteint le feu au lieu de le laisser rouge), **visualiseur des 20 dernières trames brutes en direct** (hexa + décodé, **toujours actif** : ce n'est plus un réglage), **cadence médiane**. Imprimante : driver, transport, **« Lister les files »**, **« Rechercher l'imprimante »**, statut, 3 auto-tests, trame de statut brute en hexa. |
 | Étiquette | Menu de gabarit, **aperçu PNG rafraîchi à chaque frappe** (identique à l'impression, A2), décalage X/Y en dots avec flèches ±1 **bornées par la géométrie**, noircissement, vitesse, exemplaires, **bandeau chiffré de `Diagnose()`** avec la mention « troncature volontaire (ADR-003) », éditeur tabulaire du gabarit. |
-| Règles | Grille de tarifs (code/libellé/abrégé/num/den/ordre), les deux arrondis **avec l'explication de l'écart au centime**, les 14 garde-fous avec **leur seuil et leur message modifiables, leur sévérité en lecture seule** (§6.4), **aperçu en direct** (« à 8 g, ce produit serait refusé »), code-barres. **La liste des dérogations de poids minimum actives** — un produit nommé par ligne, avec son `min_weight_g`, sa date et son auteur —, en lecture ici et **modifiable depuis l'onglet Catalogue**, où se trouve le produit (§10.6). |
+| Règles | Grille de tarifs (code/libellé/abrégé/**remise en %**/ordre), **la ligne du tarif de référence en lecture seule pour son prix et modifiable pour ses mots**, les deux arrondis **avec l'explication de l'écart au centime**, les 14 garde-fous avec **leur seuil et leur message modifiables, leur sévérité en lecture seule** (§6.4), **aperçu en direct** (« à 8 g, ce produit serait refusé »), code-barres. **La liste des dérogations de poids minimum actives** — un produit nommé par ligne, avec son `min_weight_g`, sa date et son auteur —, en lecture ici et **modifiable depuis l'onglet Catalogue**, où se trouve le produit (§10.6). |
 | Catalogue | Dernier import et son **inventaire** · **liste des anomalies et des unités divergentes, chacune avec son numéro de ligne du CSV, son motif en français et la valeur fautive** · **liste des non-pesables** (préemballés, sans code-barres), présentée comme un **inventaire neutre** et jamais comme une liste d'erreurs · produits **retirés** depuis l'import précédent (§10.9) · historique des 20 derniers imports · **glisser-déposer d'un CSV (A4)** · **interrupteur « Ne plus proposer ce produit »** · **« Autoriser ce produit à peser moins de 10 g »** (dérogation par produit, §10.6) · « Oublier la quarantaine » · état de la source. |
 | Journal | 200 dernières pesées, filtres, export CSV, détail **avec la trame brute** et bouton « Rejouer cette trame ». Journal technique en dessous. |
 | Poste | Numéro, nom, coop, empreinte, export/import avec **aperçu du diff champ par champ**, 5 versions restaurables, version du binaire, chemins, espace disque. *(Pas de bouton « redémarrer » : aucun bloc de configuration ne l'exige — §11.4.)* |
@@ -4359,7 +4369,7 @@ Chaque lot livre quelque chose de **démontrable** et laisse le dépôt vert.
 **Décision.** **Arrondi commercial** (half-up) par défaut, sur le prix unitaire dérivé **et** sur le montant. Le mode est **configurable** : `half_up` (défaut), `truncate`, `half_even`.
 **Conséquences.** VBA `Round()` est un arrondi **au pair le plus proche** : l'écart ne peut apparaître **que** sur une égalité exacte au demi-centime et vaut **au maximum 1 centime**. Sa fréquence est chiffrée **sur la seule volumétrie observée, sans aucune extrapolation temporelle** : les **20 662 pesées** de la table `Stats` de la base sauvegardée — cumul d'**un seul poste sur une période inconnue** (§12.4, §6.1) — donnent ≈ **10 étiquettes** qui auraient différé d'un centime **sur toute la durée couverte par cette base**. **Aucune fréquence annuelle n'est avancée ici**, et aucune décision n'en dépend. `RoundHalfToEven` est implémenté et testé pour qui voudrait l'égalité stricte. Arithmétique entière de bout en bout : le comportement est désormais déterministe, ce que le `Double` de VBA ne garantissait même pas.
 
-### ADR-009 — Double tarif : optionnel, appliqué partout, rendu établi par les preuves
+### ADR-009 — Double tarif : optionnel, appliqué partout, rendu établi par les preuves *(amendé par ADR-034)*
 **Contexte.** Dans l'existant, `LabelPrix = "A: " & prix_adhérent` en corps 11 gras (le **gros**) et `LabelAPayer = "S: " & prix_solidaire` en corps 7 (le **petit**) ; le coefficient est appliqué **au prix unitaire** puis multiplié par le poids, avec ré-arrondi. Mais la remise n'existe **que** dans le chemin automatique et **pas** dans les trois pavés numériques : deux clients paient deux prix différents pour le même produit au même poids.
 **Décision.** Grille de tarifs nommés avec coefficient **rationnel** (num/den, jamais `0.9` en dur). Le prix **adhérent** est celui imprimé en gros. Ordre des opérations reproduit exactement. **La règle est appliquée sur TOUS les chemins de saisie**, par construction : `Prepare` est le point de passage unique.
 **Conséquences.** Le double tarif n'est plus un booléen mais le **cardinal** de la grille : mono-tarif = une entrée, et le champ secondaire disparaît par sa condition, sans aucun `if` dans le rendu. Un troisième tarif s'ajoute par configuration. L'incohérence tarifaire de l'existant est supprimée par construction, pas par vigilance.
@@ -4565,6 +4575,11 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 **Ce que cela coûte, et pourquoi c'est acceptable.** Un client peut atteindre le tableau de bord, le dépannage et la **lecture** des réglages. Les deux premières pages sont délibérément sans mot de passe depuis important-10, pour une raison qui n'a pas bougé : quiconque est devant le poste peut déjà débrancher l'imprimante. La troisième ne divulgue aucun secret. **Tout ce qui écrit reste fermé**, et deux routes qui ne l'étaient pas le sont devenues : la surface réellement dangereuse a **diminué**.
 
 **Conséquences vérifiées.** Rail à 256 px et colonne de lecture à 1 088 px sur les huit pages, aucun défilement horizontal, aucune erreur console. La cible tactile de 20 mm sort de l'administration — elle se conduit à la souris — et l'écran client garde la sienne, avec son test ; les neuf gros boutons du Dépannage ont désormais le leur.
+
+### ADR-034 — La remise d'un tarif est un pourcentage, dans le fichier comme à l'écran
+**Contexte.** ADR-009 a posé le coefficient **rationnel** (`coef_num`/`coef_den`) contre le `0.9` en dur de l'existant, avec l'exactitude pour justification. La forme a été mise à l'épreuve de son premier lecteur : le commanditaire a ouvert la page Règles et n'a pas su lire les colonnes « Numérateur » et « Dénominateur ». Une remise de 10,2 % s'y écrit 449/500. Par ailleurs, le tarif de référence — le prix Odoo, celui que la caisse encaisse — portait un coefficient modifiable comme les autres, alors que sa valeur 1/1 n'est pas un réglage mais sa définition.
+**Décision.** La remise se déclare en **pourcentage au dixième de point** (`discount_percent`), stocké en dixièmes entiers. Le tarif désigné par `reference_code` **ne porte aucune clé de remise** : l'absence *est* le prix du catalogue. `coef_num` et `coef_den` rejoignent les clés retirées du contrôle 20.
+**Conséquences.** L'exactitude est tenue : le calcul reste entier de bout en bout, et aucun prix imprimé ne bouge. Le dénominateur devient une constante, ce qui **supprime par construction** la panne que le contrôle 11 retenait — un dénominateur non positif atteignant `Divide` et tuant la goroutine du Hub. « Le tarif solidaire n'est pas configurable » devient un fait du format et non une règle d'écran. Le fichier redevient lisible par un humain, ce qui compte pour un artefact que quatre postes comparent à l'œil. **Contrepartie assumée** : les majorations et les remises non décimales — dont le `1/3 exactement` dont ADR-009 se réclamait — deviennent inexprimables ; un tiers se saisit 33,3 %. ADR-009 est **amendé** sur la forme du coefficient, et confirmé sur tout le reste : ordre des opérations, application sur tous les chemins de saisie, double tarif comme cardinal de la grille.
 
 ---
 
