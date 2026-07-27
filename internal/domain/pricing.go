@@ -26,18 +26,29 @@ type Discount int64
 // price. One constant, because "the whole" and "100 %" are the same quantity.
 const FullDiscount = Discount(1000)
 
+// parts splits the discount into the three pieces both spellings need: the sign,
+// the whole percent, and the tenth.
+//
+// The two spellings must never drift: they are one value written for JSON and for
+// a screen, so the arithmetic that produces them lives in ONE place and only the
+// separator differs at the call site.
+func (d Discount) parts() (sign string, whole, frac int64) {
+	tenths := int64(d)
+	if tenths < 0 {
+		sign, tenths = "-", -tenths
+	}
+	return sign, tenths / 10, tenths % 10
+}
+
 // String writes the discount the way a volunteer reads it: a French comma, and
 // no trailing zero. MarshalJSON writes a dot because JSON does -- two spellings
 // of one value, and neither is the other's job.
 func (d Discount) String() string {
-	sign, tenths := "", int64(d)
-	if tenths < 0 {
-		sign, tenths = "-", -tenths
+	sign, whole, frac := d.parts()
+	if frac == 0 {
+		return fmt.Sprintf("%s%d", sign, whole)
 	}
-	if tenths%10 == 0 {
-		return fmt.Sprintf("%s%d", sign, tenths/10)
-	}
-	return fmt.Sprintf("%s%d,%d", sign, tenths/10, tenths%10)
+	return fmt.Sprintf("%s%d,%d", sign, whole, frac)
 }
 
 // MarshalJSON writes the shortest exact decimal: 102 is "10.2", 100 is "10".
@@ -46,14 +57,11 @@ func (d Discount) String() string {
 // (ADR-012) is what four stations compare by eye, and two spellings of the same
 // discount would make them differ over nothing.
 func (d Discount) MarshalJSON() ([]byte, error) {
-	sign, tenths := "", int64(d)
-	if tenths < 0 {
-		sign, tenths = "-", -tenths
+	sign, whole, frac := d.parts()
+	if frac == 0 {
+		return fmt.Appendf(nil, "%s%d", sign, whole), nil
 	}
-	if tenths%10 == 0 {
-		return fmt.Appendf(nil, "%s%d", sign, tenths/10), nil
-	}
-	return fmt.Appendf(nil, "%s%d.%d", sign, tenths/10, tenths%10), nil
+	return fmt.Appendf(nil, "%s%d.%d", sign, whole, frac), nil
 }
 
 // UnmarshalJSON reads a percentage written with AT MOST ONE decimal digit.

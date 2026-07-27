@@ -384,7 +384,7 @@ func TestDiscountRoundTripsOnEveryTenth(t *testing.T) {
 // TestDiscountSpeaksFrenchOnScreen: MarshalJSON writes a dot because JSON does;
 // String writes a comma because a volunteer reads it. Two spellings, one value.
 func TestDiscountSpeaksFrenchOnScreen(t *testing.T) {
-	for want, discount := range map[string]Discount{"10,2": 102, "10": 100, "0": 0} {
+	for want, discount := range map[string]Discount{"10,2": 102, "10": 100, "0": 0, "-0,5": -5} {
 		if got := discount.String(); got != want {
 			t.Errorf("%d dixièmes affiché %q, attendu %q", discount, got, want)
 		}
