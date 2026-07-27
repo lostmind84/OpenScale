@@ -10,6 +10,65 @@ contrôles, `diagnostic.zip`, installeurs Windows et Linux, `INSTALLATION.md` et
 `TROUBLESHOOTING.md`. **2 564 tests** verts (2 319 Go comptés en `--- PASS`, 245 front), suite passée sur ce
 poste Windows — `-race` sautée faute de gcc, la CI Linux la couvre.
 
+**L'administration, reprise en entier (27/07/2026).** Le commanditaire a signalé un mot de
+passe qui « affiche une page d'erreur sans détails », demandé si ce mot de passe servait à
+quelque chose, et demandé de reprendre le design des neuf pages. Les trois se sont révélés
+liés.
+
+**Le défaut rapporté n'était pas le mot de passe.** Reproduit dans un navigateur sur le
+poste réel : la session s'ouvre (200), et c'est APRÈS que l'écran meurt. `retired_keys`
+partait en `null` dès qu'un fichier ne portait aucune clé périmée — le cas nominal — et
+`draft.retired.length` levait au premier rendu qui suit une connexion **réussie**. Le
+filet d'`ERR-UI-01` affichait sa phrase muette et rechargeait à cinq secondes. C'est le
+défaut que l'écran client a déjà eu sur `categories`, et dont le test de non-régression
+n'avait jamais été étendu à cette charge utile.
+
+**Deux défauts que personne ne cherchait.** `refresh()` remettait le champ d'erreur à vide
+**toutes les trois secondes**, et le même champ servait au sondage et à l'acte : neuf
+boutons de dépannage, la connexion et deux exports échouaient en silence depuis toujours.
+Et la configuration **livrée** portait une fausse empreinte tapée à la main —
+`VerifySecret` faux pour tout mot de passe, le contrôle 31 qui ne vérifiait que la forme
+donc `doctor` la déclarant saine, et `install.ps1` qui, voyant un champ de code de secours
+non vide, sautait le tirage : **la fiche d'installation partait avec des pointillés**. Un
+poste installé ainsi était enfermé dehors, définitivement.
+
+*(Une correction évidente a été écartée par la mesure : vérifier que la clé fait 32 octets
+ne marche pas, « for-the-delivered-configurationg » en fait exactement 32.)*
+
+**ADR-033 — la protection porte sur l'acte, pas sur la porte.** Le mot de passe gardait la
+lecture d'un numéro de port, alors que la charge utile est expurgée de ses deux empreintes
+avant de partir ; pendant ce temps deux routes **libres** pesaient plus lourd que tout ce
+qu'il gardait — « basculer en saisie manuelle », qui laisse le client taper son propre
+poids, et le dépôt d'un CSV, qui remplace toute la grille. Les six pages de réglages
+s'ouvrent donc en lecture, le mot de passe est demandé **à l'enregistrement**, et l'acte
+est **rejoué** derrière. La surface réellement dangereuse a diminué.
+
+Conséquence sur §11.3 : un `password_hash` vide n'est plus une faute, parce que
+`serve.go:256` met hors service tout poste dont la configuration en porte une — un fichier
+de coopérative complet jusqu'aux tarifs refusait de peser faute d'un secret
+d'administration. `doctor` l'**avertit** désormais, avec le chemin du code de secours.
+
+**La forme.** Rail vertical, deux groupes, colonne de lecture bornée à 68rem — les
+paragraphes du tableau de bord couraient sur 1 800 px. Mesuré dans le navigateur sur les
+huit pages, à 1366 / 1920 / 2560 : rail à 256 px, colonne à 1 088 px, aucun défilement
+horizontal, aucune erreur console. Le Journal sort volontairement de la colonne pour son
+tableau, dans son propre conteneur défilant — et son test lit LES DEUX fichiers pour
+casser le jour où les deux mesures de 68rem divergent.
+
+**Les neuf pages ont été reprises, puis RELUES par un adversaire.** Six relecteurs ont
+trouvé **55 défauts** dans le premier jet, tous vérifiés dans le code : une branche
+« refusé » morte qui faisait annoncer tout dépôt comme accepté ; une page qui accusait un
+produit d'être « absent du catalogue » alors que le catalogue n'avait jamais répondu ; une
+note qui citait §6.4 à l'appui de ce que §6.4 interdit ; des actes protégés qui n'ouvraient
+aucun panneau ; et, le plus grave, **une frappe dans « Port série » qui ouvrait un port
+série à chaque caractère**, tandis que la détection disputait le port à l'écoute. Tous
+corrigés. L'écoute permanente que §14.4 demande est tenue, mais à trois conditions
+désormais écrites : le port doit être énuméré par le poste, aucun acte ne doit être en vol,
+et rien ne doit l'avoir arrêtée.
+
+**418 tests front** (contre 245 au début de la journée), suite Go complète au vert, budget
+client 76,7 ko gzip sur 110.
+
 **Ce que la première mise en service a demandé (27/07/2026).** Six retours d'un poste
 réellement essayé, dont un défaut :
 

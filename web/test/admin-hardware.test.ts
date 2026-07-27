@@ -1,0 +1,514 @@
+import { flushSync, mount, unmount } from 'svelte'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import Hardware from '../src/admin/pages/Hardware.svelte'
+import type { HealthDTO } from '../src/admin/lib/dto'
+import { Draft } from '../src/admin/lib/draft.svelte'
+import { Admin } from '../src/admin/lib/session.svelte'
+import { nominalHealth, nominalState } from './fixtures/health'
+
+/**
+ * La page Matériel de §14.4, et ce qu'elle disait de faux ou pas du tout.
+ *
+ * Elle est la page de la MISE EN SERVICE : c'est devant elle qu'un bénévole est assis le
+ * jour où le poste arrive, avec un câble dans une main et le téléphone dans l'autre. Ce
+ * que ce fichier tient :
+ *
+ *  - les 20 dernières trames s'affichent SANS qu'on les demande, en hexa et en clair
+ *    (« toujours actif : ce n'est plus un réglage ») — mais SEULEMENT sur un port que le
+ *    poste a vraiment énuméré, et jamais sur une frappe partielle du champ « Port série » ;
+ *  - l'écoute REND LE PORT avant qu'un balayage ou un auto-test ne parte : sur un poste
+ *    Windows le port est exclusif, et se le disputer fait échouer la détection sur le seul
+ *    port où il y avait quelque chose à trouver ;
+ *  - « Détecter automatiquement » annonce où il en est et ne se laisse pas relancer ;
+ *  - un port qui REFUSE laisse une ligne, au lieu d'être avalé en silence ;
+ *  - les actes PROTÉGÉS — détection, recherche d'imprimante, auto-tests — demandent le mot
+ *    de passe et sont rejoués, au lieu de laisser un bandeau sans porte ;
+ *  - `printer.health` n'atteint jamais l'écran en anglais ;
+ *  - tant que la configuration n'est pas arrivée, la page n'affirme rien — ni la case à
+ *    cocher, ni la légende des trames.
+ */
+
+/** Une trame GRAM telle qu'elle sort du câble, STX compris. */
+const FRAME = '\u0002ST,GS,+  1.234kg\u0003'
+
+/** Le souffle entre deux manches d'écoute, tel que la page le tient (§14.4). */
+const PAUSE_MS = 250
+
+/** La configuration d'un poste dont la balance est branchée sur COM8. */
+const CONFIG = {
+  scale: { type: 'gram_xfoc', present: true, options: { port: 'COM8', baud_rate: 9600 } },
+  printer: { type: 'raster', options: { transport: 'local', queue: 'Étiqueteuse' } },
+}
+
+let host: HTMLElement
+let component: unknown
+let admin: Admin
+let draft: Draft
+/** Toutes les requêtes passées, dans l'ordre : « méthode route ». */
+let calls: string[] = []
+/** Les ports que le poste énumère. */
+let ports: { name: string; description: string; vid: string; pid: string }[] = []
+/** Les files d'impression que la plateforme déclare. */
+let printers: { name: string; detail: string; default: boolean }[] = []
+/** Ce que « Rechercher l'imprimante » rapporte du réseau. */
+let discovered: { name: string; detail: string; default: boolean }[] = []
+/**
+ * Ce que la PREMIÈRE capture répond ; les manches suivantes ne rendent rien.
+ *
+ * Une balance émet en continu, mais un test qui compterait des trames arrivant quatre
+ * fois par seconde ne mesurerait que sa propre lenteur.
+ */
+let heard: string[] = []
+/** Les ports sur lesquels une capture a VRAIMENT été demandée, dans l'ordre. */
+let capturedPorts: string[] = []
+/** Combien de captures sont en vol, et combien l'étaient quand une détection est partie. */
+let capturesInFlight = 0
+let capturesDuringDetect = 0
+/** Ce que chaque port répond à la détection, ou le refus qu'il oppose. */
+let answers = new Map<string, { status: number; message: string }>()
+/** Vrai quand le service exige une session : tout acte protégé prend un 401. */
+let guarded = false
+/** Les appels mis en attente, quand un test veut regarder pendant qu'ils sont en vol. */
+let held: (() => void)[] = []
+let heldCaptures: (() => void)[] = []
+let heldTests: (() => void)[] = []
+/** Vrai quand l'appel correspondant doit rester en vol jusqu'à ce que le test le libère. */
+let holding = false
+let holdingCaptures = false
+let holdingTests = false
+
+beforeEach(() => {
+  calls = []
+  ports = [{ name: 'COM8', description: 'USB-Serial CH340', vid: '1A86', pid: '7523' }]
+  printers = []
+  discovered = []
+  heard = []
+  capturedPorts = []
+  capturesInFlight = 0
+  capturesDuringDetect = 0
+  answers = new Map()
+  guarded = false
+  held = []
+  heldCaptures = []
+  heldTests = []
+  holding = false
+  holdingCaptures = false
+  holdingTests = false
+  host = document.createElement('div')
+  document.body.appendChild(host)
+  vi.stubGlobal('fetch', fakeFetch)
+})
+
+afterEach(() => {
+  // Rien ne doit rester en vol : une capture tenue après le démontage garde un port.
+  holding = false
+  holdingCaptures = false
+  holdingTests = false
+  for (const release of [...held, ...heldCaptures, ...heldTests]) release()
+  if (component !== undefined) unmount(component as Parameters<typeof unmount>[0])
+  component = undefined
+  host.remove()
+  vi.unstubAllGlobals()
+})
+
+/**
+ * Le service, réduit aux routes que cette page touche.
+ *
+ * `guarded` vaut pour les CINQ routes protégées de `internal/web/server.go` — capture,
+ * détection, recherche d'imprimante et auto-tests — et pour elles seules : c'est cette
+ * frontière-là que la page doit respecter, pas une frontière de confort.
+ */
+async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const route = String(input)
+  const method = init?.method ?? 'GET'
+  calls.push(`${method} ${route}`)
+  const body = JSON.parse(String(init?.body ?? '{}')) as { port?: string }
+
+  if (route === '/admin/api/session' && method === 'POST') {
+    guarded = false
+    return json({ expires_at: '', session_minutes: 30 })
+  }
+  if (route === '/admin/api/config') {
+    return json({
+      config: CONFIG,
+      config_fingerprint: 'a1b2c3d4',
+      retired_keys: [],
+      pending_confirmation: null,
+    })
+  }
+  if (route === '/admin/api/ports') return json({ ports })
+  if (route === '/admin/api/printers') return json({ printers })
+  if (route === '/admin/api/printers/discover') {
+    if (guarded) return refusal(401, 'Cette adresse demande une session ouverte.')
+    return json({ printers: discovered })
+  }
+  if (route.startsWith('/admin/api/printer/test')) {
+    if (guarded) return refusal(401, 'Cette adresse demande une session ouverte.')
+    if (holdingTests) await new Promise<void>((resolve) => heldTests.push(resolve))
+    return json({ message: 'L’auto-test est parti à l’imprimante.' })
+  }
+  if (route === '/admin/api/scale/capture') return capture(body.port ?? '')
+  if (route === '/admin/api/scale/detect') {
+    capturesDuringDetect = Math.max(capturesDuringDetect, capturesInFlight)
+    if (guarded) return refusal(401, 'Cette adresse demande une session ouverte.')
+    if (holding) await new Promise<void>((resolve) => held.push(resolve))
+    const answer = answers.get(body.port ?? '') ?? { status: 200, message: 'aucune trame.' }
+    if (answer.status !== 200) return refusal(answer.status, answer.message)
+    return json({
+      port: body.port ?? '',
+      driver: 'gram_xfoc',
+      valid_frames_count: 12,
+      frames: [FRAME],
+      message: answer.message,
+    })
+  }
+  return json({})
+}
+
+/** Une capture, qui TIENT le port tant qu'elle est en vol. */
+async function capture(port: string): Promise<Response> {
+  capturedPorts.push(port)
+  if (guarded) return refusal(401, 'Cette adresse demande une session ouverte.')
+  capturesInFlight += 1
+  try {
+    if (holdingCaptures) await new Promise<void>((resolve) => heldCaptures.push(resolve))
+    const frames = heard
+    heard = []
+    return json({ frames })
+  } finally {
+    capturesInFlight -= 1
+  }
+}
+
+/** Une réponse 200 portant un corps JSON. */
+function json(body: unknown): Promise<Response> {
+  return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
+}
+
+/** Un refus, dans la forme exacte de `problem` (`internal/web/server.go`). */
+function refusal(status: number, message: string): Promise<Response> {
+  return Promise.resolve(new Response(JSON.stringify({ code: '', message }), { status }))
+}
+
+/**
+ * Monte la page Matériel.
+ *
+ * @param health - le tableau de bord servi par le poste.
+ * @param readConfig - faux pour observer la page AVANT que la configuration n'arrive.
+ */
+async function open(health: HealthDTO = nominalHealth(), readConfig = true): Promise<void> {
+  admin = new Admin(60_000)
+  draft = new Draft(admin)
+  if (readConfig) await draft.load()
+  component = mount(Hardware, { target: host, props: { admin, draft, health } })
+  flushSync()
+  await settle()
+}
+
+/** Laisse ce qui est en vol se terminer, puis met le DOM à jour. */
+async function settle(rounds = 4): Promise<void> {
+  for (let round = 0; round < rounds; round += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    flushSync()
+  }
+}
+
+/** Attend qu'une condition devienne vraie, en redessinant à chaque essai. */
+async function waitFor(what: () => boolean): Promise<void> {
+  await vi.waitUntil(
+    () => {
+      flushSync()
+      return what()
+    },
+    { timeout: 2000, interval: 5 },
+  )
+}
+
+/** Le texte de la page, espaces normalisés. */
+function text(): string {
+  return (host.textContent ?? '').replace(/\s+/gu, ' ')
+}
+
+/** La légende du visualiseur de trames : la première phrase de l'encadré. */
+function caption(): string {
+  return (host.querySelector('[data-frames] p')?.textContent ?? '').replace(/\s+/gu, ' ')
+}
+
+/** Le bouton dont le libellé contient ce fragment. */
+function button(fragment: string): HTMLButtonElement {
+  const found = [...host.querySelectorAll('button')].find((candidate) =>
+    (candidate.textContent ?? '').includes(fragment),
+  )
+  if (found === undefined) throw new Error(`aucun bouton « ${fragment} » à l'écran`)
+  return found as HTMLButtonElement
+}
+
+/** Le champ de la configuration que ce chemin de clé désigne. */
+function field(path: string): HTMLInputElement {
+  const id = 'field-' + path.replace(/\./gu, '-')
+  const found = host.querySelector<HTMLInputElement>('#' + id)
+  if (found === null) throw new Error(`aucun champ « ${path} » à l'écran`)
+  return found
+}
+
+/** Combien d'appels ont été passés sur cette route. */
+function countOf(fragment: string): number {
+  return calls.filter((line) => line.includes(fragment)).length
+}
+
+describe('le visualiseur des 20 dernières trames, TOUJOURS actif (§14.4)', () => {
+  it('écoute le port sans qu’on le lui demande, et rend hexa ET décodé', async () => {
+    heard = [FRAME]
+    await open()
+    await waitFor(() => host.querySelectorAll('[data-frame]').length > 0)
+
+    // Personne n'a rien touché : la capture est partie toute seule.
+    expect(calls).toContain('POST /admin/api/scale/capture')
+    const row = host.querySelector('[data-frame]')
+    // 02 = STX, 53 54 = « ST ». L'hexa est celui des octets, pas une paraphrase.
+    expect(row?.querySelector('[data-hex]')?.textContent).toContain('02 53 54')
+    // Le décodé montre les mêmes octets tels qu'un humain les lit, caractères de
+    // commande NOMMÉS : c'est le « hexa + ASCII » de `openscale capture` (§15.1).
+    const decoded = (row?.querySelector('[data-decoded]')?.textContent ?? '').replace(
+      /\s+/gu,
+      ' ',
+    )
+    expect(decoded).toContain('ST,GS,+ 1.234kg')
+    expect(decoded).toContain('STX')
+  })
+
+  it('n’en garde JAMAIS plus de vingt, quoi qu’en serve le poste', async () => {
+    heard = Array.from({ length: 26 }, (_, index) => `ST,GS,+  ${String(index)}.000kg`)
+    await open()
+    await waitFor(() => host.querySelectorAll('[data-frame]').length > 0)
+
+    expect(host.querySelectorAll('[data-frame]').length).toBe(20)
+    // Une liste bornée ANNONCE son plafond, sans quoi elle ment par omission.
+    expect(text()).toContain('20')
+  })
+
+  it('accorde sa légende au singulier quand UNE seule trame est arrivée', async () => {
+    // Le cas normal de la mise en service : une balance qui n'émet qu'au posé de sac
+    // rend une trame par manche, et « Les 1 dernières trames » est du charabia.
+    heard = [FRAME]
+    await open()
+    await waitFor(() => host.querySelectorAll('[data-frame]').length === 1)
+
+    expect(caption()).not.toContain('Les 1 ')
+    expect(caption()).toContain('Une seule trame')
+  })
+
+  it('n’écoute QUE des ports énumérés : une frappe partielle n’en ouvre aucun', async () => {
+    heard = [FRAME]
+    await open()
+    await waitFor(() => host.querySelectorAll('[data-frame]').length === 1)
+
+    // `Field` émet à chaque caractère : « C » est un état que la saisie traverse
+    // toujours en route vers « COM3 ». Ouvrir un port sur ce nom-là est un refus
+    // certain, et il figeait l'écoute « toujours active » pour de bon.
+    const port = field('scale.options.port')
+    port.value = 'C'
+    port.dispatchEvent(new Event('input', { bubbles: true }))
+
+    await waitFor(() => caption().includes('n’est pas visible'))
+    // Plus longtemps que le souffle entre deux manches : rien ne doit repartir.
+    await new Promise((resolve) => setTimeout(resolve, PAUSE_MS + 150))
+    expect(capturedPorts).not.toContain('C')
+    expect(capturedPorts.every((name) => name === 'COM8')).toBe(true)
+  })
+
+  it('ne dit rien du port écouté tant que la configuration n’est pas lue', async () => {
+    // « Aucun port n'est indiqué » était affirmé pendant la lecture, à trois
+    // centimètres de « cette page ne déclare rien de ce poste ».
+    await open(nominalHealth(), false)
+
+    expect(caption()).not.toContain('Aucun port n’est indiqué')
+    expect(caption()).toContain('Lecture de la configuration')
+    expect(capturedPorts).toHaveLength(0)
+  })
+})
+
+describe('« Détecter automatiquement »', () => {
+  it('annonce son avancement et se désarme pendant la boucle', async () => {
+    ports = [
+      { name: 'COM1', description: '', vid: '', pid: '' },
+      { name: 'COM3', description: '', vid: '', pid: '' },
+      { name: 'COM8', description: 'USB-Serial CH340', vid: '1A86', pid: '7523' },
+    ]
+    holding = true
+    await open()
+
+    button('Détecter automatiquement').click()
+    await waitFor(() => held.length > 0)
+
+    const armed = button('Détection')
+    expect(armed.disabled).toBe(true)
+    expect((armed.textContent ?? '').replace(/\s+/gu, ' ')).toContain('port 1 sur 3')
+
+    held.shift()?.()
+    await waitFor(() => held.length > 0)
+    expect((button('Détection').textContent ?? '').replace(/\s+/gu, ' ')).toContain('port 2 sur 3')
+
+    holding = false
+    for (const release of held.splice(0)) release()
+    await waitFor(() => host.querySelectorAll('[data-verdict]').length === 3)
+    expect(button('Détecter automatiquement').disabled).toBe(false)
+  })
+
+  it('attend que l’écoute RENDE LE PORT avant d’en ouvrir un seul', async () => {
+    // Sous Windows un port est exclusif : une capture en vol fait répondre « il est
+    // déjà utilisé » au balayage, sur le seul port où il y avait quelque chose à
+    // trouver. La manche dure trois secondes, le clic dure un dixième.
+    holdingCaptures = true
+    await open()
+    await waitFor(() => heldCaptures.length === 1)
+
+    button('Détecter automatiquement').click()
+    await settle(6)
+    expect(countOf('/admin/api/scale/detect')).toBe(0)
+    expect((button('Détection').textContent ?? '')).toContain('port se libère')
+
+    holdingCaptures = false
+    for (const release of heldCaptures.splice(0)) release()
+    await waitFor(() => host.querySelectorAll('[data-verdict]').length === 1)
+    expect(capturesDuringDetect).toBe(0)
+  })
+
+  it('n’avale plus le refus d’un port : chacun laisse sa ligne', async () => {
+    ports = [
+      { name: 'COM1', description: '', vid: '', pid: '' },
+      { name: 'COM8', description: 'USB-Serial CH340', vid: '1A86', pid: '7523' },
+    ]
+    answers.set('COM1', {
+      status: 502,
+      message: 'le port COM1 ne peut pas être ouvert : il est déjà utilisé.',
+    })
+    answers.set('COM8', { status: 200, message: 'COM8 : 12 trame(s) valide(s) — GRAM XFOC.' })
+    await open()
+
+    button('Détecter automatiquement').click()
+    await waitFor(() => host.querySelectorAll('[data-verdict]').length === 2)
+
+    expect(text()).toContain('il est déjà utilisé')
+    expect(text()).toContain('COM8 : 12 trame(s) valide(s)')
+  })
+
+  it('est un acte PROTÉGÉ : le mot de passe est demandé, puis le balayage est rejoué', async () => {
+    guarded = true
+    answers.set('COM8', { status: 200, message: 'COM8 : 12 trame(s) valide(s) — GRAM XFOC.' })
+    await open()
+
+    button('Détecter automatiquement').click()
+    await waitFor(() => admin.pending !== null)
+    expect(admin.pending?.kind).toBe('password')
+
+    await admin.answerPassword('openscale')
+    await waitFor(() => host.querySelectorAll('[data-verdict]').length === 1)
+    expect(text()).toContain('COM8 : 12 trame(s) valide(s)')
+  })
+})
+
+describe('les actes protégés de l’imprimante', () => {
+  it('« Rechercher l’imprimante » demande le mot de passe et rejoue la recherche', async () => {
+    // `POST /admin/api/printers/discover` est protégée : un bandeau « cette adresse
+    // demande une session ouverte » sans porte pour la régler ne mène nulle part.
+    guarded = true
+    discovered = [{ name: 'Zebra du réseau', detail: '10.0.0.9', default: false }]
+    await open()
+
+    button('Rechercher l’imprimante').click()
+    await waitFor(() => admin.pending !== null)
+    expect(admin.pending?.kind).toBe('password')
+
+    await admin.answerPassword('openscale')
+    await waitFor(() => text().includes('Zebra du réseau'))
+    expect(countOf('/admin/api/printers/discover')).toBe(2)
+  })
+
+  it('les auto-tests demandent le mot de passe et sortent l’étiquette une fois rejoués', async () => {
+    guarded = true
+    await open()
+
+    button('Auto-test : étiquette').click()
+    await waitFor(() => admin.pending !== null)
+
+    await admin.answerPassword('openscale')
+    await waitFor(() => countOf('/admin/api/printer/test?what=label') === 2)
+    expect(admin.notice).toContain('auto-test')
+  })
+
+  it('désarme les commandes pendant qu’un auto-test sort une étiquette', async () => {
+    // Chaque appui sort une étiquette pour de bon : deux appuis impatients, deux
+    // étiquettes, et rien à l'écran ne disait que la première était partie.
+    holdingTests = true
+    await open()
+
+    button('Auto-test : réglette').click()
+    await waitFor(() => heldTests.length === 1)
+
+    expect(button('Auto-test : réglette').disabled).toBe(true)
+    expect(button('Lister les files').disabled).toBe(true)
+    button('Auto-test : réglette').click()
+    await settle()
+    expect(countOf('/admin/api/printer/test')).toBe(1)
+
+    holdingTests = false
+    for (const release of heldTests.splice(0)) release()
+    await waitFor(() => !button('Auto-test : réglette').disabled)
+  })
+
+  it('ne sert JAMAIS trente files d’impression en toutes lettres', async () => {
+    // `Field` imprime `allowed` en entier — « Valeurs acceptées : … » — dès qu'un
+    // contrôle de §11.3 refuse la clé, et un poste porte PDF, OneNote, télécopie…
+    printers = Array.from({ length: 30 }, (_, index) => ({
+      name: `File ${String(index + 1)}`,
+      detail: '',
+      default: false,
+    }))
+    await open()
+
+    button('Lister les files').click()
+    await waitFor(() => host.querySelector('[data-printers-count]') !== null)
+
+    const offered = host.querySelectorAll('#field-printer-options-queue-allowed option')
+    expect(offered.length).toBeGreaterThan(0)
+    expect(offered.length).toBeLessThanOrEqual(12)
+    expect(text()).toContain('seules les 12 premières')
+  })
+})
+
+describe('ce que la page dit de l’imprimante et de la balance', () => {
+  it('traduit printer.health : aucun jeton anglais n’atteint le bénévole', async () => {
+    await open(
+      nominalHealth({
+        state: nominalState({
+          printer: {
+            health: 'consumable',
+            detail: '',
+            pending_jobs_count: 0,
+            observed_at: '2026-07-24T12:00:00.000Z',
+          },
+        }),
+      }),
+    )
+
+    expect(text()).not.toMatch(/\b(ready|consumable|faulted|unknown)\b/u)
+    expect(text()).toContain('fin de vie')
+  })
+
+  it('n’invente aucun état tant que la configuration n’est pas arrivée', async () => {
+    // `draft.flag('scale.present')` vaut FAUX avant la lecture, ce qui affichait
+    // « ce poste n'a pas de balance » coché sur un poste qui en a une.
+    await open(nominalHealth(), false)
+
+    const box = host.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    expect(box === null || !box.checked).toBe(true)
+    expect(text()).toContain('Lecture de la configuration')
+
+    // Et les champs sont désarmés : `draft.set` jette en silence ce qu'on écrirait
+    // dans un document qui n'est pas encore là.
+    const fields = [...host.querySelectorAll<HTMLInputElement>('input[type="text"]')]
+    expect(fields.length).toBeGreaterThan(0)
+    expect(fields.every((field) => field.disabled)).toBe(true)
+  })
+})
