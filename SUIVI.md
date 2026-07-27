@@ -10,6 +10,136 @@ contrôles, `diagnostic.zip`, installeurs Windows et Linux, `INSTALLATION.md` et
 `TROUBLESHOOTING.md`. **2 564 tests** verts (2 319 Go comptés en `--- PASS`, 245 front), suite passée sur ce
 poste Windows — `-race` sautée faute de gcc, la CI Linux la couvre.
 
+**Deux aperçus à la fois plantaient le poste (27/07/2026).** Le commanditaire a rapporté
+« des exceptions dans la console en cliquant un peu partout », sans savoir lesquelles :
+quatre panics Go, toutes sur `GET /admin/api/label/preview.png`, toutes dans
+`x/image/font/sfnt` — et toutes sur **le même pointeur de police**, depuis quatre
+goroutines différentes. Ni `sfnt.Font` ni `opentype.Face` ne sont sûrs en concurrence ; le
+mutex de la bibliothèque ne gardait que la **carte** des faces mémoïsées, distribuées
+ensuite hors verrou. Il suffisait de deux aperçus simultanés, c'est-à-dire d'un bénévole
+qui clique deux fois — l'aperçu se rafraîchit à chaque frappe dans l'éditeur de gabarit.
+
+Un rendu prend désormais l'exclusivité de sa bibliothèque pour toute sa durée, et `Close()`
+la prend aussi. `internal/printing/concurrency_test.go` **plantait** sans le correctif ;
+sur le poste réel, 96 aperçus concurrents puis 60 requêtes sur toutes les routes ouvertes
+répondent 200 sans une panic. *(Le pilote d'impression a sa propre bibliothèque : la
+collision était aperçu contre aperçu, jamais impression contre aperçu.)*
+
+**L'administration, reprise en entier (27/07/2026).** Le commanditaire a signalé un mot de
+passe qui « affiche une page d'erreur sans détails », demandé si ce mot de passe servait à
+quelque chose, et demandé de reprendre le design des neuf pages. Les trois se sont révélés
+liés.
+
+**Le défaut rapporté n'était pas le mot de passe.** Reproduit dans un navigateur sur le
+poste réel : la session s'ouvre (200), et c'est APRÈS que l'écran meurt. `retired_keys`
+partait en `null` dès qu'un fichier ne portait aucune clé périmée — le cas nominal — et
+`draft.retired.length` levait au premier rendu qui suit une connexion **réussie**. Le
+filet d'`ERR-UI-01` affichait sa phrase muette et rechargeait à cinq secondes. C'est le
+défaut que l'écran client a déjà eu sur `categories`, et dont le test de non-régression
+n'avait jamais été étendu à cette charge utile.
+
+**Deux défauts que personne ne cherchait.** `refresh()` remettait le champ d'erreur à vide
+**toutes les trois secondes**, et le même champ servait au sondage et à l'acte : neuf
+boutons de dépannage, la connexion et deux exports échouaient en silence depuis toujours.
+Et la configuration **livrée** portait une fausse empreinte tapée à la main —
+`VerifySecret` faux pour tout mot de passe, le contrôle 31 qui ne vérifiait que la forme
+donc `doctor` la déclarant saine, et `install.ps1` qui, voyant un champ de code de secours
+non vide, sautait le tirage : **la fiche d'installation partait avec des pointillés**. Un
+poste installé ainsi était enfermé dehors, définitivement.
+
+*(Une correction évidente a été écartée par la mesure : vérifier que la clé fait 32 octets
+ne marche pas, « for-the-delivered-configurationg » en fait exactement 32.)*
+
+**ADR-033 — la protection porte sur l'acte, pas sur la porte.** Le mot de passe gardait la
+lecture d'un numéro de port, alors que la charge utile est expurgée de ses deux empreintes
+avant de partir ; pendant ce temps deux routes **libres** pesaient plus lourd que tout ce
+qu'il gardait — « basculer en saisie manuelle », qui laisse le client taper son propre
+poids, et le dépôt d'un CSV, qui remplace toute la grille. Les six pages de réglages
+s'ouvrent donc en lecture, le mot de passe est demandé **à l'enregistrement**, et l'acte
+est **rejoué** derrière. La surface réellement dangereuse a diminué.
+
+Conséquence sur §11.3 : un `password_hash` vide n'est plus une faute, parce que
+`serve.go:256` met hors service tout poste dont la configuration en porte une — un fichier
+de coopérative complet jusqu'aux tarifs refusait de peser faute d'un secret
+d'administration. `doctor` l'**avertit** désormais, avec le chemin du code de secours.
+
+**La forme.** Rail vertical, deux groupes, colonne de lecture bornée à 68rem — les
+paragraphes du tableau de bord couraient sur 1 800 px. Mesuré dans le navigateur sur les
+huit pages, à 1366 / 1920 / 2560 : rail à 256 px, colonne à 1 088 px, aucun défilement
+horizontal, aucune erreur console. Le Journal sort volontairement de la colonne pour son
+tableau, dans son propre conteneur défilant — et son test lit LES DEUX fichiers pour
+casser le jour où les deux mesures de 68rem divergent.
+
+**Les neuf pages ont été reprises, puis RELUES par un adversaire.** Six relecteurs ont
+trouvé **55 défauts** dans le premier jet, tous vérifiés dans le code : une branche
+« refusé » morte qui faisait annoncer tout dépôt comme accepté ; une page qui accusait un
+produit d'être « absent du catalogue » alors que le catalogue n'avait jamais répondu ; une
+note qui citait §6.4 à l'appui de ce que §6.4 interdit ; des actes protégés qui n'ouvraient
+aucun panneau ; et, le plus grave, **une frappe dans « Port série » qui ouvrait un port
+série à chaque caractère**, tandis que la détection disputait le port à l'écoute. Tous
+corrigés. L'écoute permanente que §14.4 demande est tenue, mais à trois conditions
+désormais écrites : le port doit être énuméré par le poste, aucun acte ne doit être en vol,
+et rien ne doit l'avoir arrêtée.
+
+**418 tests front** (contre 245 au début de la journée), suite Go complète au vert, budget
+client 76,7 ko gzip sur 110.
+
+**Ce que la première mise en service a demandé (27/07/2026).** Six retours d'un poste
+réellement essayé, dont un défaut :
+
+- **la tuile restait verte après l'impression.** L'anneau disait « ce produit est en
+  cours » et n'était jamais relâché : sur un poste **sans balance** — donc sur celui
+  qu'on essaie —, rien ne ramène l'écran au repos, puisque c'est le RETRAIT DU SAC qui
+  le fait (§6.6). L'anneau s'arrête maintenant à `printing` ; le succès est accusé par
+  le bandeau, la barre de réimpression et le papier ;
+- **l'entrée en administration est une touche nommée « Réglages »** (ADR-032). L'appui
+  de 3 s sur le coin muet a été mesuré à la souris : il fonctionne. Ce qui ne
+  fonctionne pas, c'est de le trouver ;
+- **la densité de la grille devient un réglage à trois valeurs** — `ui.tile_size` ∈
+  {`small`, `medium`, `large`}, contrôle 46, ADR-031. La contrainte qui l'interdisait a
+  une exception : un poste conduit à la **souris** n'est pas tenu par la cible de 20 mm ;
+- **la photo passe de 56 à 80 px** au défaut (+ 43 %), financée par un prix désormais
+  empilé sous son montant — sur une ligne, la moitié des tuiles repliaient le leur ;
+- **la date du catalogue est affichée en permanence**, `27/07/2026 08:06:48`, prise à
+  l'instant de la **bascule** et non lue dans un fichier. Une date qui cesse d'avancer
+  est la façon dont un poste dit qu'il ne reçoit plus rien ;
+- **la souris obtient ce qu'un doigt n'a jamais demandé** : survol des tuiles et des
+  touches, sous `@media (hover: hover)` pour qu'un écran tactile n'en hérite pas.
+
+L'uniformité d'ADR-030 tient **aux trois tailles** : 331 tuiles identiques au pixel
+dans chacune, vérifié dans le navigateur. **263 tests front**, la suite Go complète au
+vert, budget 76,6 ko gzip sur 110.
+
+**L'écran client, repris en le REGARDANT (27/07/2026).** Le front n'avait jamais été rendu
+dans un navigateur : les 245 tests s'exécutent sous `jsdom`, qui ne calcule aucune mise en
+page. Un banc d'observation — le vrai bundle, le vrai `flv.csv`, ses 331 tuiles et ses 177
+photos, servis à un Chrome piloté — a montré quatre défauts qu'aucun test ne pouvait voir,
+puis a servi à les fermer :
+
+- **les deux barres PERMANENTES de §14.3 étaient hors de l'écran.** `#app` n'avait pas de
+  hauteur, `height: 100%` se résolvait donc contre une boîte de hauteur automatique, et la
+  colonne grandissait avec la grille ; les bandes se laissaient en outre comprimer, faute
+  de `flex: 0 0 auto` ;
+- **une tuile débordait sur sa voisine** : un `button` garde le dimensionnement au contenu
+  d'un contrôle de formulaire même en conteneur flex, et « CRANBERRY/CANNEBERGES » se
+  donnait 407 px dans une colonne de 231 ;
+- **les noms étaient ajustés contre une fonte qui n'était pas encore chargée**, donc plus
+  étroite : « TOURNESOL DECORTIQUE » sortait coupé en « TOURNESO / L DECORTIQU / E » sur
+  l'écran dont la promesse est qu'un nom n'est jamais coupé ;
+- **la grille dessinait 331 hauteurs de tuile** parce que la contrainte portait sur un
+  nombre de lignes et non sur une hauteur (ADR-030).
+
+Ce qui a été livré : **les 331 tuiles font 231 × 180 px exactement**, mesurées dans le
+navigateur, avec ou sans photo, sur les deux exports authentiques et de 1024 × 768 à
+2560 × 1440 ; quatre rangées pleines et aucune demie, l'addition des quatre bandes étant
+écrite dans `app.css` là où on la modifierait. Le reste est du dessin : plaque de catégorie
+et prix sur une même bande de tête, liseré d'état sur toute la largeur, anneaux au lieu de
+marques d'angle, icônes tracées au lieu d'émojis — `🫙` est un caractère de 2021 qu'un
+Windows 10 non mis à jour rend en tofu —, retour au toucher en 110 ms, ossature de grille
+pendant le chargement, et **« Catalogue vide. En attente du fichier `flv_2.csv` »** là où un
+poste sans catalogue affichait « Aucun produit ne correspond ». Budget : 75,8 ko gzip sur
+110, soit 68,9 %. **255 tests front**, dont 10 nouveaux sur la couleur configurée et la hauteur des tuiles.
+
 **Le premier accès, trouvé en installant vraiment un poste (26/07/2026).** Un poste sorti
 d'`install.ps1` n'avait **aucune porte d'entrée** vers son administration, et il ne pouvait
 donc pas être configuré : la configuration livrée est l'export de §11.5, qui ne porte

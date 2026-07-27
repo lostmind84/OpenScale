@@ -597,6 +597,23 @@ func (d *Doctor) checkConfiguration(loaded loadedConfig) Control {
 		return control
 	}
 
+	// A station with no administration password WEIGHS — that is the whole point of not
+	// making it a fault (ADR-033) — but nothing else would say so, and « rien ne le dit »
+	// is exactly how a station ended up locked out of its own settings: the delivered
+	// file carried a placeholder hash, `config validate` declared it sound, and the
+	// installation sheet went out with dotted lines. This is a WARNING and never a
+	// failure: the way in exists, it is the recovery code, and saying where it is written
+	// is more use to a volunteer than a red line.
+	if loaded.Config.Admin.PasswordHash == "" {
+		control.Status = StatusWarn
+		control.Observed = "aucune faute, et aucun mot de passe d'administration n'est posé : " +
+			"les réglages s'ouvrent en lecture, mais rien ne peut être enregistré"
+		control.Remedy = "Posez-en un depuis l'écran d'administration, avec le code de secours " +
+			"de la fiche d'installation, ou en ligne de commande : `openscale config password " +
+			d.o.ConfigPath + "`."
+		return control
+	}
+
 	if retired := loaded.Config.Retired(); len(retired) > 0 {
 		control.Status = StatusWarn
 		control.Observed = fmt.Sprintf("aucune faute, et %d clé(s) retirée(s) traînent encore dans le "+

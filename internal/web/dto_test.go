@@ -224,4 +224,9 @@ func (stubHub) Subscribe() (<-chan station.Snapshot, func()) {
 func (stubHub) Config() domain.Config    { return domain.Config{} }
 func (stubHub) Catalog() *domain.Catalog { return garlicCatalog() }
 
+// stubCatalogAt is the instant the stub says its catalog entered service.
+var stubCatalogAt = time.Date(2026, 7, 27, 8, 6, 48, 0, time.UTC)
+
+func (stubHub) CatalogUpdatedAt() time.Time { return stubCatalogAt }
+
 var _ Hub = stubHub{}

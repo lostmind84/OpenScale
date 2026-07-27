@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Chip } from '../lib/catalog'
+  import { readable, wash } from '../lib/color'
+  import Icon from './Icon.svelte'
 
   /**
    * The bottom bar: the category filters, the search key and the health dot.
@@ -19,28 +21,11 @@
     healthy: boolean
     onselect: (code: string) => void
     ontogglesearch: () => void
-    /** Three seconds in the neutral bottom-right corner open the administration. */
+    /** Opens the administration — one press on a named key (ADR-032). */
     onadmin: () => void
   }
 
   const { chips, active, searchOpen, healthy, onselect, ontogglesearch, onadmin }: Props = $props()
-
-  /** Milliseconds of press that open the administration screen (§14.3). */
-  const ADMIN_PRESS_MS = 3_000
-
-  let pressTimer: ReturnType<typeof setTimeout> | null = null
-
-  /** Starts counting the long press on the neutral corner. */
-  function startAdminPress(): void {
-    cancelAdminPress()
-    pressTimer = setTimeout(onadmin, ADMIN_PRESS_MS)
-  }
-
-  /** Abandons the count: a press that ends early is not an intent. */
-  function cancelAdminPress(): void {
-    if (pressTimer !== null) clearTimeout(pressTimer)
-    pressTimer = null
-  }
 </script>
 
 <nav class="filters" aria-label="Catégories">
@@ -50,10 +35,12 @@
         type="button"
         class="chip touch-target"
         class:active={chip.code === active}
-        style:--chip-color={chip.color}
+        style:--chip-ink={readable(chip.color)}
+        style:--chip-wash={wash(chip.color)}
         aria-pressed={chip.code === active}
         onclick={() => onselect(chip.code)}
       >
+        <span class="dot" aria-hidden="true"></span>
         <span class="chip-label">{chip.label}</span>
         <span class="chip-count">{chip.count}</span>
       </button>
@@ -67,7 +54,7 @@
     aria-pressed={searchOpen}
     onclick={ontogglesearch}
   >
-    <span class="chip-label" aria-hidden="true">🔍</span>
+    <Icon name="search" size="1.75rem" />
     <span class="visually-hidden">Chercher un produit</span>
   </button>
 
@@ -79,29 +66,29 @@
   ></span>
 
   <!--
-    The administration is opened by three seconds on THIS neutral zone, and not on
-    the health dot: making the way in depend on holding a display element condemns
-    us to keeping that element for a reason that has nothing to do with it (§14.3).
+    The way into the administration, and it is VISIBLE (ADR-032).
+    A three second press on an unmarked corner is a way in nobody finds without
+    being told; the long press stays, on this same button, for the day a station
+    is put behind a counter where a customer could reach the screen.
   -->
-  <div
-    class="admin-corner"
-    aria-hidden="true"
-    onpointerdown={startAdminPress}
-    onpointerup={cancelAdminPress}
-    onpointerleave={cancelAdminPress}
-    onpointercancel={cancelAdminPress}
-  ></div>
+  <button type="button" class="chip touch-target admin" onclick={onadmin}>
+    <Icon name="settings" size="1.75rem" />
+    <span class="admin-label">Réglages</span>
+  </button>
 </nav>
 
 <style>
   .filters {
     display: flex;
+    /* PERMANENT means it keeps its height whatever the grid above weighs. */
+    flex: 0 0 auto;
     align-items: center;
-    gap: var(--touch-gap);
+    gap: 0.75rem;
     height: var(--filter-height);
     padding: 0 var(--touch-gap);
     background: var(--surface);
     border-top: 1px solid var(--border);
+    z-index: 2;
   }
 
   .chips {
@@ -111,50 +98,89 @@
     flex: 1 1 auto;
     overflow-x: auto;
     overscroll-behavior: contain;
+    /* The scrollbar of an overflowing row of chips has no business on a screen
+       that is touched: the row scrolls under the finger. */
+    scrollbar-width: none;
   }
 
   .chip {
     display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
-    padding: 0 1rem;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0 1.375rem;
     border: 2px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
     font-size: 1.75rem;
     white-space: nowrap;
+    transition:
+      border-color var(--slide) var(--ease),
+      background-color var(--slide) var(--ease),
+      transform var(--tap) var(--ease);
+  }
+
+  /* The shelf colour identifies, it never carries letters: a configured hex can
+     be anything, and `readable()` is what keeps this dot visible whatever it is. */
+  .dot {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 50%;
+    background: var(--chip-ink, var(--ink-muted));
   }
 
   .chip.active {
-    border-color: var(--chip-color, var(--ink));
-    background: var(--bg);
+    border-color: var(--chip-ink, var(--ink));
+    background: var(--chip-wash, var(--bg));
     font-weight: 700;
   }
 
   .chip-count {
     color: var(--ink-muted);
     font-size: 1.25rem;
+    font-weight: 400;
   }
 
   .search-key {
     flex: 0 0 auto;
+    justify-content: center;
+    padding: 0;
+    width: var(--touch-min);
+    border-radius: var(--radius);
+  }
+
+  .search-key.active {
+    border-color: var(--ink);
+    background: var(--bg);
   }
 
   .health {
     flex: 0 0 auto;
-    width: 1.25rem;
-    height: 1.25rem;
+    width: 0.875rem;
+    height: 0.875rem;
     border-radius: 50%;
     background: var(--ready);
+    box-shadow: 0 0 0 0.375rem var(--ready-wash);
+    transition: background-color var(--slide) var(--ease);
   }
 
   .health.fault {
     background: var(--fault);
+    box-shadow: 0 0 0 0.375rem var(--fault-wash);
   }
 
-  .admin-corner {
+  /* Quiet, and named. It sits after the health dot, at the far edge, where a
+     customer's hand does not go and a volunteer's eye does. */
+  .admin {
     flex: 0 0 auto;
-    width: var(--touch-min);
-    height: var(--touch-min);
+    gap: 0.5rem;
+    padding: 0 1.25rem;
+    border-radius: var(--radius);
+    color: var(--ink-muted);
+    font-size: 1.25rem;
+  }
+
+  .admin-label {
+    letter-spacing: 0.02em;
   }
 
   .visually-hidden {

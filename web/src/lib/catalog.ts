@@ -50,18 +50,42 @@ export interface Tier {
   rank: number
 }
 
-/** Les trois réglages d'écran dont la grille dépend (§11.2). */
+/** Les réglages d'écran dont la grille dépend (§11.2). */
 export interface Presentation {
   show_grid_prices: boolean
   idle_timeout_s: number
   reprint_window_s: number
   sound: boolean
+  /** `small`, `medium` ou `large` : la densité de la grille (ADR-031). */
+  tile_size: string
+}
+
+/** Les trois tailles de tuile déclarées, de la plus dense à la plus grande. */
+export const TILE_SIZES = ['small', 'medium', 'large'] as const
+
+/** La taille qu'un poste applique quand la configuration n'en nomme aucune. */
+export const DEFAULT_TILE_SIZE = 'medium'
+
+/**
+ * La taille de tuile à appliquer, en refusant ce qui n'est pas une des trois.
+ *
+ * Le serveur valide déjà `ui.tile_size` (contrôle 46), mais l'écran ne peut pas en
+ * dépendre : il reçoit aussi le catalogue d'un poste plus ancien, dont la
+ * configuration ne portait pas encore ce réglage.
+ *
+ * @param size - ce que la configuration du poste déclare.
+ * @returns une des trois tailles, jamais autre chose.
+ */
+export function tileSize(size: string): string {
+  return (TILE_SIZES as readonly string[]).includes(size) ? size : DEFAULT_TILE_SIZE
 }
 
 /** Le corps de `GET /api/v1/catalog`. */
 export interface Catalog {
   /** L'ETag, porté aussi dans le corps pour qu'un front puisse le journaliser. */
   revision: string
+  /** Quand ce catalogue est entré en service, RFC 3339, ou vide si aucun ne l'est. */
+  updated_at: string
   product_count: number
   categories: Category[]
   products: Product[]

@@ -20,8 +20,11 @@ import { nominalHealth } from './fixtures/health'
  * qui est ce que le service, lui, protège vraiment.
  */
 
-/** Les routes que le service protège (§14.5). Aucune ne doit être appelée sans session. */
-const GUARDED = [
+/**
+ * Ce que le service OUVRE en lecture depuis ADR-033. Aucune de ces routes ne demande
+ * de session : la charge utile est expurgée de ses deux empreintes avant de partir.
+ */
+const OPEN = [
   '/admin/api/config',
   '/admin/api/config/versions',
   '/admin/api/ports',
@@ -29,8 +32,10 @@ const GUARDED = [
   '/admin/api/journal',
   '/admin/api/technical',
   '/admin/api/imports',
-  '/admin/api/replay',
 ]
+
+/** Ce qui reste protégé : l'ACTE, jamais le regard. */
+const GUARDED = ['/admin/api/replay', '/admin/api/catalog/import']
 
 /** Le bon mot de passe de ce banc. Le service, lui, ne connaît que son empreinte argon2id. */
 const PASSWORD = 'le bon mot de passe'
@@ -41,10 +46,13 @@ let component: unknown
 let calls: { route: string; method: string }[] = []
 /** Vrai quand le service a délivré une session : le cookie est simulé par ce drapeau. */
 let session = false
+/** Vrai quand ce poste n'a JAMAIS eu de mot de passe : le service répond alors 409. */
+let noPassword = false
 
 beforeEach(() => {
   calls = []
   session = false
+  noPassword = false
   host = document.createElement('div')
   document.body.appendChild(host)
   vi.stubGlobal('fetch', fakeFetch)
@@ -75,8 +83,16 @@ function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
   if (route.startsWith('/admin/api/troubleshooting/')) {
     return json({ done: true, message: 'C’est fait.' })
   }
-  if (GUARDED.some((guarded) => route.startsWith(guarded))) {
+  // L'écriture est protégée, la lecture ne l'est pas (ADR-033).
+  const writes = init?.method !== undefined && init.method !== 'GET'
+  if (writes || GUARDED.some((guarded) => route.startsWith(guarded))) {
+    if (noPassword) {
+      return refusal(409, 'Ce poste n’a pas encore de mot de passe. Saisissez le code de ' +
+        'secours de la fiche d’installation pour en poser un.')
+    }
     if (!session) return refusal(401, 'Cette adresse demande une session ouverte.')
+  }
+  if (OPEN.some((open) => route.startsWith(open)) || writes) {
     if (route.startsWith('/admin/api/config')) {
       return json({
         config: { station: { number: 2 } },
@@ -140,21 +156,25 @@ async function press(fragment: string): Promise<void> {
   await settle()
 }
 
+/**
+ * Modifie un champ de la page ouverte, pour armer le bouton d'enregistrement.
+ *
+ * Il est désarmé tant que rien n'a bougé — « Aucune modification à enregistrer » — et un
+ * test qui le presserait sans avoir rien touché ne mesurerait que ce désarmement.
+ */
+async function changeAField(): Promise<void> {
+  const field = host.querySelector<HTMLInputElement>('main input[type="text"], main input:not([type])')
+  expect(field, 'aucun champ à modifier sur cette page').not.toBeNull()
+  if (field === null) return
+  field.value = 'COM9'
+  field.dispatchEvent(new Event('input', { bubbles: true }))
+  field.dispatchEvent(new Event('change', { bubbles: true }))
+  await settle()
+}
+
 /** Les routes appelées jusqu'ici. */
 function routes(): string[] {
   return calls.map((call) => call.route)
-}
-
-/** Tape un mot de passe dans le champ nommé et soumet le formulaire. */
-async function submitPassword(id: string, value: string): Promise<void> {
-  const field = host.querySelector<HTMLInputElement>(`#${id}`)
-  expect(field, `le champ ${id} manque`).not.toBeNull()
-  if (field === null) return
-  field.value = value
-  field.dispatchEvent(new Event('input', { bubbles: true }))
-  flushSync()
-  field.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-  await settle()
 }
 
 describe('mode bénévole : deux pages, ouvertes par défaut, SANS mot de passe', () => {
@@ -227,61 +247,56 @@ describe('mode bénévole : deux pages, ouvertes par défaut, SANS mot de passe'
   })
 })
 
-describe('mode expert : six pages, derrière le mot de passe', () => {
-  it('demande le mot de passe et n’appelle AUCUNE route protégée avant de l’avoir', async () => {
+describe('les six pages de réglages : ouvertes en lecture, protégées à l’écriture (ADR-033)', () => {
+  it('ouvre une page de réglages SANS rien demander, et lit la configuration', async () => {
     await open()
-    await press('Réglages avancés')
+    await press('Matériel')
 
-    expect(host.querySelector('input[type="password"]')).not.toBeNull()
-    for (const guarded of GUARDED) {
-      expect(routes().some((route) => route.startsWith(guarded)), guarded).toBe(false)
-    }
-  })
-
-  it('refuse un mauvais mot de passe avec la phrase du service, et reste fermé', async () => {
-    await open()
-    await press('Réglages avancés')
-    await submitPassword('admin-password', 'au hasard')
-
-    expect(host.querySelector('[data-failure]')?.textContent).toBe('Mot de passe incorrect.')
-    expect(host.querySelector('input[type="password"]')).not.toBeNull()
-    expect(routes()).not.toContain('/admin/api/config')
-  })
-
-  it('ouvre les six pages une fois la session obtenue, et lit alors la configuration', async () => {
-    await open()
-    await press('Réglages avancés')
-    await submitPassword('admin-password', PASSWORD)
-
+    // Il n'y a plus de porte : la configuration est lue, et elle est expurgée de ses
+    // deux empreintes avant de partir — un mot de passe n'y gardait rien.
     expect(host.querySelector('input[type="password"]')).toBeNull()
     expect(routes()).toContain('/admin/api/config')
-    for (const tab of ['Matériel', 'Étiquette', 'Règles', 'Catalogue', 'Journal', 'Poste']) {
-      expect((host.textContent ?? '').includes(tab), tab).toBe(true)
-    }
   })
 
-  it('redemande le mot de passe quand la session expire sous les doigts', async () => {
+  it('montre les neuf pages d’emblée, en deux groupes et sans « Réglages avancés »', async () => {
     await open()
-    await press('Réglages avancés')
-    await submitPassword('admin-password', PASSWORD)
 
-    // Trente minutes passent : le service refuse, et un tableau vide sans explication se
-    // lirait comme « il n'y a rien », qui est faux.
+    const rail = host.querySelector('.rail')?.textContent ?? ''
+    for (const page of ['Tableau de bord', 'Dépannage', 'Matériel', 'Étiquette', 'Règles',
+      'Catalogue', 'Journal', 'Poste']) {
+      expect(rail.includes(page), page).toBe(true)
+    }
+    expect(rail).toContain('Au quotidien')
+    expect(rail).toContain('Réglages')
+    // La porte a disparu : plus rien à trouver à l'aveugle.
+    expect(rail).not.toContain('Réglages avancés')
+  })
+
+  it('demande le mot de passe au moment d’ENREGISTRER, et pas avant', async () => {
+    await open()
+    await press('Matériel')
+    expect(host.querySelector('input[type="password"]')).toBeNull()
+
+    await changeAField()
     session = false
-    await press('Journal')
+    await press('Enregistrer la configuration')
 
+    // Le panneau s'ouvre parce qu'on a agi, pas parce qu'on est entré.
     expect(host.querySelector('input[type="password"]')).not.toBeNull()
-    expect(host.querySelector('[data-failure]')?.textContent).toBe(
-      'Cette adresse demande une session ouverte.',
-    )
   })
 
   it('propose le code de secours, parce qu’un poste en kiosque n’a pas d’invite de commande', async () => {
     await open()
-    await press('Réglages avancés')
-    await press('Mot de passe oublié')
+    await press('Matériel')
 
-    expect(host.querySelector('#recovery-code')).not.toBeNull()
-    expect(host.querySelector('#recovery-password')).not.toBeNull()
+    // Le poste répond 409 : il n'a jamais eu de mot de passe. Il n'y a rien à taper
+    // qu'un code de secours, celui de la fiche d'installation.
+    await changeAField()
+    session = false
+    noPassword = true
+    await press('Enregistrer la configuration')
+
+    expect((host.textContent ?? '')).toContain('code de secours')
+    expect(host.querySelectorAll('input').length).toBeGreaterThanOrEqual(2)
   })
 })

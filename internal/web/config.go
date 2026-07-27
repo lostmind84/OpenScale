@@ -92,14 +92,34 @@ func (s *Server) configPayload(cfg domain.Config, pending *confirmationDTO) conf
 	redacted.Admin.PasswordHash = ""
 	redacted.Admin.RecoveryCodeHash = ""
 
+	// The three option maps are deliberately left as they are, `null` included. Turning
+	// them into `{}` here looked like the same repair as `retired_keys` and is not: this
+	// document is what the screen EDITS AND SAVES BACK, so an empty map written where the
+	// file had none is a block that moved — the station then asked for a sixty-second
+	// confirmation on a `scale` block nobody had touched. The screen reads them by path
+	// and answers `undefined` for a missing one, which is what a screen should do.
 	raw, err := json.Marshal(redacted)
 	if err != nil {
 		raw = []byte(`{}`)
 	}
 	return configDTO{
 		Config: raw, Fingerprint: cfg.Fingerprint(),
-		Retired: cfg.Retired(), Pending: pending,
+		Retired: retiredOrEmpty(cfg.Retired()), Pending: pending,
 	}
+}
+
+// retiredOrEmpty returns a list that marshals to `[]` and never to `null`.
+//
+// This is the defect that made the administration unreachable: `Config.Retired()` returns
+// nil when the file carries no retired key — which is the nominal case — the field went
+// out as `null`, and `draft.retired.length` threw on the very first render after a
+// successful login. The ERR-UI-01 net then showed a sentence with no detail and reloaded
+// the page, so the operator read it as a password that would not work.
+func retiredOrEmpty(keys []string) []string {
+	if keys == nil {
+		return []string{}
+	}
+	return keys
 }
 
 // writeConfig is PUT /admin/api/config — the five steps of §11.4, in order.

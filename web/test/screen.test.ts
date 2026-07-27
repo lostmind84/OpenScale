@@ -139,6 +139,12 @@ beforeEach(() => {
       posted.push({ route: input, body: JSON.parse(String(init.body)) as Record<string, unknown> })
       return new Response('{}', { status: 202 })
     }
+    // L'administration a son propre contrat : lui servir le catalogue la ferait rendre un
+    // tableau de bord sur des champs absents. Ce fichier teste l'écran CLIENT ; il vérifie
+    // que l'administration s'ouvre et se ferme, pas ce qu'elle affiche.
+    if (String(input).startsWith('/admin/api/')) {
+      return new Response('{"message":"Poste indisponible dans ce test."}', { status: 503 })
+    }
     return new Response(JSON.stringify(catalog), { status: 200 })
   })
   host = document.createElement('div')
@@ -220,6 +226,52 @@ describe('la grille et la barre basse', () => {
     stream?.push(restingState({ revision: 2 }))
     flushSync()
     expect(host.querySelector<HTMLButtonElement>('.reprint')).toBeNull()
+  })
+})
+
+describe('ce que l’écran dit en permanence', () => {
+  it('affiche la date et l’heure du catalogue en service', async () => {
+    await open()
+    // `updated_at` de la fixture, rendu dans le fuseau du poste.
+    const bar = host.querySelector('.bar')?.textContent ?? ''
+    expect(bar).toContain('Catalogue du')
+    expect(bar).toMatch(/\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}/u)
+  })
+
+  it('ouvre l’administration d’un seul appui sur une touche nommée', async () => {
+    await open()
+    const key = [...host.querySelectorAll<HTMLElement>('.filters button')].find((b) =>
+      b.textContent?.includes('Réglages'),
+    )
+    expect(key).toBeDefined()
+    // Le coin muet de trois secondes n'existe plus : rien à trouver à l'aveugle.
+    expect(host.querySelector('.admin-corner')).toBeNull()
+  })
+
+  it('rouvre l’administration après un retour à l’écran client', async () => {
+    // Le garde d'ADR-032 ne se relâchait jamais : après un aller-retour, la touche
+    // Réglages ne répondait plus JAMAIS. `mountAdmin` se garde déjà d'un doublon.
+    await open()
+    const key = [...host.querySelectorAll<HTMLElement>('.filters button')].find((b) =>
+      b.textContent?.includes('Réglages'),
+    ) as HTMLElement
+
+    key.click()
+    await vi.waitUntil(() => document.querySelector('[data-admin]') !== null)
+
+    const back = [...document.querySelectorAll<HTMLElement>('[data-admin] button')].find((b) =>
+      b.textContent?.includes('Revenir à l’écran client'),
+    ) as HTMLElement
+    back.click()
+    await vi.waitUntil(() => document.querySelector('[data-admin]') === null)
+
+    key.click()
+    await vi.waitUntil(() => document.querySelector('[data-admin]') !== null)
+  })
+
+  it('applique la densité de tuile que le poste configure', async () => {
+    await open()
+    expect(host.querySelector('.screen')?.getAttribute('data-tile-size')).toBe('medium')
   })
 })
 
@@ -329,6 +381,38 @@ describe('ce qui occupe l’écran, et rien d’autre', () => {
       true,
     )
     expect(host.querySelector('.instruction')?.textContent?.trim()).toBe('Poids trop faible.')
+  })
+
+  it('RELÂCHE la tuile quand l’étiquette est sortie', async () => {
+    // L'anneau dit « ce produit est en cours », pas « ce produit a été vendu ».
+    // Sans cette règle, la tuile restait verte jusqu'au retrait du sac — donc pour
+    // toujours sur un poste sans balance, et sur tout poste dont le client s'en va.
+    const id = catalog.products[3]?.id as string
+    await open(
+      restingState({
+        state: 'printing',
+        product: selected({ id, name: 'AIL' }),
+      }),
+    )
+    expect(host.querySelector(`[data-product-id="${id}"]`)?.classList.contains('selected')).toBe(
+      true,
+    )
+
+    stream?.push(
+      restingState({
+        revision: 2,
+        state: 'succeeded',
+        product: selected({ id, name: 'AIL' }),
+        last_label: garlicLabel(),
+        reprint: { available: true, job_id: '01J9F2ABC', printed_at: '2026-07-24T10:00:01.000Z' },
+      }),
+    )
+    flushSync()
+    expect(host.querySelector(`[data-product-id="${id}"]`)?.classList.contains('selected')).toBe(
+      false,
+    )
+    // Ce qui accuse le succès, c'est le bandeau et la barre — et le papier.
+    expect(host.querySelector('.summary')?.textContent).toContain('ail 1,236 kg')
   })
 
   it('prend tout l’écran sur Faulted, avec le code lisible au téléphone', async () => {

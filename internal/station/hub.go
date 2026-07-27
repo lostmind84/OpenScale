@@ -105,7 +105,15 @@ type Hub struct {
 	// --- Shared, and each one says how ------------------------------------
 	cfg     atomic.Pointer[domain.Config]
 	catalog atomic.Pointer[domain.Catalog]
-	state   atomic.Pointer[Snapshot]
+	// catalogAt is when the catalog in service was PUT in service, in Unix
+	// nanoseconds, and zero while none has been.
+	//
+	// Read by the client screen, which shows it permanently: the one question a
+	// volunteer asks in front of a grid is « ces prix datent de quand ? », and the
+	// answer is the instant of the swap and not the date written in a file — a
+	// station that received nothing for three days must say so by not moving.
+	catalogAt atomic.Int64
+	state     atomic.Pointer[Snapshot]
 	// health is written by the SUPERVISOR and read by buildSnapshot. Asking a
 	// device for its status can block; the loop that must answer a customer never
 	// does it itself.
@@ -200,7 +208,7 @@ func newHub(o Options) *Hub {
 	h.cfg.Store(&cfg)
 	h.nominalRate.Store(int64(o.NominalRate))
 	if o.Catalog != nil {
-		h.catalog.Store(o.Catalog)
+		h.storeCatalog(o.Catalog, o.Clock.Now())
 		h.model.State = domain.Idle
 	}
 	if o.OutOfService {
@@ -238,6 +246,27 @@ func (h *Hub) Config() domain.Config { return *h.cfg.Load() }
 
 // Catalog returns the catalog in service, or nil before the first one.
 func (h *Hub) Catalog() *domain.Catalog { return h.catalog.Load() }
+
+// CatalogUpdatedAt returns when the catalog in service was put in service.
+//
+// The zero time means « none has been », which is a station whose first file has
+// not arrived: the screen then has a sentence for it and no date to show (§14.3).
+func (h *Hub) CatalogUpdatedAt() time.Time {
+	nanos := h.catalogAt.Load()
+	if nanos == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, nanos)
+}
+
+// storeCatalog publishes a snapshot and stamps the instant it entered service.
+//
+// The three places that swap a catalog go through here, so that the stamp cannot
+// be forgotten by the fourth one somebody writes later.
+func (h *Hub) storeCatalog(catalog *domain.Catalog, at time.Time) {
+	h.catalog.Store(catalog)
+	h.catalogAt.Store(at.UnixNano())
+}
 
 // Entries returns the weighings the RAM safety net holds, oldest first.
 func (h *Hub) Entries() []domain.Weighing { return h.ring.Entries() }
@@ -605,7 +634,7 @@ func (h *Hub) applyPendingBatch(now time.Time) {
 	if now.Sub(h.lastInteraction) < domain.MaxSwitchIdle {
 		return
 	}
-	h.catalog.Store(h.pendingBatch.Catalog)
+	h.storeCatalog(h.pendingBatch.Catalog, now)
 	h.pendingBatch = nil
 }
 
@@ -705,7 +734,7 @@ func (h *Hub) execute(ef domain.Effect, now time.Time) domain.Event {
 		h.armExpiresAt = now.Add(e.Duration)
 
 	case domain.ApplyCatalogEffect:
-		h.catalog.Store(e.Catalog)
+		h.storeCatalog(e.Catalog, now)
 	}
 	return nil
 }

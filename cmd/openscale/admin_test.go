@@ -76,14 +76,15 @@ func TestTheDashboardShowsTheInventoryOfSection14_4(t *testing.T) {
 	}
 }
 
-// TestTheTroubleshootingRoutesAnswerWithoutAPassword is ADR-018, checked in both
+// TestTheTroubleshootingRoutesAnswerWithoutAPassword is ADR-033, checked in both
 // directions on the same running station.
 //
-// The criterion is « ce qui ÉCRIT la configuration ». Testing the scale, asking the printer
-// for its status, printing a demonstration label and dropping a catalog write none, so they
-// answer to whoever is standing at the counter — who can already unplug the printer. Reading
-// the configuration, writing it, listing the ports: those demand a session, and the test
-// asserts the 401 so that a future refactor cannot quietly open them.
+// The criterion moved from the DOOR to the ACT: « ce qui change ce que le poste vend, ou
+// la façon dont il pèse » is protected, everything one can merely look at is not. Testing
+// the scale, asking the printer for its status, printing a demonstration label, reading a
+// configuration whose two hashes are redacted before they leave — none of those changes
+// anything, so they answer to whoever is standing at the counter, who can already unplug
+// the printer.
 func TestTheTroubleshootingRoutesAnswerWithoutAPassword(t *testing.T) {
 	bench := newServeBench(t, localDropCatalog)
 	bench.start()
@@ -97,7 +98,6 @@ func TestTheTroubleshootingRoutesAnswerWithoutAPassword(t *testing.T) {
 		{"/admin/api/troubleshooting/test-label", ""},
 		{"/admin/api/troubleshooting/reprint", ""},
 		{"/admin/api/troubleshooting/reload-catalog", ""},
-		{"/admin/api/troubleshooting/manual-entry", `{"on":true}`},
 		{"/admin/api/troubleshooting/roll-changed", ""},
 		{"/admin/api/troubleshooting/fallback-printer", `{"on":true}`},
 	} {
@@ -118,17 +118,44 @@ func TestTheTroubleshootingRoutesAnswerWithoutAPassword(t *testing.T) {
 		})
 	}
 
+	// Ce qui s'OUVRE en lecture. Le mot de passe qu'il fallait pour lire un numéro de
+	// port n'achetait rien : la charge utile est expurgée de ses deux empreintes avant
+	// de partir, et le journal est déjà dans diagnostic.zip, que personne ne protège.
 	for _, route := range []string{
 		"/admin/api/config", "/admin/api/config/versions", "/admin/api/ports",
-		"/admin/api/printers", "/admin/api/journal", "/admin/api/technical",
-		"/admin/api/imports",
+		"/admin/api/printers", "/admin/api/journal", "/admin/api/journal/export.csv",
+		"/admin/api/technical", "/admin/api/imports",
 	} {
-		t.Run("sans session "+route, func(t *testing.T) {
+		t.Run("lecture ouverte "+route, func(t *testing.T) {
 			response := bench.get(route)
 			defer response.Body.Close()
-			if response.StatusCode != http.StatusUnauthorized {
-				t.Fatalf("%s répond %d sans session : tout ce qui touche à la configuration "+
-					"exige le mot de passe", route, response.StatusCode)
+			if response.StatusCode == http.StatusUnauthorized ||
+				response.StatusCode == http.StatusConflict {
+				t.Fatalf("%s répond %d : ADR-033 l'ouvre en LECTURE, on n'y écrit rien",
+					route, response.StatusCode)
+			}
+		})
+	}
+
+	// Ce qui reste fermé, et les deux qui viennent d'y entrer.
+	for _, c := range []struct{ method, route, body string }{
+		{http.MethodPut, "/admin/api/config", `{}`},
+		{http.MethodGet, "/admin/api/config/export", ""},
+		{http.MethodPost, "/admin/api/config/restore", `{"version":1}`},
+		// Elle coupe la balance et laisse le CLIENT taper son propre poids.
+		{http.MethodPost, "/admin/api/troubleshooting/manual-entry", `{"on":true}`},
+		// Il remplace toute la grille par un fichier qu'on a apporté.
+		{http.MethodPost, "/admin/api/catalog/import", `{}`},
+	} {
+		t.Run("acte protégé "+c.route, func(t *testing.T) {
+			response := bench.do(t, c.method, c.route, c.body)
+			defer response.Body.Close()
+			// 401 « session absente » sur un poste qui a un mot de passe, 409 « aucun mot
+			// de passe posé » sinon : les deux refusent, et l'écran les distingue.
+			if response.StatusCode != http.StatusUnauthorized &&
+				response.StatusCode != http.StatusConflict {
+				t.Fatalf("%s %s répond %d sans session : cet acte change ce que le poste "+
+					"vend ou la façon dont il pèse", c.method, c.route, response.StatusCode)
 			}
 		})
 	}
@@ -275,14 +302,16 @@ func TestSavingAConfigurationRotatesTheVersionsAndAppliesIt(t *testing.T) {
 
 // TestDroppingACSVOnTheScreenGoesThroughTheOrdinaryWatcher is A4 and ADR-011.
 //
-// The route is NOT authenticated, it writes no configuration, and it is the only fallback
-// on the day a station is commissioned. What the test proves is that the file really lands
+// The route is PROTECTED since ADR-033 — it replaces the whole grid with a file somebody
+// brought — and it is the only fallback on the day a station is commissioned. What the test proves is that the file really lands
 // in the watched directory and that the ORDINARY watch applies it: the 202 carries the
 // inventory measured on the dropped bytes, and the dashboard carries the inventory of the
 // import the transaction wrote — the same figures, from two different places.
 func TestDroppingACSVOnTheScreenGoesThroughTheOrdinaryWatcher(t *testing.T) {
-	bench := newServeBench(t, localDropCatalog)
+	bench := newServeBench(t, localDropCatalog, withPassword)
 	bench.start()
+	// Le dépôt remplace toute la grille : c'est un acte protégé (ADR-033).
+	bench.login(t)
 
 	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "catalog", "flv_1.csv"))
 	if err != nil {
@@ -332,8 +361,11 @@ func TestDroppingACSVOnTheScreenGoesThroughTheOrdinaryWatcher(t *testing.T) {
 // reach the screen while somebody is standing in front of it, and NOT five seconds later in
 // a journal they would have to go and open. And nothing is left in the watched directory.
 func TestAFileThatIsNotACatalogIsRefusedWhileTheVolunteerIsStillLooking(t *testing.T) {
-	bench := newServeBench(t, localDropCatalog)
+	bench := newServeBench(t, localDropCatalog, withPassword)
 	bench.start()
+	// Acte protégé (ADR-033) : sans la session, ce test mesurerait un refus
+	// d'authentification et non le refus du FICHIER, qui est son objet.
+	bench.login(t)
 
 	response := bench.upload(t, "/admin/api/catalog/import", "pas-un-catalogue.csv",
 		[]byte("%PDF-1.7\nceci n'est pas un export Odoo\n"))
@@ -715,6 +747,12 @@ func (b *serveBench) login(t *testing.T) {
 func (b *serveBench) post(t *testing.T, path, body string) *http.Response {
 	t.Helper()
 	return b.request(t, http.MethodPost, path, "application/json", strings.NewReader(body))
+}
+
+// do issues one request by whatever method, which is what a table of routes needs.
+func (b *serveBench) do(t *testing.T, method, path, body string) *http.Response {
+	t.Helper()
+	return b.request(t, method, path, "application/json", strings.NewReader(body))
 }
 
 // put issues one PUT with a JSON body.

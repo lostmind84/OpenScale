@@ -3,6 +3,7 @@ package domain
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -187,6 +188,37 @@ type UIConfig struct {
 	// Default 60: a trade-off between serving the customer and the fraud window.
 	ReprintWindowSeconds int  `json:"reprint_window_s"`
 	ShowGridPrices       bool `json:"show_grid_prices"`
+	// TileSize is how big a tile is drawn: small, medium or large (ADR-031).
+	//
+	// It is the one density setting that exists, and it exists because the physical
+	// constraint that used to forbid it has an exception: a station driven with a
+	// MOUSE is not held to the 20 mm touch target, and a 22" panel is not the 24" of
+	// the reference. Empty means medium, so a configuration written before this
+	// setting existed keeps the grid it had.
+	TileSize string `json:"tile_size"`
+}
+
+// TileSizes returns the three declared tile sizes, smallest first.
+//
+// A function and not a variable: a caller must not be able to reorder or empty
+// the list that a validation message shows to whoever mistyped a value.
+func TileSizes() []string { return []string{TileSizeSmall, TileSizeMedium, TileSizeLarge} }
+
+// The three tile sizes of ADR-031. `medium` is what a station gets by default.
+const (
+	TileSizeSmall  = "small"
+	TileSizeMedium = "medium"
+	TileSizeLarge  = "large"
+)
+
+// validTileSize reports whether a configured tile size is one of the three.
+func validTileSize(size string) bool {
+	for _, known := range TileSizes() {
+		if size == known {
+			return true
+		}
+	}
+	return false
 }
 
 // ScaleConfig is the weighing device of this station.
@@ -1004,16 +1036,37 @@ func (c *Config) Validate(reg Registries) []Fault {
 		fail("journal.max_rows", "%d est sous le plancher de 100 pesées conservées", c.Journal.MaxRows)
 	}
 
-	// 31. admin.password_hash non-empty and well formed. Everything that WRITES the
-	//     configuration is protected; troubleshooting deliberately is not (ADR-018).
-	switch {
-	case c.Admin.PasswordHash == "":
-		fail("admin.password_hash", "aucun mot de passe d'administration n'est défini : le parcours « premier accès » doit en imposer un")
-	case !wellFormedArgon2id(c.Admin.PasswordHash):
-		fail("admin.password_hash", "l'empreinte n'est pas une chaîne argon2id de la forme $argon2id$v=19$m=…,t=…,p=…$sel$empreinte")
-	}
-	if c.Admin.RecoveryCodeHash != "" && !wellFormedArgon2id(c.Admin.RecoveryCodeHash) {
-		fail("admin.recovery_code_hash", "l'empreinte du code de secours n'est pas une chaîne argon2id")
+	// 31. admin.password_hash and admin.recovery_code_hash are USABLE when present.
+	//
+	// # Empty is not a fault, and that is a correction
+	//
+	// A station is installed WITHOUT a password: §14.4 says the delivered configuration
+	// is the export of §11.5, "qui ne porte aucun secret", and the first access is the
+	// recovery code printed on the installation sheet. Refusing an empty field put such
+	// a station OUT OF SERVICE (§11.3), so it could not weigh either — and weighing is
+	// the one thing it must do whatever else is wrong. What answers "aucun mot de passe
+	// n'est posé" is now the administration itself, which offers the recovery code.
+	//
+	// # What IS a fault: a hash nothing can match
+	//
+	// The delivered file carried « for-the-delivered-configurationg ». It parses, and its
+	// payload is EXACTLY the 32 bytes argon2id produces — so a length check would not
+	// have caught it either. It matches no password at all, `config validate` and
+	// `doctor` both declared it sound, and install.ps1, seeing a non-empty recovery
+	// field, skipped drawing a real code: the installation sheet went out blank and the
+	// station was locked out for good.
+	for _, secret := range []struct{ field, hash string }{
+		{"admin.password_hash", c.Admin.PasswordHash},
+		{"admin.recovery_code_hash", c.Admin.RecoveryCodeHash},
+	} {
+		switch {
+		case secret.hash == "":
+			// Documented state of a station between its installation and its first access.
+		case !wellFormedArgon2id(secret.hash):
+			fail(secret.field, "l'empreinte n'est pas une chaîne argon2id de la forme $argon2id$v=19$m=…,t=…,p=…$sel$empreinte")
+		case !usableArgon2id(secret.hash):
+			fail(secret.field, "l'empreinte est un remplissage : son corps est du texte, là où argon2id produit des octets tirés au sort — aucun mot de passe ne peut y correspondre")
+		}
 	}
 
 	// 32. catalog.fallback_category belongs to the categories. It is what makes "the
@@ -1163,6 +1216,13 @@ func (c *Config) Validate(reg Registries) []Fault {
 				"%d ko dépasse le plafond du fichier qui la contient (%d Mo) : une image ne peut pas être plus grosse que son catalogue",
 				imageKB, fileMB)
 		}
+	}
+
+	// 46. ui.tile_size among the three declared sizes (ADR-031). An unknown value
+	//     would fall back in silence, and an exploitant who mistyped « moyen » would
+	//     see the grid not move and conclude that the setting does nothing.
+	if c.UI.TileSize != "" && !validTileSize(c.UI.TileSize) {
+		failWith("ui.tile_size", TileSizes(), "%q n'est pas une taille de tuile connue", c.UI.TileSize)
 	}
 
 	return faults
@@ -1400,6 +1460,33 @@ func wellFormedArgon2id(hash string) bool {
 		}
 	}
 	return isBase64Raw(parts[4], 8) && isBase64Raw(parts[5], 16)
+}
+
+// usableArgon2id reports whether a hash could have come out of argon2id at all.
+//
+// Being well formed is not enough, and the delivered configuration is the proof: its
+// payload decoded to « for-the-delivered-configurationg », thirty-two bytes of typed
+// text where argon2id writes thirty-two bytes drawn at random. What gives a placeholder
+// away is therefore not its length but its ALPHABET — thirty-two random bytes are all
+// printable ASCII once in 10^14, which is never.
+//
+// It is not this check that repairs the defect: emptying the field does. This is what
+// stops the same gesture from coming back without a sound.
+func usableArgon2id(hash string) bool {
+	parts := strings.Split(hash, "$")
+	if len(parts) != 6 {
+		return false
+	}
+	key, err := base64.RawStdEncoding.DecodeString(parts[5])
+	if err != nil || len(key) == 0 {
+		return false
+	}
+	for _, b := range key {
+		if b < 0x20 || b > 0x7e {
+			return true
+		}
+	}
+	return false
 }
 
 // isBase64Raw reports whether s is unpadded base64 of at least minimum characters.

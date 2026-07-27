@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"openscale/internal/domain"
 )
@@ -18,7 +19,12 @@ import (
 type catalogDTO struct {
 	// Revision is the ETag, carried in the body as well so that a front end can log
 	// which catalog it is showing without reading its own response headers.
-	Revision     string                 `json:"revision"`
+	Revision string `json:"revision"`
+	// UpdatedAt is when this catalog entered service, RFC 3339, or empty when none
+	// ever has. The client screen shows it PERMANENTLY: « ces prix datent de
+	// quand ? » is the one question a volunteer asks in front of a grid, and a date
+	// that stops moving is how a station says it received nothing (§14.3).
+	UpdatedAt    string                 `json:"updated_at"`
 	ProductCount int                    `json:"product_count"`
 	Categories   []categoryDTO          `json:"categories"`
 	Products     []catalogProductDTO    `json:"products"`
@@ -76,12 +82,25 @@ type tierDTO struct {
 	Rank   int    `json:"rank"`
 }
 
-// catalogPresentationDTO carries the three screen settings the grid depends on.
+// catalogPresentationDTO carries the screen settings the grid depends on.
 type catalogPresentationDTO struct {
 	ShowGridPrices       bool `json:"show_grid_prices"`
 	IdleTimeoutSeconds   int  `json:"idle_timeout_s"`
 	ReprintWindowSeconds int  `json:"reprint_window_s"`
 	Sound                bool `json:"sound"`
+	// TileSize is `small`, `medium` or `large` — the density of the grid (ADR-031).
+	TileSize string `json:"tile_size"`
+}
+
+// rfc3339OrEmpty formats an instant, and the zero time as an empty string.
+//
+// Empty and not « 0001-01-01 »: a station whose first catalog has not arrived has
+// no date to show, and a screen must be able to tell that from a real one.
+func rfc3339OrEmpty(at time.Time) string {
+	if at.IsZero() {
+		return ""
+	}
+	return at.Format(time.RFC3339)
 }
 
 // catalogPayload is one serialized catalog, kept until the catalog itself changes.
@@ -191,7 +210,9 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 			IdleTimeoutSeconds:   cfg.UI.IdleTimeoutSeconds,
 			ReprintWindowSeconds: cfg.UI.ReprintWindowSeconds,
 			Sound:                cfg.UI.Sound,
+			TileSize:             cfg.UI.TileSize,
 		},
+		UpdatedAt: rfc3339OrEmpty(s.hub.CatalogUpdatedAt()),
 	}
 	for _, p := range products {
 		if p.Qualification != domain.Weighable {

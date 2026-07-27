@@ -7,7 +7,15 @@
   import SearchPanel from './components/SearchPanel.svelte'
   import TarePad from './components/TarePad.svelte'
   import * as api from './lib/api'
-  import { ALL_CATEGORIES, chips, filterProducts, visibleProducts, type Product } from './lib/catalog'
+  import {
+    ALL_CATEGORIES,
+    chips,
+    filterProducts,
+    tileSize,
+    visibleProducts,
+    type Product,
+  } from './lib/catalog'
+  import { catalogStamp } from './lib/format'
   import { Session } from './lib/session.svelte'
   import { ulid } from './lib/ulid'
 
@@ -39,9 +47,62 @@
   const healthy = $derived(
     snapshot === null || (snapshot.scale.connected && snapshot.printer.health !== 'faulted'),
   )
+  /**
+   * What the grid says when it has nothing to draw — and the three cases differ.
+   *
+   * « Aucun produit ne correspond » is true of a filter that matched nothing and
+   * FALSE of a station whose catalog has not arrived: there is nothing to
+   * correspond to, nobody typed anything, and the sentence sends a volunteer
+   * looking for a search box. §14.4 fixes the wording of that second case, and
+   * the name of the awaited file is DERIVED from the station number — never
+   * written in a message.
+   */
+  const empty = $derived.by(() => {
+    if (session.catalogError !== '') {
+      return { message: session.catalogError, hint: 'Le poste réessaie tout seul.' }
+    }
+    if (products.length > 0) {
+      return { message: 'Aucun produit ne correspond.', hint: 'Effacez des lettres ou changez de rayon.' }
+    }
+    const station = snapshot?.station ?? 0
+    return {
+      message:
+        station > 0
+          ? `Catalogue vide. En attente du fichier flv_${station}.csv.`
+          : 'Catalogue vide. En attente du fichier du poste.',
+      hint: 'Prévenez un responsable : aucun produit ne peut être pesé.',
+    }
+  })
+
   /** The tile a refusal points at: an orange ribbon, and the grid stays visible. */
   const rejectedID = $derived(snapshot?.state === 'rejected' ? (snapshot.product?.id ?? null) : null)
-  const selectedID = $derived(snapshot?.state === 'rejected' ? null : (snapshot?.product?.id ?? null))
+
+  /**
+   * The states in which a tile is still IN HAND, and therefore still ringed.
+   *
+   * `succeeded` is not one of them, and that is the whole point: the label has come
+   * out, the sale is over, and the acknowledgement §14.3 asks for is in the banner
+   * and on the paper. Ringing the tile after the fact left it green until the bag
+   * was taken off the plate — which on a station without a scale, and on any
+   * station whose customer walks away, is forever.
+   */
+  const HOLDING: readonly string[] = [
+    'product_armed',
+    'weight_present',
+    'weight_stable',
+    'awaiting_stability',
+    'validating',
+    'printing',
+  ]
+  const selectedID = $derived(
+    snapshot !== null && HOLDING.includes(snapshot.state) ? (snapshot.product?.id ?? null) : null,
+  )
+
+  /** The density of the grid, as this station configures it (ADR-031). */
+  const density = $derived(tileSize(settings.tile_size))
+
+  /** When the catalog on screen entered service, shown permanently (§14.3). */
+  const catalogAt = $derived(catalogStamp(catalog?.updated_at ?? ''))
 
   $effect(() => {
     session.start()
@@ -98,18 +159,26 @@
     if (!searchOpen) query = ''
   }
 
-  /** Loads the administration bundle, lazily, into this same window (§14.1). */
+  /**
+   * Loads the administration bundle, lazily, into this same window (§14.1).
+   *
+   * `mountAdmin` refuses a second mount BY ITSELF, and releases that refusal when the
+   * screen closes. A guard kept here instead — as ADR-032 first shipped — never released,
+   * so the key answered exactly once per page load: after one trip to the administration
+   * and back, the way in was dead for good.
+   */
   async function openAdmin(): Promise<void> {
     const module = await import('./admin/mount')
     module.mountAdmin(document.body)
   }
 </script>
 
-<main class="screen">
+<main class="screen" data-tile-size={density}>
   <Banner
     {snapshot}
     showWeight={session.link.showWeight}
     linkBanner={session.link.banner}
+    taring={tareEntry !== null}
     ontare={() => (tareEntry = '')}
   />
 
@@ -130,8 +199,9 @@
     {rejectedID}
     {busyID}
     showPrices={settings.show_grid_prices}
-    emptyMessage={session.catalogError ||
-      (catalog === null ? 'Chargement du catalogue…' : 'Aucun produit ne correspond.')}
+    loading={catalog === null && session.catalogError === ''}
+    emptyMessage={empty.message}
+    emptyHint={empty.hint}
     onpick={pick}
   />
 
@@ -147,6 +217,7 @@
   <ReprintBar
     label={snapshot?.last_label ?? null}
     available={snapshot?.reprint.available ?? false}
+    {catalogAt}
     onreprint={reprint}
   />
 
@@ -181,5 +252,13 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    /*
+     * The four bands keep their height and the grid takes what is left, which is
+     * why each of them declares `flex: 0 0 auto` and the grid `min-height: 0`.
+     * Left to the default `flex-shrink: 1`, the overflow of a 331 tile grid is
+     * spent on the elements that must not move: the banner loses its weight
+     * display and the two PERMANENT bars of §14.3 are squeezed to nothing.
+     */
+    overflow: hidden;
   }
 </style>

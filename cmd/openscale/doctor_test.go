@@ -15,6 +15,7 @@ import (
 	"openscale/internal/diag"
 	"openscale/internal/domain"
 	"openscale/internal/platform"
+	"openscale/internal/web"
 )
 
 // These tests run the REAL doctor against a REAL station, over HTTP, on the composition
@@ -68,7 +69,15 @@ func TestDoctorReadsARunningStationThroughItsOwnHealthRoute(t *testing.T) {
 // internal/diag: « configuration valide » means the drivers were checked against the
 // registries THIS binary carries (§11.3), and only the composition root has them.
 func TestTheConfigurationControlIsGreenOnTheDeliveredFile(t *testing.T) {
-	b := newServeBench(t)
+	// Le mot de passe est posé, comme sur un poste installé : la configuration LIVRÉE, elle,
+	// n'en porte aucun (§14.4), et son absence est un avertissement que le test d'à côté
+	// exige. Ce test-ci porte sur autre chose — que les drivers soient vérifiés contre les
+	// registres de CE binaire.
+	hash, err := web.HashSecret("mot-de-passe-d-administration")
+	if err != nil {
+		t.Fatalf("empreinte : %v", err)
+	}
+	b := newServeBench(t, func(cfg *domain.Config) { cfg.Admin.PasswordHash = hash })
 	b.start()
 	defer func() { _ = b.stop() }()
 
@@ -79,6 +88,27 @@ func TestTheConfigurationControlIsGreenOnTheDeliveredFile(t *testing.T) {
 	if !strings.Contains(control.Observed, "empreinte") {
 		t.Errorf("le constat doit porter l'empreinte, qui est ce qu'on compare entre quatre postes : %s",
 			control.Observed)
+	}
+}
+
+// TestAStationWithNoPasswordSaysSoWithoutRefusingToWeigh.
+//
+// Un poste livré n'en porte aucun (§14.4), et ce n'est PLUS une faute : une faute le
+// mettait hors service, donc il ne pesait pas — alors qu'il ne lui manquait qu'un secret
+// d'administration. Reste qu'il faut le dire, et le dire là où va un bénévole coincé :
+// « rien ne le disait » est exactement ce qui a enfermé un poste dehors.
+func TestAStationWithNoPasswordSaysSoWithoutRefusingToWeigh(t *testing.T) {
+	b := newServeBench(t)
+	b.start()
+	defer func() { _ = b.stop() }()
+
+	control := controlOf(t, doctorAgainst(t, b, ""), diag.ControlConfiguration)
+	if control.Status != diag.StatusWarn {
+		t.Fatalf("poste sans mot de passe : %s, attendu un avertissement — %s",
+			control.Status, control.Observed)
+	}
+	if !strings.Contains(control.Remedy, "code de secours") {
+		t.Errorf("la consigne ne dit pas par où l'on entre :\n%s", control.Remedy)
 	}
 }
 
@@ -160,7 +190,22 @@ func TestTheStationServesAnArchiveWithNoSecretInIt(t *testing.T) {
 	const password = "mot-de-passe-du-producteur-2026"
 	const address = "https://dav.example.org/depots"
 
+	// Les empreintes sont posées ICI et non lues dans le fichier livré : celui-ci ne
+	// porte plus aucun secret (§14.4), et un test qui chercherait une chaîne vide dans
+	// l'archive ne prouverait rien. Ce sont de VRAIES empreintes, comme un poste installé
+	// en porte.
+	adminHash, err := web.HashSecret("mot-de-passe-d-administration")
+	if err != nil {
+		t.Fatalf("empreinte du mot de passe : %v", err)
+	}
+	recoveryHash, err := web.HashSecret("ABCDEFGH")
+	if err != nil {
+		t.Fatalf("empreinte du code de secours : %v", err)
+	}
+
 	b := newServeBench(t, func(cfg *domain.Config) {
+		cfg.Admin.PasswordHash = adminHash
+		cfg.Admin.RecoveryCodeHash = recoveryHash
 		cfg.Catalog.Type = domain.CatalogSourceWebDAV
 		cfg.Catalog.Options = mustOptions(t, cfg.Catalog.Options, map[string]any{
 			"url": address, "username": "balance", "password": password,
@@ -189,11 +234,11 @@ func TestTheStationServesAnArchiveWithNoSecretInIt(t *testing.T) {
 	}
 
 	secrets := map[string]string{
-		password:                                "le mot de passe WebDAV",
-		address:                                 "l'adresse privée de la source",
-		"dav.example.org":                       "l'hôte privé de la coopérative",
-		shippedConfig(t).Admin.PasswordHash:     "l'empreinte du mot de passe d'administration",
-		shippedConfig(t).Admin.RecoveryCodeHash: "l'empreinte du code de secours",
+		password:          "le mot de passe WebDAV",
+		address:           "l'adresse privée de la source",
+		"dav.example.org": "l'hôte privé de la coopérative",
+		adminHash:         "l'empreinte du mot de passe d'administration",
+		recoveryHash:      "l'empreinte du code de secours",
 	}
 	names := make([]string, 0, len(archive.File))
 	for _, member := range archive.File {

@@ -147,6 +147,13 @@ func (r *Rasterizer) Rasterize(g *domain.Template, label domain.Label, loc domai
 			fmt.Sprintf("langue demandée : %q", string(loc)))
 	}
 
+	// Everything below draws with the library's faces, which cannot be shared between
+	// goroutines (see Library.drawing). The four consumers of this render reach it from
+	// four different places — the preview screen refreshes on every keystroke of the
+	// template editor — so exclusivity is taken here, once, for the whole label.
+	r.fonts.drawing.Lock()
+	defer r.fonts.drawing.Unlock()
+
 	img := image.NewGray(image.Rect(0, 0, width, height))
 	draw.Draw(img, img.Bounds(), image.NewUniform(color.Gray{Y: 0xFF}), image.Point{}, draw.Src)
 

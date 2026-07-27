@@ -11,14 +11,28 @@ import type { LabelDTO } from './dto'
  */
 
 /**
- * Compose le prix d'une tuile : le montant servi et son suffixe.
+ * Met en forme l'instant où le catalogue est entré en service.
  *
- * @param text - le prix déjà mis en forme, `unit_price_text`.
- * @param suffix - le suffixe servi avec le produit, espace initiale comprise.
- * @returns par exemple `5,32 €/kg`.
+ * Écrit à la main plutôt que par `Intl.DateTimeFormat` : ce poste affiche cette
+ * ligne en permanence, et la sortie d'`Intl` dépend de la locale du système, qui
+ * n'est pas un réglage du poste. Un poste installé avec un Windows anglais
+ * afficherait `7/27/2026` sur un écran par ailleurs entièrement français.
+ *
+ * L'instant est rendu dans le fuseau du poste : c'est l'heure qu'il est dans le
+ * magasin, la seule qu'un bénévole puisse comparer à sa montre.
+ *
+ * @param iso - `updated_at` du catalogue, RFC 3339, ou une chaîne vide.
+ * @returns `27/07/2026 08:06:48`, ou une chaîne vide si rien n'est daté.
+ * @example
+ * catalogStamp('2026-07-27T08:06:48Z') // '27/07/2026 10:06:48' à Paris en été
  */
-export function unitPrice(text: string, suffix: string): string {
-  return `${text}${suffix}`
+export function catalogStamp(iso: string): string {
+  if (iso === '') return ''
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return ''
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const day = `${pad(at.getDate())}/${pad(at.getMonth() + 1)}/${at.getFullYear()}`
+  return `${day} ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`
 }
 
 /**

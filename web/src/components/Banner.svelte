@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { MessageDTO, StateDTO } from '../lib/dto'
-  
+  import Icon from './Icon.svelte'
+
   /**
    * The top banner: the weight, the instruction, the tare.
    *
@@ -16,10 +17,12 @@
     showWeight: boolean
     /** French line about the link — « Reconnexion… », « Poids indisponible ». */
     linkBanner: string
+    /** True while the pad below is open: the key shows where the customer is. */
+    taring?: boolean
     ontare: () => void
   }
 
-  const { snapshot, showWeight, linkBanner, ontare }: Props = $props()
+  const { snapshot, showWeight, linkBanner, taring = false, ontare }: Props = $props()
 
   /**
    * The instruction, which is the only thing most customers ever read.
@@ -62,7 +65,21 @@
     showWeight && snapshot !== null && snapshot.weight.available && !snapshot.weight.expired,
   )
 
-  const level = $derived(snapshot?.message?.level ?? 'info')
+  /**
+   * The severity the instruction is drawn with.
+   *
+   * Derived from the STATE when the server sends no message, for the same reason
+   * the instruction itself is: a station that says nothing must still say how
+   * serious it is. Without this, `scale_lost` showed a red ribbon over a sentence
+   * drawn like a piece of good news.
+   */
+  const level = $derived.by(() => {
+    const message = snapshot?.message
+    if (message !== null && message !== undefined) return message.level
+    if (snapshot?.state === 'faulted' || snapshot?.state === 'scale_lost') return 'error'
+    if (snapshot?.state === 'rejected') return 'warn'
+    return 'info'
+  })
 </script>
 
 <header class="banner" data-state={snapshot?.state ?? 'initializing'}>
@@ -74,33 +91,48 @@
       <p class="weight unavailable">—<span class="unit"> kg</span></p>
       <p class="tare">Poids indisponible</p>
     {/if}
-    <div class="ribbon" style:background={ribbon}></div>
   </div>
 
   <p class="instruction" class:warn={level === 'warn'} class:error={level === 'error'}>
     {instruction}
   </p>
 
-  <button type="button" class="tare-key touch-target" onclick={ontare}>
-    <span class="tare-icon" aria-hidden="true">🫙</span>
+  <button type="button" class="tare-key touch-target" class:active={taring} onclick={ontare}>
+    <Icon name="tare" size="2rem" />
     <span>TARE</span>
   </button>
+
+  <!--
+    The state of the station, drawn the full width of the screen.
+    It SLIDES from one colour to the next and never blinks: a 3 Hz flash is a
+    photosensitive trigger (§14.2). Full width because this is the one signal a
+    volunteer reads from the other side of the shop.
+  -->
+  <div class="ribbon" style:background={ribbon}></div>
 </header>
 
 <style>
   .banner {
+    position: relative;
     display: flex;
+    /* Its height is a constant of the screen, never a variable of the grid. */
+    flex: 0 0 auto;
     align-items: center;
     gap: 2rem;
     height: var(--banner-height);
-    padding: 0 1.5rem;
+    padding: 0 1.75rem;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-1);
+    /* Above the grid, so the shadow falls ON it rather than under it. */
+    z-index: 2;
   }
 
   .weight-block {
     flex: 0 0 auto;
-    min-width: 22rem;
+    min-width: 20rem;
+    padding-right: 2rem;
+    border-right: 1px solid var(--border-soft);
   }
 
   .weight {
@@ -109,39 +141,41 @@
     font-size: 6rem;
     font-weight: 700;
     line-height: 1;
+    letter-spacing: -0.02em;
   }
 
   /* --ink-muted and not --waiting: 7,10:1 against the surface, where --waiting
-     reaches 3,63:1 and would fail the rule of §14.2 at 96 px. */
+     reaches 3,63:1 and would fail the rule of §14.2 at 96 px. The weight drops
+     to a regular weight with it: an em dash at 96 px / 700 is a black slab that
+     reads as a redaction rather than as an absence. */
   .weight.unavailable {
     color: var(--ink-muted);
-  }
-
-  .unit {
-    font-size: 2.5rem;
     font-weight: 400;
   }
 
-  .tare {
-    margin: 0.25rem 0 0;
-    color: var(--ink-muted);
-    font-size: 1.125rem;
+  .unit {
+    font-size: 2.25rem;
+    font-weight: 500;
+    letter-spacing: 0;
   }
 
-  .ribbon {
-    height: 0.5rem;
-    margin-top: 0.5rem;
-    border-radius: 0.25rem;
-    /* It SLIDES, it never blinks: a 3 Hz flash is a photosensitive trigger. */
-    transition: background-color 160ms ease-out;
+  .tare {
+    margin: 0.5rem 0 0;
+    color: var(--ink-muted);
+    font-size: 1.125rem;
+    letter-spacing: 0.02em;
   }
 
   .instruction {
     flex: 1 1 auto;
     margin: 0;
-    padding-left: 0.75rem;
+    padding-left: 1.25rem;
     border-left: 0.375rem solid transparent;
+    border-radius: 0.1875rem;
     font-size: 1.75rem;
+    line-height: 1.25;
+    text-wrap: balance;
+    transition: border-color var(--slide) var(--ease);
   }
 
   /*
@@ -168,15 +202,29 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.25rem;
+    gap: 0.375rem;
     padding: 0 1.5rem;
     border: 2px solid var(--border);
     border-radius: var(--radius);
-    font-size: 1.25rem;
+    background: var(--bg);
+    font-size: 1.125rem;
     font-weight: 700;
+    letter-spacing: 0.08em;
+    transition:
+      border-color var(--slide) var(--ease),
+      background-color var(--slide) var(--ease),
+      transform var(--tap) var(--ease);
   }
 
-  .tare-icon {
-    font-size: 2rem;
+  .tare-key.active {
+    border-color: var(--ready);
+    background: var(--ready-wash);
+  }
+
+  .ribbon {
+    position: absolute;
+    inset: auto 0 0;
+    height: 0.375rem;
+    transition: background-color var(--slide) var(--ease);
   }
 </style>

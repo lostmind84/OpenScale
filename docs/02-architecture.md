@@ -1284,6 +1284,19 @@ applyThreshold(img, restOfLabel, g.TextThreshold) // default 0x68
 
 **Trois corrections d'ingénierie** (mineur-1) : les `font.Face` sont **mémoïsées** dans une `map[faceKey]font.Face` où **`faceKey = struct{ Font string; PPEM int; Bold bool }`** — une clé réduite au seul ppem confondrait Regular et Bold au même corps, ce qui, avec le passage automatique en Bold sous 20 dots, rendrait un style pour l'autre ou écraserait l'entrée à chaque alternance — et fermées à la destruction du rastériseur — la boucle de réduction automatique en créait jusqu'à 20 par champ et par étiquette, jamais fermées ; la réduction descend par pas de 0,1 mm jusqu'à `MinFontSizeUM` puis **tronque avec ellipse** au dernier corps valide en journalisant une anomalie technique, au lieu de sortir silencieusement ; et le repli de police est `gofont/gobold` + `goregular` (`[]byte` en dur, BSD-3) si le fichier embarqué manque.
 
+> **Mémoïser une face ne suffit pas à la partager, et la différence est un plantage.**
+> Ni `sfnt.Font` ni `opentype.Face` ne sont sûrs en concurrence : chacun réutilise d'un
+> glyphe au suivant un tampon de travail et un rastériseur vectoriel. Protéger la *carte*
+> des faces mémoïsées tout en distribuant les faces elles-mêmes à des goroutines qui
+> tracent en parallèle ne protège donc rien. Deux aperçus d'étiquette simultanés ont
+> planté le poste ainsi — l'aperçu se rafraîchit à chaque frappe dans l'éditeur de
+> gabarit, et « quatre consommateurs » veut dire quatre goroutines. **Un rendu prend
+> l'exclusivité de sa bibliothèque pour toute sa durée** : quelques millisecondes, et un
+> poste imprime une étiquette à la fois. Le verrou est distinct de celui qui garde la
+> carte, et `Close()` le prend aussi — libérer un rastériseur sous une goroutine qui
+> trace encore est le même plantage. `internal/printing/concurrency_test.go` fait
+> échouer la version sans verrou en quelques dizaines de rendus.
+
 ### 7.4 Le symbole, tracé à module fractionnaire
 
 C'est **le** point technique de l'arbitrage A1. Le module vaut 0,293 mm, soit **2,344 dots** à 203 dpi : il n'est **pas entier**. Tout rendu de ce symbole doit donc caser 2,344 dots par module, et aucun ne peut faire autrement qu'alterner des barres de 2 et de 3 dots. C'est ce qu'aucun langage d'imprimante ne sait exprimer, puisque le module s'y déclare en dots entiers : **seul un rendu raster y parvient, et c'est la justification arithmétique du choix « raster par défaut » (A2).**
@@ -2294,7 +2307,15 @@ Surcharges : `--config`, `--data`, `OPENSCALE_CONFIG`, `OPENSCALE_DATA`. **Aucun
                                               // there are none left (§14.3).
           "reprint_window_s": 60,             // PERMANENT bottom bar — trade-off between
                                               // serving the customer and the fraud window
-          "show_grid_prices": true
+          "show_grid_prices": true,
+          "tile_size": "medium",              // small | medium | large — la densité de la
+                                              // grille (ADR-031). Le seul réglage d'écran
+                                              // qui existe, et il existe parce que la
+                                              // contrainte physique qui l'interdisait a une
+                                              // exception : un poste conduit à la SOURIS
+                                              // n'est pas tenu par la cible de 20 mm.
+                                              // Absent ⇒ medium, donc un fichier écrit
+                                              // avant ce réglage garde sa grille.
           // title REMOVED: "La Cagette" was not decoration, it was the string passed to
           // FindWindowA to lock the Access kiosk down. The name of the cooperative lives in
           // station.coop and is shown on the administration dashboard (§14.4).
@@ -3590,11 +3611,13 @@ go func() {
 
 ### 14.2 Direction visuelle
 
-Échelle typographique (base 16 px sur 1920 × 1080, écran 24″, distance 60–80 cm) : poids **96 px / 700 / tabulaire** (lisible à 2,5 m) · prix principal 64 px · **nom de produit sur tuile 34 px / 700, deux lignes, sans troncature** ← *l'élément principal de la tuile* · prix sur tuile 24 px / 400 · filtre actif 28 px · consigne 28 px · mention légale 18 px.
+Échelle typographique (base 16 px sur 1920 × 1080, écran 24″, distance 60–80 cm) : poids **96 px / 700 / tabulaire** (lisible à 2,5 m) · prix principal 64 px · **nom de produit sur tuile 34 px / 700 au nominal, dans un bloc de hauteur fixe, sans troncature** ← *l'élément principal de la tuile* · prix sur tuile 24 px · filtre actif 28 px · consigne 28 px · mention légale 18 px.
 
-> **La hiérarchie de la tuile est inversée par rapport à la première version, et c'est la donnée réelle qui l'impose.** Le nom y était un sous-titre de 26 px **sous une image**, parce que l'ancienne application posait 120 contrôles `Image0…Image119` porteurs de l'événement et dimensionnait l'image d'abord (`Systeme_Dimensions.LargeurImage`, `HauteurImage`, puis `HauteurLabel`). Or les fichiers authentiques disent le contraire, et la mesure de 2026 le dit **plus fort** que celle de 2022 : `flv_1.csv` n'a aucune image (0 sur 153), et `flv.csv`, qui en a enfin, n'en a que pour **181 produits sur 355 — 49 % du catalogue n'a pas de photo** (§10.2, §10.7). Le déséquilibre est de surcroît très inégal selon la catégorie : `F` est illustrée à 69 %, `A` à 32 %. **Une tuile sans photo n'est donc pas un cas dégradé qu'on soigne à la marge : c'est un produit sur deux, et deux tuiles voisines de la même grille seront l'une illustrée et l'autre non.** Ce qu'on a **certainement**, ce sont des noms — 8 à 69 caractères, 27 en moyenne — et des prix. **Le corpus de rendu de référence reste donc un catalogue SANS image**, et c'est le nom qui est dimensionné en premier : 34 px / 700 doit tenir « ♥AA-LA TOMME DES CROQUANTS AFFINE A LA LIQUEUR DE NOIX DU PERIGORD-MV » (**69 caractères**, le plus long de `flv.csv`) dans une tuile de 230 px sans points de suspension — deux lignes n'y suffisent plus, la tuile en autorise **trois** et le corps se réduit d'un cran au-delà, exactement comme sur l'étiquette (§7.3). Quand une photo existe, elle s'ajoute au-dessus du nom ; quand elle manque, **rien ne bouge et il n'y a ni trou ni cadre gris** — l'initiale sur la couleur de catégorie occupe la place, ou la tuile se referme sur son texte.
+> **Ce qui est tenu constant est le BLOC, pas le nombre de lignes** (ADR-030). Le nom est ajusté dans un bloc de **90 px** : deux lignes au corps nominal, quatre au plancher de 18 px, ce dont le nom de 69 caractères a besoin. Les 331 tuiles du fichier de référence font donc **231 × 180 px exactement**, mesurées dans le navigateur, quelles que soient la longueur du nom, la présence d'une photo et sa forme. Fixer « au plus trois lignes » ne pouvait pas donner ça : trois lignes de 34 px et trois lignes de 18 px sont deux tuiles différentes.
 
-`font-variant-numeric: tabular-nums` sur **tous** les chiffres : sans cela le poids « saute » latéralement à chaque décimale, défaut visuel le plus fatigant d'un afficheur temps réel.
+> **La hiérarchie de la tuile est inversée par rapport à la première version, et c'est la donnée réelle qui l'impose.** Le nom y était un sous-titre de 26 px **sous une image**, parce que l'ancienne application posait 120 contrôles `Image0…Image119` porteurs de l'événement et dimensionnait l'image d'abord (`Systeme_Dimensions.LargeurImage`, `HauteurImage`, puis `HauteurLabel`). Or les fichiers authentiques disent le contraire, et la mesure de 2026 le dit **plus fort** que celle de 2022 : `flv_1.csv` n'a aucune image (0 sur 153), et `flv.csv`, qui en a enfin, n'en a que pour **181 produits sur 355 — 49 % du catalogue n'a pas de photo** (§10.2, §10.7). Le déséquilibre est de surcroît très inégal selon la catégorie : `F` est illustrée à 69 %, `A` à 32 %. **Une tuile sans photo n'est donc pas un cas dégradé qu'on soigne à la marge : c'est un produit sur deux, et deux tuiles voisines de la même grille seront l'une illustrée et l'autre non.** Ce qu'on a **certainement**, ce sont des noms — 8 à 69 caractères, 27 en moyenne — et des prix. **Le corpus de rendu de référence reste donc un catalogue SANS image**, et c'est le nom qui est dimensionné en premier : 34 px / 700 doit tenir « ♥AA-LA TOMME DES CROQUANTS AFFINE A LA LIQUEUR DE NOIX DU PERIGORD-MV » (**69 caractères**, le plus long de `flv.csv`) dans une tuile de 230 px sans points de suspension — deux lignes n'y suffisent plus, et le corps se réduit par pas d'un demi-pixel jusqu'à ce que le nom tienne dans son bloc, exactement comme sur l'étiquette (§7.3). La photo, quand elle existe, occupe une **plaque carrée de 56 px en tête de tuile**, avec le prix aligné à droite sur la même bande ; quand elle manque, **rien ne bouge et il n'y a ni trou ni cadre gris** — la même plaque porte l'initiale sur la couleur de catégorie. La bande pleine largeur de la première version laissait les deux tiers de sa surface vides sur chacune des 331 tuiles ; la plaque carrée récupère la hauteur d'une **quatrième rangée visible**.
+
+`font-variant-numeric: tabular-nums` sur **tous** les chiffres : sans cela le poids « saute » latéralement à chaque décimale, défaut visuel le plus fatigant d'un afficheur temps réel. **Une exception, et elle est mesurable** : le **nom** d'une tuile revient à `normal`. Sur Inter, `tabular-nums` élargit bien plus que les chiffres — le trait d'union et le signe pour-cent aussi —, si bien que « Arc-en-Ciel » se compose **6 % plus large** que ce qu'un `canvas` mesure. Six pour cent, c'est une ligne entière dans un bloc dimensionné pour deux : le nom doit être dessiné avec la variante qui le mesure. Les chiffres qu'un client lit sur une tuile sont dans le prix, qui garde les siens.
 
 ```css
 :root {
@@ -3608,33 +3631,39 @@ go func() {
 }
 ```
 
+**Aucune couleur ne porte de lettres, sauf l'encre.** `--warning` plafonne à 3,97:1 sur `--surface` et `--fault` à 6,54:1 : les employer comme couleur de texte violerait la règle qui les déclare. Elles n'existent donc qu'en **liserés, anneaux, pastilles et lavis à 10 %** — les quatre lavis sont précalculés en jetons (`--ready-wash`, `--warning-wash`, `--fault-wash`, `--waiting-wash`) plutôt que composés par `color-mix()`, qu'un navigateur de kiosque pourrait ignorer en silence, emportant le sens de l'état avec lui.
+
+**La couleur d'un rayon vient de la configuration, donc elle est corrigée avant d'être dessinée.** `categories[].color` est écrite à la main dans un JSON, sans aperçu (§14.3-2) : l'ocre du fichier livré, `#B7950B`, plafonne à **2,7:1** sur blanc, et une initiale dessinée telle quelle serait illisible à 80 cm — le CSS ne peut rien y faire puisqu'il ne voit jamais la valeur. L'écran n'emploie donc jamais la couleur reçue telle quelle : un **lavis** de celle-ci identifie le rayon, et une forme **assombrie jusqu'à 4,5:1** porte tout ce qui doit être lu. Les deux sont calculés au rendu, et un test les vérifie sur les quatre couleurs livrées.
+
 Contrastes **AAA** (≥ 7:1) sur tout texte ≥ 24 px, **AA** partout ailleurs — vérifié par un test qui parcourt les jetons. Aucune animation > 200 ms ; `prefers-reduced-motion` supprime les transitions ; **le liseré ne clignote jamais** (il glisse) : un clignotement à 3 Hz est un déclencheur photosensible. **Cibles tactiles ≥ 20 mm**, espacement ≥ 8 px : une dérive de calibration tactile de 5 mm — cas réel après un changement d'écran — reste sans effet. C'est une mitigation par le design, pas par la procédure. **La conversion, refaite** : un 24″ 16:9 mesure 531 mm de large, donc 1920 / 531 = **3,61 px/mm**, et 20 mm = **≈ 72 px** (la valeur « ≈ 190 px » qui figurait ici était fausse d'un facteur 2,6). Le test de jetons vérifie que toute cible touchable déclare `min-height`/`min-width` ≥ 72 px sur l'écran de référence, exprimés en unités relatives. **C'est cette valeur, avec la lisibilité d'un nom de 49 caractères, qui fixe la densité unique de la grille** — il n'y a plus de réglage `confort`/`dense` à arbitrer (§14.3).
 
 ### 14.3 Écran client
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│    1,236 kg  ●         Touchez votre produit,          ┌──────┐          │
-│    ▔▔▔▔▔▔▔▔ vert       l'étiquette sort                │ 🫙   │          │ 168 px
-│    tare 0 g                                            │ TARE │          │
-│                                                        └──────┘          │
+│  1,236 kg   │  Touchez votre produit,                        ┌────────┐  │
+│  tare 0 g   │  l'étiquette sort                              │ (tare) │  │ 152 px
+│             │                                                │  TARE  │  │
+│▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ liseré d'état, pleine largeur ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔│
 ├──────────────────────────────────────────────────────────────────────────┤
 │ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────┐ │
-│ │ AIL        │ │ BANANES    │ │ CAROTTES   │ │ COURGETTES │ │ ÉPINARDS │ │
-│ │            │ │            │ │            │ │            │ │          │ │
-│ │ 5,32 €/kg  │ │ 2,90 €/kg  │ │ 1,80 €/kg  │ │ 3,10 €/kg  │ │6,40 €/kg │ │
+│ │ ▣ 5,32 €/kg│ │ ▣ 2,90 €/kg│ │ ▣ 1,80 €/kg│ │ ▣ 3,10 €/kg│ │▣6,40 €/kg│ │ 180 px
+│ │ AIL        │ │ BANANES    │ │ CAROTTES   │ │ COURGETTES │ │ ÉPINARDS │ │ par
+│ │            │ │            │ │            │ │            │ │          │ │ rangée
 │ └────────────┘ └────────────┘ └────────────┘ └────────────┘ └──────────┘ │
-│  … défilement vertical inertiel — les 331 pesables d'un seul tenant      │
+│  … 4 rangées visibles, défilement inertiel — les 331 d'un seul tenant    │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ Dernière étiquette : ail 1,236 kg  [ Réimprimer ]      ← barre PERMANENTE │  56 px
+│ ⎙ Dernière étiquette : ail 1,236 kg          [ Réimprimer ] ← PERMANENTE │  80 px
 ├──────────────────────────────────────────────────────────────────────────┤
-│ [ Tout · 331 ] [ Autres ] [ Vrac ] [ Légumes ] [ Fruits ] [ 🔍 ]       ● │  96 px
+│ (Tout 331) (Fruits 28) (Légumes 67) (Vrac 110) (Autres 126)   [🔍]     ● │  88 px
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
+> **Les quatre bandes s'additionnent, et l'addition est le dessin.** 152 + 80 + 88 = 320 px ; 1080 − 320 = 760 px pour la grille, moins ses 2 × 8 px de marge = **744 px**, soit exactement **quatre rangées de 180 px et leurs trois gouttières de 8**. La grille montre quatre rangées pleines et aucune demie. Changer l'une de ces quatre valeurs coupe la quatrième rangée en deux : elles sont liées, et le commentaire de `app.css` le dit à l'endroit où on les modifierait.
+
 **L'exigence, formulée en client et non en réfutation de l'ancien logiciel :** *les produits pesables sont tous atteignables en un défilement, et n'importe lequel en moins de 4 secondes* — **mesuré**, pas supposé, par `weighings.duration_ms` (§12.3). Sur la pièce de référence cela fait **331 produits** — 107 seulement sur `flv_1.csv`. Le chiffre a **triplé en quatre ans** : c'est la mesure qui compte, pas le 340 hérité de la table `Produits` de l'ancienne base, qui ne venait pas de la donnée reçue (§10.2). Une grille qui tiendrait juste à 107 et casserait à 331 serait déjà périmée. Une exigence qui se serait écrite « nous n'avons pas la limite qu'ils avaient » — ni 120 produits, ni 16 colonnes, ni 50 résultats, ni 32 767 twips — aurait encore été rédigée depuis l'ancienne application.
 
-1. **Une seule grille, une seule densité.** `repeat(auto-fill, minmax(230px, 1fr))`, tuile ≥ 72 px de haut (§14.2). Sur 1920 × 1080 : 7 colonnes, ~4 lignes visibles, **les 331 pesables tiennent en douze écrans de défilement** — et en deux à quatre dès qu'un filtre est actif (la plus grosse catégorie, `A`, en compte **126 pesables** pour 140 lignes reçues). **Et c'est ici que le plafond de 120 produits par catégorie de l'ancienne application cesse d'être une anecdote de conception : il est franchi aujourd'hui, en production.** Chaque écran de catégorie est une copie de `FormulaireSquelette`, qui porte exactement **120 contrôles `Image0…Image119`** (§14.2) ; la boucle de remplissage (`FormulaireCalcul.cls` l. 552-664) parcourt **tout** le jeu d'enregistrements — `… WHERE Categorie.Intitule = "Autres" AND Visible=True ORDER BY NomProduit` — et cherche pour chacun le contrôle `"Image" & i` dans un `Select Case` **sans branche par défaut** : passé `i = 119`, aucun `Case` ne correspond, rien n'est écrit, rien n'est journalisé, et la boucle continue jusqu'à `EOF`. **Sur `flv.csv`, 126 produits « Autres » franchissent le contrôle d'intégrité de l'ancienne application pour 120 emplacements : les six derniers de l'ordre alphabétique ne s'affichent sur aucune balance aujourd'hui, sans un message ni une ligne de journal.** L'écart monterait à **20** si `ProduitIndisponibleSurErreur` repassait à `"N"` — le masquage des 14 codes à zone de réservation occupée de cette catégorie (§10.3) dissimule une partie du dépassement. Le défaut est **daté** : il est né le jour où « Autres » a franchi 120 produits, quelque part entre le catalogue de 2022 (`A = 1`) et celui de 2026 (`A = 140`). **Cette architecture n'a aucune limite de ce genre** — la grille est une liste, pas un gabarit d'emplacements ; aucun nombre de tuiles n'apparaît en configuration (§11.2), et `GET /api/v1/catalog` sert le catalogue **entier** (§14.5). C'est le bénéfice le plus directement chiffrable de la réécriture — **six produits vendables qui redeviennent visibles**, sans une ligne de code écrite pour eux — et un écart à annoncer à la mise en service (§18, L9). La densité n'est **pas réglable** : elle est déduite de deux contraintes physiques (cible tactile ≥ 72 px, nom de **69 caractères** lisible à 60–80 cm) et `auto-fill` absorbe les changements de résolution. *(Le réglage `confort`/`dense` supprimé était la bascule « grandes/petites vignettes » de l'existant, elle-même adossée aux tranches 0-24 / 25-47 / … / 100-120 de `Systeme_Dimensions` — que CSS grid rend caduques.)*
+1. **Une seule grille, une seule densité.** `repeat(auto-fill, minmax(230px, 1fr))`, tuile ≥ 72 px de haut (§14.2). Sur 1920 × 1080 : 7 colonnes, ~4 lignes visibles, **les 331 pesables tiennent en douze écrans de défilement** — et en deux à quatre dès qu'un filtre est actif (la plus grosse catégorie, `A`, en compte **126 pesables** pour 140 lignes reçues). **Et c'est ici que le plafond de 120 produits par catégorie de l'ancienne application cesse d'être une anecdote de conception : il est franchi aujourd'hui, en production.** Chaque écran de catégorie est une copie de `FormulaireSquelette`, qui porte exactement **120 contrôles `Image0…Image119`** (§14.2) ; la boucle de remplissage (`FormulaireCalcul.cls` l. 552-664) parcourt **tout** le jeu d'enregistrements — `… WHERE Categorie.Intitule = "Autres" AND Visible=True ORDER BY NomProduit` — et cherche pour chacun le contrôle `"Image" & i` dans un `Select Case` **sans branche par défaut** : passé `i = 119`, aucun `Case` ne correspond, rien n'est écrit, rien n'est journalisé, et la boucle continue jusqu'à `EOF`. **Sur `flv.csv`, 126 produits « Autres » franchissent le contrôle d'intégrité de l'ancienne application pour 120 emplacements : les six derniers de l'ordre alphabétique ne s'affichent sur aucune balance aujourd'hui, sans un message ni une ligne de journal.** L'écart monterait à **20** si `ProduitIndisponibleSurErreur` repassait à `"N"` — le masquage des 14 codes à zone de réservation occupée de cette catégorie (§10.3) dissimule une partie du dépassement. Le défaut est **daté** : il est né le jour où « Autres » a franchi 120 produits, quelque part entre le catalogue de 2022 (`A = 1`) et celui de 2026 (`A = 140`). **Cette architecture n'a aucune limite de ce genre** — la grille est une liste, pas un gabarit d'emplacements ; aucun nombre de tuiles n'apparaît en configuration (§11.2), et `GET /api/v1/catalog` sert le catalogue **entier** (§14.5). C'est le bénéfice le plus directement chiffrable de la réécriture — **six produits vendables qui redeviennent visibles**, sans une ligne de code écrite pour eux — et un écart à annoncer à la mise en service (§18, L9). La densité a **trois valeurs et pas davantage** — `ui.tile_size` ∈ {`small`, `medium`, `large`}, ADR-031 —, chacune déduite des mêmes contraintes physiques (cible ≥ 72 px, nom de **69 caractères** lisible à 60–80 cm) ; `auto-fill` absorbe les changements de résolution à l'intérieur de chacune. *(Le réglage `confort`/`dense` de la première version était la bascule « grandes/petites vignettes » de l'existant, adossée aux tranches 0-24 / 25-47 / … / 100-120 de `Systeme_Dimensions` — que CSS grid rend caduques. Ce qui revient ici n'est pas ce réglage-là : c'est **une** clé à trois valeurs, chacune mesurée, et non un nombre de colonnes à saisir.)*
 
 2. **Les catégories sont des filtres, pas quatre écrans.** L'ancienne application posait quatre boutons en dur — `BoutonFruits`, `BoutonLegumes`, `BoutonVrac`, `BoutonAutres` — parce que quatre formulaires étaient préconstruits au démarrage, et ouvrait `FormulaireLegumes` en dur au lancement. La répartition réelle interdit cette parité, **et elle s'inverse d'un export à l'autre** : `flv.csv` donne **A = 140, V = 118, L = 68, F = 29**, `flv_1.csv` donnait **L = 84, V = 58, F = 10, A = 1**. En 2022, « Autres » menait à **un seul produit** — un quart de barre de navigation pour une tuile ; en 2026, c'est la catégorie la plus peuplée. Aucune barre en dur ne survit à ça. Donc : **la vue au repos est « Tout »**, une puce par catégorie **peuplée** (seuil : au moins 5 produits pesables sur ce poste ; en deçà, la catégorie reste dans « Tout » et ses produits restent atteignables par la recherche), l'effectif **pesable** est écrit sur la puce — jamais le nombre de lignes reçues, qui compte des préemballés sans tuile —, l'ordre et la couleur viennent de la configuration **et non d'un classement figé dans le code** (c'est précisément ce que l'inversion 2022 → 2026 rend nécessaire), et une catégorie peut être masquée sur **ce** poste (`categories[].visible` — le poste « fruits » n'a pas à montrer le vrac : c'est une vraie décision de magasin). Il n'y a **plus de catégorie ouverte par défaut** à configurer : « Tout » est toujours juste, et c'est un toucher de moins dans tous les cas. *(La « sous-catégorie en puces dès qu'une catégorie en compte plus de 3 » est supprimée : le CSV a sept colonnes et aucune ne porte de sous-catégorie — le mécanisme ne se serait jamais déclenché. C'était la transposition d'une fonctionnalité que l'ancienne application n'avait elle-même jamais implémentée.)*
 
@@ -3659,7 +3688,7 @@ Contrastes **AAA** (≥ 7:1) sur tout texte ≥ 24 px, **AA** partout ailleurs �
 | `ManualWeightPad` | pavé à la place du poids dans le bandeau haut (chemins dégradés) |
 | `Search` | panneau de clavier ancré au tiers bas, la grille reste visible et se filtre |
 | `AwaitingStability` *(mode `blocking` seul, A3)* | « Pesée en cours… » dans le bandeau, liseré qui glisse |
-| `Succeeded` | **accusé discret dans le bandeau** — le vrai retour d'information, c'est l'étiquette qui sort |
+| `Succeeded` | **accusé discret dans le bandeau** — le vrai retour d'information, c'est l'étiquette qui sort. **La tuile, elle, est relâchée** : l'anneau dit « ce produit est en cours », jamais « ce produit a été vendu ». Le garder allumé laissait la tuile verte jusqu'au retrait du sac, c'est-à-dire pour toujours sur un poste sans balance et sur tout poste dont le client s'éloigne |
 | `Rejected` | message dans le bandeau **et liseré orange sur la tuile touchée**, sans masquer la grille : le client corrige sans avoir rien à fermer |
 
 > **La minuterie de fermeture forcée n'est pas transposée, parce que la maladie qu'elle soignait n'existe plus.** `FormulaireTimerMessages.SupprimeFenetres` fermait d'office les formulaires oubliés toutes les 10 s et envoyait `SendKeys "{ENTER}"` sur la fenêtre « Avertissement ». Cette minuterie existait pour **une** raison, écrite noir sur blanc dans l'aide de l'ancienne application : une `MsgBox` modale **bloque tout le VBA**, donc la boucle balance, donc l'application entière. Rien de tel ne peut se produire ici — aucune surcouche web ne gèle quoi que ce soit, et la garantie dure (un poids périmé n'est jamais imprimé) est tenue côté Go (§13.2). Transposer le remède aurait ramené avec lui la forme modale qui avait causé la maladie. Pire : une incrustation de succès plein écran **ajoutait** un écran là où l'existant n'en avait aucun — impression directe, bandeau vidé quand le sac quitte le plateau — c'est-à-dire une dégradation de la seule qualité qu'on est censé préserver.
@@ -3670,9 +3699,11 @@ Contrastes **AAA** (≥ 7:1) sur tout texte ≥ 24 px, **AA** partout ailleurs �
 
 **Anti-double-impression** : tuile désactivée dès le `pointerdown` jusqu'à la réponse SSE **côté front**, clé d'idempotence **côté serveur**.
 
-**Il n'y a pas d'horloge, et il n'y a pas de bandeau de catalogue.** Une balance en libre-service n'a pas à donner l'heure : `LabelHeure` était là parce qu'il était là (et n'avançait qu'au rythme du timer Odoo). Numéro de poste, nom de coopérative et version vivent au tableau de bord d'administration, où §14.4 les affiche déjà. Le seul indicateur conservé en barre basse est la **pastille de santé** (balance / imprimante), lisible d'un coup d'œil par un bénévole. Quant au bandeau *« Certains produits sont momentanément indisponibles »*, il est supprimé : il aurait été affiché **tous les jours, en permanence** et il aurait été **faux** (§10.4).
+**Il n'y a pas d'horloge, mais il y a une date de catalogue** *(amendé par ADR-031)*. Une balance en libre-service n'a pas à donner l'heure : `LabelHeure` était là parce qu'il était là (et n'avançait qu'au rythme du timer Odoo). Ce qui est affiché **en permanence** en barre basse est autre chose : **l'instant où le catalogue en service est entré en service**, au format `27/07/2026 08:06:48`. Ce n'est pas une horloge — elle n'avance pas — et c'est la réponse à la seule question qu'un bénévole pose devant une grille : *« ces prix datent de quand ? »*. Une date qui cesse d'avancer est aussi la façon dont un poste dit qu'il ne reçoit plus rien, sans avoir besoin d'une alerte pour le dire. L'instant est celui de la **bascule** (§10.8) et non une date lue dans un fichier : c'est ce que le poste sert vraiment. Numéro de poste, nom de coopérative et version vivent au tableau de bord d'administration, où §14.4 les affiche déjà. Le seul indicateur conservé en barre basse est la **pastille de santé** (balance / imprimante), lisible d'un coup d'œil par un bénévole. Quant au bandeau *« Certains produits sont momentanément indisponibles »*, il est supprimé : il aurait été affiché **tous les jours, en permanence** et il aurait été **faux** (§10.4).
 
-**Accès à l'administration depuis l'application** (contrainte 7) : **appui long de 3 s dans le coin bas-droit**, sur une zone neutre de 72 × 72 px sans contenu ni indication — **et non sur la pastille de santé** : faire dépendre l'entrée en administration du maintien d'un élément d'affichage, c'est se condamner à garder cet élément pour une raison qui n'a rien à voir avec lui. → le **bundle admin est chargé paresseusement dans la même fenêtre**, donc dans le **même contexte JS** que l'écran client — la séparation en deux bundles porte sur le poids et le chargement, pas sur l'exécution (§14.1). Aucun bouton visible, aucune URL à taper, aucune sortie du kiosque.
+**Accès à l'administration depuis l'application** (contrainte 7) *(amendé par ADR-032)* : une **touche nommée « Réglages »**, en barre basse, à l'extrémité opposée aux puces — **et non sur la pastille de santé** : faire dépendre l'entrée en administration du maintien d'un élément d'affichage, c'est se condamner à garder cet élément pour une raison qui n'a rien à voir avec lui. → le **bundle admin est chargé paresseusement dans la même fenêtre**, donc dans le **même contexte JS** que l'écran client — la séparation en deux bundles porte sur le poids et le chargement, pas sur l'exécution (§14.1). Aucune URL à taper, aucune sortie du kiosque.
+
+> **L'appui long de 3 s sur un coin muet a été essayé, et il marche.** Mesuré à la souris sur le poste réel : la zone de 72 × 72 px répond, et l'administration s'ouvre. Ce qui ne marche pas, c'est de le **trouver** : rien à l'écran ne dit qu'il existe, et un bénévole qui n'a pas lu cette page conclut que le poste n'a pas d'administration — ce qui est exactement ce qui s'est produit. La protection qu'il apportait était par ailleurs déjà relative : quiconque est derrière le comptoir peut débrancher l'imprimante (§14.4), et les pages qui écrivent la configuration restent, elles, derrière un mot de passe.
 
 ### 14.4 Écran d'administration
 
@@ -3702,8 +3733,14 @@ Contrastes **AAA** (≥ 7:1) sur tout texte ≥ 24 px, **AA** partout ailleurs �
 > **Pourquoi « redémarrage sans intervention » figure au tableau de bord et pas seulement dans `doctor`** (bloquant-7). L'indicateur reprend le 3ᵉ contrôle de `openscale doctor` (§15.4) : `AutoAdminLogon = 1`, `DefaultUserName` égal au compte kiosque, tâche « Balance-Kiosk » présente. `doctor` est une ligne de commande **qu'un bénévole ne lance jamais spontanément** ; or la panne qu'il détecte — le poste reste sur l'écran de connexion Windows après une coupure de courant — ne se manifeste qu'au moment où elle coûte le plus cher, et `/healthz` répond 200 pendant ce temps. Le service réévalue les trois conditions à chaque démarrage et affiche le résultat en permanence. **NON CONFIGURÉ** s'affiche en orange et produit un événement technique `ERR-SYS-08` ; ce n'est **pas** un 7ᵉ feu — les 6 feux restent ceux des périphériques et des ressources. Sur Linux, l'équivalent est « unité `openscale.service` activée (`enabled`) + unité kiosque activée ».
 
 > **Pourquoi ces actions ne sont pas protégées.** Quiconque est derrière le comptoir peut déjà débrancher l'imprimante : le mot de passe n'ajoute là **aucune** sécurité et supprime **tout** le dépannage. Le mot de passe reste exigé pour tout ce qui **écrit la configuration**.
+>
+> **Deux exceptions, ajoutées par ADR-033**, et ce qui les distingue est qu'elles ne testent rien : **« Basculer en saisie manuelle »** coupe la balance et laisse **le client taper son propre poids**, et le **dépôt d'un CSV** remplace toute la grille par un fichier apporté. L'une et l'autre changent ce que le poste vend ou la façon dont il pèse, et laissent leur trace en caisse. Elles portent la mention « CLÉ » **avant** d'être touchées : un bénévole qui n'a pas le mot de passe doit savoir ce qui lui est accessible sans aller chercher quelqu'un.
 
-**Mode expert — 6 pages, derrière « Réglages avancés », protégées :**
+**Les 6 pages de réglages — ouvertes en lecture, protégées à l'écriture** *(ADR-033)* **:**
+
+> **L'ossature.** Un **rail vertical** à gauche porte les neuf pages en deux groupes — « Au quotidien » et « Réglages » — et l'identité du poste en pied. Il n'y a plus d'onglet « Réglages avancés » : les six pages s'ouvrent, on y **voit** les prix, les ports et les garde-fous, et le mot de passe est demandé **au moment d'enregistrer**, après quoi l'acte est **rejoué** sans que personne ait à ressaisir. Le corps vit dans une colonne de lecture bornée à **68rem** ; les tableaux larges — journal, historique d'imports, diff — sortent de cette borne dans leur propre conteneur défilant, jamais en poussant la page. *(Mesuré dans le navigateur sur les huit pages : rail à 256 px, colonne à 1 088 px, aucun défilement horizontal.)*
+>
+> **La densité.** La cible tactile de 20 mm de §14.2 **ne s'applique pas ici** : l'administration se conduit à la souris, et imposer 72 px à chacun des 45 champs de la page Règles en faisait une page de 1 900 px de haut. Les contrôles de formulaire font **44 px** ; gardent leurs **72 px** les neuf boutons du Dépannage — §14.4 les veut gros — et **toute action destructrice ou irréversible**, où qu'elle se trouve. Le test de jetons couvre désormais l'écran client seul, et les gros boutons ont leur propre test.
 
 | Page | Contenu |
 |---|---|
@@ -3733,7 +3770,10 @@ GET  /images/{sha}.{ext}               ext ∈ {jpg,png,gif,bmp}, issue du forma
                                        correspond pas au format stocké. immutable 1 an, ETag
 GET  /api/v1/stream                    SSE : un événement « state » par changement
 GET  /api/v1/catalog                   catalogue complet (~60 ko pour 355 produits,
-                                       images exclues), ETag
+                                       images exclues), ETag. Porte `updated_at` —
+                                       l'instant de la BASCULE (§10.8), RFC 3339,
+                                       vide tant qu'aucun catalogue n'est en service
+                                       — et `presentation.tile_size` (ADR-031)
 POST /api/v1/weigh                     {product_id, tare_g, units, manual_weight_g,
                                         seen_weight_g, measurement_seq, key} → 202 {job_id}
 POST /api/v1/reprint                   {job_id, key}                 → 202
@@ -3742,36 +3782,47 @@ POST /api/v1/ui/error                  {message, stack} → journal technique
 GET  /healthz                          200 si le Hub répond          (VIVACITÉ SEULE)
 GET  /readyz                           200 si balance ET imprimante nominales (aptitude)
 
---- dépannage, NON authentifié (important-10, ADR-018) ---
-POST /admin/api/troubleshooting/reprint · /reload-catalog · /manual-entry
+--- OUVERT : ce qu'on peut REGARDER, et les gestes qui réparent (ADR-033) ---
+POST /admin/api/troubleshooting/reprint · /reload-catalog
 POST /admin/api/troubleshooting/roll-changed · /fallback-printer
 POST /admin/api/troubleshooting/test-scale · /test-printer · /test-label
-       ← les 3 premiers boutons de la page Dépannage (§14.4). Ils n'écrivent AUCUNE
-         configuration : ils lisent un port, interrogent un statut, sortent une
-         étiquette de démonstration. Le critère d'ADR-018 est « ce qui écrit la
-         configuration », et un bénévole seul devant un poste muet doit pouvoir
-         tester la balance et l'imprimante — c'est le premier geste du dépannage.
-POST /admin/api/catalog/import              ← A4 : glisser-déposer d'un CSV (ADR-011, ADR-018)
+       ← 7 des 9 boutons de la page Dépannage (§14.4). Aucun n'écrit la configuration :
+         ils lisent un port, interrogent un statut, sortent une étiquette de
+         démonstration. Un bénévole seul devant un poste muet doit pouvoir tester la
+         balance et l'imprimante — c'est le premier geste du dépannage.
+GET  /admin/api/config            ← EXPURGÉ de ses deux empreintes (§11.2) : un mot de
+                                    passe n'y gardait rien, et il coûtait à qui ne
+                                    l'avait pas sous la main de pouvoir seulement LIRE
+                                    un numéro de port.
+GET  /admin/api/config/versions · GET /admin/api/ports · GET /admin/api/printers
+GET  /admin/api/label/preview.png?template=…&demo=1&dual=1
+GET  /admin/api/journal · GET /admin/api/journal/export.csv
+       ← l'export CSV aussi : la page montre déjà les 200 pesées, et diagnostic.zip,
+         que personne ne protège, les emporte également. Une serrure sur la troisième
+         porte n'en est pas une.
+GET  /admin/api/technical · GET /admin/api/imports
 GET  /admin/api/diagnostic.zip · GET /admin/api/health
 
---- authentifiées ---
+--- PROTÉGÉ : ce qui change ce que le poste vend, ou la façon dont il pèse ---
 POST /admin/api/session · POST /admin/api/session/recovery
-GET|PUT /admin/api/config · POST /admin/api/config/confirm
-GET  /admin/api/config/export?hardware=0 · POST /admin/api/config/import
-GET  /admin/api/config/versions · POST /admin/api/config/restore
-GET  /admin/api/ports · GET /admin/api/printers · POST /admin/api/printers/discover
+PUT  /admin/api/config · POST /admin/api/config/confirm
+GET  /admin/api/config/export?hardware=0    ← il emporte encore l'empreinte du mot de
+                                              passe (§11.5), là où GET /config l'expurge
+POST /admin/api/config/import · POST /admin/api/config/restore
+POST /admin/api/troubleshooting/manual-entry
+       ← elle coupe la balance et laisse LE CLIENT taper son propre poids
+POST /admin/api/catalog/import
+       ← il remplace toute la grille par un fichier apporté (A4, ADR-011)
+POST /admin/api/printers/discover
 POST /admin/api/scale/detect · POST /admin/api/scale/capture
 POST /admin/api/printer/test?what=alignment|ruler   (auto-tests EXPERTS, §8.6 ;
-       `what=label` a son doublon non authentifié ci-dessus — même handler)
-GET  /admin/api/label/preview.png?template=…&demo=1&dual=1
+       `what=label` a son doublon ouvert ci-dessus — même handler)
 POST /admin/api/catalog/reload · POST /admin/api/catalog/forget-quarantine
 POST /admin/api/products/{id}/decision  {offered: false|true, min_weight_g: int|null,
                                          reason: string}                ← §10.6
        une seule route pour la seule table de décisions humaines : « ne plus proposer »
        et la dérogation « ce produit peut peser moins de 10 g » sont deux colonnes de
        local_decisions, pas deux mécanismes.
-GET  /admin/api/journal · GET /admin/api/journal/export.csv
-GET  /admin/api/technical · GET /admin/api/imports
 POST /admin/api/replay
    (pas de POST /admin/api/restart : aucun bloc de configuration n'exige un
     redémarrage du processus — §11.4. Le seul redémarrage légitime est celui que
@@ -4440,6 +4491,80 @@ Le PDF révèle en outre que **le symbole ne commence pas en haut de sa boîte**
 **Ce qui reste à valider physiquement, et c'est un critère de recette de L5.** L'étiquette **change visuellement** : les barres sont plus courtes de 847 µm que les 11 722 annoncés, le texte n'est plus dessus. Le protocole de §7.6 s'applique tel quel — 50 étiquettes de production Access contre 50 étiquettes neuves, au même scanner de caisse, refus et relectures comptés. L'attente est un taux de lecture **meilleur** ; si le comptage disait le contraire, le repli est d'augmenter l'interligne pour rendre les barres plus hautes encore, jusqu'à 11 632 µm à 150 µm d'interligne.
 
 **Ce que cette décision ne fait pas.** Elle ne rouvre pas la question du grandissement, ni celle du consommable, ni celle de la résolution. Elle ne rend pas le symbole conforme à la norme — il reste tronqué, volontairement, et `truncation_accepted` reste levé sur le gabarit pour que le diagnostic de l'admin demeure **informatif** et non un avertissement (ADR-003).
+
+---
+
+### ADR-030 — La tuile a une hauteur, pas un nombre de lignes
+
+**Statut** : accepté · **Date** : 27/07/2026 · **Portée** : §14.2, §14.3
+
+**Contexte.** La première version dimensionnait le nom d'un produit « en au plus **trois lignes**, corps réduit au besoin ». Rendue dans un navigateur sur le catalogue réel, la grille donnait **331 hauteurs de tuile différentes** — de 185 à 226 px — parce que trois lignes de 34 px et trois lignes de 18 px ne mesurent pas la même chose. Les rangées ne s'alignaient plus, et l'œil lisait un damier plutôt qu'une grille.
+
+**Décision.** Ce qui est tenu constant est le **bloc** : le nom est ajusté dans une hauteur fixe de 90 px, et un corps plus petit y achète des lignes supplémentaires — deux au nominal de 34 px, quatre au plancher de 18 px. La tuile mesure **180 px**, toujours ; une rangée ne grandit que si un nom déborde même au plancher, et alors **toutes les tuiles de cette rangée grandissent ensemble**. La troncature n'est jamais une issue.
+
+**Ce que l'ajustement doit savoir du navigateur, et qui a été mesuré et non supposé.** Un `canvas` sert de mesureur ; quatre écarts entre ce qu'il annonce et ce que le navigateur compose ont dû être fermés, chacun valant une ligne de trop :
+
+| Écart | Effet | Traitement |
+|---|---|---|
+| La police n'est pas chargée à la première mesure | mesure faite sur la fonte de repli, plus étroite | `document.fonts.load()` de la **fonte nommée** — `ready` se résout avant qu'elle soit demandée |
+| `tabular-nums`, hérité de `body`, élargit trait d'union et pour-cent | « Arc-en-Ciel » composé 6 % plus large que mesuré | le nom repasse en `font-variant-numeric: normal` |
+| `measureText(' ')` sous-évalue l'espace de 3,2 px à 100 px | 1 px par mot, et le mot suivant passe à la ligne | l'espace est mesuré **entre deux lettres** : `« a a » − « aa »` |
+| Le navigateur coupe **entre deux glyphes**, pas au pixel | « CRANBERRY/CANNEBERGES », 1,96 colonne, occupe **trois** lignes | un fragment trop large est compté en caractères par ligne |
+
+Les opportunités de coupure ont été mesurées de la même façon plutôt que lues dans UAX #14 : Chrome coupe **après un trait d'union** et **jamais après une barre oblique** — les deux normes divergent, c'est le navigateur qui compose.
+
+**Conséquences.** Les **331 tuiles font 231 × 180 px**, vérifié dans le navigateur, avec ou sans photo, sur les deux exports authentiques, et de 1024 × 768 à 2560 × 1440. La largeur utile d'une colonne n'est plus **calculée** mais **relue dans la mise en page** — l'estimation avait oublié les deux filets d'un pixel de la tuile, et 205 px de texte étaient ajustés contre 207. Un test vérifie que chacun des 331 noms réels tient dans son bloc, en recopiant la règle de coupure du navigateur : le jour où l'un des deux modèles dérive, la CI le dit.
+
+---
+
+### ADR-031 — La densité de la grille redevient un réglage, à trois valeurs
+
+**Statut** : accepté · **Date** : 27/07/2026 · **Portée** : §11.2, §14.2, §14.3 · **Amende** : ADR-024, ADR-025
+
+**Contexte.** §14.3-1 déclarait la densité **non réglable**, et le raisonnement était juste : elle se déduit de deux contraintes physiques — une cible tactile de 20 mm et la lisibilité d'un nom de 69 caractères à 60–80 cm — et ADR-025 interdit un réglage sur lequel aucun exploitant n'a de choix légitime. Deux faits ont changé. **La première contrainte a une exception** : le poste pilote est conduit à la **souris**, sur un écran non tactile, et un pointeur n'est pas tenu par les 20 mm. Et le parc n'est pas fait d'un seul écran : le 24″ de référence n'est pas le 22″ qu'un magasin a déjà.
+
+**Décision.** Une clé, `ui.tile_size`, à **trois valeurs mesurées** — `small`, `medium`, `large` — et rien d'autre : ni nombre de colonnes, ni largeur en pixels, ni bascule « grandes vignettes ». Chaque valeur fixe quatre longueurs (largeur de colonne, plaque, bloc de nom, hauteur) dont la somme est vérifiée dans le navigateur. `medium` est le défaut, et une configuration écrite avant l'existence du réglage garde exactement la grille qu'elle avait. Le contrôle 46 refuse toute autre valeur, avec la liste des trois — sans lui, « moyen » retomberait en silence sur le défaut et l'exploitant conclurait que le réglage ne fait rien.
+
+| `ui.tile_size` | Colonne | Photo | Bloc de nom | Tuile | Rangées à 1080 p |
+|---|---|---|---|---|---|
+| `small` | 204 px | 48 px | 108 px | **204 × 190** | 3,9 |
+| `medium` *(défaut)* | 231 px | 80 px | 84 px | **231 × 198** | 3,7 |
+| `large` | 311 px | 112 px | 80 px | **311 × 230** | 3,2 |
+
+**Ce qui ne change pas.** L'uniformité d'ADR-030 tient **à chaque taille** : les 331 tuiles y sont identiques au pixel, vérifié dans le navigateur pour les trois. Le bloc de nom ne suit pas la taille de la photo — il est dimensionné par le nom le plus long au plancher de 18 px, et une colonne **plus étroite** en demande **plus** : c'est pourquoi `small` a le bloc le plus haut des trois. La photo passe de 56 à **80 px au défaut** (+ 43 %), ce que la hauteur récupérée sur le prix — désormais empilé sous son montant — finance en partie.
+
+---
+
+### ADR-032 — L'entrée en administration est une touche nommée
+
+**Statut** : accepté · **Date** : 27/07/2026 · **Portée** : §14.3 · **Amende** : la contrainte 7
+
+**Contexte.** L'entrée était un **appui de 3 s sur un coin de 72 × 72 px sans contenu ni indication**. Mesuré sur le poste réel, à la souris : il **fonctionne**. Ce qui ne fonctionne pas, c'est de le trouver — rien ne dit qu'il existe, et le premier exploitant à installer un poste en a conclu que l'écran n'avait pas d'administration.
+
+**Décision.** Une touche **« Réglages »**, visible, en barre basse, à l'extrémité opposée aux puces de catégorie, ouvrant l'administration **en un appui**. Le coin muet disparaît : garder les deux, c'était garder un mécanisme que personne n'emploierait, et deux chemins vers un même montage qui doit rester unique.
+
+**Ce que cela coûte, et pourquoi c'est acceptable.** Un client peut désormais atteindre le tableau de bord et l'écran de dépannage. Ces deux pages sont **délibérément sans mot de passe** (§14.4, important-10) parce que quiconque est devant le poste peut déjà débrancher l'imprimante : le secret n'y ajoutait aucune sécurité. **Tout ce qui écrit la configuration reste derrière le mot de passe**, et cela n'a pas bougé. Le jour où un poste sera placé là où un client peut s'y attarder, la réponse ne sera pas de recacher la touche — ce serait revenir au défaut d'aujourd'hui — mais de protéger les deux pages ouvertes, ce qui est une décision d'exploitation et non de dessin.
+
+---
+
+### ADR-033 — La protection porte sur l'acte, et non sur la porte
+
+**Statut** : accepté · **Date** : 27/07/2026 · **Portée** : §11.3, §14.4, §14.5 · **Amende** : ADR-018, et le contrôle 31 de §11.3
+
+**Contexte.** ADR-018 énonçait le bon critère — « ce qui écrit la configuration est protégé » — et l'appliquait à **l'entrée** : « Réglages avancés » était une porte, et il fallait un mot de passe pour **lire** un numéro de port. Cette porte ne gardait rien : `GET /admin/api/config` **expurge les deux empreintes** avant de répondre (`internal/web/config.go:89-93`), donc ce qu'elle protégeait était déjà public par construction. Elle coûtait, en revanche, tout le dépannage à qui n'avait pas le mot de passe sous la main. Et la table de risque a montré que **deux routes libres** — `manual-entry`, qui coupe la balance et laisse le client taper son propre poids, et `catalog/import`, qui remplace toute la grille — pesaient plus lourd que ce que la porte gardait.
+
+**Décision.** Le critère devient : **ce qui change ce que le poste vend, ou la façon dont il pèse.** On peut tout voir ; on ne peut pas tout écrire.
+
+- Les six pages de réglages **s'ouvrent** ; le mot de passe est demandé **au moment d'enregistrer**, et **l'acte est rejoué** derrière, sans que personne ait à ressaisir. Sans ce rejeu, un exploitant qui vient de modifier sept champs les perdrait — et ne recommencerait qu'une fois.
+- `manual-entry` et `catalog/import` **entrent** dans le camp protégé, et portent la mention « CLÉ » avant d'être touchées.
+- `config/export` **reste** protégé bien qu'il ne fasse que lire : c'est la seule charge utile qui emporte encore l'empreinte du mot de passe.
+- L'export CSV du journal **s'ouvre** : la page montre déjà les 200 pesées et `diagnostic.zip`, libre, les emporte aussi.
+
+**Ce que cela change à §11.3, et ce n'est pas anodin.** Le contrôle 31 faisait d'un `admin.password_hash` vide une **faute**, et `serve.go:256` met hors service tout poste dont la configuration en porte une : un fichier de coopérative complet jusqu'aux tarifs et aux catégories **refusait de peser** faute d'un secret d'administration. Un poste sans mot de passe pèse désormais ; c'est l'administration qui répond « aucun mot de passe n'est posé » (409) et offre le code de secours de la fiche, et c'est `doctor` qui **avertit**. Le contrôle 31 refuse en revanche une empreinte **inutilisable** — voir §5.2 de la spécification de conception.
+
+**Ce que cela coûte, et pourquoi c'est acceptable.** Un client peut atteindre le tableau de bord, le dépannage et la **lecture** des réglages. Les deux premières pages sont délibérément sans mot de passe depuis important-10, pour une raison qui n'a pas bougé : quiconque est devant le poste peut déjà débrancher l'imprimante. La troisième ne divulgue aucun secret. **Tout ce qui écrit reste fermé**, et deux routes qui ne l'étaient pas le sont devenues : la surface réellement dangereuse a **diminué**.
+
+**Conséquences vérifiées.** Rail à 256 px et colonne de lecture à 1 088 px sur les huit pages, aucun défilement horizontal, aucune erreur console. La cible tactile de 20 mm sort de l'administration — elle se conduit à la souris — et l'écran client garde la sienne, avec son test ; les neuf gros boutons du Dépannage ont désormais le leur.
 
 ---
 

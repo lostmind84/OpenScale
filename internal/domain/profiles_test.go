@@ -6,25 +6,32 @@ import (
 	"testing"
 )
 
-// TestNeutralProfileReportsOnlyTheMissingPassword is the contract of §11.3: the
-// station ALWAYS starts, and the single thing the factory profile cannot decide for
-// a cooperative is its administration password. Step 1 of the first-start wizard is
-// the answer to that one fault (§14.4).
-func TestNeutralProfileReportsOnlyTheMissingPassword(t *testing.T) {
+// TestNeutralProfileValidatesWithoutAFault is the contract of §11.3: the station
+// ALWAYS starts.
+//
+// It used to carry exactly one fault — the missing administration password — and that
+// fault was NOT free: serve.go:256 puts a station OUT OF SERVICE the moment its
+// configuration carries one. A cooperative's file, complete down to its tariffs and its
+// categories but with no password set, therefore refused to weigh at all. A missing
+// ADMINISTRATION password is not a reason to stop serving customers; it is a reason to
+// say so on the administration screen, which ADR-033 does — the settings pages open, and
+// the first protected act offers the recovery code of the installation sheet.
+func TestNeutralProfileValidatesWithoutAFault(t *testing.T) {
 	profile := NeutralProfile()
 	faults := profile.Validate(testRegistries())
-	if len(faults) != 1 || faults[0].Field != "admin.password_hash" {
-		t.Fatalf("le profil neutre doit ne porter qu'une faute, admin.password_hash ; obtenu :\n%s",
+	if len(faults) != 0 {
+		t.Fatalf("le profil neutre doit passer sans faute ; obtenu :\n%s",
 			strings.Join(fieldsOf(faults), "\n"))
 	}
 }
 
-func TestNeutralProfileValidatesOnceAPasswordIsSet(t *testing.T) {
+// TestNeutralProfileCarriesNoSecret — il n'a rien à décider pour une coopérative, et
+// une empreinte inventée là serait la même que celle qui a enfermé un poste dehors.
+func TestNeutralProfileCarriesNoSecret(t *testing.T) {
 	profile := NeutralProfile()
-	profile.Admin.PasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$cHJlbWllci1hY2Nlcy0wMQ$dW4tbW90LWRlLXBhc3NlLWNob2lzaS1zdXItcGxhY2U"
-	if faults := profile.Validate(testRegistries()); len(faults) != 0 {
-		t.Fatalf("le profil neutre doit passer dès qu'un mot de passe est posé ; obtenu :\n%s",
-			strings.Join(fieldsOf(faults), "\n"))
+	if profile.Admin.PasswordHash != "" || profile.Admin.RecoveryCodeHash != "" {
+		t.Fatalf("le profil neutre porte un secret : %q / %q",
+			profile.Admin.PasswordHash, profile.Admin.RecoveryCodeHash)
 	}
 }
 
@@ -33,7 +40,6 @@ func TestNeutralProfileValidatesOnceAPasswordIsSet(t *testing.T) {
 // still be able to start on this profile.
 func TestNeutralProfileValidatesWithNoDriverAtAll(t *testing.T) {
 	profile := NeutralProfile()
-	profile.Admin.PasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$cHJlbWllci1hY2Nlcy0wMQ$dW4tbW90LWRlLXBhc3NlLWNob2lzaS1zdXItcGxhY2U"
 	if faults := profile.Validate(Registries{}); len(faults) != 0 {
 		t.Fatalf("le profil neutre doit passer avec un registre vide ; obtenu :\n%s",
 			strings.Join(fieldsOf(faults), "\n"))

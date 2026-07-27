@@ -329,13 +329,31 @@ async function read<T>(response: Response, what: string): Promise<T> {
     const problem = parseProblem(raw)
     throw new AdminError(
       response.status,
-      refusalOf(raw, what, response.status),
+      refusalOf(raw, what, response.status) + lockoutOf(response),
       problem?.code ?? '',
       problem?.faults ?? [],
     )
   }
   if (raw === '') return undefined as T
   return JSON.parse(raw) as T
+}
+
+/**
+ * Ce que le verrouillage ajoute à la phrase du refus : combien de temps il dure.
+ *
+ * Le service pose un `Retry-After` sur ses 429 et personne ne le lisait. « Trop d'essais »
+ * sans durée laisse un bénévole devant un écran qui refuse tout, sans savoir s'il doit
+ * attendre trente secondes ou rappeler quelqu'un.
+ *
+ * @param response - la réponse refusée.
+ * @returns une phrase à concaténer, ou une chaîne vide s'il n'y a rien à dire.
+ */
+function lockoutOf(response: Response): string {
+  if (response.status !== 429) return ''
+  const seconds = Number(response.headers.get('Retry-After') ?? '')
+  if (!Number.isFinite(seconds) || seconds <= 0) return ''
+  const minutes = Math.ceil(seconds / 60)
+  return minutes > 1 ? ` Réessayez dans ${String(minutes)} minutes.` : ' Réessayez dans une minute.'
 }
 
 /** La phrase d'un refus, celle du service quand il en a écrit une. */
