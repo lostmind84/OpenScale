@@ -3720,8 +3720,14 @@ Contrastes **AAA** (≥ 7:1) sur tout texte ≥ 24 px, **AA** partout ailleurs �
 > **Pourquoi « redémarrage sans intervention » figure au tableau de bord et pas seulement dans `doctor`** (bloquant-7). L'indicateur reprend le 3ᵉ contrôle de `openscale doctor` (§15.4) : `AutoAdminLogon = 1`, `DefaultUserName` égal au compte kiosque, tâche « Balance-Kiosk » présente. `doctor` est une ligne de commande **qu'un bénévole ne lance jamais spontanément** ; or la panne qu'il détecte — le poste reste sur l'écran de connexion Windows après une coupure de courant — ne se manifeste qu'au moment où elle coûte le plus cher, et `/healthz` répond 200 pendant ce temps. Le service réévalue les trois conditions à chaque démarrage et affiche le résultat en permanence. **NON CONFIGURÉ** s'affiche en orange et produit un événement technique `ERR-SYS-08` ; ce n'est **pas** un 7ᵉ feu — les 6 feux restent ceux des périphériques et des ressources. Sur Linux, l'équivalent est « unité `openscale.service` activée (`enabled`) + unité kiosque activée ».
 
 > **Pourquoi ces actions ne sont pas protégées.** Quiconque est derrière le comptoir peut déjà débrancher l'imprimante : le mot de passe n'ajoute là **aucune** sécurité et supprime **tout** le dépannage. Le mot de passe reste exigé pour tout ce qui **écrit la configuration**.
+>
+> **Deux exceptions, ajoutées par ADR-033**, et ce qui les distingue est qu'elles ne testent rien : **« Basculer en saisie manuelle »** coupe la balance et laisse **le client taper son propre poids**, et le **dépôt d'un CSV** remplace toute la grille par un fichier apporté. L'une et l'autre changent ce que le poste vend ou la façon dont il pèse, et laissent leur trace en caisse. Elles portent la mention « CLÉ » **avant** d'être touchées : un bénévole qui n'a pas le mot de passe doit savoir ce qui lui est accessible sans aller chercher quelqu'un.
 
-**Mode expert — 6 pages, derrière « Réglages avancés », protégées :**
+**Les 6 pages de réglages — ouvertes en lecture, protégées à l'écriture** *(ADR-033)* **:**
+
+> **L'ossature.** Un **rail vertical** à gauche porte les neuf pages en deux groupes — « Au quotidien » et « Réglages » — et l'identité du poste en pied. Il n'y a plus d'onglet « Réglages avancés » : les six pages s'ouvrent, on y **voit** les prix, les ports et les garde-fous, et le mot de passe est demandé **au moment d'enregistrer**, après quoi l'acte est **rejoué** sans que personne ait à ressaisir. Le corps vit dans une colonne de lecture bornée à **68rem** ; les tableaux larges — journal, historique d'imports, diff — sortent de cette borne dans leur propre conteneur défilant, jamais en poussant la page. *(Mesuré dans le navigateur sur les huit pages : rail à 256 px, colonne à 1 088 px, aucun défilement horizontal.)*
+>
+> **La densité.** La cible tactile de 20 mm de §14.2 **ne s'applique pas ici** : l'administration se conduit à la souris, et imposer 72 px à chacun des 45 champs de la page Règles en faisait une page de 1 900 px de haut. Les contrôles de formulaire font **44 px** ; gardent leurs **72 px** les neuf boutons du Dépannage — §14.4 les veut gros — et **toute action destructrice ou irréversible**, où qu'elle se trouve. Le test de jetons couvre désormais l'écran client seul, et les gros boutons ont leur propre test.
 
 | Page | Contenu |
 |---|---|
@@ -3763,36 +3769,47 @@ POST /api/v1/ui/error                  {message, stack} → journal technique
 GET  /healthz                          200 si le Hub répond          (VIVACITÉ SEULE)
 GET  /readyz                           200 si balance ET imprimante nominales (aptitude)
 
---- dépannage, NON authentifié (important-10, ADR-018) ---
-POST /admin/api/troubleshooting/reprint · /reload-catalog · /manual-entry
+--- OUVERT : ce qu'on peut REGARDER, et les gestes qui réparent (ADR-033) ---
+POST /admin/api/troubleshooting/reprint · /reload-catalog
 POST /admin/api/troubleshooting/roll-changed · /fallback-printer
 POST /admin/api/troubleshooting/test-scale · /test-printer · /test-label
-       ← les 3 premiers boutons de la page Dépannage (§14.4). Ils n'écrivent AUCUNE
-         configuration : ils lisent un port, interrogent un statut, sortent une
-         étiquette de démonstration. Le critère d'ADR-018 est « ce qui écrit la
-         configuration », et un bénévole seul devant un poste muet doit pouvoir
-         tester la balance et l'imprimante — c'est le premier geste du dépannage.
-POST /admin/api/catalog/import              ← A4 : glisser-déposer d'un CSV (ADR-011, ADR-018)
+       ← 7 des 9 boutons de la page Dépannage (§14.4). Aucun n'écrit la configuration :
+         ils lisent un port, interrogent un statut, sortent une étiquette de
+         démonstration. Un bénévole seul devant un poste muet doit pouvoir tester la
+         balance et l'imprimante — c'est le premier geste du dépannage.
+GET  /admin/api/config            ← EXPURGÉ de ses deux empreintes (§11.2) : un mot de
+                                    passe n'y gardait rien, et il coûtait à qui ne
+                                    l'avait pas sous la main de pouvoir seulement LIRE
+                                    un numéro de port.
+GET  /admin/api/config/versions · GET /admin/api/ports · GET /admin/api/printers
+GET  /admin/api/label/preview.png?template=…&demo=1&dual=1
+GET  /admin/api/journal · GET /admin/api/journal/export.csv
+       ← l'export CSV aussi : la page montre déjà les 200 pesées, et diagnostic.zip,
+         que personne ne protège, les emporte également. Une serrure sur la troisième
+         porte n'en est pas une.
+GET  /admin/api/technical · GET /admin/api/imports
 GET  /admin/api/diagnostic.zip · GET /admin/api/health
 
---- authentifiées ---
+--- PROTÉGÉ : ce qui change ce que le poste vend, ou la façon dont il pèse ---
 POST /admin/api/session · POST /admin/api/session/recovery
-GET|PUT /admin/api/config · POST /admin/api/config/confirm
-GET  /admin/api/config/export?hardware=0 · POST /admin/api/config/import
-GET  /admin/api/config/versions · POST /admin/api/config/restore
-GET  /admin/api/ports · GET /admin/api/printers · POST /admin/api/printers/discover
+PUT  /admin/api/config · POST /admin/api/config/confirm
+GET  /admin/api/config/export?hardware=0    ← il emporte encore l'empreinte du mot de
+                                              passe (§11.5), là où GET /config l'expurge
+POST /admin/api/config/import · POST /admin/api/config/restore
+POST /admin/api/troubleshooting/manual-entry
+       ← elle coupe la balance et laisse LE CLIENT taper son propre poids
+POST /admin/api/catalog/import
+       ← il remplace toute la grille par un fichier apporté (A4, ADR-011)
+POST /admin/api/printers/discover
 POST /admin/api/scale/detect · POST /admin/api/scale/capture
 POST /admin/api/printer/test?what=alignment|ruler   (auto-tests EXPERTS, §8.6 ;
-       `what=label` a son doublon non authentifié ci-dessus — même handler)
-GET  /admin/api/label/preview.png?template=…&demo=1&dual=1
+       `what=label` a son doublon ouvert ci-dessus — même handler)
 POST /admin/api/catalog/reload · POST /admin/api/catalog/forget-quarantine
 POST /admin/api/products/{id}/decision  {offered: false|true, min_weight_g: int|null,
                                          reason: string}                ← §10.6
        une seule route pour la seule table de décisions humaines : « ne plus proposer »
        et la dérogation « ce produit peut peser moins de 10 g » sont deux colonnes de
        local_decisions, pas deux mécanismes.
-GET  /admin/api/journal · GET /admin/api/journal/export.csv
-GET  /admin/api/technical · GET /admin/api/imports
 POST /admin/api/replay
    (pas de POST /admin/api/restart : aucun bloc de configuration n'exige un
     redémarrage du processus — §11.4. Le seul redémarrage légitime est celui que
@@ -4514,6 +4531,27 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 **Décision.** Une touche **« Réglages »**, visible, en barre basse, à l'extrémité opposée aux puces de catégorie, ouvrant l'administration **en un appui**. Le coin muet disparaît : garder les deux, c'était garder un mécanisme que personne n'emploierait, et deux chemins vers un même montage qui doit rester unique.
 
 **Ce que cela coûte, et pourquoi c'est acceptable.** Un client peut désormais atteindre le tableau de bord et l'écran de dépannage. Ces deux pages sont **délibérément sans mot de passe** (§14.4, important-10) parce que quiconque est devant le poste peut déjà débrancher l'imprimante : le secret n'y ajoutait aucune sécurité. **Tout ce qui écrit la configuration reste derrière le mot de passe**, et cela n'a pas bougé. Le jour où un poste sera placé là où un client peut s'y attarder, la réponse ne sera pas de recacher la touche — ce serait revenir au défaut d'aujourd'hui — mais de protéger les deux pages ouvertes, ce qui est une décision d'exploitation et non de dessin.
+
+---
+
+### ADR-033 — La protection porte sur l'acte, et non sur la porte
+
+**Statut** : accepté · **Date** : 27/07/2026 · **Portée** : §11.3, §14.4, §14.5 · **Amende** : ADR-018, et le contrôle 31 de §11.3
+
+**Contexte.** ADR-018 énonçait le bon critère — « ce qui écrit la configuration est protégé » — et l'appliquait à **l'entrée** : « Réglages avancés » était une porte, et il fallait un mot de passe pour **lire** un numéro de port. Cette porte ne gardait rien : `GET /admin/api/config` **expurge les deux empreintes** avant de répondre (`internal/web/config.go:89-93`), donc ce qu'elle protégeait était déjà public par construction. Elle coûtait, en revanche, tout le dépannage à qui n'avait pas le mot de passe sous la main. Et la table de risque a montré que **deux routes libres** — `manual-entry`, qui coupe la balance et laisse le client taper son propre poids, et `catalog/import`, qui remplace toute la grille — pesaient plus lourd que ce que la porte gardait.
+
+**Décision.** Le critère devient : **ce qui change ce que le poste vend, ou la façon dont il pèse.** On peut tout voir ; on ne peut pas tout écrire.
+
+- Les six pages de réglages **s'ouvrent** ; le mot de passe est demandé **au moment d'enregistrer**, et **l'acte est rejoué** derrière, sans que personne ait à ressaisir. Sans ce rejeu, un exploitant qui vient de modifier sept champs les perdrait — et ne recommencerait qu'une fois.
+- `manual-entry` et `catalog/import` **entrent** dans le camp protégé, et portent la mention « CLÉ » avant d'être touchées.
+- `config/export` **reste** protégé bien qu'il ne fasse que lire : c'est la seule charge utile qui emporte encore l'empreinte du mot de passe.
+- L'export CSV du journal **s'ouvre** : la page montre déjà les 200 pesées et `diagnostic.zip`, libre, les emporte aussi.
+
+**Ce que cela change à §11.3, et ce n'est pas anodin.** Le contrôle 31 faisait d'un `admin.password_hash` vide une **faute**, et `serve.go:256` met hors service tout poste dont la configuration en porte une : un fichier de coopérative complet jusqu'aux tarifs et aux catégories **refusait de peser** faute d'un secret d'administration. Un poste sans mot de passe pèse désormais ; c'est l'administration qui répond « aucun mot de passe n'est posé » (409) et offre le code de secours de la fiche, et c'est `doctor` qui **avertit**. Le contrôle 31 refuse en revanche une empreinte **inutilisable** — voir §5.2 de la spécification de conception.
+
+**Ce que cela coûte, et pourquoi c'est acceptable.** Un client peut atteindre le tableau de bord, le dépannage et la **lecture** des réglages. Les deux premières pages sont délibérément sans mot de passe depuis important-10, pour une raison qui n'a pas bougé : quiconque est devant le poste peut déjà débrancher l'imprimante. La troisième ne divulgue aucun secret. **Tout ce qui écrit reste fermé**, et deux routes qui ne l'étaient pas le sont devenues : la surface réellement dangereuse a **diminué**.
+
+**Conséquences vérifiées.** Rail à 256 px et colonne de lecture à 1 088 px sur les huit pages, aucun défilement horizontal, aucune erreur console. La cible tactile de 20 mm sort de l'administration — elle se conduit à la souris — et l'écran client garde la sienne, avec son test ; les neuf gros boutons du Dépannage ont désormais le leur.
 
 ---
 
