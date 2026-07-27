@@ -44,18 +44,21 @@
      without effect, hence the gap between two targets. */
   --touch-gap: 0.5rem;
 
-  /* One column is at least 230 px = 14.375rem; auto-fill absorbs a change of
-     resolution without anyone editing a number (§14.3-1). */
+  /*
+   * The grid density — the ONE setting of the screen, and `medium` is its default.
+   *
+   * `auto-fill` on --tile-min absorbs a change of resolution without anyone editing
+   * a number (§14.3-1); the three sizes of ADR-031 are what an operator chooses
+   * between, and the blocks below are the whole of that choice.
+   */
   --tile-min: 14.375rem;
   /* The two bands of a tile, fixed so that 331 tiles draw one single rhythm
      whatever their name, their price and their photo (ADR-030). */
-  --tile-media: 3.5rem;
-  --tile-name: 5.625rem;
+  --tile-media: 5rem;
+  --tile-name: 5.25rem;
   --tile-pad: 0.75rem;
-  /* 12 + 56 + 8 + 90 + 12 of content, plus the two hairlines: 180 px. Four rows
-     of it and their three gaps are 744 px, which is exactly what the four bands
-     below leave of a 1080 px screen — four full rows, and no half one. */
-  --tile-height: 11.25rem;
+  /* 12 + 80 + 8 + 84 + 12 of content, plus the two hairlines. */
+  --tile-height: 12.375rem;
 
   /*
    * The four fixed bands of the screen, and the arithmetic that ties them.
@@ -90,6 +93,30 @@
 
   font-size: 16px;
   color-scheme: light;
+}
+
+/*
+ * The two other sizes (ADR-031), applied by the screen from `ui.tile_size`.
+ *
+ * Only four numbers change, and the name block is the one that changes least: it
+ * is sized by the longest real name at the 18 px floor, which does not get shorter
+ * because the tiles got smaller. A narrower column needs MORE of it, not less.
+ */
+[data-tile-size='small'] {
+  --tile-min: 12rem;
+  --tile-media: 3rem;
+  /* 108 px, the tallest name block of the three: a 178 px column needs FIVE lines
+     at the 18 px floor for the longest names of the real file, where a 285 px one
+     needs three. Nine tiles grew out of their row at 96 px. */
+  --tile-name: 6.75rem;
+  --tile-height: 11.875rem;
+}
+
+[data-tile-size='large'] {
+  --tile-min: 18rem;
+  --tile-media: 7rem;
+  --tile-name: 5rem;
+  --tile-height: 14.375rem;
 }
 
 @font-face {
@@ -175,6 +202,20 @@ button:active:not(:disabled) {
 
 button {
   transition: transform var(--tap) var(--ease);
+}
+
+/*
+ * What a mouse expects, and a finger never asked for.
+ *
+ * The station is driven with a MOUSE until a touch screen is fitted, and a pointer
+ * that flies over a grid with no answer reads as a dead page. `hover: hover` is
+ * what keeps this off a touch screen, where a « hover » is the ghost of the last
+ * thing touched and stays lit until something else is.
+ */
+@media (hover: hover) {
+  button:hover:not(:disabled) {
+    border-color: var(--ink-muted);
+  }
 }
 
 :focus-visible {

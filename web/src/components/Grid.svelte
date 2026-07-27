@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Product } from '../lib/catalog'
   import {
+    NAME_BOX_PX,
     NAME_SIZE_MAX_PX,
     REFERENCE_SIZE_PX,
     canvasMeasurer,
@@ -118,6 +119,17 @@
   let measuredWidthPx = $state(0)
 
   /**
+   * Height of the block a name is fitted into, read from the layout.
+   *
+   * It changes with the density of the grid (ADR-031), and the fit has to follow:
+   * a name fitted for a 84 px block and drawn in a 96 px one wastes a line, and the
+   * other way round overflows. Measured on a probe of `height: var(--tile-name)`
+   * rather than on a real tile — a tile whose name overflows is taller than its
+   * block, and measuring THAT would feed the overflow back into the fit.
+   */
+  let nameBoxPx = $state(0)
+
+  /**
    * Reproduces the column count `auto-fill` computes, for the FIRST paint only.
    *
    * It is an estimate, and estimating is exactly what went wrong before: the two
@@ -159,14 +171,19 @@
   const nameSizes = $derived.by(() => {
     const sizes = new Map<string, number>()
     if (measure === null || contentWidthPx <= 0) return sizes
+    const box = nameBoxPx > 0 ? nameBoxPx : NAME_BOX_PX
     for (const p of products) {
-      sizes.set(p.id, fitNameSize(p.name, contentWidthPx, measure))
+      sizes.set(p.id, fitNameSize(p.name, contentWidthPx, measure, box))
     }
     return sizes
   })
 </script>
 
 <div class="grid-scroll" bind:this={root} bind:clientWidth={gridWidth}>
+  <!-- La hauteur du bloc de nom, lue dans la mise en page plutôt que recalculée :
+       elle change avec la densité, et une sonde vide ne peut pas déborder. -->
+  <span class="probe" aria-hidden="true" bind:clientHeight={nameBoxPx}></span>
+
   {#if loading}
     <!-- The shape of the grid, drawn before its content: a station that has just
          been switched on shows what is coming instead of a sentence in a void.
@@ -221,6 +238,14 @@
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
     padding: var(--touch-gap);
+  }
+
+  .probe {
+    position: absolute;
+    width: 0;
+    height: var(--tile-name);
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .grid {

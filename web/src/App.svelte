@@ -7,7 +7,15 @@
   import SearchPanel from './components/SearchPanel.svelte'
   import TarePad from './components/TarePad.svelte'
   import * as api from './lib/api'
-  import { ALL_CATEGORIES, chips, filterProducts, visibleProducts, type Product } from './lib/catalog'
+  import {
+    ALL_CATEGORIES,
+    chips,
+    filterProducts,
+    tileSize,
+    visibleProducts,
+    type Product,
+  } from './lib/catalog'
+  import { catalogStamp } from './lib/format'
   import { Session } from './lib/session.svelte'
   import { ulid } from './lib/ulid'
 
@@ -68,7 +76,33 @@
 
   /** The tile a refusal points at: an orange ribbon, and the grid stays visible. */
   const rejectedID = $derived(snapshot?.state === 'rejected' ? (snapshot.product?.id ?? null) : null)
-  const selectedID = $derived(snapshot?.state === 'rejected' ? null : (snapshot?.product?.id ?? null))
+
+  /**
+   * The states in which a tile is still IN HAND, and therefore still ringed.
+   *
+   * `succeeded` is not one of them, and that is the whole point: the label has come
+   * out, the sale is over, and the acknowledgement §14.3 asks for is in the banner
+   * and on the paper. Ringing the tile after the fact left it green until the bag
+   * was taken off the plate — which on a station without a scale, and on any
+   * station whose customer walks away, is forever.
+   */
+  const HOLDING: readonly string[] = [
+    'product_armed',
+    'weight_present',
+    'weight_stable',
+    'awaiting_stability',
+    'validating',
+    'printing',
+  ]
+  const selectedID = $derived(
+    snapshot !== null && HOLDING.includes(snapshot.state) ? (snapshot.product?.id ?? null) : null,
+  )
+
+  /** The density of the grid, as this station configures it (ADR-031). */
+  const density = $derived(tileSize(settings.tile_size))
+
+  /** When the catalog on screen entered service, shown permanently (§14.3). */
+  const catalogAt = $derived(catalogStamp(catalog?.updated_at ?? ''))
 
   $effect(() => {
     session.start()
@@ -125,14 +159,23 @@
     if (!searchOpen) query = ''
   }
 
-  /** Loads the administration bundle, lazily, into this same window (§14.1). */
+  /**
+   * Loads the administration bundle, lazily, into this same window (§14.1).
+   *
+   * Guarded, because the way in is now a key one can press twice (ADR-032): a
+   * second mount would put two administrations in the same document, each with its
+   * own session and its own polling.
+   */
+  let adminMounted = false
   async function openAdmin(): Promise<void> {
+    if (adminMounted) return
+    adminMounted = true
     const module = await import('./admin/mount')
     module.mountAdmin(document.body)
   }
 </script>
 
-<main class="screen">
+<main class="screen" data-tile-size={density}>
   <Banner
     {snapshot}
     showWeight={session.link.showWeight}
@@ -176,6 +219,7 @@
   <ReprintBar
     label={snapshot?.last_label ?? null}
     available={snapshot?.reprint.available ?? false}
+    {catalogAt}
     onreprint={reprint}
   />
 

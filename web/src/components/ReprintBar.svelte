@@ -18,10 +18,12 @@
     label: LabelDTO | null
     /** The window of `reprint_window_s` is still open, and nothing was reprinted. */
     available: boolean
+    /** When the catalog entered service, already formatted, or empty (§14.3). */
+    catalogAt?: string
     onreprint: () => void
   }
 
-  const { label, available, onreprint }: Props = $props()
+  const { label, available, catalogAt = '', onreprint }: Props = $props()
 </script>
 
 <div class="bar" class:live={label !== null}>
@@ -39,6 +41,16 @@
     <button type="button" class="reprint touch-target" disabled={!available} onclick={onreprint}>
       Réimprimer
     </button>
+  {/if}
+
+  <!--
+    Quand le catalogue est entré en service, en permanence.
+    « Ces prix datent de quand ? » est la question qu'un bénévole pose devant une
+    grille ; une date qui cesse d'avancer est aussi la façon dont un poste dit
+    qu'il ne reçoit plus rien.
+  -->
+  {#if catalogAt !== ''}
+    <p class="catalog">Catalogue du <strong>{catalogAt}</strong></p>
   {/if}
 </div>
 
@@ -116,5 +128,22 @@
     opacity: 0.35;
     box-shadow: none;
     cursor: default;
+  }
+
+  /* La date passe APRÈS le bouton dans la barre, et donc à l'extrême droite : ce
+     qu'un client touche reste plus près du centre que ce qu'un bénévole lit. */
+  .catalog {
+    flex: 0 0 auto;
+    margin: 0;
+    padding-left: 1.25rem;
+    border-left: 1px solid var(--border);
+    color: var(--ink-muted);
+    font-size: 1.125rem;
+    white-space: nowrap;
+  }
+
+  .catalog strong {
+    color: var(--ink);
+    font-weight: 600;
   }
 </style>

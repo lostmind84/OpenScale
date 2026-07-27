@@ -10,6 +10,32 @@ contrôles, `diagnostic.zip`, installeurs Windows et Linux, `INSTALLATION.md` et
 `TROUBLESHOOTING.md`. **2 564 tests** verts (2 319 Go comptés en `--- PASS`, 245 front), suite passée sur ce
 poste Windows — `-race` sautée faute de gcc, la CI Linux la couvre.
 
+**Ce que la première mise en service a demandé (27/07/2026).** Six retours d'un poste
+réellement essayé, dont un défaut :
+
+- **la tuile restait verte après l'impression.** L'anneau disait « ce produit est en
+  cours » et n'était jamais relâché : sur un poste **sans balance** — donc sur celui
+  qu'on essaie —, rien ne ramène l'écran au repos, puisque c'est le RETRAIT DU SAC qui
+  le fait (§6.6). L'anneau s'arrête maintenant à `printing` ; le succès est accusé par
+  le bandeau, la barre de réimpression et le papier ;
+- **l'entrée en administration est une touche nommée « Réglages »** (ADR-032). L'appui
+  de 3 s sur le coin muet a été mesuré à la souris : il fonctionne. Ce qui ne
+  fonctionne pas, c'est de le trouver ;
+- **la densité de la grille devient un réglage à trois valeurs** — `ui.tile_size` ∈
+  {`small`, `medium`, `large`}, contrôle 46, ADR-031. La contrainte qui l'interdisait a
+  une exception : un poste conduit à la **souris** n'est pas tenu par la cible de 20 mm ;
+- **la photo passe de 56 à 80 px** au défaut (+ 43 %), financée par un prix désormais
+  empilé sous son montant — sur une ligne, la moitié des tuiles repliaient le leur ;
+- **la date du catalogue est affichée en permanence**, `27/07/2026 08:06:48`, prise à
+  l'instant de la **bascule** et non lue dans un fichier. Une date qui cesse d'avancer
+  est la façon dont un poste dit qu'il ne reçoit plus rien ;
+- **la souris obtient ce qu'un doigt n'a jamais demandé** : survol des tuiles et des
+  touches, sous `@media (hover: hover)` pour qu'un écran tactile n'en hérite pas.
+
+L'uniformité d'ADR-030 tient **aux trois tailles** : 331 tuiles identiques au pixel
+dans chacune, vérifié dans le navigateur. **263 tests front**, la suite Go complète au
+vert, budget 76,6 ko gzip sur 110.
+
 **L'écran client, repris en le REGARDANT (27/07/2026).** Le front n'avait jamais été rendu
 dans un navigateur : les 245 tests s'exécutent sous `jsdom`, qui ne calcule aucune mise en
 page. Un banc d'observation — le vrai bundle, le vrai `flv.csv`, ses 331 tuiles et ses 177

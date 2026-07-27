@@ -223,6 +223,31 @@ describe('la grille et la barre basse', () => {
   })
 })
 
+describe('ce que l’écran dit en permanence', () => {
+  it('affiche la date et l’heure du catalogue en service', async () => {
+    await open()
+    // `updated_at` de la fixture, rendu dans le fuseau du poste.
+    const bar = host.querySelector('.bar')?.textContent ?? ''
+    expect(bar).toContain('Catalogue du')
+    expect(bar).toMatch(/\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}/u)
+  })
+
+  it('ouvre l’administration d’un seul appui sur une touche nommée', async () => {
+    await open()
+    const key = [...host.querySelectorAll<HTMLElement>('.filters button')].find((b) =>
+      b.textContent?.includes('Réglages'),
+    )
+    expect(key).toBeDefined()
+    // Le coin muet de trois secondes n'existe plus : rien à trouver à l'aveugle.
+    expect(host.querySelector('.admin-corner')).toBeNull()
+  })
+
+  it('applique la densité de tuile que le poste configure', async () => {
+    await open()
+    expect(host.querySelector('.screen')?.getAttribute('data-tile-size')).toBe('medium')
+  })
+})
+
 describe('la recherche : un filtre en place, jamais une vue', () => {
   it('garde la grille visible et la réduit lettre après lettre', async () => {
     await open()
@@ -329,6 +354,38 @@ describe('ce qui occupe l’écran, et rien d’autre', () => {
       true,
     )
     expect(host.querySelector('.instruction')?.textContent?.trim()).toBe('Poids trop faible.')
+  })
+
+  it('RELÂCHE la tuile quand l’étiquette est sortie', async () => {
+    // L'anneau dit « ce produit est en cours », pas « ce produit a été vendu ».
+    // Sans cette règle, la tuile restait verte jusqu'au retrait du sac — donc pour
+    // toujours sur un poste sans balance, et sur tout poste dont le client s'en va.
+    const id = catalog.products[3]?.id as string
+    await open(
+      restingState({
+        state: 'printing',
+        product: selected({ id, name: 'AIL' }),
+      }),
+    )
+    expect(host.querySelector(`[data-product-id="${id}"]`)?.classList.contains('selected')).toBe(
+      true,
+    )
+
+    stream?.push(
+      restingState({
+        revision: 2,
+        state: 'succeeded',
+        product: selected({ id, name: 'AIL' }),
+        last_label: garlicLabel(),
+        reprint: { available: true, job_id: '01J9F2ABC', printed_at: '2026-07-24T10:00:01.000Z' },
+      }),
+    )
+    flushSync()
+    expect(host.querySelector(`[data-product-id="${id}"]`)?.classList.contains('selected')).toBe(
+      false,
+    )
+    // Ce qui accuse le succès, c'est le bandeau et la barre — et le papier.
+    expect(host.querySelector('.summary')?.textContent).toContain('ail 1,236 kg')
   })
 
   it('prend tout l’écran sur Faulted, avec le code lisible au téléphone', async () => {

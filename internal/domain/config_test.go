@@ -494,6 +494,13 @@ func brokenConfigurations() []brokenConfiguration {
 				setOption(t, c.Catalog.Options, "max_file_size_mb", 1)
 			},
 			field: "catalog.options.max_image_size_kb",
+		}, {
+			// Sans ce contrôle, « moyen » retomberait en silence sur la taille par
+			// défaut : l'exploitant verrait la grille ne pas bouger et conclurait que
+			// le réglage ne sert à rien.
+			control: "46", name: "taille de tuile inconnue",
+			mutate:  func(_ *testing.T, c *Config) { c.UI.TileSize = "moyen" },
+			field:   "ui.tile_size",
 		},
 	}
 }

@@ -93,7 +93,8 @@
 
     {#if showPrice}
       <span class="price">
-        {product.unit_price_text}<span class="unit">{product.price_suffix}</span>
+        <span class="amount">{product.unit_price_text}</span>
+        <span class="unit">{product.price_suffix.trim()}</span>
       </span>
     {/if}
   </span>
@@ -133,6 +134,16 @@
       border-color var(--slide) var(--ease),
       background-color var(--slide) var(--ease),
       transform var(--tap) var(--ease);
+  }
+
+  /* Sous une souris, la tuile se soulève : c'est le seul retour qu'un pointeur
+     obtient avant d'appuyer, et son absence fait lire une grille comme une image. */
+  @media (hover: hover) {
+    .tile:hover:not(:disabled) {
+      border-color: var(--ink-muted);
+      box-shadow: var(--shadow-2);
+      transform: translateY(-1px);
+    }
   }
 
   /*
@@ -260,9 +271,18 @@
     overflow-wrap: break-word;
   }
 
-  /* Takes what the plate leaves, and wraps rather than overflowing: a price is
-     never truncated, whatever a tariff in litres ends up spelling. */
+  /*
+   * Le montant et son unité sont EMPILÉS, et toujours.
+   *
+   * Sur une ligne, « 4,50 €/kg » tenait à côté de la plaque et « 17,63 €/kg » non :
+   * la moitié des tuiles repliaient leur prix et l'autre pas, ce qui redonnait à la
+   * grille le désordre qu'ADR-030 lui a retiré. Empilé, le bloc a la même forme sur
+   * les 331 tuiles, quel que soit le tarif — « € le litre » compris.
+   */
   .price {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
     flex: 1 1 auto;
     min-width: 0;
     color: var(--ink);
@@ -270,11 +290,11 @@
     font-weight: 600;
     line-height: 1.15;
     text-align: right;
-    overflow-wrap: break-word;
   }
 
   .unit {
     color: var(--ink-muted);
+    font-size: 1.125rem;
     font-weight: 400;
   }
 </style>

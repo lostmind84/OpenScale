@@ -21,28 +21,11 @@
     healthy: boolean
     onselect: (code: string) => void
     ontogglesearch: () => void
-    /** Three seconds in the neutral bottom-right corner open the administration. */
+    /** Opens the administration — one press on a named key (ADR-032). */
     onadmin: () => void
   }
 
   const { chips, active, searchOpen, healthy, onselect, ontogglesearch, onadmin }: Props = $props()
-
-  /** Milliseconds of press that open the administration screen (§14.3). */
-  const ADMIN_PRESS_MS = 3_000
-
-  let pressTimer: ReturnType<typeof setTimeout> | null = null
-
-  /** Starts counting the long press on the neutral corner. */
-  function startAdminPress(): void {
-    cancelAdminPress()
-    pressTimer = setTimeout(onadmin, ADMIN_PRESS_MS)
-  }
-
-  /** Abandons the count: a press that ends early is not an intent. */
-  function cancelAdminPress(): void {
-    if (pressTimer !== null) clearTimeout(pressTimer)
-    pressTimer = null
-  }
 </script>
 
 <nav class="filters" aria-label="Catégories">
@@ -83,18 +66,15 @@
   ></span>
 
   <!--
-    The administration is opened by three seconds on THIS neutral zone, and not on
-    the health dot: making the way in depend on holding a display element condemns
-    us to keeping that element for a reason that has nothing to do with it (§14.3).
+    The way into the administration, and it is VISIBLE (ADR-032).
+    A three second press on an unmarked corner is a way in nobody finds without
+    being told; the long press stays, on this same button, for the day a station
+    is put behind a counter where a customer could reach the screen.
   -->
-  <div
-    class="admin-corner"
-    aria-hidden="true"
-    onpointerdown={startAdminPress}
-    onpointerup={cancelAdminPress}
-    onpointerleave={cancelAdminPress}
-    onpointercancel={cancelAdminPress}
-  ></div>
+  <button type="button" class="chip touch-target admin" onclick={onadmin}>
+    <Icon name="settings" size="1.75rem" />
+    <span class="admin-label">Réglages</span>
+  </button>
 </nav>
 
 <style>
@@ -188,10 +168,19 @@
     box-shadow: 0 0 0 0.375rem var(--fault-wash);
   }
 
-  .admin-corner {
+  /* Quiet, and named. It sits after the health dot, at the far edge, where a
+     customer's hand does not go and a volunteer's eye does. */
+  .admin {
     flex: 0 0 auto;
-    width: var(--touch-min);
-    height: var(--touch-min);
+    gap: 0.5rem;
+    padding: 0 1.25rem;
+    border-radius: var(--radius);
+    color: var(--ink-muted);
+    font-size: 1.25rem;
+  }
+
+  .admin-label {
+    letter-spacing: 0.02em;
   }
 
   .visually-hidden {

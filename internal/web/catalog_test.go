@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"openscale/internal/domain"
 )
@@ -38,6 +39,35 @@ func TestTheCatalogIsServedWholeWithAValidator(t *testing.T) {
 	defer second.Body.Close()
 	if second.StatusCode != http.StatusNotModified {
 		t.Fatalf("revalidation = %d, attendu 304", second.StatusCode)
+	}
+}
+
+// TestTheCatalogSaysWhenItEnteredService: « ces prix datent de quand ? » is the one
+// question a volunteer asks in front of a grid, and §14.3 now answers it permanently.
+//
+// The instant is the one of the SWAP and not a date read in a file: a station that
+// received nothing for three days says so by not moving.
+func TestTheCatalogSaysWhenItEnteredService(t *testing.T) {
+	b := newBench(t)
+
+	page := decodeStatus[catalogDTO](t, b.get("/api/v1/catalog"), http.StatusOK)
+
+	swap := b.hub.CatalogUpdatedAt()
+	if swap.IsZero() {
+		t.Fatal("le Hub ne date pas le catalogue qu'il sert")
+	}
+	if page.UpdatedAt != swap.Format(time.RFC3339) {
+		t.Fatalf("updated_at = %q, attendu %q", page.UpdatedAt, swap.Format(time.RFC3339))
+	}
+}
+
+// TestAStationWithoutACatalogHasNoDateToShow: the zero instant is served EMPTY.
+//
+// « 0001-01-01 » on the screen of a station whose first file has not arrived would be
+// a date, and a volunteer would go looking for the import that produced it.
+func TestAStationWithoutACatalogHasNoDateToShow(t *testing.T) {
+	if got := rfc3339OrEmpty(time.Time{}); got != "" {
+		t.Fatalf("instant zéro servi %q, attendu la chaîne vide", got)
 	}
 }
 

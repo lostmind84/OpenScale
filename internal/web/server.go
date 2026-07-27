@@ -52,6 +52,8 @@ type Hub interface {
 	Config() domain.Config
 	// Catalog returns the catalog in service, or nil before the first one.
 	Catalog() *domain.Catalog
+	// CatalogUpdatedAt returns when that catalog entered service, or the zero time.
+	CatalogUpdatedAt() time.Time
 }
 
 // Controller is what the HTTP layer needs from the station AROUND the loop: the

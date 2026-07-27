@@ -187,6 +187,37 @@ type UIConfig struct {
 	// Default 60: a trade-off between serving the customer and the fraud window.
 	ReprintWindowSeconds int  `json:"reprint_window_s"`
 	ShowGridPrices       bool `json:"show_grid_prices"`
+	// TileSize is how big a tile is drawn: small, medium or large (ADR-031).
+	//
+	// It is the one density setting that exists, and it exists because the physical
+	// constraint that used to forbid it has an exception: a station driven with a
+	// MOUSE is not held to the 20 mm touch target, and a 22" panel is not the 24" of
+	// the reference. Empty means medium, so a configuration written before this
+	// setting existed keeps the grid it had.
+	TileSize string `json:"tile_size"`
+}
+
+// TileSizes returns the three declared tile sizes, smallest first.
+//
+// A function and not a variable: a caller must not be able to reorder or empty
+// the list that a validation message shows to whoever mistyped a value.
+func TileSizes() []string { return []string{TileSizeSmall, TileSizeMedium, TileSizeLarge} }
+
+// The three tile sizes of ADR-031. `medium` is what a station gets by default.
+const (
+	TileSizeSmall  = "small"
+	TileSizeMedium = "medium"
+	TileSizeLarge  = "large"
+)
+
+// validTileSize reports whether a configured tile size is one of the three.
+func validTileSize(size string) bool {
+	for _, known := range TileSizes() {
+		if size == known {
+			return true
+		}
+	}
+	return false
 }
 
 // ScaleConfig is the weighing device of this station.
@@ -1163,6 +1194,13 @@ func (c *Config) Validate(reg Registries) []Fault {
 				"%d ko dépasse le plafond du fichier qui la contient (%d Mo) : une image ne peut pas être plus grosse que son catalogue",
 				imageKB, fileMB)
 		}
+	}
+
+	// 46. ui.tile_size among the three declared sizes (ADR-031). An unknown value
+	//     would fall back in silence, and an exploitant who mistyped « moyen » would
+	//     see the grid not move and conclude that the setting does nothing.
+	if c.UI.TileSize != "" && !validTileSize(c.UI.TileSize) {
+		failWith("ui.tile_size", TileSizes(), "%q n'est pas une taille de tuile connue", c.UI.TileSize)
 	}
 
 	return faults

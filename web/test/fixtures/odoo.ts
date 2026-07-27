@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Catalog, Category, Product } from '../../src/lib/catalog'
+import { DEFAULT_TILE_SIZE, type Catalog, type Category, type Product } from '../../src/lib/catalog'
 import { normalize } from '../../src/lib/normalize'
 
 /**
@@ -119,6 +119,9 @@ export function catalogOf(rows: QualifiedRow[], revision = '"fixture"'): Catalog
   for (const p of products) counts.set(p.category_code, (counts.get(p.category_code) ?? 0) + 1)
   return {
     revision,
+    // L'instant de la bascule, tel que le Hub le date (§14.3). Figé ici : un
+    // catalogue de test ne doit pas changer d'empreinte à chaque exécution.
+    updated_at: '2026-07-27T08:06:48Z',
     product_count: products.length,
     products,
     categories: LACAGETTE_CATEGORIES.map((c) => ({
@@ -139,6 +142,7 @@ export function catalogOf(rows: QualifiedRow[], revision = '"fixture"'): Catalog
       idle_timeout_s: 45,
       reprint_window_s: 60,
       sound: true,
+      tile_size: DEFAULT_TILE_SIZE,
     },
   }
 }
