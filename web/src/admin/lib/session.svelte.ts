@@ -283,9 +283,17 @@ export class Admin {
     this.#settle(false)
   }
 
-  /** Referme le panneau et rend la main à l'acte qui attendait. */
+  /**
+   * Referme le panneau et rend la main à l'acte qui attendait.
+   *
+   * La phrase « Session d'administration ouverte » est effacée au passage : s'authentifier
+   * n'est pas l'acte, c'en est l'antichambre, et la laisser à l'écran la faisait cohabiter
+   * avec le refus de l'enregistrement qu'elle venait d'autoriser — une bonne nouvelle
+   * au-dessus d'une mauvaise, toutes deux vraies, et illisibles ensemble.
+   */
   #settle(opened: boolean): void {
     this.pending = null
+    this.notice = ''
     const answered = this.#answered
     this.#answered = null
     answered?.(opened)

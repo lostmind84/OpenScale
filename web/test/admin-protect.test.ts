@@ -93,6 +93,26 @@ describe('un acte protégé demande le mot de passe, puis se rejoue', () => {
     expect(admin.pending).toBeNull()
   })
 
+  it('n’affiche pas « session ouverte » au-dessus de l’acte qu’elle vient d’autoriser', async () => {
+    // S'authentifier n'est pas l'acte, c'en est l'antichambre. La phrase de la connexion
+    // cohabitait avec le refus de l'enregistrement qu'elle venait d'autoriser : deux
+    // messages vrais, illisibles ensemble.
+    serviceAcceptingSession()
+    const admin = new Admin(60_000)
+    let attempts = 0
+
+    const promise = admin.protect(async () => {
+      attempts += 1
+      if (attempts === 1) throw new AdminError(401, 'Session expirée ou absente.')
+      return 'enregistré'
+    })
+    await vi.waitUntil(() => admin.pending !== null)
+    await admin.answerPassword('openscale')
+    await promise
+
+    expect(admin.notice).toBe('')
+  })
+
   it('laisse le refus à l’écran quand ce n’est pas une question de session', async () => {
     serviceAcceptingSession()
     const admin = new Admin(60_000)
