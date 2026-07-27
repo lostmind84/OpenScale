@@ -39,7 +39,9 @@ export class Draft {
     if (body === null) return
     this.config = body.config
     this.fingerprint = body.config_fingerprint
-    this.retired = body.retired_keys
+    // `?? []` bien que le service ne serve plus `null` : ce poste peut tourner un binaire
+    // plus ancien, et c'est exactement ce `null` qui rendait l'administration inatteignable.
+    this.retired = body.retired_keys ?? []
     this.pending = body.pending_confirmation
     this.faults = []
     this.dirty = false
@@ -113,7 +115,9 @@ export class Draft {
     }
     this.config = body.config
     this.fingerprint = body.config_fingerprint
-    this.retired = body.retired_keys
+    // `?? []` bien que le service ne serve plus `null` : ce poste peut tourner un binaire
+    // plus ancien, et c'est exactement ce `null` qui rendait l'administration inatteignable.
+    this.retired = body.retired_keys ?? []
     this.pending = body.pending_confirmation
     this.dirty = false
     return true

@@ -92,14 +92,43 @@ func (s *Server) configPayload(cfg domain.Config, pending *confirmationDTO) conf
 	redacted.Admin.PasswordHash = ""
 	redacted.Admin.RecoveryCodeHash = ""
 
+	// A nil map marshals to `null`, and a screen that reads `scale.options.port` off
+	// `null` throws. The three option maps are empty on a station running the neutral
+	// profile — which is every station between its installation and its first save.
+	redacted.Scale.Options = optionsOrEmpty(redacted.Scale.Options)
+	redacted.Printer.Options = optionsOrEmpty(redacted.Printer.Options)
+	redacted.Catalog.Options = optionsOrEmpty(redacted.Catalog.Options)
+
 	raw, err := json.Marshal(redacted)
 	if err != nil {
 		raw = []byte(`{}`)
 	}
 	return configDTO{
 		Config: raw, Fingerprint: cfg.Fingerprint(),
-		Retired: cfg.Retired(), Pending: pending,
+		Retired: retiredOrEmpty(cfg.Retired()), Pending: pending,
 	}
+}
+
+// retiredOrEmpty returns a list that marshals to `[]` and never to `null`.
+//
+// This is the defect that made the administration unreachable: `Config.Retired()` returns
+// nil when the file carries no retired key — which is the nominal case — the field went
+// out as `null`, and `draft.retired.length` threw on the very first render after a
+// successful login. The ERR-UI-01 net then showed a sentence with no detail and reloaded
+// the page, so the operator read it as a password that would not work.
+func retiredOrEmpty(keys []string) []string {
+	if keys == nil {
+		return []string{}
+	}
+	return keys
+}
+
+// optionsOrEmpty returns a driver option map that marshals to `{}` and never to `null`.
+func optionsOrEmpty(options domain.DriverOptions) domain.DriverOptions {
+	if options == nil {
+		return domain.DriverOptions{}
+	}
+	return options
 }
 
 // writeConfig is PUT /admin/api/config — the five steps of §11.4, in order.
