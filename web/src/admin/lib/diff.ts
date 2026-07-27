@@ -59,7 +59,7 @@ export function valueAt(document: Record<string, unknown>, path: string): unknow
  *
  * Un tableau est une FEUILLE et non un sous-arbre : la grille de tarifs, les catégories et
  * les seuils se lisent en entier ou pas du tout, et un diff qui annoncerait
- * « pricing.tiers.2.coef_num » à un bénévole nommerait un indice que personne ne voit à
+ * « pricing.tiers.2.discount_percent » à un bénévole nommerait un indice que personne ne voit à
  * l'écran.
  */
 function leaves(node: unknown, prefix = ''): string[] {
