@@ -121,11 +121,15 @@ func (s *Server) authenticated(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg := s.hub.Config()
 		if cfg.Admin.PasswordHash == "" {
-			// A station that has never been through the first-start wizard has no
-			// password to check. Refusing everything would make the wizard itself
-			// unreachable; saying so is what lets the screen open it.
-			writeProblem(w, http.StatusUnauthorized, "",
-				"Ce poste n'a pas encore de mot de passe : lancez l'assistant de premier démarrage.")
+			// 409 and not 401: « aucun mot de passe n'est posé » is not « the password
+			// is wrong », and a screen that cannot tell them apart offers the wrong way
+			// out. It used to point at the five-step first-start wizard of §14.4, which
+			// does not exist in this code — so the sentence sent a volunteer looking for
+			// a screen nobody had written. The way in that DOES exist is the recovery
+			// code drawn at installation and printed on the sheet (§5.5).
+			writeProblem(w, http.StatusConflict, "",
+				"Ce poste n'a pas encore de mot de passe. Saisissez le code de secours "+
+					"de la fiche d'installation pour en poser un.")
 			return
 		}
 		cookie, err := r.Cookie(sessionCookie)

@@ -329,6 +329,11 @@ func TestTheNineTroubleshootingButtonsAnswerWithoutAPassword(t *testing.T) {
 		o.catalogAdmin = catalog
 		o.printer = b2Printer{}
 	})
+	// « Basculer en saisie manuelle » est devenue un acte PROTÉGÉ (ADR-033) : elle coupe
+	// la balance et laisse le client taper son propre poids. Les sept autres restent
+	// libres — aucune ne change ce que le poste vend ni la façon dont il pèse.
+	b.setPassword("un-mot-de-passe", "ABCD2345")
+	b.login("un-mot-de-passe")
 
 	for _, action := range []struct {
 		path, body string
@@ -403,6 +408,9 @@ func TestAnUnknownSelfTestIsRefusedByName(t *testing.T) {
 func TestACatalogDroppedOnTheScreenGoesThroughTheOrdinaryWatcher(t *testing.T) {
 	catalog := &fakeCatalogAdmin{}
 	b := newBench(t, func(o *benchOptions) { o.catalogAdmin = catalog })
+	// Le dépôt remplace toute la grille par un fichier qu'on apporte : acte protégé (ADR-033).
+	b.setPassword("un-mot-de-passe", "ABCD2345")
+	b.login("un-mot-de-passe")
 
 	payload, contentType := multipartCSV(t, "flv_2.csv", "id;nom;prix\n20;AIL;5.32\n")
 	response := b.do(http.MethodPost, "/admin/api/catalog/import", payload,

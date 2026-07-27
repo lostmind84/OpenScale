@@ -252,6 +252,11 @@ func TestACatalogSourceThatRefusesIsReportedAndNotSwallowed(t *testing.T) {
 		t.Fatalf("relecture en échec = %d, attendu 502", reload.StatusCode)
 	}
 
+	// Le dépôt est un acte protégé (ADR-033) : la session s'ouvre d'abord, sans quoi ce
+	// test mesurerait un refus d'authentification et non le refus du FICHIER.
+	b.setPassword("un-mot-de-passe", "ABCD2345")
+	b.login("un-mot-de-passe")
+
 	payload, contentType := multipartCSV(t, "flv_2.csv", "id;nom\n")
 	imported := b.do(http.MethodPost, "/admin/api/catalog/import", payload,
 		http.Header{"Content-Type": {contentType}})

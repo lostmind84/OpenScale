@@ -417,51 +417,66 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /readyz", s.readyz)
 
-	// --- Troubleshooting: NOT authenticated, and deliberately so (ADR-018) --
+	// --- Open: everything one can LOOK AT, and the gestures that repair -----
 	//
-	// Not one of these writes the configuration. Whoever stands behind the counter
-	// can already unplug the printer: a password adds no security there and removes
-	// all the troubleshooting, which is the first gesture of a bad morning.
+	// ADR-033 moved the criterion from the DOOR to the ACT: « ce qui change ce que le
+	// poste vend, ou la façon dont il pèse » is protected, and the rest is not. Reading
+	// a configuration is not one of those — `configPayload` redacts both hashes before
+	// it leaves, so there is nothing here a password would be keeping.
+	//
+	// Making a volunteer type a password to LOOK at a port number, while whoever stands
+	// behind the counter can already unplug the printer, bought nothing and cost the
+	// whole of the troubleshooting.
 	mux.HandleFunc("POST /admin/api/troubleshooting/reprint", s.troubleshootingReprint)
 	mux.HandleFunc("POST /admin/api/troubleshooting/reload-catalog", s.reloadCatalog)
-	mux.HandleFunc("POST /admin/api/troubleshooting/manual-entry", s.manualEntry)
 	mux.HandleFunc("POST /admin/api/troubleshooting/roll-changed", s.rollChanged)
 	mux.HandleFunc("POST /admin/api/troubleshooting/fallback-printer", s.fallbackPrinter)
 	mux.HandleFunc("POST /admin/api/troubleshooting/test-scale", s.testScale)
 	mux.HandleFunc("POST /admin/api/troubleshooting/test-printer", s.testPrinter)
 	mux.HandleFunc("POST /admin/api/troubleshooting/test-label", s.testLabel)
-	mux.HandleFunc("POST /admin/api/catalog/import", s.importCatalog)
 	mux.HandleFunc("GET /admin/api/diagnostic.zip", s.diagnostic)
 	mux.HandleFunc("GET /admin/api/health", s.adminHealth)
+	mux.HandleFunc("GET /admin/api/config", s.readConfig)
+	mux.HandleFunc("GET /admin/api/config/versions", s.configVersions)
+	mux.HandleFunc("GET /admin/api/ports", s.listPorts)
+	mux.HandleFunc("GET /admin/api/printers", s.listPrinters)
+	mux.HandleFunc("GET /admin/api/label/preview.png", s.labelPreview)
+	// The journal is open, EXPORT INCLUDED: the page already shows the 200 weighings,
+	// and diagnostic.zip — open — carries them too. A lock on the third door is not one.
+	mux.HandleFunc("GET /admin/api/journal", s.journal)
+	mux.HandleFunc("GET /admin/api/journal/export.csv", s.journalCSV)
+	mux.HandleFunc("GET /admin/api/technical", s.technicalJournal)
+	mux.HandleFunc("GET /admin/api/imports", s.imports)
 
-	// --- Authenticated: everything that WRITES the configuration -----------
 	mux.HandleFunc("POST /admin/api/session", s.openSession)
 	mux.HandleFunc("DELETE /admin/api/session", s.closeSession)
 	mux.HandleFunc("POST /admin/api/session/recovery", s.recoverSession)
 
+	// --- Protected: what changes what the station sells, or how it weighs ---
+	//
+	// `manual-entry` and `catalog/import` are here and were not: the first cuts the
+	// scale out and lets the CUSTOMER type their own weight, the second replaces the
+	// whole grid with a file somebody brought. Both leave their trace at the till, and
+	// both were heavier than anything the password was guarding.
+	//
+	// `config/export` is here although it only reads: it is the one payload that still
+	// carries the password hash (§11.5).
 	guarded := map[string]http.HandlerFunc{
-		"GET /admin/api/config":                     s.readConfig,
-		"PUT /admin/api/config":                     s.writeConfig,
-		"POST /admin/api/config/confirm":            s.confirmConfig,
-		"GET /admin/api/config/export":              s.exportConfig,
-		"POST /admin/api/config/import":             s.importConfig,
-		"GET /admin/api/config/versions":            s.configVersions,
-		"POST /admin/api/config/restore":            s.restoreConfig,
-		"GET /admin/api/ports":                      s.listPorts,
-		"GET /admin/api/printers":                   s.listPrinters,
-		"POST /admin/api/printers/discover":         s.discoverPrinters,
-		"POST /admin/api/scale/detect":              s.detectScale,
-		"POST /admin/api/scale/capture":             s.captureScale,
-		"POST /admin/api/printer/test":              s.printerTest,
-		"GET /admin/api/label/preview.png":          s.labelPreview,
-		"POST /admin/api/catalog/reload":            s.reloadCatalog,
-		"POST /admin/api/catalog/forget-quarantine": s.forgetQuarantine,
-		"POST /admin/api/products/{id}/decision":    s.productDecision,
-		"GET /admin/api/journal":                    s.journal,
-		"GET /admin/api/journal/export.csv":         s.journalCSV,
-		"GET /admin/api/technical":                  s.technicalJournal,
-		"GET /admin/api/imports":                    s.imports,
-		"POST /admin/api/replay":                    s.replay,
+		"PUT /admin/api/config":                        s.writeConfig,
+		"POST /admin/api/config/confirm":               s.confirmConfig,
+		"GET /admin/api/config/export":                 s.exportConfig,
+		"POST /admin/api/config/import":                s.importConfig,
+		"POST /admin/api/config/restore":               s.restoreConfig,
+		"POST /admin/api/troubleshooting/manual-entry": s.manualEntry,
+		"POST /admin/api/catalog/import":               s.importCatalog,
+		"POST /admin/api/printers/discover":            s.discoverPrinters,
+		"POST /admin/api/scale/detect":                 s.detectScale,
+		"POST /admin/api/scale/capture":                s.captureScale,
+		"POST /admin/api/printer/test":                 s.printerTest,
+		"POST /admin/api/catalog/reload":               s.reloadCatalog,
+		"POST /admin/api/catalog/forget-quarantine":    s.forgetQuarantine,
+		"POST /admin/api/products/{id}/decision":       s.productDecision,
+		"POST /admin/api/replay":                       s.replay,
 	}
 	for pattern, handler := range guarded {
 		mux.HandleFunc(pattern, s.authenticated(handler))

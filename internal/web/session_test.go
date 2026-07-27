@@ -62,16 +62,17 @@ func TestWhatWritesTheConfigurationDemandsASession(t *testing.T) {
 	for _, route := range []struct {
 		method, path, body string
 	}{
-		{http.MethodGet, "/admin/api/config", ""},
 		{http.MethodPut, "/admin/api/config", `{}`},
 		{http.MethodPost, "/admin/api/config/confirm", `{}`},
+		// Il emporte encore l'empreinte du mot de passe, là où GET /config l'expurge.
 		{http.MethodGet, "/admin/api/config/export", ""},
 		{http.MethodPost, "/admin/api/config/restore", `{"version":1}`},
-		{http.MethodGet, "/admin/api/ports", ""},
 		{http.MethodPost, "/admin/api/scale/detect", `{"port":"COM8"}`},
-		{http.MethodGet, "/admin/api/journal", ""},
 		{http.MethodPost, "/admin/api/products/4412/decision", `{"offered":false,"reason":"x"}`},
 		{http.MethodPost, "/admin/api/replay", `{"frame":"ST,GS,+  1.236KG"}`},
+		// Les deux qui viennent d'entrer : l'une coupe la balance, l'autre remplace la grille.
+		{http.MethodPost, "/admin/api/troubleshooting/manual-entry", `{"on":true}`},
+		{http.MethodPost, "/admin/api/catalog/import", `{}`},
 	} {
 		response := b.do(route.method, route.path, route.body, nil)
 		response.Body.Close()
@@ -81,11 +82,21 @@ func TestWhatWritesTheConfigurationDemandsASession(t *testing.T) {
 		}
 	}
 
+	// Et ce qui s'OUVRE : lire une configuration expurgée de ses deux empreintes ne
+	// change rien, et exiger un mot de passe pour cela ne gardait rien (ADR-033).
+	for _, route := range []string{"/admin/api/config", "/admin/api/journal"} {
+		response := b.get(route)
+		response.Body.Close()
+		if response.StatusCode == http.StatusUnauthorized {
+			t.Errorf("%s exige un mot de passe pour être LU", route)
+		}
+	}
+
 	b.login("un-mot-de-passe")
-	response := b.get("/admin/api/config")
+	response := b.do(http.MethodGet, "/admin/api/config/export", "", nil)
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		t.Fatalf("GET /admin/api/config avec session = %d", response.StatusCode)
+		t.Fatalf("GET /admin/api/config/export avec session = %d", response.StatusCode)
 	}
 }
 
@@ -239,8 +250,16 @@ func TestAStationWithNoPasswordSaysSoInsteadOfRefusingEverything(t *testing.T) {
 	if response.StatusCode != http.StatusConflict {
 		t.Fatalf("statut = %d, attendu 409", response.StatusCode)
 	}
-	if got := body(t, b.get("/admin/api/config")); !strings.Contains(got, "premier démarrage") {
-		t.Fatalf("la route protégée ne renvoie pas vers l'assistant : %s", got)
+	// La route PROTÉGÉE dit par où l'on entre. L'assistant en cinq étapes de §14.4
+	// n'existe pas dans ce code, et y renvoyer envoyait chercher un écran que personne
+	// n'a écrit ; le chemin qui existe est le code de secours de la fiche.
+	protected := b.do(http.MethodPut, "/admin/api/config", `{}`, nil)
+	defer protected.Body.Close()
+	if protected.StatusCode != http.StatusConflict {
+		t.Fatalf("acte protégé sans mot de passe = %d, attendu 409", protected.StatusCode)
+	}
+	if got := body(t, protected); !strings.Contains(got, "code de secours") {
+		t.Fatalf("la route protégée ne dit pas par où l'on entre : %s", got)
 	}
 }
 
@@ -249,12 +268,14 @@ func TestChangingThePasswordRevokesTheSessionsMintedUnderTheOldOne(t *testing.T)
 	b := newBench(t)
 	b.setPassword("premier", "ABCD2345")
 	b.login("premier")
-	if got := b.get("/admin/api/config"); got.StatusCode != http.StatusOK {
+	// Mesuré sur un acte PROTÉGÉ : lire une configuration est ouvert depuis ADR-033, et
+	// ne dirait donc plus rien d'une session.
+	if got := b.do(http.MethodGet, "/admin/api/config/export", "", nil); got.StatusCode != http.StatusOK {
 		t.Fatalf("session ouverte = %d", got.StatusCode)
 	}
 
 	b.setPassword("second", "ABCD2345")
-	response := b.get("/admin/api/config")
+	response := b.do(http.MethodGet, "/admin/api/config/export", "", nil)
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("après changement de mot de passe = %d, attendu 401", response.StatusCode)
@@ -268,7 +289,8 @@ func TestASessionExpiresOnTheInjectedClock(t *testing.T) {
 	b.login("un-mot-de-passe")
 
 	b.clock.Advance(31 * time.Minute)
-	response := b.get("/admin/api/config")
+	// Mesuré sur un acte PROTÉGÉ : lire est ouvert depuis ADR-033.
+	response := b.do(http.MethodGet, "/admin/api/config/export", "", nil)
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("après 31 minutes = %d, attendu 401", response.StatusCode)
@@ -286,7 +308,7 @@ func TestClosingASessionRevokesItAtOnce(t *testing.T) {
 	if closed.StatusCode != http.StatusNoContent {
 		t.Fatalf("DELETE /admin/api/session = %d, attendu 204", closed.StatusCode)
 	}
-	response := b.get("/admin/api/config")
+	response := b.do(http.MethodGet, "/admin/api/config/export", "", nil)
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("après fermeture = %d, attendu 401", response.StatusCode)
