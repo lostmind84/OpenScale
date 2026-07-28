@@ -247,6 +247,12 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	// catalog.type, and PUT /admin/api/config would accept a source no station can open —
 	// an amber light and an empty grid instead of a fault next to the field.
 	registries := registries()
+	// The probe of controls 44 and 46 answers FROM THE CONTEXT OF THE SERVICE ACCOUNT, so
+	// only a process that is that account may carry one — `openscale config validate` on a
+	// volunteer's laptop leaves it nil and validates the form, not the existence. It is
+	// wired here rather than inside registries() for that reason, and because the archive
+	// directory it must recognise is a fact about THIS station's data directory.
+	registries.Paths = platform.NewPathChecker(o.dataDir)
 
 	// §11.3: an invalid configuration NEVER kills the process. The station starts on
 	// the neutral profile, IN MEMORY AND WITHOUT WRITING, in the one terminal state,

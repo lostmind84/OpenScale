@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -89,6 +90,13 @@ func testRegistries() Registries {
 		{Key: "username", Kind: OptionText},
 		{Key: "password", Kind: OptionText},
 	}, commonCatalog...)
+	// `directory` belongs to local_drop ALONE, exactly as the real descriptor declares
+	// it: it is the one source that watches a directory of this machine. Declaring it
+	// here is what makes control 46 the only voice on that field -- an undeclared key
+	// would already be refused by control 9, and the case would prove nothing.
+	localDrop := append([]OptionSchema{
+		{Key: "directory", Kind: OptionText},
+	}, commonCatalog...)
 
 	return Registries{
 		Scales: []DriverDescriptor{
@@ -107,7 +115,7 @@ func testRegistries() Registries {
 			{ID: TransportFile, Label: "fichier"},
 		},
 		CatalogSources: []DriverDescriptor{
-			{ID: CatalogSourceLocalDrop, Label: "répertoire de dépôt", Options: commonCatalog},
+			{ID: CatalogSourceLocalDrop, Label: "répertoire de dépôt", Options: localDrop},
 			{ID: CatalogSourceWebDAV, Label: "partage WebDAV", Options: webdav},
 		},
 	}
@@ -116,7 +124,8 @@ func testRegistries() Registries {
 // unreadablePaths is the PathChecker of a service that cannot see a path.
 type unreadablePaths struct{}
 
-func (unreadablePaths) Readable(string) error { return fmt.Errorf("accès refusé") }
+func (unreadablePaths) Readable(string) error  { return fmt.Errorf("accès refusé") }
+func (unreadablePaths) Droppable(string) error { return fmt.Errorf("accès refusé") }
 
 // setOption writes one driver option the way a file would carry it.
 func setOption(t *testing.T, options DriverOptions, key string, value any) {
@@ -287,7 +296,7 @@ func TestDeliveredConfigurationCarriesNoRealURL(t *testing.T) {
 	}
 }
 
-// --- The 45 controls, one broken configuration at a time ------------------------
+// --- The 47 controls, one broken configuration at a time ------------------------
 
 // brokenConfiguration is one wrong configuration and the field the volunteer must
 // see named.
@@ -584,6 +593,23 @@ func brokenConfigurations() []brokenConfiguration {
 				setOption(t, c.Catalog.Options, "max_file_size_mb", 1)
 			},
 			field: "catalog.options.max_image_size_kb",
+		}, {
+			control: "46", name: "répertoire de dépôt hors de portée du service",
+			mutate: func(t *testing.T, c *Config) {
+				c.Catalog.Type = CatalogSourceLocalDrop
+				setOption(t, c.Catalog.Options, "directory", `Z:\catalogue`)
+			},
+			registries: func(reg Registries) Registries {
+				reg.Paths = unreadablePaths{}
+				return reg
+			},
+			field: "catalog.options.directory",
+		}, {
+			control: "47", name: "répertoire de dépôt derrière un partage WebDAV",
+			mutate: func(t *testing.T, c *Config) {
+				setOption(t, c.Catalog.Options, "directory", `D:\catalogue`)
+			},
+			field: "catalog.options.directory",
 		},
 	}
 }
@@ -641,6 +667,7 @@ func TestTheCorpusCoversTheControls(t *testing.T) {
 		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
 		"16", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32",
 		"33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45",
+		"46", "47",
 	} {
 		if !covered[control] {
 			t.Errorf("le contrôle %s n'a aucune configuration fausse", control)
@@ -650,6 +677,61 @@ func TestTheCorpusCoversTheControls(t *testing.T) {
 		if covered[control] {
 			t.Errorf("le contrôle %s ne se provoque pas depuis une structure Config", control)
 		}
+	}
+}
+
+// --- Controls 46 and 47: the drop directory ------------------------------------
+
+// TestADirectoryOnWebDAVNamesTheSourceThatWatchesOne is control 47, the symmetry of
+// 39: a key that means nothing for the source declared is a mistake, not a value to
+// ignore in silence.
+//
+// The registries are left EMPTY on purpose. Control 9 refuses an undeclared key on
+// its own, so a case that only looked at the field would pass without control 47
+// existing at all; what proves 47 is speaking is a message that names the source
+// which DOES watch a directory.
+func TestADirectoryOnWebDAVNamesTheSourceThatWatchesOne(t *testing.T) {
+	config := loadDelivered(t)
+	setOption(t, config.Catalog.Options, "directory", `D:\catalogue`)
+
+	fault := findFault(config.Validate(Registries{}), "catalog.options.directory")
+	if fault == nil {
+		t.Fatal("un répertoire de dépôt déclaré sur webdav doit être refusé")
+	}
+	if !strings.Contains(fault.Message, CatalogSourceLocalDrop) {
+		t.Errorf("le refus ne nomme pas la source qui surveille un répertoire : %s", fault.Message)
+	}
+}
+
+// TestWithoutAProbeTheFormIsCheckedAndExistenceIsNot: `openscale config validate` on
+// a laptop cannot know what the service account sees, and must not invent a refusal.
+func TestWithoutAProbeTheFormIsCheckedAndExistenceIsNot(t *testing.T) {
+	config := loadDelivered(t)
+	config.Catalog.Type = CatalogSourceLocalDrop
+	setOption(t, config.Catalog.Options, "directory", `Z:\catalogue`)
+
+	// testRegistries carries no PathChecker, which is the state of a validation run
+	// outside the service.
+	if fault := findFault(config.Validate(testRegistries()), "catalog.options.directory"); fault != nil {
+		t.Fatalf("sans sonde, l'existence n'est pas vérifiée : %s", fault.Message)
+	}
+}
+
+// TestAnEmptyDirectoryIsNeverProbed: the shipped case names no directory at all, and
+// a field somebody opened and left with a space in it names none either.
+func TestAnEmptyDirectoryIsNeverProbed(t *testing.T) {
+	for _, written := range []string{"", "   "} {
+		t.Run(strconv.Quote(written), func(t *testing.T) {
+			config := loadDelivered(t)
+			config.Catalog.Type = CatalogSourceLocalDrop
+			setOption(t, config.Catalog.Options, "directory", written)
+			registries := testRegistries()
+			registries.Paths = unreadablePaths{}
+
+			if fault := findFault(config.Validate(registries), "catalog.options.directory"); fault != nil {
+				t.Fatalf("un répertoire vide est celui du poste, il n'y a rien à sonder : %s", fault.Message)
+			}
+		})
 	}
 }
 

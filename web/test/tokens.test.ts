@@ -28,6 +28,8 @@ const TOKENS: Record<string, string> = {
   '--warning': '#c8641b',
   '--fault': '#b3261e',
   '--focus': '#1e5fa8',
+  '--action': '#17518f',
+  '--danger': '#a11f19',
 }
 
 /**
@@ -43,10 +45,12 @@ const TEXT_PAIRS = [
 ] as const
 
 /**
- * `--surface` sert de texte à un seul endroit : l'initiale posée sur la couleur de
- * catégorie. Ce fond ne vient PAS des jetons mais de `catalog.categories[].color`,
- * donc de la configuration du poste : le contraste s'y vérifie à la validation de
- * la configuration, pas ici.
+ * `--surface` sert de texte partout où il est posé SUR une couleur, et jamais sur du
+ * clair : l'initiale posée sur la couleur de catégorie — dont le fond ne vient PAS des
+ * jetons mais de `catalog.categories[].color`, donc de la configuration du poste, et s'y
+ * vérifie à la validation — et les deux fonds pleins de l'administration, `--action` et
+ * `--danger`, que portent `Act`, `BigButton` et les deux sélecteurs de fichier des zones
+ * de dépôt. Leur contraste est mesuré par le describe « les deux fonds pleins ».
  */
 const OUT_OF_TOKEN_SCOPE = new Set(['--surface'])
 
@@ -124,6 +128,29 @@ describe('les contrastes de §14.2', () => {
     expect(contrast(TOKENS['--warning'] as string, TOKENS['--surface'] as string)).toBeLessThan(7)
     expect(contrast(TOKENS['--fault'] as string, TOKENS['--surface'] as string)).toBeLessThan(7)
     expect(contrast(TOKENS['--fault'] as string, TOKENS['--bg'] as string)).toBeLessThan(7)
+  })
+})
+
+describe('les deux fonds pleins de l’administration', () => {
+  /**
+   * La couleur y est un FOND et l'encre est blanche : la règle « aucune couleur ne
+   * porte de lettres » interdit d'écrire EN --warning ou EN --fault sur fond clair,
+   * ce qui reste vrai. Ce qui est vérifié ici est l'autre sens, et il est mesuré.
+   */
+  it.each([
+    ['--action', 'ce qui écrit'],
+    ['--danger', 'ce qui est irréversible'],
+  ])('%s porte l’encre blanche à au moins 7:1 — %s', (token) => {
+    expect(contrast(TOKENS[token] as string, TOKENS['--surface'] as string)).toBeGreaterThanOrEqual(
+      7,
+    )
+  })
+
+  it('les déclare dans app.css et pas seulement dans ce test', () => {
+    const css = readFileSync(join(SOURCE_DIR, 'app.css'), 'utf8')
+    for (const token of ['--action', '--danger']) {
+      expect(css).toContain(`${token}: ${TOKENS[token] as string}`)
+    }
   })
 })
 

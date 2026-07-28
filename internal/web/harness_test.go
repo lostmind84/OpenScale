@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"net/http"
@@ -78,6 +79,9 @@ type benchOptions struct {
 	printer         SelfTester
 	troubleshooting Troubleshooting
 	dashboard       Dashboard
+	// paths is the filesystem probe controls 44 and 46 run through. Nil is the default
+	// and is what a bench standing on no disk honestly is: « we cannot know ».
+	paths domain.PathChecker
 }
 
 // newBench starts a station, wires the routes over it and stops both when the test
@@ -130,7 +134,9 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		// its route carries no password, so one nil must not disable both.
 		Diagnostic: o.diagnostician,
 		Dashboard:  o.dashboard,
-		Binder:     o.binder, Registries: domain.Registries{}, Version: "test",
+		Binder:     o.binder,
+		Registries: domain.Registries{Paths: o.paths},
+		Version:    "test",
 	}
 	if !o.noStore {
 		options.Store = b.store
@@ -560,6 +566,17 @@ func (m *memoryStore) Image(_ context.Context, sha string) (domain.Image, error)
 	}
 	return image, nil
 }
+
+// refusingPaths is the probe of a station whose producer share is down.
+//
+// It refuses EVERYTHING, which is what makes « la sonde n'a pas tourné » an assertion:
+// a save that comes back 200 through this double is a save that never asked the disk.
+type refusingPaths struct{}
+
+func (refusingPaths) Readable(string) error  { return errors.New("partage indisponible") }
+func (refusingPaths) Droppable(string) error { return errors.New("partage indisponible") }
+
+var _ domain.PathChecker = refusingPaths{}
 
 // errNoSuchImage is what the double answers for an unknown sha, exactly as the store
 // answers ErrNotFound.

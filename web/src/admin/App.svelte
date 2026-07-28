@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Draft } from './lib/draft.svelte'
+  import { blockLabelOf, labelOf } from './lib/fields'
+  import { preferences } from './lib/preferences.svelte'
   import { Admin, needsPassword, type PageID } from './lib/session.svelte'
+  import Act from './components/Act.svelte'
   import PasswordPanel from './components/PasswordPanel.svelte'
   import Catalog from './pages/Catalog.svelte'
   import Dashboard from './pages/Dashboard.svelte'
@@ -82,6 +85,21 @@
       : admin.health.station_name,
   )
 
+  /**
+   * What the station says it changed, in French, for the confirmation banner.
+   *
+   * The service lists BLOCKS and not fields — `scale`, `printer`, `catalog` — and those
+   * English tokens belong to the same family as the configuration keys: they only show
+   * under the switch. With no French name in their place, the banner would announce an
+   * automatic rollback in sixty seconds without saying what it covers.
+   */
+  const changedBlocks = $derived(
+    (draft.pending?.changed_blocks ?? []).map((block) => blockLabelOf(block)).join(', '),
+  )
+
+  /** The same blocks in the service's own tokens, for whoever ticked the switch. */
+  const changedBlockTokens = $derived((draft.pending?.changed_blocks ?? []).join(', '))
+
   onMount(() => {
     admin.start()
     return () => admin.stop()
@@ -139,6 +157,18 @@
         </p>
         <p class="build">configuration {admin.health.config_fingerprint}</p>
       {/if}
+      <!--
+        The switch lives here and NOT on a settings page: it does not set the station, it
+        sets the screen, and it has to stay within reach from all nine pages.
+      -->
+      <label class="technical">
+        <input
+          type="checkbox"
+          checked={preferences.showTechnicalNames}
+          onchange={() => preferences.toggleTechnicalNames()}
+        />
+        Montrer les noms techniques
+      </label>
       {#if onclose !== undefined}
         <button type="button" class="back" onclick={onclose}>← Revenir à l’écran client</button>
       {/if}
@@ -158,14 +188,24 @@
 
     {#if draft.pending !== null}
       <div class="banner pending" data-pending>
+        <!--
+          The banner names the blocks in FRENCH, the same rule as the refusal bar just
+          below it: whatever the service hands over as an English token goes under the
+          switch, and what remains has to read without it. « la balance, l'imprimante »
+          tells a volunteer what to go and check before confirming; « scale, printer »
+          only tells it to whoever has opened `internal/web/config.go`.
+        -->
         <p>
-          Configuration appliquée mais NON CONFIRMÉE : {draft.pending.changed_blocks.join(', ')}. Le
-          poste reviendra tout seul à la version précédente dans
+          Configuration appliquée mais NON CONFIRMÉE. Ce qui a changé : {changedBlocks}.
+          {#if preferences.showTechnicalNames}<code data-blocks>{changedBlockTokens}</code>{/if}
+          Le poste reviendra tout seul à la version précédente dans
           {draft.pending.seconds_left} secondes si personne ne confirme.
         </p>
-        <button type="button" class="act" onclick={() => void admin.protect(() => draft.confirm())}>
-          Tout fonctionne : confirmer
-        </button>
+        <Act
+          kind="write"
+          label="Tout fonctionne : confirmer"
+          onrun={() => void admin.protect(() => draft.confirm())}
+        />
       </div>
     {/if}
 
@@ -184,7 +224,7 @@
       {:else if admin.page === 'rules'}
         <Rules {draft} health={admin.health} />
       {:else if admin.page === 'catalog'}
-        <Catalog {admin} health={admin.health} />
+        <Catalog {admin} {draft} health={admin.health} />
       {:else if admin.page === 'journal'}
         <Journal {admin} />
       {:else if admin.page === 'station'}
@@ -200,20 +240,31 @@
     {#if needsPassword(admin.page) && draft.config !== null}
       <footer class="save-bar">
         {#if draft.retired.length > 0}
+          <!--
+            The buttons name the EXACT KEY and not its label: the key is what they delete,
+            and a retired key most often has no French name at all — the binary does not
+            know it any more.
+          -->
           <p class="retired">
-            Ce fichier porte des clés que ce binaire refuse : {draft.retired.join(', ')}.
+            Ce fichier porte des réglages que cette version du poste ne connaît plus :
+            {draft.retired.map((key) => labelOf(key)).join(', ')}.
             {#each draft.retired as key (key)}
-              <button type="button" class="act" onclick={() => draft.dropRetired(key)}>
-                retirer {key}
-              </button>
+              <Act kind="write" label={`retirer ${key}`} onrun={() => draft.dropRetired(key)} />
             {/each}
           </p>
         {/if}
         {#if draft.faults.length > 0}
+          <!--
+            The refusal names the field in FRENCH: the service answers a key plus a
+            message, and « attendu : nombre entier » names nothing on its own once the key
+            is hidden. The fallback in `labelOf` keeps a control that no page edits
+            readable.
+          -->
           <ul class="faults" data-faults>
             {#each draft.faults as fault (fault.field)}
               <li>
-                <code>{fault.field}</code>
+                <strong>{labelOf(fault.field)}</strong>
+                {#if preferences.showTechnicalNames}<code>{fault.field}</code>{/if}
                 {fault.message}
                 {#if fault.allowed !== undefined && fault.allowed.length > 0}
                   — valeurs acceptées : {fault.allowed.join(', ')}
@@ -222,14 +273,12 @@
             {/each}
           </ul>
         {/if}
-        <button
-          type="button"
-          class="save"
+        <Act
+          kind="write"
+          label={draft.dirty ? 'Enregistrer la configuration' : 'Aucune modification à enregistrer'}
           disabled={!draft.dirty || admin.busy}
-          onclick={() => void save()}
-        >
-          {draft.dirty ? 'Enregistrer la configuration' : 'Aucune modification à enregistrer'}
-        </button>
+          onrun={() => void save()}
+        />
       </footer>
     {/if}
   </div>
@@ -332,6 +381,24 @@
     margin: 0.125rem 0 0;
     font-size: 0.8125rem;
     color: var(--ink-muted);
+  }
+
+  .technical {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    /* 44 px, and a 24 px box: the density of the administration's form controls
+       (ADR-033). The rail is touched with a finger like everything else. */
+    min-height: 2.75rem;
+    margin-top: 0.75rem;
+    color: var(--ink-muted);
+    font-size: 0.9375rem;
+  }
+
+  .technical input {
+    width: 1.5rem;
+    height: 1.5rem;
+    flex: 0 0 auto;
   }
 
   .back {
@@ -437,28 +504,5 @@
     margin: 0 0 0.5rem;
     padding-left: 1.25rem;
     font-size: 1rem;
-  }
-
-  .act,
-  .save {
-    height: 2.75rem;
-    padding: 0 1.25rem;
-    font-size: 1.0625rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-  }
-
-  .save {
-    font-weight: 700;
-    border-color: var(--ready);
-    background: var(--ready-wash);
-  }
-
-  .save:disabled {
-    opacity: 0.5;
-    border-color: var(--border);
-    background: var(--bg);
-    cursor: default;
   }
 </style>

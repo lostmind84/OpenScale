@@ -12,7 +12,7 @@ import type { Admin } from './session.svelte'
  *
  * Ce que cette classe rend visible, et qui n'existe nulle part ailleurs :
  *
- *  - les 45 contrôles refusent TOUS D'UN COUP (§11.3) — un écran qui corrige une faute,
+ *  - les 47 contrôles refusent TOUS D'UN COUP (§11.3) — un écran qui corrige une faute,
  *    enregistre, et découvre la deuxième est un écran qu'on abandonne ;
  *  - le compte à rebours de 60 s : le poste revient tout seul à la version précédente si
  *    personne ne confirme, et l'écran doit le dire pendant qu'il court ;
@@ -27,7 +27,7 @@ export class Draft {
   retired = $state<string[]>([])
   /** La confirmation attendue, quand il y en a une. */
   pending = $state<ConfirmationDTO | null>(null)
-  /** Ce que les 45 contrôles ont dit du dernier enregistrement refusé. */
+  /** Ce que les 47 contrôles ont dit du dernier enregistrement refusé. */
   faults = $state<FaultDTO[]>([])
   /** Vrai dès qu'un champ a bougé : le bouton « Enregistrer » s'arme. */
   dirty = $state(false)
@@ -98,6 +98,33 @@ export class Draft {
     }
     node[last] = value
     this.dirty = true
+  }
+
+  /**
+   * Removes a key from the document.
+   *
+   * A key that means nothing for what has been chosen must DISAPPEAR rather than stay
+   * empty: the station refuses the PRESENCE of an account on a local directory and that
+   * of a directory on a server, and an empty string is still a presence. Without this,
+   * switching the catalog source came back as three refusals over fields the person had
+   * neither filled in nor even seen.
+   *
+   * @param path - the dotted path of the key.
+   * @returns true when the document could be walked all the way down to it.
+   */
+  unset(path: string): boolean {
+    const keys = path.split('.')
+    const last = keys.pop()
+    if (last === undefined || this.config === null) return false
+    let node: unknown = this.config
+    for (const step of keys) {
+      if (node === null || typeof node !== 'object') return false
+      node = (node as Record<string, unknown>)[step]
+    }
+    if (node === null || typeof node !== 'object') return false
+    delete (node as Record<string, unknown>)[last]
+    this.dirty = true
+    return true
   }
 
   /**
@@ -177,25 +204,15 @@ export class Draft {
         'de là. Modifiez le fichier de configuration lui-même.'
       return
     }
-    const keys = key.split('.')
-    const last = keys.pop()
-    if (last === undefined || this.config === null) return
-    let node: unknown = this.config
-    for (const step of keys) {
-      if (node === null || typeof node !== 'object') return
-      node = (node as Record<string, unknown>)[step]
-    }
-    if (node === null || typeof node !== 'object') return
-    delete (node as Record<string, unknown>)[last]
+    if (!this.unset(key)) return
     this.retired = this.retired.filter((candidate) => candidate !== key)
-    this.dirty = true
   }
 }
 
 /**
  * Les fautes du dernier refus.
  *
- * `Admin.load` a déjà mis la phrase du refus dans `error` ; les 45 contrôles voyagent
+ * `Admin.load` a déjà mis la phrase du refus dans `error` ; les 47 contrôles voyagent
  * dans le même corps, et {@link api.AdminError} ne les porte pas. Elles sont donc lues
  * ici sur l'erreur elle-même, faute de quoi l'écran dirait « cette configuration ne peut
  * pas être appliquée » sans dire QUEL champ.

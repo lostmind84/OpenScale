@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
+  import Act from '../components/Act.svelte'
   import Field from '../components/Field.svelte'
   import * as api from '../lib/api'
   import { AdminError } from '../lib/api'
@@ -67,14 +68,16 @@
   type SelfTest = 'label' | 'alignment' | 'ruler'
 
   /**
-   * Ce que la page est en train de faire, ou une chaîne vide quand elle ne fait rien.
+   * What the page is doing, or an empty string when it is doing nothing.
    *
-   * UN SEUL acte à la fois, et ce n'est pas une commodité d'affichage. D'abord le port :
-   * il est exclusif, et deux gestes qui l'ouvrent ensemble s'excluent l'un l'autre.
-   * Ensuite le mot de passe : `Admin.protect` n'a qu'une seule place pour l'acte qui
-   * attend la réponse du panneau, et deux actes protégés lancés ensemble en perdraient un.
+   * ONE act at a time, and that is no display convenience. The port first: it is
+   * exclusive, and two gestures opening it together rule each other out. Then the
+   * password: `Admin.protect` has a single slot for the act waiting on the panel's
+   * answer, and two protected acts started together would lose one of them.
+   *
+   * The name carries its suffix to leave `Act` to the component that draws the buttons.
    */
-  type Act = '' | 'ports' | 'printers' | 'discover' | 'detect' | 'listen' | SelfTest
+  type ActName = '' | 'ports' | 'printers' | 'discover' | 'detect' | 'listen' | SelfTest
 
   /** Ce qu'un port a répondu au balayage — y compris quand il a REFUSÉ de s'ouvrir. */
   interface Verdict {
@@ -106,7 +109,7 @@
   /** Vrai une fois que l'énumération des ports a répondu, même avec zéro port. */
   let listed = $state(false)
   /** L'acte en vol, ou une chaîne vide. Les commandes se désarment tant qu'il dure. */
-  let acting = $state<Act>('')
+  let acting = $state<ActName>('')
   /** Combien de ports le balayage a ouverts, et combien il doit en ouvrir. */
   let scanned = $state(0)
   let toScan = $state(0)
@@ -300,7 +303,7 @@
    * @param what - l'acte, tel que les libellés et les boutons le nomment.
    * @param action - ce qu'il faut faire une fois le port rendu.
    */
-  async function act(what: Act, action: () => Promise<void>): Promise<void> {
+  async function act(what: ActName, action: () => Promise<void>): Promise<void> {
     if (acting !== '') return
     acting = what
     try {
@@ -488,7 +491,7 @@
       word: 'Silencieuse',
       detail:
         'Elle prend les étiquettes et ne dit rien en retour : c’est la réponse normale ' +
-        'd’une file Windows en RAW ou d’un fichier de périphérique, pas une panne (ADR-007).',
+        'd’une file Windows en RAW ou d’un fichier de périphérique, pas une panne.',
     },
   }
 
@@ -716,23 +719,35 @@
     {/if}
 
     <div class="actions">
-      <button
-        type="button"
-        class="action"
+      <!--
+        The key badge is DECLARED on the markup and never deduced: `Act` has no way of
+        seeing which route a handler ends up calling, so a protected act whose markup stays
+        silent asks for the password AFTER the click — the one moment ADR-033 wanted it not
+        to surprise anybody. Six buttons of this page were in that case.
+
+        The two exceptions are here on purpose: « Lister les ports » and « Lister les
+        files » are the reads of the open table (`internal/web/server.go`), and they are the
+        only acts of this page that carry no badge. Everything else goes through
+        `admin.protect`, which is the same list, checked handler by handler.
+      -->
+      <Act
+        label="Lister les ports"
+        busy={acting === 'ports'}
         disabled={acting !== ''}
-        onclick={() => void act('ports', loadPorts)}
-      >
-        {acting === 'ports' ? 'Énumération des ports…' : 'Lister les ports'}
-      </button>
-      <button
-        type="button"
-        class="action strong"
-        data-detect
+        onrun={() => void act('ports', loadPorts)}
+      />
+      <!--
+        The only act of this page whose label SAYS HOW FAR IT HAS GOT: « port 2 sur 5 » on
+        a scan that runs for a minute is worth more than « En cours… », so it carries its
+        own progress and leaves `busy` aside.
+      -->
+      <Act
+        act="detect"
+        label={detectLabel()}
+        protected
         disabled={acting !== ''}
-        onclick={() => void act('detect', detect)}
-      >
-        {detectLabel()}
-      </button>
+        onrun={() => void act('detect', detect)}
+      />
     </div>
 
     {#if listed}
@@ -785,7 +800,7 @@
           label="Protocole"
           path="scale.type"
           value={draft.text('scale.type')}
-          hint="Les deux entrées de registre de §9.3. Les valeurs acceptées apparaissent ici si l’enregistrement est refusé."
+          hint="Les valeurs acceptées apparaissent ici si l’enregistrement est refusé."
           fault={faultOf('scale.type')}
           allowed={allowedFor('scale.type')}
           disabled={!configRead}
@@ -818,15 +833,14 @@
         <p class="interrupted" data-interrupted>
           {halt}
           {#if askLabel !== ''}
-            <button
-              type="button"
-              class="action"
-              data-listen
+            <Act
+              act="listen"
+              label={askLabel}
+              protected
+              busy={acting === 'listen'}
               disabled={acting !== ''}
-              onclick={() => void act('listen', listenOnce)}
-            >
-              {acting === 'listen' ? 'Écoute en cours…' : askLabel}
-            </button>
+              onrun={() => void act('listen', listenOnce)}
+            />
           {/if}
         </p>
       {/if}
@@ -854,32 +868,37 @@
     <p class="note">{printerObservation()}</p>
 
     <div class="actions">
-      <button
-        type="button"
-        class="action"
+      <!--
+        `disabled` carries « an act is running somewhere on the page », `busy` carries
+        « it is THIS one »: the first disarms them all, the second is the only one left
+        fully legible.
+      -->
+      <Act
+        label="Lister les files"
+        busy={acting === 'printers'}
         disabled={acting !== ''}
-        onclick={() => void act('printers', loadPrinters)}
-      >
-        {acting === 'printers' ? 'Lecture des files…' : 'Lister les files'}
-      </button>
-      <button
-        type="button"
-        class="action"
+        onrun={() => void act('printers', loadPrinters)}
+      />
+      <Act
+        label="Rechercher l’imprimante"
+        protected
+        busy={acting === 'discover'}
         disabled={acting !== ''}
-        onclick={() => void act('discover', discover)}
-      >
-        {acting === 'discover' ? 'Recherche en cours…' : 'Rechercher l’imprimante'}
-      </button>
+        onrun={() => void act('discover', discover)}
+      />
+      <!--
+        Three self-tests side by side: the label keeps WHICH ONE is working. Reduced all
+        three to « En cours… », nothing on screen would say any more which one is putting
+        out a label.
+      -->
       {#each SELF_TESTS as test (test.what)}
-        <button
-          type="button"
-          class="action"
-          data-self-test={test.what}
+        <Act
+          act={test.what}
+          label={`Auto-test : ${test.name}${acting === test.what ? ' — en cours…' : ''}`}
+          protected
           disabled={acting !== ''}
-          onclick={() => void act(test.what, () => selfTest(test.what))}
-        >
-          Auto-test : {test.name}{acting === test.what ? ' — en cours…' : ''}
-        </button>
+          onrun={() => void act(test.what, () => selfTest(test.what))}
+        />
       {/each}
     </div>
 
@@ -912,7 +931,7 @@
           label="Driver"
           path="printer.type"
           value={draft.text('printer.type')}
-          hint="Le driver raster est le chemin de production (ADR-002)."
+          hint="Gardez le driver raster : c’est celui que les postes en service utilisent."
           fault={faultOf('printer.type')}
           allowed={allowedFor('printer.type')}
           disabled={!configRead}
@@ -922,7 +941,7 @@
           label="Transport"
           path="printer.options.transport"
           value={draft.text('printer.options.transport')}
-          hint="Local par défaut : file Windows ou fichier de périphérique (ADR-007)."
+          hint="Local par défaut : une file Windows ou un fichier de périphérique de ce poste."
           fault={faultOf('printer.options.transport')}
           allowed={allowedFor('printer.options.transport')}
           disabled={!configRead}
@@ -1078,32 +1097,8 @@
     margin: 0.75rem 0 0;
   }
 
-  .action {
-    height: 2.75rem;
-    padding: 0 1rem;
-    font-size: 1.0625rem;
-    font-weight: 700;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    transition:
-      background-color var(--tap) var(--ease),
-      border-color var(--tap) var(--ease);
-  }
-
-  .action.strong {
-    border-color: var(--ready);
-    background: var(--ready-wash);
-  }
-
-  .action:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
   /* Ce qu'une souris attend, et qu'un doigt n'a jamais demandé (app.css). */
   @media (hover: hover) {
-    .action:hover:not(:disabled),
     .pick:hover,
     summary:hover {
       background: var(--bg);

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Act from '../components/Act.svelte'
   import Field from '../components/Field.svelte'
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
@@ -379,22 +380,12 @@
           <strong data-offset-x>{dots(offsetX)}</strong>
         </p>
         <div class="pair">
-          <button
-            type="button"
-            class="nudge"
+          <Act
+            label="← 1 dot"
             disabled={!configRead || offsetX <= FLOOR_DOTS}
-            onclick={() => nudge(OFFSET_X, -1)}
-          >
-            ← 1 dot
-          </button>
-          <button
-            type="button"
-            class="nudge"
-            disabled={!configRead}
-            onclick={() => nudge(OFFSET_X, 1)}
-          >
-            1 dot →
-          </button>
+            onrun={() => nudge(OFFSET_X, -1)}
+          />
+          <Act label="1 dot →" disabled={!configRead} onrun={() => nudge(OFFSET_X, 1)} />
         </div>
         {#if faultX !== ''}
           <p class="fault" data-fault-offset-x>{faultX}</p>
@@ -405,22 +396,12 @@
           <strong data-offset-y>{dots(offsetY)}</strong>
         </p>
         <div class="pair">
-          <button
-            type="button"
-            class="nudge"
+          <Act
+            label="↑ 1 dot"
             disabled={!configRead || offsetY <= FLOOR_DOTS}
-            onclick={() => nudge(OFFSET_Y, -1)}
-          >
-            ↑ 1 dot
-          </button>
-          <button
-            type="button"
-            class="nudge"
-            disabled={!configRead}
-            onclick={() => nudge(OFFSET_Y, 1)}
-          >
-            1 dot ↓
-          </button>
+            onrun={() => nudge(OFFSET_Y, -1)}
+          />
+          <Act label="1 dot ↓" disabled={!configRead} onrun={() => nudge(OFFSET_Y, 1)} />
         </div>
         {#if faultY !== ''}
           <p class="fault" data-fault-offset-y>{faultY}</p>
@@ -450,9 +431,9 @@
     </div>
 
     <p class="truncation">
-      Le symbole code-barres est volontairement tronqué (ADR-003) : un symbole conforme
-      n’entre pas sur 40 × 25 mm avec les cinq champs texte. Ce n’est pas un défaut de
-      rendu et il n’y a rien à corriger.
+      Le symbole code-barres est volontairement tronqué : un symbole conforme n’entre pas
+      sur 40 × 25 mm avec les cinq champs texte. Ce n’est pas un défaut de rendu et il n’y
+      a rien à corriger.
     </p>
     <!--
       §14.4 asks for the FIGURES of the symbol here — the numbered banner of `Diagnose()`.
@@ -508,23 +489,39 @@
       onchange={(value) => writeNumber('printer.options.copies', value)}
     />
     <div class="actions">
+      <!--
+        NEUTRAL, where the plan asked for the irreversible red on the alignment target.
+        This is the decision, and the reason it went the other way.
+
+        A self-test costs something real and nothing puts it back: one label off the roll,
+        and a strip of paper fed through. But the families answer a narrower question than
+        « does this cost anything ». Red is « this does not undo itself in one click », and
+        what it stands in front of is a STATION left somewhere no second click returns
+        from: the scale cut out, a quarantine forgotten, the whole grid replaced by a file.
+        A printed label leaves the station exactly where it was.
+
+        And one act cannot wear two colours. `POST /admin/api/printer/test` is also the
+        three self-tests of the Hardware page, which are neutral, and « Imprimer une
+        étiquette de test » of the Troubleshooting page, which is neutral too: a red here
+        would have made the colour of one act depend on the screen it was reached from.
+
+        What it costs is SAID — the sentence right below this block — which is what words
+        are for. A red that is not earned wears out the one that is.
+      -->
       {#each SELF_TESTS as test (test.what)}
-        <button
-          type="button"
-          class="action"
-          data-self-test={test.what}
+        <Act
+          act={test.what}
+          label={test.label}
+          protected
+          busy={printing === test.what}
           disabled={busy}
-          onclick={() => void selfTest(test.what)}
-        >
-          {printing === test.what ? 'Impression en cours…' : test.label}
-          <span class="guarded" title="Demande le mot de passe">clé</span>
-        </button>
+          onrun={() => void selfTest(test.what)}
+        />
       {/each}
     </div>
     <p class="cost">
-      Chaque appui sort une étiquette pour de bon, et demande le mot de passe (ADR-033) :
-      il est demandé au moment d’imprimer, et l’impression repart d’elle-même une fois la
-      session ouverte.
+      Chaque appui sort une étiquette pour de bon : le mot de passe est demandé au moment
+      d’imprimer, et l’impression repart d’elle-même une fois la session ouverte.
     </p>
   </Panel>
 </div>
@@ -621,50 +618,6 @@
     border-left: 0.25rem solid var(--fault);
     font-size: 1rem;
     color: var(--ink-muted);
-  }
-
-  .nudge,
-  .action {
-    /* 44 px: the density of the administration's form controls (ADR-033). */
-    height: 2.75rem;
-    padding: 0 1rem;
-    font-size: 1.0625rem;
-    font-weight: 700;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    transition:
-      background-color var(--tap) var(--ease),
-      border-color var(--tap) var(--ease);
-  }
-
-  .nudge:disabled,
-  .action:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
-  /* What a mouse expects, and a finger never asked for (app.css). */
-  @media (hover: hover) {
-    .nudge:hover:not(:disabled),
-    .action:hover:not(:disabled) {
-      background: var(--bg);
-    }
-  }
-
-  /* A key, not a red padlock: the act is possible, it only asks who you are. The word is
-     written out — an icon alone teaches nothing to whoever does not know it. */
-  .guarded {
-    margin-left: 0.5rem;
-    padding: 0.0625rem 0.375rem;
-    border-radius: var(--radius-pill);
-    background: var(--bg);
-    color: var(--ink-muted);
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    vertical-align: middle;
   }
 
   .check {

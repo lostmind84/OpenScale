@@ -205,11 +205,31 @@ jobs:
         working-directory: web
         run: npm run budget
 
-      # internal/web/dist est COMMITÉ pour que `go build` marche sans Node. Les
-      # sorties de Vite ne sont pas reproductibles d'une version de Node à l'autre,
-      # donc on ne compare pas les octets : on vérifie seulement que le dépôt porte
-      # bien un dist, et que le binaire compile avec lui.
-      - name: internal/web/dist est présent dans le dépôt
+      # internal/web/dist est COMMITÉ pour que `go build` marche sans Node. Il est
+      # donc l'écran RÉELLEMENT LIVRÉ, et la suite de tests ne le regarde jamais :
+      # elle lit web/src. Un dist en retard laisse donc tout au vert pendant que le
+      # binaire sert un écran périmé.
+      #
+      # Ce n'est pas une hypothèse. C'est arrivé DEUX FOIS : 706b3ec sur main
+      # (« reconstruire le dist embarqué, que la refonte n'avait pas regénéré »),
+      # puis sur la branche de reprise de l'administration, où trois commits de
+      # correction — dont celui qui cachait les clés de configuration — n'étaient
+      # pas dans le bundle. Aucune relecture de code ne peut voir ce défaut : il
+      # n'est pas DANS le code, il est dans l'écart entre le code et l'objet livré.
+      #
+      # La comparaison porte sur les octets, et c'est tenable parce que `npm ci`
+      # installe les versions figées du lock : vite, rollup et svelte sont épinglés,
+      # et deux constructions successives produisent les mêmes empreintes. Si un
+      # changement de version rend un jour cette étape rouge sur un dist pourtant à
+      # jour, la réponse est de reconstruire et de committer, jamais de retirer la
+      # garde.
+      - name: internal/web/dist est à jour
         run: |
           test -f internal/web/dist/index.html
           test -f internal/web/dist/admin.html
+          if ! git diff --exit-code --stat internal/web/dist; then
+            echo "::error::internal/web/dist est en retard sur web/src. Lancez"        \
+                 "'npm --prefix web run build' et committez internal/web/dist :"       \
+                 "sans cela le binaire livre l'écran d'avant vos modifications."
+            exit 1
+          fi

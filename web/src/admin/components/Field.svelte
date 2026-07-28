@@ -1,10 +1,13 @@
 <script lang="ts">
+  import { preferences } from '../lib/preferences.svelte'
+
   /**
-   * Un champ de la configuration : son libellé, sa valeur, et le pourquoi à côté.
+   * A field of the configuration: its label, its value, and the why beside it.
    *
-   * Le libellé porte le chemin de la clé — `scale.options.port` — parce que c'est ce que
-   * nomment les 45 contrôles de §11.3 quand ils refusent, et qu'un écran qui appellerait
-   * ce champ « Port de la balance » laisserait un bénévole chercher lequel corriger.
+   * The path of the key is only shown when it has been asked for. The controls of §11.3
+   * do name a KEY when they refuse, but it is now the refusal bar that translates it into
+   * French: repeating it under every field of the screen taught something to one person
+   * in a hundred, and cluttered the reading of the ninety-nine others.
    */
   interface Props {
     label: string
@@ -12,7 +15,12 @@
     value: string
     /** Ce que ce réglage décide, en une phrase. */
     hint?: string
-    kind?: 'text' | 'number'
+    /**
+     * `password` masks what is typed and only ever WRITES: the service never serves a
+     * password to the browser, so a field opened on its value would open empty and read
+     * as a secret that had been wiped.
+     */
+    kind?: 'text' | 'number' | 'password'
     disabled?: boolean
     /** Le message du contrôle qui a refusé cette clé, vide quand il n'y en a pas. */
     fault?: string
@@ -40,7 +48,7 @@
 <div class="field" class:refused={fault !== ''}>
   <label for={id}>
     <span class="name">{label}</span>
-    <code>{path}</code>
+    {#if preferences.showTechnicalNames}<code>{path}</code>{/if}
   </label>
   <input
     {id}

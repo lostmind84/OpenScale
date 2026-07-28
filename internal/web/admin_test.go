@@ -46,7 +46,7 @@ func TestSavingAConfigurationWritesItThenAppliesIt(t *testing.T) {
 // TestAnInvalidConfigurationComesBackWithEveryFaultAtOnce (§11.3).
 //
 // A screen that fixes one fault, saves, and discovers the second is a screen somebody
-// gives up on. The 45 controls run to the end and answer together.
+// gives up on. The 47 controls run to the end and answer together.
 func TestAnInvalidConfigurationComesBackWithEveryFaultAtOnce(t *testing.T) {
 	b := adminBench(t, func(o *benchOptions) { o.configStore = &savedConfig{} })
 

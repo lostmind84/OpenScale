@@ -1,4 +1,5 @@
 import type { HealthDTO } from './dto'
+import { labelOf } from './fields'
 import { frenchBytes, frenchDuration, frenchInteger } from './format'
 
 /**
@@ -87,8 +88,8 @@ function scaleLight(health: HealthDTO): Light {
       value: `une mesure toutes les ${cadence}, plus lent que la péremption`,
       remedy:
         'À cette cadence, un poids serait déclaré périmé avant l’arrivée de la mesure ' +
-        'suivante. Vérifiez le câble et l’adaptateur USB, puis la cadence dans ' +
-        'Réglages avancés → Matériel.',
+        'suivante. Vérifiez le câble et l’adaptateur USB, puis la cadence sur la ' +
+        'page Matériel.',
     }
   }
   return {
@@ -138,7 +139,7 @@ function printerLight(health: HealthDTO): Light {
         value: 'elle prend les étiquettes et ne dit rien en retour',
         remedy:
           'C’est la réponse normale d’une file Windows en RAW ou d’un fichier de ' +
-          'périphérique, pas une panne (ADR-007). Pour savoir si elle imprime, touchez ' +
+          'périphérique, pas une panne. Pour savoir si elle imprime, touchez ' +
           '« Imprimer une étiquette de test ».',
       }
   }
@@ -173,7 +174,7 @@ function rollLight(health: HealthDTO): Light {
       value: 'aucun compteur d’étiquettes sur ce poste',
       remedy:
         'Sans imprimante construite, il n’y a pas de rouleau à compter : vérifiez ' +
-        'printer.type et printer.options dans Réglages avancés → Matériel.',
+        `le « ${labelOf('printer.type')} » et ses réglages sur la page Matériel.`,
     }
   }
   if (!roll.known) {
@@ -323,7 +324,7 @@ function journalLight(health: HealthDTO): Light {
       level: 'unknown',
       value: 'ce poste n’a pas de journal ouvert',
       remedy:
-        'Le poste pèse et imprime quand même (ADR-013). Téléchargez le fichier de ' +
+        'Le poste pèse et imprime quand même. Téléchargez le fichier de ' +
         'diagnostic : il dit pourquoi la base n’a pas pu être ouverte.',
     }
   }

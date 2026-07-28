@@ -26,7 +26,7 @@ export interface ProblemDTO {
   faults?: FaultDTO[]
 }
 
-/** Un des 45 contrôles de configuration qui a échoué (§11.3). */
+/** Un des 47 contrôles de configuration qui a échoué (§11.3). */
 export interface FaultDTO {
   field: string
   message: string

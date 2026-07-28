@@ -251,8 +251,13 @@ func (l *livePrinter) printService() (*printing.Service, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	if l.wrapper == nil {
+		// The refusal names a PAGE and no configuration key, for the reason the twin refusal
+		// of catalogadmin.go gives: whoever reads it has the administration screen in front
+		// of them, and the « réglages avancés » it used to point at were removed on
+		// 27/07/2026. « Pilote d'impression » is the French name the screen itself gives
+		// printer.type, so the sentence and the field it blames read the same.
 		return nil, errors.New("l'imprimante de ce poste n'a pas pu être construite : " +
-			"corrigez printer.type et printer.options dans les réglages avancés")
+			"reprenez le pilote d'impression et ses réglages sur la page Matériel")
 	}
 	return l.wrapper, nil
 }

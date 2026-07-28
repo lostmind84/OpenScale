@@ -38,7 +38,7 @@ type ConfigVersion struct {
 // versions of §11.1.
 //
 // It is what makes the administration screen able to save. Everything about the CONTENT
-// of a configuration — the 45 controls, the fingerprint, the export — belongs to
+// of a configuration — the 47 controls, the fingerprint, the export — belongs to
 // domain.Config; this type only knows how to put bytes on a disk without ever leaving a
 // station with half a configuration.
 type ConfigStore struct {

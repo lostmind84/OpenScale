@@ -5,6 +5,7 @@ import { flushSync, mount, unmount } from 'svelte'
 import { createClassComponent } from 'svelte/legacy'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Catalog from '../src/admin/pages/Catalog.svelte'
+import { Draft } from '../src/admin/lib/draft.svelte'
 import type { DecisionDTO, FindingDTO, HealthDTO, ImportDTO } from '../src/admin/lib/dto'
 import { Admin } from '../src/admin/lib/session.svelte'
 import { FLV_IMPORT, nominalHealth } from './fixtures/health'
@@ -183,10 +184,23 @@ function json(body: unknown, status = 200): Promise<Response> {
   return Promise.resolve(new Response(JSON.stringify(body), { status }))
 }
 
+/**
+ * Le bloc catalogue tel que le poste le sert, réduit à ce que le panneau de source lit.
+ *
+ * Ce fichier ne teste PAS ce panneau — `admin-source.test.ts` s'en charge —, mais la page
+ * l'édite désormais et un brouillon vide lui ferait dire « ce poste ne déclare aucune
+ * source », ce qui n'est le cas d'aucun poste en service.
+ */
+function localDropConfig(): Record<string, unknown> {
+  return { catalog: { type: 'local_drop', options: {} } }
+}
+
 /** Monte la page sur un tableau de bord, et rend l'objet de session. */
 function open(health: HealthDTO = nominalHealth()): Admin {
   const admin = new Admin()
-  component = mount(Catalog, { target: host, props: { admin, health } })
+  const draft = new Draft(admin)
+  draft.config = localDropConfig()
+  component = mount(Catalog, { target: host, props: { admin, draft, health } })
   flushSync()
   return admin
 }
@@ -203,10 +217,13 @@ function open(health: HealthDTO = nominalHealth()): Admin {
  * @returns de quoi en poser un autre.
  */
 function openLive(health: HealthDTO): (next: HealthDTO) => void {
+  const admin = new Admin()
+  const draft = new Draft(admin)
+  draft.config = localDropConfig()
   live = createClassComponent({
     component: Catalog,
     target: host,
-    props: { admin: new Admin(), health },
+    props: { admin, draft, health },
   }) as unknown as { $set: (props: Record<string, unknown>) => void; $destroy: () => void }
   flushSync()
   return (next: HealthDTO) => {

@@ -3,8 +3,10 @@
   import Light from '../components/Light.svelte'
   import Panel from '../components/Panel.svelte'
   import type { HealthDTO } from '../lib/dto'
+  import { logSourceLabelOf } from '../lib/fields'
   import { frenchDate, frenchDateTime, frenchDuration, frenchInteger, frenchTime } from '../lib/format'
   import { lightsOf } from '../lib/lights'
+  import { preferences } from '../lib/preferences.svelte'
 
   /**
    * Le tableau de bord de §14.4, page ouverte par défaut et SANS mot de passe (ADR-018).
@@ -111,7 +113,7 @@
 
   <Panel
     title="Décisions locales en vigueur"
-    note="Ce qu’un humain a décidé de ce catalogue, avec son motif et sa date (§10.6)."
+    note="Ce qu’un humain a décidé de ce catalogue, avec son motif et sa date."
   >
     {#if decisions.length === 0}
       <p class="fact">Aucune décision locale : le catalogue est proposé tel qu’il arrive.</p>
@@ -174,8 +176,22 @@
         {#each health.events as event (event.id)}
           <li data-level={event.level}>
             <span class="time">{frenchTime(event.occurred_at)}</span>
-            <span class="source">{event.source}</span>
-            {#if event.code !== ''}<span class="code">{event.code}</span>{/if}
+            <!--
+              The origin is translated HERE TOO, and the reason is the one written just
+              below about the code: the Journal reads the same technical log and says
+              « catalogue » where this page said « catalog ». One log, two screens, one
+              vocabulary — and this is the page that opens without a password.
+            -->
+            <span class="source">{logSourceLabelOf(event.source)}</span>
+            <!--
+              The technical code goes behind the switch, as on the Journal page: this is
+              the SAME technical log, shown here in ten lines and there in fifty, and a
+              screen that hid `ERR-CAT-05` on one side to show it on the other would hide
+              nothing at all. The French message already says what happened.
+            -->
+            {#if event.code !== '' && preferences.showTechnicalNames}
+              <span class="code">{event.code}</span>
+            {/if}
             <span class="message">{event.message}</span>
           </li>
         {/each}
