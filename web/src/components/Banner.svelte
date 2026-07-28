@@ -83,7 +83,7 @@
 </script>
 
 <header class="banner" data-state={snapshot?.state ?? 'initializing'}>
-  <div class="weight-block">
+  <div class="weight-block" style:border-left-color={ribbon}>
     {#if weightVisible && snapshot}
       <p class="weight">{snapshot.weight.net_text}<span class="unit"> kg</span></p>
       <p class="tare">tare {snapshot.weight.tare_g} g</p>
@@ -131,14 +131,17 @@
   .weight-block {
     flex: 0 0 auto;
     min-width: 20rem;
-    padding-right: 2rem;
-    border-right: 1px solid var(--border-soft);
+    padding: 0.5rem 2rem 0.5rem 1.5rem;
+    background: var(--bg);
+    border-radius: var(--radius-lg);
+    border-left: 0.5rem solid var(--waiting);
+    transition: border-color var(--slide) var(--ease);
   }
 
   .weight {
     margin: 0;
-    /* 96 px / 700 / tabular: readable at 2,5 m (§14.2). */
-    font-size: 6rem;
+    /* Fluid: readable at 2,5 m at every screen width (§14.2). */
+    font-size: clamp(4.5rem, 6.5vw, 8rem);
     font-weight: 700;
     line-height: 1;
     letter-spacing: -0.02em;
