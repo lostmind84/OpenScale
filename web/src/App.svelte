@@ -74,6 +74,16 @@
   const rejectedID = $derived(snapshot?.state === 'rejected' ? (snapshot.product?.id ?? null) : null)
 
   /**
+   * The two states that take the WHOLE screen, and the only ones (§14.3).
+   *
+   * Derived once and read twice — by the keyboard guard and by the template
+   * below — so that a state added to one can never be forgotten by the other.
+   */
+  const screenTaken = $derived(
+    snapshot?.state === 'faulted' || snapshot?.state === 'out_of_service',
+  )
+
+  /**
    * The states in which a tile is still IN HAND, and therefore still ringed.
    *
    * `succeeded` is not one of them, and that is the whole point: the label has come
@@ -167,10 +177,22 @@
    * a keyboard, never a finger — this screen has no touch keyboard (§14.3-3,
    * revised 28/07/2026). Ignored while a real <input> has focus: SearchField
    * then handles its own typing natively.
+   *
+   * Two things on this screen come BEFORE the grid, and typing must reach
+   * neither the search nor them:
+   *
+   *   - the tare pad is made of KEYS and not of an `<input>`, so nothing about
+   *     a keystroke distinguishes « 500 grammes of jar » from a product being
+   *     looked up. Left unguarded, the search field opens over the entry in
+   *     progress and the tare the customer believed they typed exists nowhere.
+   *   - a full screen is the only moment this screen is TAKEN (§14.3): what is
+   *     typed behind it has no addressee, and a volunteer who dismisses the
+   *     fault would find the grid filtered by letters nobody meant for it.
    */
   function onGlobalKey(event: KeyboardEvent): void {
     if (event.metaKey || event.ctrlKey || event.altKey) return
     if (event.target instanceof HTMLElement && event.target.tagName === 'INPUT') return
+    if (tareEntry !== null || screenTaken) return
     if (event.key === 'Escape') {
       event.preventDefault()
       clearQuery()
@@ -266,6 +288,8 @@
     onadmin={openAdmin}
   />
 
+  <!-- Les deux seules prises de l'écran entier, et `screenTaken` les compte
+       toutes les deux pour la garde clavier plus haut. -->
   {#if snapshot?.state === 'faulted'}
     <FullScreen
       title="Poste indisponible"

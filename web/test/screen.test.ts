@@ -319,6 +319,44 @@ describe('la recherche : un filtre en place, jamais une vue', () => {
     expect(host.querySelector('.search-field')).toBeNull()
     expect(tiles()).toHaveLength(331)
   })
+
+  /*
+   * L'écoute clavier est GLOBALE, et deux choses la précèdent à l'écran.
+   *
+   * Le pavé de tare est fait de touches, pas d'un <input> : sur un poste piloté
+   * au clavier, taper « 500 » y est le geste naturel, et rien ne le distingue
+   * d'une frappe destinée à la grille. Sans garde, la recherche s'ouvre
+   * PAR-DESSUS la saisie en cours et la tare que le client croyait taper
+   * n'existe nulle part.
+   */
+  it('ne détourne pas la frappe pendant la saisie de la tare', async () => {
+    await open()
+    host.querySelector<HTMLElement>('.tare-key')?.click()
+    flushSync()
+    expect(host.querySelector('[aria-label="Tare en grammes"]')).not.toBeNull()
+
+    typeKey('5')
+    typeKey('0')
+    typeKey('0')
+
+    expect(host.querySelector('.search-field')).toBeNull()
+    expect(tiles()).toHaveLength(331)
+  })
+
+  /*
+   * Un plein écran de panne est le seul moment où l'écran est PRIS (§14.3) : ce
+   * qui est tapé derrière lui n'a pas de destinataire. Sans garde, le bénévole
+   * qui referme la panne retrouve une grille filtrée sans savoir par quoi.
+   */
+  it('ne détourne pas la frappe derrière un plein écran de panne', async () => {
+    await open(restingState({ state: 'faulted', fault_code: 'ERR-PRN-04' }))
+    expect(host.querySelector('[role="alertdialog"]')).not.toBeNull()
+
+    typeKey('c')
+    typeKey('a')
+
+    expect(host.querySelector('.search-field')).toBeNull()
+  })
 })
 
 describe('le double tarif de chaque tuile (ADR-036)', () => {
