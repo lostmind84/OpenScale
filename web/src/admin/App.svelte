@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Draft } from './lib/draft.svelte'
+  import { labelOf } from './lib/fields'
+  import { preferences } from './lib/preferences.svelte'
   import { Admin, needsPassword, type PageID } from './lib/session.svelte'
   import Act from './components/Act.svelte'
   import PasswordPanel from './components/PasswordPanel.svelte'
@@ -140,6 +142,18 @@
         </p>
         <p class="build">configuration {admin.health.config_fingerprint}</p>
       {/if}
+      <!--
+        L'interrupteur vit ici et NON dans une page de réglages : il ne règle pas le
+        poste, il règle l'écran, et il doit rester atteignable depuis les neuf pages.
+      -->
+      <label class="technical">
+        <input
+          type="checkbox"
+          checked={preferences.showTechnicalNames}
+          onchange={() => preferences.toggleTechnicalNames()}
+        />
+        Montrer les noms techniques
+      </label>
       {#if onclose !== undefined}
         <button type="button" class="back" onclick={onclose}>← Revenir à l’écran client</button>
       {/if}
@@ -203,18 +217,31 @@
     {#if needsPassword(admin.page) && draft.config !== null}
       <footer class="save-bar">
         {#if draft.retired.length > 0}
+          <!--
+            Les boutons nomment la CLÉ EXACTE et non son libellé : c'est elle qu'ils
+            suppriment, et une clé périmée n'a le plus souvent aucun nom français — le
+            binaire ne la connaît plus.
+          -->
           <p class="retired">
-            Ce fichier porte des clés que ce binaire refuse : {draft.retired.join(', ')}.
+            Ce fichier porte des réglages que cette version du poste ne connaît plus :
+            {draft.retired.map((key) => labelOf(key)).join(', ')}.
             {#each draft.retired as key (key)}
               <Act kind="write" label={`retirer ${key}`} onrun={() => draft.dropRetired(key)} />
             {/each}
           </p>
         {/if}
         {#if draft.faults.length > 0}
+          <!--
+            Le refus nomme le champ en FRANÇAIS : le service répond un couple clé +
+            message, et « attendu : nombre entier » ne nomme rien tout seul une fois la
+            clé masquée. Le repli de `labelOf` garde lisible un contrôle qu'aucune page
+            n'édite.
+          -->
           <ul class="faults" data-faults>
             {#each draft.faults as fault (fault.field)}
               <li>
-                <code>{fault.field}</code>
+                <strong>{labelOf(fault.field)}</strong>
+                {#if preferences.showTechnicalNames}<code>{fault.field}</code>{/if}
                 {fault.message}
                 {#if fault.allowed !== undefined && fault.allowed.length > 0}
                   — valeurs acceptées : {fault.allowed.join(', ')}
@@ -331,6 +358,24 @@
     margin: 0.125rem 0 0;
     font-size: 0.8125rem;
     color: var(--ink-muted);
+  }
+
+  .technical {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    /* 44 px et une case de 24 px : la densité des commandes de formulaire de
+       l'administration (ADR-033). Le rail se touche au doigt comme le reste. */
+    min-height: 2.75rem;
+    margin-top: 0.75rem;
+    color: var(--ink-muted);
+    font-size: 0.9375rem;
+  }
+
+  .technical input {
+    width: 1.5rem;
+    height: 1.5rem;
+    flex: 0 0 auto;
   }
 
   .back {

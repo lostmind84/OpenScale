@@ -1,8 +1,13 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushSync, mount, unmount } from 'svelte'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import App from '../src/admin/App.svelte'
+import Field from '../src/admin/components/Field.svelte'
 import { FIELD_LABELS, labelOf } from '../src/admin/lib/fields'
+import { preferences } from '../src/admin/lib/preferences.svelte'
+import { nominalHealth } from './fixtures/health'
 
 /**
  * Ce que l'écran d'administration DIT, et le nom français de chaque clé qu'il édite.
@@ -140,3 +145,182 @@ describe('la préférence des noms techniques', () => {
     }
   })
 })
+
+/** La clé que ce banc fait refuser au poste : elle est dans l'index, et c'est le sujet. */
+const REFUSED_FIELD = 'limits.max_weight_g'
+
+/** Le nom français que l'index lui donne. */
+const REFUSED_LABEL = 'Poids maximum accepté'
+
+/** Une clé que ce binaire ne connaît plus, telle que le contrôle 20 la remonte. */
+const RETIRED_KEY = 'barcode.weight_decimals'
+
+let host: HTMLElement
+let component: unknown
+/** Ce que le fichier du poste porte de périmé, pour le bandeau qui le dit. */
+let retired: string[] = []
+
+/**
+ * L'interrupteur en service : ce qu'il cache, où on le trouve, et ce qui reste sans lui.
+ *
+ * Ce n'est pas une préférence d'affichage parmi d'autres. Masquer la clé sans mettre le
+ * nom français à sa place laisserait « 99999 hors bornes [1, 50000] » tout seul au-dessus
+ * du bouton d'enregistrement, sans dire de quel champ il parle : le masquage et l'index
+ * des libellés ne tiennent que l'un par l'autre.
+ */
+describe('l’interrupteur des noms techniques', () => {
+  beforeEach(() => {
+    globalThis.localStorage.clear()
+    preferences.showTechnicalNames = false
+    retired = []
+    host = document.createElement('div')
+    document.body.append(host)
+    vi.stubGlobal('fetch', fakeFetch)
+  })
+
+  afterEach(() => {
+    if (component !== undefined) unmount(component as Parameters<typeof unmount>[0])
+    component = undefined
+    host.remove()
+    vi.unstubAllGlobals()
+  })
+
+  it('cache la clé sous un champ, et la rend quand on le coche', () => {
+    component = mount(Field, {
+      target: host,
+      props: {
+        label: REFUSED_LABEL,
+        path: REFUSED_FIELD,
+        value: '99999',
+        onchange: () => {},
+      },
+    })
+    flushSync()
+    expect(host.textContent).toContain(REFUSED_LABEL)
+    expect(host.textContent).not.toContain(REFUSED_FIELD)
+
+    preferences.showTechnicalNames = true
+    flushSync()
+    expect(host.textContent).toContain(REFUSED_FIELD)
+  })
+
+  it('se coche depuis le rail, sous l’identité du poste', async () => {
+    await openAdmin()
+
+    const rail = host.querySelector('.rail')
+    expect(rail?.textContent).toContain('Montrer les noms techniques')
+    const box = rail?.querySelector<HTMLInputElement>('input[type="checkbox"]') ?? null
+    expect(box, 'aucun interrupteur dans le rail').not.toBeNull()
+    expect(box?.checked).toBe(false)
+
+    box?.click()
+    flushSync()
+
+    expect(preferences.showTechnicalNames).toBe(true)
+  })
+
+  it('laisse la barre de refus nommer le champ en français, la clé restant dessous', async () => {
+    await openAdmin()
+    await press('Matériel')
+    await changeAField()
+    await press('Enregistrer la configuration')
+
+    const refusals = host.querySelector('[data-faults]')
+    expect(refusals, 'aucune barre de refus après un enregistrement refusé').not.toBeNull()
+    expect(refusals?.textContent).toContain(REFUSED_LABEL)
+    expect(refusals?.textContent).toContain('99999 hors bornes [1, 50000].')
+    expect(refusals?.textContent).not.toContain(REFUSED_FIELD)
+
+    preferences.showTechnicalNames = true
+    flushSync()
+
+    expect(host.querySelector('[data-faults]')?.textContent).toContain(REFUSED_FIELD)
+  })
+
+  it('dit d’une clé périmée ce qu’elle est, sans cesser de nommer celle qu’on retire', async () => {
+    retired = [RETIRED_KEY]
+    await openAdmin()
+    await press('Matériel')
+
+    const bar = host.querySelector('footer')?.textContent ?? ''
+    expect(bar).toContain('des réglages que cette version du poste ne connaît plus')
+    expect(bar).not.toContain('binaire')
+    // Le bouton, lui, supprime CETTE clé-là : il la nomme, interrupteur ou pas.
+    expect(bar).toContain(`retirer ${RETIRED_KEY}`)
+  })
+})
+
+/** Le poste, réduit à ce que cette barre de refus demande : une lecture, puis un 422. */
+function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const route = String(input)
+  if (route === '/admin/api/health') return json(nominalHealth())
+  if (route === '/admin/api/config' && init?.method === 'PUT') {
+    return json(
+      {
+        code: '',
+        message: 'Cette configuration ne peut pas être appliquée.',
+        faults: [{ field: REFUSED_FIELD, message: '99999 hors bornes [1, 50000].' }],
+      },
+      422,
+    )
+  }
+  if (route.startsWith('/admin/api/config')) {
+    return json({
+      config: { station: { number: 2 } },
+      config_fingerprint: 'a1b2c3d4',
+      retired_keys: retired,
+      pending_confirmation: null,
+    })
+  }
+  return json({ ports: [], printers: [], weighings: [], entries: [], versions: [] })
+}
+
+/** Une réponse du service, telle que `problem` l'écrit quand elle refuse. */
+function json(body: unknown, status = 200): Promise<Response> {
+  return Promise.resolve(new Response(JSON.stringify(body), { status }))
+}
+
+/** Monte l'écran d'administration entier et laisse le tableau de bord se dessiner. */
+async function openAdmin(): Promise<void> {
+  component = mount(App, { target: host, props: {} })
+  flushSync()
+  await settle()
+}
+
+/**
+ * Laisse ce qui est en vol se terminer, puis met le DOM à jour.
+ *
+ * Aucune horloge métier n'est en jeu : la règle « aucun test ne dort » porte sur l'horloge
+ * injectée du poste, pas sur le tour de boucle d'événements d'un navigateur simulé.
+ */
+async function settle(): Promise<void> {
+  for (let round = 0; round < 3; round += 1) {
+    await new Promise((done) => setTimeout(done, 0))
+    flushSync()
+  }
+}
+
+/** Touche le bouton dont le libellé contient ce fragment, et laisse l'acte se terminer. */
+async function press(fragment: string): Promise<void> {
+  const found = [...host.querySelectorAll('button')].find((candidate) =>
+    (candidate.textContent ?? '').includes(fragment),
+  )
+  if (found === undefined) throw new Error(`aucun bouton « ${fragment} » à l'écran`)
+  found.click()
+  await settle()
+}
+
+/**
+ * Modifie un champ de la page ouverte, pour armer le bouton d'enregistrement.
+ *
+ * Il est désarmé tant que rien n'a bougé — « Aucune modification à enregistrer » — et un
+ * enregistrement qui ne part pas ne rapporte aucun refus à afficher.
+ */
+async function changeAField(): Promise<void> {
+  const field = host.querySelector<HTMLInputElement>('main input[type="text"]')
+  expect(field, 'aucun champ à modifier sur cette page').not.toBeNull()
+  if (field === null) return
+  field.value = 'COM9'
+  field.dispatchEvent(new Event('input', { bubbles: true }))
+  await settle()
+}

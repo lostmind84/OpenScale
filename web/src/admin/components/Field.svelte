@@ -1,10 +1,14 @@
 <script lang="ts">
+  import { preferences } from '../lib/preferences.svelte'
+
   /**
    * Un champ de la configuration : son libellé, sa valeur, et le pourquoi à côté.
    *
-   * Le libellé porte le chemin de la clé — `scale.options.port` — parce que c'est ce que
-   * nomment les 45 contrôles de §11.3 quand ils refusent, et qu'un écran qui appellerait
-   * ce champ « Port de la balance » laisserait un bénévole chercher lequel corriger.
+   * Le chemin de la clé n'est montré que si on l'a demandé. Les contrôles de §11.3
+   * nomment bien une CLÉ quand ils refusent, mais c'est désormais la barre de refus qui
+   * la traduit en français : la répéter sous chaque champ de l'écran apprenait quelque
+   * chose à une personne sur cent, et encombrait la lecture des quatre-vingt-dix-neuf
+   * autres.
    */
   interface Props {
     label: string
@@ -40,7 +44,7 @@
 <div class="field" class:refused={fault !== ''}>
   <label for={id}>
     <span class="name">{label}</span>
-    <code>{path}</code>
+    {#if preferences.showTechnicalNames}<code>{path}</code>{/if}
   </label>
   <input
     {id}
