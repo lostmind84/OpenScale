@@ -88,8 +88,6 @@ type catalogPresentationDTO struct {
 	IdleTimeoutSeconds   int  `json:"idle_timeout_s"`
 	ReprintWindowSeconds int  `json:"reprint_window_s"`
 	Sound                bool `json:"sound"`
-	// TileSize is `small`, `medium` or `large` — the density of the grid (ADR-031).
-	TileSize string `json:"tile_size"`
 }
 
 // rfc3339OrEmpty formats an instant, and the zero time as an empty string.
@@ -210,7 +208,6 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 			IdleTimeoutSeconds:   cfg.UI.IdleTimeoutSeconds,
 			ReprintWindowSeconds: cfg.UI.ReprintWindowSeconds,
 			Sound:                cfg.UI.Sound,
-			TileSize:             cfg.UI.TileSize,
 		},
 		UpdatedAt: rfc3339OrEmpty(s.hub.CatalogUpdatedAt()),
 	}

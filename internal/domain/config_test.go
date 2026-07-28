@@ -584,13 +584,6 @@ func brokenConfigurations() []brokenConfiguration {
 				setOption(t, c.Catalog.Options, "max_file_size_mb", 1)
 			},
 			field: "catalog.options.max_image_size_kb",
-		}, {
-			// Sans ce contrôle, « moyen » retomberait en silence sur la taille par
-			// défaut : l'exploitant verrait la grille ne pas bouger et conclurait que
-			// le réglage ne sert à rien.
-			control: "46", name: "taille de tuile inconnue",
-			mutate: func(_ *testing.T, c *Config) { c.UI.TileSize = "moyen" },
-			field:  "ui.tile_size",
 		},
 	}
 }
@@ -730,6 +723,26 @@ func TestOldCoefficientKeysAreRefused(t *testing.T) {
 		if !strings.Contains(retired[0], key) {
 			t.Errorf("%s : clé retirée %q, elle doit nommer la clé", key, retired[0])
 		}
+	}
+}
+
+// TestRetiredTileSizeIsRefused covers ADR-035: grid density becomes continuous
+// again (clamp() on the front end) and ui.tile_size no longer has any field to
+// carry it. A file that still carries it must be refused the way ADR-034
+// refused coef_num, not silently ignored.
+func TestRetiredTileSizeIsRefused(t *testing.T) {
+	raw := []byte(`{"ui":{"tile_size":"medium"}}`)
+	var config Config
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatalf("décodage : %v", err)
+	}
+	retired := config.Retired()
+	if len(retired) != 1 || retired[0] != "ui.tile_size" {
+		t.Fatalf("clés retirées = %v, attendu [ui.tile_size]", retired)
+	}
+	reason, known := retiredKeys["tile_size"]
+	if !known || reason == "" {
+		t.Fatal("tile_size absente de la table des clés retirées, ou sans raison")
 	}
 }
 
