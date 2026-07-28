@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -877,4 +878,112 @@ func TestAFileRefusedBeforeItsFirstRowIsCountedToo(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAnEmptyDirectoryOptionKeepsTheStationDirectory is the shipped case: nothing in
+// catalog.options, and the source watches the directory the service owns and creates.
+func TestAnEmptyDirectoryOptionKeepsTheStationDirectory(t *testing.T) {
+	data := t.TempDir()
+	got, owned := Directory(catalog.SourceConfig{DataDir: data})
+	want := filepath.Join(data, "catalog", "incoming")
+	if got != want {
+		t.Errorf("répertoire = %q, attendu %q", got, want)
+	}
+	if !owned {
+		t.Error("le répertoire par défaut appartient au service : il le crée lui-même")
+	}
+}
+
+// TestANamedDirectoryIsWatchedAndNotOwned: somebody named a directory, so the service
+// watches it and does NOT create it. A typo would otherwise build a tree nobody watches.
+func TestANamedDirectoryIsWatchedAndNotOwned(t *testing.T) {
+	chosen := t.TempDir()
+	c := catalog.SourceConfig{
+		DataDir: t.TempDir(),
+		Catalog: domain.CatalogConfig{Options: driverOptions(t,
+			`{"directory":`+strconv.Quote(chosen)+`}`)},
+	}
+	got, owned := Directory(c)
+	if got != filepath.Clean(chosen) {
+		t.Errorf("répertoire = %q, attendu %q", got, filepath.Clean(chosen))
+	}
+	if owned {
+		t.Error("un répertoire nommé par un humain n'appartient pas au service")
+	}
+}
+
+// TestABlankDirectoryOptionIsNoDirectoryAtAll: a field somebody opened and left with a
+// space in it must not send the station watching " ".
+func TestABlankDirectoryOptionIsNoDirectoryAtAll(t *testing.T) {
+	data := t.TempDir()
+	c := catalog.SourceConfig{
+		DataDir: data,
+		Catalog: domain.CatalogConfig{Options: driverOptions(t, `{"directory":"   "}`)},
+	}
+	got, owned := Directory(c)
+	if got != filepath.Join(data, "catalog", "incoming") || !owned {
+		t.Errorf("un champ blanc doit valoir le répertoire du poste, obtenu %q (owned=%v)", got, owned)
+	}
+}
+
+// TestANamedDirectoryThatIsAbsentIsRefusedAtBuild: New does not create it, and says so
+// rather than watching a path that will never receive anything.
+func TestANamedDirectoryThatIsAbsentIsRefusedAtBuild(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "jamais-monte")
+	_, err := New(catalog.SourceConfig{
+		DataDir: t.TempDir(),
+		Clock:   fake.NewClock(t0),
+		Catalog: domain.CatalogConfig{Options: driverOptions(t,
+			`{"directory":`+strconv.Quote(absent)+`}`)},
+	})
+	if err == nil {
+		t.Fatal("un répertoire nommé et absent doit être refusé, pas créé")
+	}
+	if _, statErr := os.Stat(absent); statErr == nil {
+		t.Error("le service a créé un répertoire qu'un humain avait nommé")
+	}
+}
+
+// TestANamedDirectoryIsTheOneTheStationReallyWatches closes the loop between the option
+// and the file: a directory that is merely remembered and never watched would read right
+// on the administration screen and receive nothing for ever.
+func TestANamedDirectoryIsTheOneTheStationReallyWatches(t *testing.T) {
+	chosen := t.TempDir()
+	source, err := New(catalog.SourceConfig{
+		StationNumber: 2,
+		DataDir:       t.TempDir(),
+		Clock:         fake.NewClock(t0),
+		Catalog: domain.CatalogConfig{
+			Options:          driverOptions(t, `{"directory":`+strconv.Quote(chosen)+`}`),
+			Images:           domain.ImagesConfig{Source: domain.ImageSourceCSV},
+			FallbackCategory: "other",
+		},
+	})
+	if err != nil {
+		t.Fatalf("construction de la source : %v", err)
+	}
+	t.Cleanup(func() { source.Close() })
+
+	if want := filepath.Join(chosen, "flv_2.csv"); source.Path() != want {
+		t.Fatalf("le poste surveille %q, attendu %q", source.Path(), want)
+	}
+	drop(t, source, aCatalog)
+	source.poll(context.Background())
+	if batch, err := source.poll(context.Background()); batch == nil {
+		t.Fatalf("le fichier déposé dans le répertoire nommé n'a pas été lu : %v", err)
+	}
+}
+
+// TestTheDescriptorDeclaresTheDropDirectory: an option the schema does not carry is
+// refused by control 9 long before it could ever be honoured.
+func TestTheDescriptorDeclaresTheDropDirectory(t *testing.T) {
+	for _, option := range Descriptor().Options {
+		if option.Key == DirectoryOption {
+			if option.Kind != domain.OptionText {
+				t.Errorf("le répertoire est déclaré %q, attendu du texte", option.Kind)
+			}
+			return
+		}
+	}
+	t.Errorf("le descripteur ne déclare pas %q", DirectoryOption)
 }
