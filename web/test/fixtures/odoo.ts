@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_TILE_SIZE, type Catalog, type Category, type Product } from '../../src/lib/catalog'
+import type { Catalog, Category, Product } from '../../src/lib/catalog'
 import { normalize } from '../../src/lib/normalize'
 
 /**
@@ -89,6 +89,22 @@ const DISCRETE_UNITS = new Set(['Unité(s)'])
 /** Units naming a CONTINUOUS quantity, which contradicts a by-unit prefix. */
 const CONTINUOUS_UNITS = new Set(['kg', 'Litre(s)'])
 
+/**
+ * The discount the primary tier ('A', Adhérent) takes off the reference price,
+ * mirroring `discount_percent: 10` of `testdata/config-lacagette.json`.
+ *
+ * This fixture stands in for the Go importer, never for `domain.UnitPriceFor`
+ * (§14.2): the arithmetic below is deliberately the same simple percentage, so
+ * a fixture product's two tiles match what the real service would derive from
+ * the same reference price.
+ */
+const MEMBER_DISCOUNT_PERCENT = 10
+
+/** The primary tier's price, in cents, derived from a reference price. */
+function memberCentsOf(referenceCents: number): number {
+  return Math.round((referenceCents * (100 - MEMBER_DISCOUNT_PERCENT)) / 100)
+}
+
 /** Directory of the authentic exports, resolved from this file and not from the cwd. */
 const CATALOG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../../testdata/catalog')
 
@@ -142,7 +158,6 @@ export function catalogOf(rows: QualifiedRow[], revision = '"fixture"'): Catalog
       idle_timeout_s: 45,
       reprint_window_s: 60,
       sound: true,
-      tile_size: DEFAULT_TILE_SIZE,
     },
   }
 }
@@ -170,6 +185,7 @@ function qualifyRow(record: string[], csvLine: number, seen: Set<string>): Quali
   const suffix = SUFFIX_OF_UNIT[unit] ?? (mode === 'by_unit' ? ' € l’unité' : ' €/kg')
   const cents = parsePriceCents(price)
   const imageName = image === '' ? '' : imageAsset(image)
+  const referenceCents = cents ?? 0
 
   const product: Product = {
     id,
@@ -177,10 +193,17 @@ function qualifyRow(record: string[], csvLine: number, seen: Set<string>): Quali
     search: normalize(name),
     category_code: category,
     mode,
-    unit_price_cents: cents ?? 0,
-    unit_price_text: euroText(cents ?? 0),
+    unit_price_cents: referenceCents,
+    unit_price_text: euroText(referenceCents),
     price_suffix: suffix,
     image_url: imageName === '' ? '' : `/images/${imageName}`,
+    // Two entries, primary first: 'A' (Adhérent) then 'S' (Solidaire, the
+    // reference) — the fixture's `pricing.tiers` above declares exactly these
+    // two, so every tile shows a double tarif, never just one.
+    prices: [
+      { code: 'A', text: euroText(memberCentsOf(referenceCents)) },
+      { code: 'S', text: euroText(referenceCents) },
+    ],
   }
   const base = { product, letter, csvLine, hasImage: image !== '', finding: '' }
 

@@ -1,5 +1,5 @@
 import { fetchCatalog } from './api'
-import { DEFAULT_TILE_SIZE, type Catalog, type Presentation } from './catalog'
+import type { Catalog, Presentation } from './catalog'
 import type { StateDTO } from './dto'
 import { linkHealth, type LinkHealth } from './link'
 
@@ -12,7 +12,6 @@ const DEFAULT_PRESENTATION: Presentation = {
   idle_timeout_s: 45,
   reprint_window_s: 60,
   sound: true,
-  tile_size: DEFAULT_TILE_SIZE,
 }
 
 /**
