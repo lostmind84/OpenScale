@@ -2317,15 +2317,10 @@ Surcharges : `--config`, `--data`, `OPENSCALE_CONFIG`, `OPENSCALE_DATA`. **Aucun
                                               // there are none left (§14.3).
           "reprint_window_s": 60,             // PERMANENT bottom bar — trade-off between
                                               // serving the customer and the fraud window
-          "show_grid_prices": true,
-          "tile_size": "medium",              // small | medium | large — la densité de la
-                                              // grille (ADR-031). Le seul réglage d'écran
-                                              // qui existe, et il existe parce que la
-                                              // contrainte physique qui l'interdisait a une
-                                              // exception : un poste conduit à la SOURIS
-                                              // n'est pas tenu par la cible de 20 mm.
-                                              // Absent ⇒ medium, donc un fichier écrit
-                                              // avant ce réglage garde sa grille.
+          "show_grid_prices": true
+          // tile_size REMOVED: la densité s'adapte en continu à l'écran (clamp CSS,
+          // ADR-035). Le contrôle 20 REFUSE désormais cette clé — un exemple qui la
+          // porterait encore ferait recopier une configuration que le poste rejette.
           // title REMOVED: "La Cagette" was not decoration, it was the string passed to
           // FindWindowA to lock the Access kiosk down. The name of the cooperative lives in
           // station.coop and is shown on the administration dashboard (§14.4).
@@ -3673,7 +3668,7 @@ Contrastes **AAA** (≥ 7:1) sur tout texte ≥ 24 px, **AA** partout ailleurs �
 
 **L'exigence, formulée en client et non en réfutation de l'ancien logiciel :** *les produits pesables sont tous atteignables en un défilement, et n'importe lequel en moins de 4 secondes* — **mesuré**, pas supposé, par `weighings.duration_ms` (§12.3). Sur la pièce de référence cela fait **331 produits** — 107 seulement sur `flv_1.csv`. Le chiffre a **triplé en quatre ans** : c'est la mesure qui compte, pas le 340 hérité de la table `Produits` de l'ancienne base, qui ne venait pas de la donnée reçue (§10.2). Une grille qui tiendrait juste à 107 et casserait à 331 serait déjà périmée. Une exigence qui se serait écrite « nous n'avons pas la limite qu'ils avaient » — ni 120 produits, ni 16 colonnes, ni 50 résultats, ni 32 767 twips — aurait encore été rédigée depuis l'ancienne application.
 
-1. **Une seule grille, une seule densité.** `repeat(auto-fill, minmax(230px, 1fr))`, tuile ≥ 72 px de haut (§14.2). Sur 1920 × 1080 : 7 colonnes, ~4 lignes visibles, **les 331 pesables tiennent en douze écrans de défilement** — et en deux à quatre dès qu'un filtre est actif (la plus grosse catégorie, `A`, en compte **126 pesables** pour 140 lignes reçues). **Et c'est ici que le plafond de 120 produits par catégorie de l'ancienne application cesse d'être une anecdote de conception : il est franchi aujourd'hui, en production.** Chaque écran de catégorie est une copie de `FormulaireSquelette`, qui porte exactement **120 contrôles `Image0…Image119`** (§14.2) ; la boucle de remplissage (`FormulaireCalcul.cls` l. 552-664) parcourt **tout** le jeu d'enregistrements — `… WHERE Categorie.Intitule = "Autres" AND Visible=True ORDER BY NomProduit` — et cherche pour chacun le contrôle `"Image" & i` dans un `Select Case` **sans branche par défaut** : passé `i = 119`, aucun `Case` ne correspond, rien n'est écrit, rien n'est journalisé, et la boucle continue jusqu'à `EOF`. **Sur `flv.csv`, 126 produits « Autres » franchissent le contrôle d'intégrité de l'ancienne application pour 120 emplacements : les six derniers de l'ordre alphabétique ne s'affichent sur aucune balance aujourd'hui, sans un message ni une ligne de journal.** L'écart monterait à **20** si `ProduitIndisponibleSurErreur` repassait à `"N"` — le masquage des 14 codes à zone de réservation occupée de cette catégorie (§10.3) dissimule une partie du dépassement. Le défaut est **daté** : il est né le jour où « Autres » a franchi 120 produits, quelque part entre le catalogue de 2022 (`A = 1`) et celui de 2026 (`A = 140`). **Cette architecture n'a aucune limite de ce genre** — la grille est une liste, pas un gabarit d'emplacements ; aucun nombre de tuiles n'apparaît en configuration (§11.2), et `GET /api/v1/catalog` sert le catalogue **entier** (§14.5). C'est le bénéfice le plus directement chiffrable de la réécriture — **six produits vendables qui redeviennent visibles**, sans une ligne de code écrite pour eux — et un écart à annoncer à la mise en service (§18, L9). La densité a **trois valeurs et pas davantage** — `ui.tile_size` ∈ {`small`, `medium`, `large`}, ADR-031 —, chacune déduite des mêmes contraintes physiques (cible ≥ 72 px, nom de **69 caractères** lisible à 60–80 cm) ; `auto-fill` absorbe les changements de résolution à l'intérieur de chacune. *(Le réglage `confort`/`dense` de la première version était la bascule « grandes/petites vignettes » de l'existant, adossée aux tranches 0-24 / 25-47 / … / 100-120 de `Systeme_Dimensions` — que CSS grid rend caduques. Ce qui revient ici n'est pas ce réglage-là : c'est **une** clé à trois valeurs, chacune mesurée, et non un nombre de colonnes à saisir.)*
+1. **Une seule grille, une densité continue.** `repeat(auto-fill, minmax(var(--tile-min), 1fr))` où `--tile-min` vaut `clamp(15rem, 19vw, 22rem)` (ADR-035), tuile ≥ 72 px de haut (§14.2). Mesuré dans le navigateur sur le catalogue réel : **5 colonnes de 371 px sur 1920 × 1080**, 5 de 261 px à 1366, 7 de 354 px à 2560 — **les 331 pesables tiennent en une dizaine d'écrans de défilement** — et en deux à quatre dès qu'un filtre est actif (la plus grosse catégorie, `A`, en compte **126 pesables** pour 140 lignes reçues). **Et c'est ici que le plafond de 120 produits par catégorie de l'ancienne application cesse d'être une anecdote de conception : il est franchi aujourd'hui, en production.** Chaque écran de catégorie est une copie de `FormulaireSquelette`, qui porte exactement **120 contrôles `Image0…Image119`** (§14.2) ; la boucle de remplissage (`FormulaireCalcul.cls` l. 552-664) parcourt **tout** le jeu d'enregistrements — `… WHERE Categorie.Intitule = "Autres" AND Visible=True ORDER BY NomProduit` — et cherche pour chacun le contrôle `"Image" & i` dans un `Select Case` **sans branche par défaut** : passé `i = 119`, aucun `Case` ne correspond, rien n'est écrit, rien n'est journalisé, et la boucle continue jusqu'à `EOF`. **Sur `flv.csv`, 126 produits « Autres » franchissent le contrôle d'intégrité de l'ancienne application pour 120 emplacements : les six derniers de l'ordre alphabétique ne s'affichent sur aucune balance aujourd'hui, sans un message ni une ligne de journal.** L'écart monterait à **20** si `ProduitIndisponibleSurErreur` repassait à `"N"` — le masquage des 14 codes à zone de réservation occupée de cette catégorie (§10.3) dissimule une partie du dépassement. Le défaut est **daté** : il est né le jour où « Autres » a franchi 120 produits, quelque part entre le catalogue de 2022 (`A = 1`) et celui de 2026 (`A = 140`). **Cette architecture n'a aucune limite de ce genre** — la grille est une liste, pas un gabarit d'emplacements ; aucun nombre de tuiles n'apparaît en configuration (§11.2), et `GET /api/v1/catalog` sert le catalogue **entier** (§14.5). C'est le bénéfice le plus directement chiffrable de la réécriture — **six produits vendables qui redeviennent visibles**, sans une ligne de code écrite pour eux — et un écart à annoncer à la mise en service (§18, L9). La densité n'est **pas un réglage** : elle suit l'écran en continu, `clamp()` bornant ce que `vw` produirait d'illisible aux deux extrêmes (ADR-035, qui remplace les trois valeurs d'ADR-031). Les deux bornes restent les mêmes contraintes physiques qu'avant — cible ≥ 72 px, nom de **69 caractères** lisible à 60–80 cm —, et `auto-fill` absorbe le reste. *(Le réglage `confort`/`dense` de la première version était la bascule « grandes/petites vignettes » de l'existant, adossée aux tranches 0-24 / 25-47 / … / 100-120 de `Systeme_Dimensions` — que CSS grid rend caduques. Les trois valeurs mesurées d'ADR-031 n'étaient pas ce réglage-là non plus, mais elles demandaient encore à un exploitant de choisir : `clamp()` répond à sa place.)*
 
 2. **Les catégories sont des filtres, pas quatre écrans.** L'ancienne application posait quatre boutons en dur — `BoutonFruits`, `BoutonLegumes`, `BoutonVrac`, `BoutonAutres` — parce que quatre formulaires étaient préconstruits au démarrage, et ouvrait `FormulaireLegumes` en dur au lancement. La répartition réelle interdit cette parité, **et elle s'inverse d'un export à l'autre** : `flv.csv` donne **A = 140, V = 118, L = 68, F = 29**, `flv_1.csv` donnait **L = 84, V = 58, F = 10, A = 1**. En 2022, « Autres » menait à **un seul produit** — un quart de barre de navigation pour une tuile ; en 2026, c'est la catégorie la plus peuplée. Aucune barre en dur ne survit à ça. Donc : **la vue au repos est « Tout »**, une puce par catégorie **peuplée** (seuil : au moins 5 produits pesables sur ce poste ; en deçà, la catégorie reste dans « Tout » et ses produits restent atteignables par la recherche), l'effectif **pesable** est écrit sur la puce — jamais le nombre de lignes reçues, qui compte des préemballés sans tuile —, l'ordre et la couleur viennent de la configuration **et non d'un classement figé dans le code** (c'est précisément ce que l'inversion 2022 → 2026 rend nécessaire), et une catégorie peut être masquée sur **ce** poste (`categories[].visible` — le poste « fruits » n'a pas à montrer le vrac : c'est une vraie décision de magasin). Il n'y a **plus de catégorie ouverte par défaut** à configurer : « Tout » est toujours juste, et c'est un toucher de moins dans tous les cas. *(La « sous-catégorie en puces dès qu'une catégorie en compte plus de 3 » est supprimée : le CSV a sept colonnes et aucune ne porte de sous-catégorie — le mécanisme ne se serait jamais déclenché. C'était la transposition d'une fonctionnalité que l'ancienne application n'avait elle-même jamais implémentée.)*
 
@@ -3783,7 +3778,8 @@ GET  /api/v1/catalog                   catalogue complet (~60 ko pour 355 produi
                                        images exclues), ETag. Porte `updated_at` —
                                        l'instant de la BASCULE (§10.8), RFC 3339,
                                        vide tant qu'aucun catalogue n'est en service
-                                       — et `presentation.tile_size` (ADR-031)
+                                       — et, par produit, `prices[]` : un prix dérivé
+                                       par palier configuré (ADR-036)
 POST /api/v1/weigh                     {product_id, tare_g, units, manual_weight_g,
                                         seen_weight_g, measurement_seq, key} → 202 {job_id}
 POST /api/v1/reprint                   {job_id, key}                 → 202
@@ -4531,6 +4527,10 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 
 **Statut** : accepté · **Date** : 27/07/2026 · **Portée** : §11.2, §14.2, §14.3 · **Amende** : ADR-024, ADR-025
 
+> **Remplacé par ADR-035 le 28/07/2026** : la densité redevient continue, et
+> `ui.tile_size` est retiré du schéma. Le tableau des trois tailles ci-dessous
+> décrit ce qui a été livré entre le 27 et le 28/07/2026, et rien d'actuel.
+
 **Contexte.** §14.3-1 déclarait la densité **non réglable**, et le raisonnement était juste : elle se déduit de deux contraintes physiques — une cible tactile de 20 mm et la lisibilité d'un nom de 69 caractères à 60–80 cm — et ADR-025 interdit un réglage sur lequel aucun exploitant n'a de choix légitime. Deux faits ont changé. **La première contrainte a une exception** : le poste pilote est conduit à la **souris**, sur un écran non tactile, et un pointeur n'est pas tenu par les 20 mm. Et le parc n'est pas fait d'un seul écran : le 24″ de référence n'est pas le 22″ qu'un magasin a déjà.
 
 **Décision.** Une clé, `ui.tile_size`, à **trois valeurs mesurées** — `small`, `medium`, `large` — et rien d'autre : ni nombre de colonnes, ni largeur en pixels, ni bascule « grandes vignettes ». Chaque valeur fixe quatre longueurs (largeur de colonne, plaque, bloc de nom, hauteur) dont la somme est vérifiée dans le navigateur. `medium` est le défaut, et une configuration écrite avant l'existence du réglage garde exactement la grille qu'elle avait. Le contrôle 46 refuse toute autre valeur, avec la liste des trois — sans lui, « moyen » retomberait en silence sur le défaut et l'exploitant conclurait que le réglage ne fait rien.
@@ -4554,6 +4554,8 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 **Décision.** Une touche **« Réglages »**, visible, en barre basse, à l'extrémité opposée aux puces de catégorie, ouvrant l'administration **en un appui**. Le coin muet disparaît : garder les deux, c'était garder un mécanisme que personne n'emploierait, et deux chemins vers un même montage qui doit rester unique.
 
 **Ce que cela coûte, et pourquoi c'est acceptable.** Un client peut désormais atteindre le tableau de bord et l'écran de dépannage. Ces deux pages sont **délibérément sans mot de passe** (§14.4, important-10) parce que quiconque est devant le poste peut déjà débrancher l'imprimante : le secret n'y ajoutait aucune sécurité. **Tout ce qui écrit la configuration reste derrière le mot de passe**, et cela n'a pas bougé. Le jour où un poste sera placé là où un client peut s'y attarder, la réponse ne sera pas de recacher la touche — ce serait revenir au défaut d'aujourd'hui — mais de protéger les deux pages ouvertes, ce qui est une décision d'exploitation et non de dessin.
+
+**Addendum du 28/07/2026.** Le bouton redevient une icône seule, sans texte visible, à la demande explicite du commanditaire (maquette « Grand Format »). Il reste un bouton VISIBLE et bordé dans une barre permanente — ce que ADR-032 corrigeait était un coin muet et invisible, pas l'absence de texte en soi.
 
 ---
 
@@ -4587,6 +4589,28 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 **Décision.** La remise se déclare en **pourcentage au dixième de point** (`discount_percent`), stocké en dixièmes entiers. Le tarif désigné par `reference_code` **ne porte aucune clé de remise** : l'absence *est* le prix du catalogue. `coef_num` et `coef_den` rejoignent les clés retirées du contrôle 20.
 
 **Conséquences.** L'exactitude est tenue : le calcul reste entier de bout en bout, et aucun prix imprimé ne bouge. Le dénominateur devient une constante, ce qui **supprime par construction** la panne que le contrôle 11 retenait — un dénominateur non positif atteignant `Divide` et tuant la goroutine du Hub. « Le tarif solidaire n'est pas configurable » devient un fait du format et non une règle d'écran. Le fichier redevient lisible par un humain, ce qui compte pour un artefact que quatre postes comparent à l'œil. **Contrepartie assumée** : les majorations et les remises non décimales — dont le `1/3 exactement` dont ADR-009 se réclamait — deviennent inexprimables ; un tiers se saisit 33,3 %. ADR-009 est **amendé** sur la forme du coefficient, et confirmé sur tout le reste : ordre des opérations, application sur tous les chemins de saisie, double tarif comme cardinal de la grille.
+
+---
+
+### ADR-035 — La densité de la grille redevient continue, `ui.tile_size` est retiré
+
+**Statut** : accepté · **Date** : 28/07/2026 · **Portée** : §11.2, §14.2, §14.3 · **Amende** : ADR-031
+
+**Contexte.** ADR-031 avait figé trois paliers mesurés au pixel près pour absorber un parc d'écrans hétérogène (22″/24″). La maquette « Grand Format » validée par le commanditaire choisit un dimensionnement **continu** (`clamp()` en `vw`/`vh`) : la grille s'adapte à la largeur réelle de l'écran sans qu'un exploitant ait à choisir entre trois valeurs.
+
+**Décision.** Les jetons de densité passent en `clamp()`. `ui.tile_size` est retiré du schéma de configuration par le mécanisme des clés retirées (§11.2, précédent ADR-034) : un fichier qui le porte encore est refusé, pas ignoré.
+
+**Conséquence.** ADR-030 reste entier : la hauteur du bloc de nom est toujours mesurée dans la mise en page par `Grid.svelte`, seulement continue.
+
+---
+
+### ADR-036 — La tuile de la grille montre les deux tarifs, pas seulement la référence
+
+**Statut** : accepté · **Date** : 28/07/2026 · **Portée** : §6.3, §14.2, §14.5
+
+**Contexte.** Le calcul par palier (`domain.Price`) n'existait qu'au moment de peser ; la grille n'affichait que le prix de référence (Odoo), jamais le tarif réellement payé par un adhérent. La maquette « Grand Format » montre les deux tarifs empilés sur chaque tuile, avant même que le client ne pose son produit.
+
+**Décision.** `internal/domain/pricing.go` expose `UnitPriceFor`, la même arithmétique que `Price` extraite pour un usage sans pesée. Le DTO de catalogue (`internal/web/catalog.go`) porte un prix dérivé par palier configuré. Le calcul reste ENTIÈREMENT côté Go — jamais réimplémenté en JavaScript, pour ne pas dupliquer l'arrondi validé par ailleurs (§16.4).
 
 ---
 

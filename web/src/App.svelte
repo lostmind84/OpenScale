@@ -1,20 +1,13 @@
 <script lang="ts">
   import Banner from './components/Banner.svelte'
-  import FilterBar from './components/FilterBar.svelte'
+  import CategoryBar from './components/CategoryBar.svelte'
   import FullScreen from './components/FullScreen.svelte'
   import Grid from './components/Grid.svelte'
-  import ReprintBar from './components/ReprintBar.svelte'
-  import SearchPanel from './components/SearchPanel.svelte'
+  import SearchField from './components/SearchField.svelte'
+  import StatusBar from './components/StatusBar.svelte'
   import TarePad from './components/TarePad.svelte'
   import * as api from './lib/api'
-  import {
-    ALL_CATEGORIES,
-    chips,
-    filterProducts,
-    tileSize,
-    visibleProducts,
-    type Product,
-  } from './lib/catalog'
+  import { ALL_CATEGORIES, chips, filterProducts, visibleProducts, type Product } from './lib/catalog'
   import { catalogStamp } from './lib/format'
   import { Session } from './lib/session.svelte'
   import { ulid } from './lib/ulid'
@@ -23,8 +16,11 @@
   const session = new Session()
 
   let activeCategory = $state(ALL_CATEGORIES)
-  let searchOpen = $state(false)
   let query = $state('')
+  /** True once the search key has been used to reveal the field with nothing typed yet. */
+  let typedOpen = $state(false)
+  /** The field shows as soon as either something is typed or it was opened empty. */
+  const fieldVisible = $derived(query !== '' || typedOpen)
   /** The tile disabled from the pointerdown until the stream answers (§14.3). */
   let busyID = $state<string | null>(null)
   let busySinceRevision = $state(-1)
@@ -33,7 +29,7 @@
   const catalog = $derived(session.catalog)
   const products = $derived(catalog === null ? [] : visibleProducts(catalog))
   const bar = $derived(catalog === null ? [] : chips(catalog))
-  const shown = $derived(filterProducts(products, activeCategory, searchOpen ? query : ''))
+  const shown = $derived(filterProducts(products, activeCategory, query))
   const colors = $derived.by(() => {
     const map: Record<string, string> = {}
     for (const c of catalog?.categories ?? []) map[c.code] = c.color
@@ -78,6 +74,16 @@
   const rejectedID = $derived(snapshot?.state === 'rejected' ? (snapshot.product?.id ?? null) : null)
 
   /**
+   * The two states that take the WHOLE screen, and the only ones (§14.3).
+   *
+   * Derived once and read twice — by the keyboard guard and by the template
+   * below — so that a state added to one can never be forgotten by the other.
+   */
+  const screenTaken = $derived(
+    snapshot?.state === 'faulted' || snapshot?.state === 'out_of_service',
+  )
+
+  /**
    * The states in which a tile is still IN HAND, and therefore still ringed.
    *
    * `succeeded` is not one of them, and that is the whole point: the label has come
@@ -97,9 +103,6 @@
   const selectedID = $derived(
     snapshot !== null && HOLDING.includes(snapshot.state) ? (snapshot.product?.id ?? null) : null,
   )
-
-  /** The density of the grid, as this station configures it (ADR-031). */
-  const density = $derived(tileSize(settings.tile_size))
 
   /** When the catalog on screen entered service, shown permanently (§14.3). */
   const catalogAt = $derived(catalogStamp(catalog?.updated_at ?? ''))
@@ -153,11 +156,69 @@
     await api.reprint(jobID, ulid())
   }
 
-  /** Opens or closes the search panel. Closing IS the clearing (§14.3-3). */
-  function toggleSearch(): void {
-    searchOpen = !searchOpen
-    if (!searchOpen) query = ''
+  /** Clears the query and hides the field. Closing IS the clearing (§14.3-3). */
+  function clearQuery(): void {
+    query = ''
+    typedOpen = false
   }
+
+  /** Reveals the field from the search key, with nothing typed yet. */
+  function openTyped(): void {
+    typedOpen = true
+  }
+
+  /** A single match: Enter weighs it, physical keyboard or click alike. */
+  function pickIfSingleMatch(): void {
+    const only = shown.length === 1 ? shown[0] : undefined
+    if (only !== undefined) void pick(only)
+  }
+
+  /**
+   * Global PHYSICAL keyboard listener: the station is driven with a mouse and
+   * a keyboard, never a finger — this screen has no touch keyboard (§14.3-3,
+   * revised 28/07/2026). Ignored while a real <input> has focus: SearchField
+   * then handles its own typing natively.
+   *
+   * Two things on this screen come BEFORE the grid, and typing must reach
+   * neither the search nor them:
+   *
+   *   - the tare pad is made of KEYS and not of an `<input>`, so nothing about
+   *     a keystroke distinguishes « 500 grammes of jar » from a product being
+   *     looked up. Left unguarded, the search field opens over the entry in
+   *     progress and the tare the customer believed they typed exists nowhere.
+   *   - a full screen is the only moment this screen is TAKEN (§14.3): what is
+   *     typed behind it has no addressee, and a volunteer who dismisses the
+   *     fault would find the grid filtered by letters nobody meant for it.
+   */
+  function onGlobalKey(event: KeyboardEvent): void {
+    if (event.metaKey || event.ctrlKey || event.altKey) return
+    if (event.target instanceof HTMLElement && event.target.tagName === 'INPUT') return
+    if (tareEntry !== null || screenTaken) return
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      clearQuery()
+      return
+    }
+    if (event.key === 'Backspace') {
+      event.preventDefault()
+      query = query.slice(0, -1)
+      return
+    }
+    if (event.key === 'Enter') {
+      pickIfSingleMatch()
+      return
+    }
+    if (event.key.length !== 1) return
+    if (!/[a-zA-Z0-9 ]/.test(event.key)) return
+    if (event.key === ' ' && query === '') return
+    event.preventDefault()
+    query += event.key
+  }
+
+  $effect(() => {
+    window.addEventListener('keydown', onGlobalKey)
+    return () => window.removeEventListener('keydown', onGlobalKey)
+  })
 
   /**
    * Loads the administration bundle, lazily, into this same window (§14.1).
@@ -173,7 +234,7 @@
   }
 </script>
 
-<main class="screen" data-tile-size={density}>
+<main class="screen">
   <Banner
     {snapshot}
     showWeight={session.link.showWeight}
@@ -195,6 +256,8 @@
   <Grid
     products={shown}
     {colors}
+    primaryCode={catalog?.pricing.primary_code ?? ''}
+    tierAbbrev={Object.fromEntries((catalog?.pricing.tiers ?? []).map((t) => [t.code, t.abbrev]))}
     {selectedID}
     {rejectedID}
     {busyID}
@@ -205,32 +268,31 @@
     onpick={pick}
   />
 
-  {#if searchOpen}
-    <SearchPanel
-      {query}
-      matches={shown.length}
-      onquery={(q) => (query = q)}
-      onclose={toggleSearch}
-    />
+  {#if fieldVisible}
+    <SearchField {query} onquery={(q) => (query = q)} onclose={clearQuery} onenter={pickIfSingleMatch} />
   {/if}
 
-  <ReprintBar
+  <CategoryBar
+    chips={bar}
+    active={activeCategory}
+    searchFieldOpen={fieldVisible}
+    onselect={(code) => (activeCategory = code)}
+    onopensearch={openTyped}
+  />
+
+  <StatusBar
     label={snapshot?.last_label ?? null}
     available={snapshot?.reprint.available ?? false}
     {catalogAt}
-    onreprint={reprint}
-  />
-
-  <FilterBar
-    chips={bar}
-    active={activeCategory}
-    {searchOpen}
+    productCount={products.length}
+    appVersion={catalog?.app_version ?? ''}
     {healthy}
-    onselect={(code) => (activeCategory = code)}
-    ontogglesearch={toggleSearch}
+    onreprint={reprint}
     onadmin={openAdmin}
   />
 
+  <!-- Les deux seules prises de l'écran entier, et `screenTaken` les compte
+       toutes les deux pour la garde clavier plus haut. -->
   {#if snapshot?.state === 'faulted'}
     <FullScreen
       title="Poste indisponible"

@@ -30,6 +30,13 @@ func TestTheCatalogIsServedWholeWithAValidator(t *testing.T) {
 	if tile.ID != garlicID || tile.UnitPriceText != "5,32" || tile.PriceSuffix != " €/kg" {
 		t.Fatalf("tuile = %+v", tile)
 	}
+	byCode := map[string]string{}
+	for _, price := range tile.Prices {
+		byCode[price.Code] = price.Text
+	}
+	if len(tile.Prices) != 2 || byCode["MEMBER"] != "4,79" || byCode["SOLIDARITY"] != "5,32" {
+		t.Fatalf("tarifs de la tuile = %+v, attendu MEMBER=4,79 SOLIDARITY=5,32", tile.Prices)
+	}
 	if len(page.Categories) != 1 || page.Categories[0].ProductCount != 1 {
 		t.Fatalf("catégories = %+v", page.Categories)
 	}
@@ -39,6 +46,23 @@ func TestTheCatalogIsServedWholeWithAValidator(t *testing.T) {
 	defer second.Body.Close()
 	if second.StatusCode != http.StatusNotModified {
 		t.Fatalf("revalidation = %d, attendu 304", second.StatusCode)
+	}
+}
+
+// TestTheCatalogCarriesTheApplicationVersion: the client screen states, permanently,
+// which version is running — « 331 produits pesables · application 2.4.0 » (§14.3).
+//
+// It travels with the CATALOG and not with the state stream, because it changes once
+// per deployment and the catalog is already cached behind an ETag. The other place that
+// knows it, /admin/api/health, is deliberately out of reach: `npm run budget` asserts
+// that not one byte of the administration is loaded to draw the grid.
+func TestTheCatalogCarriesTheApplicationVersion(t *testing.T) {
+	b := newBench(t)
+
+	page := decodeStatus[catalogDTO](t, b.get("/api/v1/catalog"), http.StatusOK)
+
+	if page.AppVersion != "test" {
+		t.Fatalf("app_version = %q, attendu « test » — la version que ce banc injecte", page.AppVersion)
 	}
 }
 

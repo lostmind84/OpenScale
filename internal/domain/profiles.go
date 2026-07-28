@@ -60,7 +60,6 @@ func NeutralProfile() Config {
 			IdleTimeoutSeconds:   45,
 			ReprintWindowSeconds: 60,
 			ShowGridPrices:       true,
-			TileSize:             TileSizeMedium,
 		},
 
 		Scale: ScaleConfig{

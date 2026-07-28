@@ -28,6 +28,10 @@
     products: Product[]
     /** Colour per category code, for the plate every tile carries. */
     colors?: Record<string, string>
+    /** Code of the tier printed large — which of `product.prices` is primary. */
+    primaryCode?: string
+    /** Abbreviation by tier code, e.g. `{ A: 'A', S: 'S' }`. */
+    tierAbbrev?: Record<string, string>
     selectedID?: string | null
     rejectedID?: string | null
     busyID?: string | null
@@ -44,6 +48,8 @@
   const {
     products,
     colors = {},
+    primaryCode = '',
+    tierAbbrev = {},
     selectedID = null,
     rejectedID = null,
     busyID = null,
@@ -217,6 +223,8 @@
             {product}
             nameSizePx={nameSizes.get(product.id) ?? NAME_SIZE_MAX_PX}
             categoryColor={colors[product.category_code]}
+            {primaryCode}
+            {tierAbbrev}
             selected={product.id === selectedID}
             rejected={product.id === rejectedID}
             busy={product.id === busyID}

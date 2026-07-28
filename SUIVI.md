@@ -3,6 +3,56 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Le contrôle 20 a mordu ses propres livrables (28/07/2026).** La refonte de l'écran
+client en « Grand Format » (ADR-035) retire `ui.tile_size` du schéma et fait refuser
+toute configuration qui le porte encore. Or `testdata/config-lacagette.json` et
+`testdata/config-demo.json` — les deux configurations que le poste **livre** —
+portaient encore cette clé : dès qu'ADR-035 a pris effet, le poste refusait sa propre
+configuration livrée, et **sept tests de trois paquets** sont tombés d'un coup. Corrigé
+en commit `80f278e`. C'est le même mode de défaillance qu'ADR-034 décrivait pour
+`coef_num` — un fichier qui ne se relit plus en silence —, pris ici par les tests
+plutôt que par un bénévole devant un poste mort.
+
+**Le Grand Format, calibré sur le vrai catalogue (28/07/2026).** Les jetons `clamp()`
+posés en tâches 3/7/8 (ADR-035) n'avaient encore été vérifiés que sous `jsdom`, qui ne
+calcule aucune mise en page. Un banc d'observation — `openscale serve` réellement lancé,
+le vrai `flv.csv` (331 tuiles pesables, 177 photos) déposé dans `<data>/catalog/incoming/`,
+servi à un Chrome piloté — a mesuré les trois largeurs de référence de §14.3 :
+
+- **aucune tuile ne déborde de sa rangée**, aux trois largeurs et sur les 331 tuiles (pas
+  seulement la première rangée) : débordement mesuré ≤ 0,01 px (arrondi de sous-pixel) —
+  5 colonnes de 261 px à 1366 px, 5 colonnes de 371 px à 1920 px, 7 colonnes de 354 px à
+  2560 px ;
+- le nom de 69 caractères (`♥AA-LA TOMME DES CROQUANTS AFFINE A LA LIQUEUR DE NOIX DU
+  PERIGORD-MV`) s'affiche en entier aux trois largeurs, sans point de suspension, à un
+  corps de 18 px (le plancher) à 1366 px et 20,5 px à 1920/2560 px — la sonde `.name-box`
+  ne le fait jamais déborder de son bloc ;
+- les deux tarifs (badge plein Adhérent, anneau creux Solidaire) ne se chevauchent
+  jamais — au moins 4 px d'écart entre les deux lignes sur la tuile la plus étroite
+  (261 px) —, et la ligne de prix la plus longue mesurée sur le catalogue réel
+  (`S 34,34 €/kg`) garde encore 14,7 px de marge dans la tuile ;
+- les deux barres du bas restent visibles aux trois hauteurs (768/1080/1440 px), et le
+  bouton Réglages (icône seule) mesure 72 px de côté, exactement `--touch-min` ;
+- taper au clavier physique (`a`, `i`, `l`) fait apparaître le champ sous le bandeau et
+  réduit la grille de 331 à 17 tuiles (recherche normalisée : `CORAIL`, `THAÏLANDE`
+  comptent) ; Échap referme le champ et ramène la grille à 331.
+
+**Aucune borne de `app.css` n'a eu besoin d'être resserrée** : les valeurs de la grille
+posées en tâches 3/7/8 tiennent telles quelles sur le vrai catalogue, à 1366, 1920 et
+2560 px.
+
+**Une borne l'a été, et ce banc-là ne la mesurait pas : le bandeau.** Reprise du poste
+lancé pour la revue, la carte du poids faisait **171 px dans un bandeau de 160 px** à
+1920 × 1080 — 6 px dehors en haut, 5 en bas. Le corps du poids était borné par la
+LARGEUR (`6.5vw`) sans que rien ne le borne par la hauteur de la bande qui le contient ;
+et son plancher fluide, `4.5rem`, le faisait tomber à **72 px à 1366**, sous les 96 px
+dont §14.2 fait la condition de lecture à 2,5 m — la raison d'être de ce chiffre.
+`clamp(6rem, 5.5vw, 6.75rem)` remet les deux d'aplomb : bloc à 142 / 152 / 154 px dans
+des bandeaux de 160 / 160 / 187 px, corps à 96 / 105,6 / 108 px aux trois largeurs, les
+331 tuiles gardant une hauteur unique (340 px à 2560). *La leçon est celle de la veille,
+au même endroit : un banc ne voit que ce qu'on lui demande de mesurer, et celui-ci
+comptait les tuiles, les noms, les tarifs et les deux barres — pas la bande du haut.*
+
 **État au 27/07/2026** : **L1 à L8 livrés.** Il ne reste que L0 (le banc) et L9 (la recette sur site). `openscale serve` démarre un
 poste complet : noyau métier, balance, étiquette, impression, Hub à horloge injectée,
 écran client Svelte, catalogue, écrans d'administration, `openscale doctor` et ses quinze
@@ -378,7 +428,7 @@ de référence produit, pas une correction cosmétique.
 
 ## Décisions structurantes
 
-29 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
+36 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
 
 | ADR | Décision |
 |---|---|
@@ -392,6 +442,8 @@ de référence produit, pas une correction cosmétique.
 | 020 | Carlito comme police d'étiquette (clone métrique de Calibri, OFL) |
 | 021 | « Ce produit est-il pesable ? » remplace le contrôle d'intégrité |
 | **029** | **Barres du code-barres uniformes** — le texte cesse de les recouvrir, +30 % de hauteur lisible |
+| **035** | **Densité de grille continue, `ui.tile_size` retiré** — remplace ADR-031 |
+| **036** | **Double tarif affiché sur chaque tuile de la grille**, pas seulement au moment de peser |
 
 ---
 
@@ -399,6 +451,7 @@ de référence produit, pas une correction cosmétique.
 
 | Date | Événement |
 |---|---|
+| 28/07/2026 | Écran client repris en « Grand Format » (ADR-035, ADR-036) : grille continue — `ui.tile_size` retiré, ce qui **annule le réglage à trois valeurs livré la veille** —, double tarif affiché par tuile, recherche au clavier physique (le poste n'est pas tactile), CategoryBar/StatusBar remplacent FilterBar/ReprintBar. **438 tests front** (23 fichiers), tous verts, mesurés sur ce poste |
 | 24/07/2026 | Analyse du legacy : 16 rapports, 240 000 lignes de VBA lues |
 | 24/07/2026 | Conception : 4 architectures en concurrence, 12 jugements, 32 critiques |
 | 25/07/2026 | Revue anti-clonage : 30 transpositions corrigées, dont 10 structurelles |

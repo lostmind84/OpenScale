@@ -70,6 +70,35 @@ func TestPriceReferenceVector(t *testing.T) {
 	}
 }
 
+// TestUnitPriceForMatchesPriceLine locks the extraction down: the same
+// arithmetic must give the same result, whether it serves to weigh (Price) or
+// to show a catalog tile without weighing anything (new, §14.2).
+func TestUnitPriceForMatchesPriceLine(t *testing.T) {
+	rules := LaCagetteRules()
+	label, err := Price(garlic(), Measurement{Gross: 1236}, rules)
+	if err != nil {
+		t.Fatalf("Price: %v", err)
+	}
+	for _, tier := range rules.Tiers {
+		want := label.Find(tier.Code).UnitPrice
+		got := UnitPriceFor(garlic().UnitPrice, tier, rules.UnitPriceRounding)
+		if got != want {
+			t.Errorf("%s: UnitPriceFor = %d, want %d (that of Price)", tier.Code, got, want)
+		}
+	}
+}
+
+// TestUnitPriceForGarlicVector pins the two values a volunteer reads on the
+// garlic tile (§6.3): 4.79 (Member) and 5.32 (Solidarity, the reference).
+func TestUnitPriceForGarlicVector(t *testing.T) {
+	rules := LaCagetteRules()
+	member := UnitPriceFor(garlic().UnitPrice, rules.Tiers[0], rules.UnitPriceRounding)
+	solidarity := UnitPriceFor(garlic().UnitPrice, rules.Tiers[1], rules.UnitPriceRounding)
+	if member.Euro() != "4,79" || solidarity.Euro() != "5,32" {
+		t.Fatalf("MEMBER=%s SOLIDARITY=%s, want 4,79 / 5,32", member.Euro(), solidarity.Euro())
+	}
+}
+
 // TestPriceAppliesTheDiscountToTheUnitPriceNotToTheAmount is the ORDER of
 // operations of A7, and the reason for it: the printed price per kilo, multiplied
 // by the printed weight, must give back the printed amount.

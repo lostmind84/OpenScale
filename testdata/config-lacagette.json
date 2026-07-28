@@ -11,8 +11,7 @@
     "sound": true,
     "idle_timeout_s": 45,
     "reprint_window_s": 60,
-    "show_grid_prices": true,
-    "tile_size": "medium"
+    "show_grid_prices": true
   },
 
   "scale": {

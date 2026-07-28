@@ -26,6 +26,9 @@ export interface Product {
   price_suffix: string
   /** `/images/<sha>.<ext>`, vide sur 154 des 331 tuiles réelles. */
   image_url: string
+  /** Un prix dérivé par palier configuré — le calcul de domain.Price, jamais
+   *  refait ici : le texte arrive déjà arrondi du serveur. */
+  prices: { code: string; text: string }[]
 }
 
 /** Un rayon de la grille, tel qu'il est configuré pour CE poste. */
@@ -56,28 +59,6 @@ export interface Presentation {
   idle_timeout_s: number
   reprint_window_s: number
   sound: boolean
-  /** `small`, `medium` ou `large` : la densité de la grille (ADR-031). */
-  tile_size: string
-}
-
-/** Les trois tailles de tuile déclarées, de la plus dense à la plus grande. */
-export const TILE_SIZES = ['small', 'medium', 'large'] as const
-
-/** La taille qu'un poste applique quand la configuration n'en nomme aucune. */
-export const DEFAULT_TILE_SIZE = 'medium'
-
-/**
- * La taille de tuile à appliquer, en refusant ce qui n'est pas une des trois.
- *
- * Le serveur valide déjà `ui.tile_size` (contrôle 46), mais l'écran ne peut pas en
- * dépendre : il reçoit aussi le catalogue d'un poste plus ancien, dont la
- * configuration ne portait pas encore ce réglage.
- *
- * @param size - ce que la configuration du poste déclare.
- * @returns une des trois tailles, jamais autre chose.
- */
-export function tileSize(size: string): string {
-  return (TILE_SIZES as readonly string[]).includes(size) ? size : DEFAULT_TILE_SIZE
 }
 
 /** Le corps de `GET /api/v1/catalog`. */
@@ -86,6 +67,8 @@ export interface Catalog {
   revision: string
   /** Quand ce catalogue est entré en service, RFC 3339, ou vide si aucun ne l'est. */
   updated_at: string
+  /** La version de l'application, affichée en permanence par la barre basse (§14.3). */
+  app_version: string
   product_count: number
   categories: Category[]
   products: Product[]

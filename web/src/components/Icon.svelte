@@ -10,7 +10,7 @@
    * colour of the text around them.
    */
   interface Props {
-    name: 'search' | 'tare' | 'printer' | 'alert' | 'backspace' | 'check' | 'settings'
+    name: 'search' | 'tare' | 'printer' | 'alert' | 'backspace' | 'check' | 'settings' | 'close'
     /** Edge of the square the drawing fills, in CSS units. */
     size?: string
   }
@@ -25,6 +25,7 @@
     alert: 'M12 3.5 21.5 20h-19zM12 10v4M12 17.2v.1',
     backspace: 'M9 5h11a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-7-7zM17 9l-6 6M11 9l6 6',
     check: 'M4 12.5 9.5 18 20 7',
+    close: 'M6 6l12 12M18 6 6 18',
     settings:
       'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5v.2a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1h.2a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1',
   }

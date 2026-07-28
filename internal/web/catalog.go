@@ -24,7 +24,13 @@ type catalogDTO struct {
 	// ever has. The client screen shows it PERMANENTLY: « ces prix datent de
 	// quand ? » is the one question a volunteer asks in front of a grid, and a date
 	// that stops moving is how a station says it received nothing (§14.3).
-	UpdatedAt    string                 `json:"updated_at"`
+	UpdatedAt string `json:"updated_at"`
+	// AppVersion is what the client screen states permanently, beside the number of
+	// weighable products: « 331 produits pesables · application 2.4.0 » (§14.3). It
+	// travels with the catalog because it changes once per deployment and this
+	// payload is already cached behind an ETag — and because the other place that
+	// knows it, /admin/api/health, must not be reachable from the grid (§14.1).
+	AppVersion   string                 `json:"app_version"`
 	ProductCount int                    `json:"product_count"`
 	Categories   []categoryDTO          `json:"categories"`
 	Products     []catalogProductDTO    `json:"products"`
@@ -65,6 +71,18 @@ type catalogProductDTO struct {
 	// ImageURL is empty for 174 of the 355 real products, and that is not a degraded
 	// case: it is one product in two. The tile is sized on the NAME (§14.2).
 	ImageURL string `json:"image_url"`
+	// Prices is one derived unit price per configured tier (§14.2, dual
+	// pricing) — the front picks primary vs secondary from pricing.primary_code
+	// and pricing.tiers, this only carries the numbers.
+	Prices []catalogTilePriceDTO `json:"prices"`
+}
+
+// catalogTilePriceDTO is one configured tier's derived price for one product —
+// the arithmetic of domain.Price, run without a weight, so the grid can show
+// what a customer will actually pay before they even pick anything up.
+type catalogTilePriceDTO struct {
+	Code string `json:"code"`
+	Text string `json:"text"`
 }
 
 // catalogPricingDTO is what the grid needs to show a price on a tile.
@@ -88,8 +106,6 @@ type catalogPresentationDTO struct {
 	IdleTimeoutSeconds   int  `json:"idle_timeout_s"`
 	ReprintWindowSeconds int  `json:"reprint_window_s"`
 	Sound                bool `json:"sound"`
-	// TileSize is `small`, `medium` or `large` — the density of the grid (ADR-031).
-	TileSize string `json:"tile_size"`
 }
 
 // rfc3339OrEmpty formats an instant, and the zero time as an empty string.
@@ -210,15 +226,20 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 			IdleTimeoutSeconds:   cfg.UI.IdleTimeoutSeconds,
 			ReprintWindowSeconds: cfg.UI.ReprintWindowSeconds,
 			Sound:                cfg.UI.Sound,
-			TileSize:             cfg.UI.TileSize,
 		},
-		UpdatedAt: rfc3339OrEmpty(s.hub.CatalogUpdatedAt()),
+		UpdatedAt:  rfc3339OrEmpty(s.hub.CatalogUpdatedAt()),
+		AppVersion: s.version,
 	}
 	for _, p := range products {
 		if p.Qualification != domain.Weighable {
 			continue
 		}
 		counts[p.CategoryCode]++
+		prices := make([]catalogTilePriceDTO, 0, len(cfg.Pricing.Tiers))
+		for _, tier := range cfg.Pricing.SortedTiers() {
+			unit := domain.UnitPriceFor(p.UnitPrice, tier, cfg.Pricing.UnitPriceRounding)
+			prices = append(prices, catalogTilePriceDTO{Code: tier.Code, Text: unit.Euro()})
+		}
 		out.Products = append(out.Products, catalogProductDTO{
 			ID: p.ID, Name: p.Name, Search: domain.Normalize(p.Name),
 			CategoryCode:   p.CategoryCode,
@@ -227,6 +248,7 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 			UnitPriceText:  p.UnitPrice.Euro(),
 			PriceSuffix:    p.PriceSuffix,
 			ImageURL:       s.imageURLFor(ctx, p.ImageSHA),
+			Prices:         prices,
 		})
 	}
 	out.ProductCount = len(out.Products)

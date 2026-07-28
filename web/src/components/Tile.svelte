@@ -10,6 +10,10 @@
     nameSizePx?: number
     /** Colour of the category, as the station configuration spells it. */
     categoryColor?: string
+    /** Code of the tier printed large — which of `product.prices` is primary. */
+    primaryCode?: string
+    /** Abbreviation by tier code, e.g. `{ A: 'A', S: 'S' }`. */
+    tierAbbrev?: Record<string, string>
     /** The tile the customer has chosen — armed, being validated or printing. */
     selected?: boolean
     /** The tile a safeguard refused: an orange ring, and the grid stays visible. */
@@ -25,6 +29,8 @@
     product,
     nameSizePx = NAME_SIZE_MAX_PX,
     categoryColor = '#8a867c',
+    primaryCode = '',
+    tierAbbrev = {},
     selected = false,
     rejected = false,
     busy = false,
@@ -75,33 +81,38 @@
   disabled={busy}
   onpointerdown={() => onpick(product)}
 >
-  <span class="head">
-    <span class="plate" style:background={plate}>
-      {#if hasPhoto}
-        <img
-          class="photo"
-          src={product.image_url}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          onerror={() => (failedURL = product.image_url)}
-        />
-      {:else}
-        <span class="initial" style:color={ink} aria-hidden="true">{initial}</span>
-      {/if}
-    </span>
-
-    {#if showPrice}
-      <span class="price">
-        <span class="amount">{product.unit_price_text}</span>
-        <span class="unit">{product.price_suffix.trim()}</span>
-      </span>
+  <span class="plate" style:background={plate}>
+    {#if hasPhoto}
+      <img
+        class="photo"
+        src={product.image_url}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        onerror={() => (failedURL = product.image_url)}
+      />
+    {:else}
+      <span class="initial" style:color={ink} aria-hidden="true">{initial}</span>
     {/if}
   </span>
 
   <span class="name-box">
     <span class="name" style:font-size="{nameSizePx}px">{product.name}</span>
   </span>
+
+  {#if showPrice}
+    <span class="prices">
+      {#each product.prices as price (price.code)}
+        <span class="price" class:secondary={price.code !== primaryCode}>
+          <span class="abbrev" class:hollow={price.code !== primaryCode}>
+            {tierAbbrev[price.code] ?? ''}
+          </span>
+          <span class="amount">{price.text}</span>
+          <span class="unit">{product.price_suffix.trim()}</span>
+        </span>
+      {/each}
+    </span>
+  {/if}
 </button>
 
 <style>
@@ -125,7 +136,7 @@
     padding: var(--tile-pad);
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-1);
     text-align: left;
     /* The ring SLIDES, it never blinks (§14.2). Nothing here exceeds 200 ms. */
@@ -181,24 +192,16 @@
   }
 
   /*
-   * The plate and the price share one row, and that is what buys the fourth row
-   * of the grid: a photo band the width of the tile left two thirds of itself
-   * empty on every one of the 331 tiles.
+   * The plate is now the FULL width of the tile — the grand format mockup gives
+   * the photo the whole row rather than sharing it with the price, which moves
+   * below the name into its own stacked block (§14.2, ADR-036).
    */
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex: 0 0 auto;
-    height: var(--tile-media);
-  }
-
   .plate {
     display: flex;
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    width: var(--tile-media);
+    width: 100%;
     height: var(--tile-media);
     border-radius: var(--radius-sm);
     overflow: hidden;
@@ -219,7 +222,7 @@
   }
 
   .initial {
-    font-size: 2rem;
+    font-size: 2.5rem;
     font-weight: 800;
     line-height: 1;
   }
@@ -272,29 +275,59 @@
   }
 
   /*
-   * Le montant et son unité sont EMPILÉS, et toujours.
-   *
-   * Sur une ligne, « 4,50 €/kg » tenait à côté de la plaque et « 17,63 €/kg » non :
-   * la moitié des tuiles repliaient leur prix et l'autre pas, ce qui redonnait à la
-   * grille le désordre qu'ADR-030 lui a retiré. Empilé, le bloc a la même forme sur
-   * les 331 tuiles, quel que soit le tarif — « € le litre » compris.
+   * Le double tarif est empilé, primaire d'abord — gros badge plein,
+   * secondaire ensuite — anneau creux, plus petit et plus clair : ce qui a la
+   * plus grande surface est ce que le client paie s'il est adhérent (§14.2,
+   * ADR-036).
    */
-  .price {
+  .prices {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
-    flex: 1 1 auto;
-    min-width: 0;
+    gap: 0.25rem;
+    margin-top: auto;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .price {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
     color: var(--ink);
-    font-size: 1.5rem;
-    font-weight: 600;
-    line-height: 1.15;
-    text-align: right;
+    font-size: 1.75rem;
+    font-weight: 700;
+  }
+
+  .price.secondary {
+    color: var(--ink-muted);
+    font-size: 1.25rem;
+    font-weight: 400;
+  }
+
+  .abbrev {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 1.5em;
+    height: 1.5em;
+    border-radius: var(--radius-inner);
+    background: var(--ink);
+    color: var(--surface);
+    font-size: 0.8em;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .abbrev.hollow {
+    background: none;
+    color: var(--ink-muted);
+    box-shadow: inset 0 0 0 2px var(--border);
   }
 
   .unit {
     color: var(--ink-muted);
-    font-size: 1.125rem;
+    font-size: 0.7em;
     font-weight: 400;
   }
 </style>

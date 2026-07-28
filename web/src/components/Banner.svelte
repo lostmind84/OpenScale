@@ -83,7 +83,7 @@
 </script>
 
 <header class="banner" data-state={snapshot?.state ?? 'initializing'}>
-  <div class="weight-block">
+  <div class="weight-block" style:border-left-color={ribbon}>
     {#if weightVisible && snapshot}
       <p class="weight">{snapshot.weight.net_text}<span class="unit"> kg</span></p>
       <p class="tare">tare {snapshot.weight.tare_g} g</p>
@@ -98,7 +98,7 @@
   </p>
 
   <button type="button" class="tare-key touch-target" class:active={taring} onclick={ontare}>
-    <Icon name="tare" size="2rem" />
+    <Icon name="tare" size="1.4em" />
     <span>TARE</span>
   </button>
 
@@ -131,14 +131,29 @@
   .weight-block {
     flex: 0 0 auto;
     min-width: 20rem;
-    padding-right: 2rem;
-    border-right: 1px solid var(--border-soft);
+    padding: 0.5rem 2rem 0.5rem 1.5rem;
+    background: var(--bg);
+    border-radius: var(--radius-lg);
+    border-left: 0.5rem solid var(--waiting);
+    transition: border-color var(--slide) var(--ease);
   }
 
   .weight {
     margin: 0;
-    /* 96 px / 700 / tabular: readable at 2,5 m (§14.2). */
-    font-size: 6rem;
+    /*
+     * Fluid, but bounded BY THE BANNER and by the reading distance (§14.2).
+     *
+     * The floor is 6rem and not less: 96 px is what makes the weight readable
+     * at 2,5 m, which is the whole reason this figure is the biggest thing on
+     * the screen. The ceiling is what keeps the card INSIDE its band — at
+     * 6.5vw the block came to 171 px in a 160 px banner and spilled over both
+     * edges on a 1920 x 1080 panel, measured in the browser.
+     *
+     * The arithmetic to preserve: 0.5rem x 2 of padding + this + the tare line
+     * (~2rem with its margin) must stay under --banner-height, whose own floor
+     * is 10rem.
+     */
+    font-size: clamp(6rem, 5.5vw, 6.75rem);
     font-weight: 700;
     line-height: 1;
     letter-spacing: -0.02em;
@@ -197,17 +212,28 @@
     font-weight: 700;
   }
 
+  /*
+   * La touche TARE est dimensionnée par la MAIN, pas par son texte.
+   *
+   * C'est la seule commande du bandeau, et elle est touchée par quelqu'un qui
+   * tient un bocal de l'autre main : elle occupe une colonne entière du bandeau
+   * — 7 à 11 rem selon l'écran — au lieu de se replier sur les 4,5 rem du
+   * minimum tactile. Le dessin monte à 1,4 fois le corps du texte pour la même
+   * raison : ce qu'on reconnaît de loin est la forme du bocal, pas le mot.
+   */
   .tare-key {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 0.375rem;
+    flex: 0 0 auto;
+    min-width: clamp(7rem, 9vw, 11rem);
     padding: 0 1.5rem;
     border: 2px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
     background: var(--bg);
-    font-size: 1.125rem;
+    font-size: clamp(1.5rem, 1.5vw, 2.25rem);
     font-weight: 700;
     letter-spacing: 0.08em;
     transition:

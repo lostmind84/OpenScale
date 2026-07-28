@@ -191,6 +191,17 @@ func (l *Label) Find(code string) *PriceLine {
 	return nil
 }
 
+// UnitPriceFor derives one tier's rounded unit price from a catalog base
+// price, without weighing anything.
+//
+// It is the exact arithmetic Price uses per line (order of operations of
+// §6.3), extracted so a catalog listing can show every configured tier's
+// price on a tile — the reason dual pricing exists — without duplicating the
+// one true formula.
+func UnitPriceFor(base Cents, tier PriceTier, rounding RoundingPolicy) Cents {
+	return Cents(rounding.Divide(int64(base)*int64(FullDiscount-tier.Discount), int64(FullDiscount)))
+}
+
 // Price is the ONLY implementation of the pricing rule of the application.
 // It is pure.
 //
@@ -240,8 +251,7 @@ func Price(p Product, m Measurement, rules PricingRules) (Label, error) {
 		}
 		seen[tier.Code] = true
 
-		unitPrice := Cents(rules.UnitPriceRounding.Divide(
-			int64(p.UnitPrice)*int64(FullDiscount-tier.Discount), int64(FullDiscount)))
+		unitPrice := UnitPriceFor(p.UnitPrice, tier, rules.UnitPriceRounding)
 
 		var amount Cents
 		switch p.Mode {
