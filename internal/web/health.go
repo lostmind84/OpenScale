@@ -278,6 +278,14 @@ func (s *Server) adminHealth(w http.ResponseWriter, r *http.Request) {
 		State:        s.stateOf(snap),
 		ScalePresent: cfg.Scale.Present,
 		Counters:     countersDTO{Unlogged: snap.UnloggedWeighings, Journal: -1},
+		// The three lists are EMPTY and not nil, because that is the difference between
+		// « there is none » and `null`. A station with no journal (ADR-013) reads none of
+		// them, a station installed this morning has no import to break down, and the
+		// screen spreads and filters them the instant it has read them: `null` is an
+		// uncaught TypeError that closes the administration in a volunteer's face.
+		Events:         []technicalLineDTO{},
+		CatalogMotives: []motiveDTO{},
+		Decisions:      []decisionDTO{},
 	}
 	s.fillHealthFromStore(r.Context(), &body)
 	s.fillHealthFromPlatform(r.Context(), &body, cfg)

@@ -34,7 +34,9 @@ import { FLV_IMPORT, nominalHealth } from './fixtures/health'
  *     dont le résultat est vide, et c'est la veille qui tranchera quelques secondes plus
  *     tard ;
  *  8. rien n'est affirmé de ce qui n'a pas été LU : un poste sans journal répond 503 à
- *     toute lecture de l'historique, et quatre phrases « Aucun… » disaient le contraire ;
+ *     toute lecture de l'historique, et quatre phrases « Aucun… » disaient le contraire —
+ *     et la page S'OUVRE sur un poste qui n'a jamais reçu de catalogue, l'état de tout
+ *     poste installé le matin même ;
  *  9. les signalements sont RELUS quand le poste change d'import ;
  * 10. aucun bouton n'est armé pour un refus certain : le motif est exigé par le service ;
  * 11. la zone de dépôt obéit au même verrou que le reste de la page, et le sélecteur de
@@ -673,6 +675,27 @@ describe('rien n’est affirmé de ce qui n’a pas été lu', () => {
     // Aucun `settle` : les lectures sont en vol, et l'écran ne sait encore rien.
     expect(pageText()).toContain('Lecture des signalements du dernier import…')
     expect(pageText()).toContain("Lecture de l'historique des imports…")
+  })
+
+  it('s’ouvre sur un poste qui n’a jamais reçu de catalogue', async () => {
+    // L'état d'un poste installé ce matin, et celui du mode démonstration avant le premier
+    // dépôt. Aucun import, donc aucun identifiant à nommer, donc `GET /admin/api/imports`
+    // lu SANS `?id=` — et la route répondait alors `"findings": null`. Le premier filtre
+    // levait, le filet ERR-UI-01 rechargeait, et l'administration se fermait toute seule.
+    // Ce que le service répond désormais est tenu par `TestNoListEverComesBackAsNull`,
+    // internal/web/dto_test.go ; ce que la page en fait est tenu ici.
+    history = []
+    findings = []
+    catalogProducts = []
+    open(nominalHealth({ catalog: null, catalog_motives: [], catalog_source: null }))
+    await settle()
+
+    const said = pageText()
+    expect(said).toContain('Aucun import enregistré sur ce poste.')
+    expect(said).toContain('Aucune anomalie sur le dernier import.')
+    expect(said).toContain("Aucun import dans l'historique.")
+    expect(said).toContain('Aucune décision locale')
+    expect(said).toContain("Aucun import enregistré : rien n'a encore pu être retiré.")
   })
 
   it('ne dit pas d’un produit qu’il est ABSENT quand le catalogue n’a pas pu être lu', async () => {
