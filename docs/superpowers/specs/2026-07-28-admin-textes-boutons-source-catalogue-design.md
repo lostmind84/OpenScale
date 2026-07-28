@@ -165,14 +165,14 @@ neutre interroge le poste, le bleu le change, le rouge ne se défait pas d'un cl
 
 ### 3.2 Deux jetons nouveaux, et pourquoi pas les existants
 
-`--focus` (`#1E5FA8`) plafonne à **6,29:1** sur blanc et `--fault` (`#B3261E`) à
+`--focus` (`#1E5FA8`) plafonne à **6,45:1** sur blanc et `--fault` (`#B3261E`) à
 **6,54:1** : conformes AA, sous le 7:1 que §14.2 réclame au-delà de 24 px. Les libellés de
 bouton font 17 px et, sur le Dépannage, 22 px — AA suffirait. Viser 7:1 ne coûte que deux
 teintes plus sombres et rend la règle uniforme, quel que soit le corps qu'un bouton
 prendra demain :
 
 ```css
---action: #17518f;  /* 7,58:1 sur blanc — fond des actes qui écrivent */
+--action: #17518f;  /* 8,05:1 sur blanc — fond des actes qui écrivent */
 --danger: #a11f19;  /* 7,71:1 sur blanc — fond des actes irréversibles */
 ```
 

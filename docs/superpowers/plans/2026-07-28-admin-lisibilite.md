@@ -2280,7 +2280,7 @@ l'enregistrement (contrôle 46) »*.
 Après le bloc `:root` des jetons :
 
 ```
-**Deux fonds pleins, et une règle qui ne bouge pas.** `--action` (`#17518F`, 7,58:1) et
+**Deux fonds pleins, et une règle qui ne bouge pas.** `--action` (`#17518F`, 8,05:1) et
 `--danger` (`#A11F19`, 7,71:1) portent l'encre blanche sur les boutons de
 l'administration. Ce n'est pas une exception à « aucune couleur ne porte de lettres » :
 cette règle interdit d'**écrire en** `--warning` ou `--fault` sur fond clair, ce qui reste
