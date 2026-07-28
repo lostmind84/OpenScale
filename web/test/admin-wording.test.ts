@@ -76,6 +76,37 @@ describe('ce que l’écran montre ne cite plus le dossier de conception', () =>
   })
 })
 
+/**
+ * Le code d'un fichier, ses commentaires retirés.
+ *
+ * `visibleText` ne voit que le markup, et une phrase montrée au bénévole n'y arrive pas
+ * toujours par là : les six consignes des feux sont des CHAÎNES de `lib/lights.ts`, et
+ * plusieurs explications de champ sont assemblées dans un `<script>`. Trier sur la balise
+ * laissait donc « pas une panne (ADR-007) » lisible sur le tableau de bord.
+ *
+ * Le tri se fait ici sur les COMMENTAIRES : eux gardent leurs renvois, et ce qui reste
+ * d'un fichier une fois ses commentaires ôtés est du code — où un renvoi ne peut être que
+ * dans une chaîne, donc à l'écran. Une chaîne qui contient `//` fait perdre la fin de sa
+ * ligne : ce test rate alors un renvoi, il n'en invente jamais.
+ */
+function composedText({ path, text }: { path: string; text: string }): string {
+  const blocks = path.endsWith('.ts')
+    ? [text]
+    : [...text.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gu)].map((match) => match[1] ?? '')
+  return blocks
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//gu, '')
+    .replace(/\/\/.*$/gmu, '')
+}
+
+describe('ni les phrases que le code compose avant de les montrer', () => {
+  it.each(files)('$path', (file) => {
+    const composed = composedText(file)
+    expect(composed).not.toMatch(/§\d/u)
+    expect(composed).not.toMatch(/ADR-\d/u)
+  })
+})
+
 describe('l’index des champs', () => {
   it('nomme en français tout chemin qu’une page édite', () => {
     const unknown = new Set<string>()

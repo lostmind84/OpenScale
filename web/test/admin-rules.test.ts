@@ -269,20 +269,21 @@ describe('les quatorze garde-fous de §6.4', () => {
     expect(host.querySelector('[data-flag="limits.basket_check_enabled"]')).not.toBeNull()
   })
 
-  it('dit la vérité sur ce qui est modifiable, et ne s’abrite pas derrière §6.4', () => {
+  it('dit la vérité sur ce qui est modifiable, sans citer le dossier de conception', () => {
     open()
 
     const text = pageText()
-    expect(text).toContain('Le seuil est modifiable')
+    expect(text).toContain('Le seuil se modifie ici')
     // Seule la SÉVÉRITÉ est en lecture seule par conception (§6.4, ADR-025). §6.4 écrit
     // au contraire que les messages « sont éditables depuis l'écran Règles » : citer
-    // cette section à l'appui de l'inverse transformait un écart en conformité.
-    expect(text).toContain('La sévérité est en lecture seule')
+    // cette section à l'appui de l'inverse transformait un écart en conformité. Le renvoi
+    // vit désormais dans ce commentaire-ci, et la note dit le fait sans l'invoquer.
+    expect(text).toContain('La sévérité ne se règle pas')
     expect(text).not.toContain('la sévérité et le message sont en lecture seule')
     expect(text).not.toContain('Le seuil et le message sont modifiables')
-    // Et ce qui manque est nommé pour ce que c'est : la clé, pas la validation, que le
-    // service porte déjà (`domain.CheckMessage`, `domain.MessagePlaceholders`).
-    expect(text).toContain('il manque la clé de configuration')
+    // L'écart n'est pas effacé avec le renvoi : la note continue de dire au bénévole que
+    // le message n'est pas à sa portée, sans lui expliquer ce qui manque au service.
+    expect(text).toContain("n'est pas encore modifiable depuis cet écran")
   })
 
   it('dit la borne du garde-fou 8 comme le noyau l’écrit : au plancher, c’est refusé', () => {

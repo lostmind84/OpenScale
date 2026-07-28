@@ -371,7 +371,7 @@
         jusqu’à {frenchInteger(EXPORT_PAGE)} pesées, en point-virgule et en UTF-8 — il s’ouvre
         tel quel dans le tableur d’un Windows français. Il ne demande aucun mot de passe : la
         lecture du journal n’en demande pas non plus, et le fichier de diagnostic emporte déjà
-        les deux cents dernières pesées (ADR-033).
+        les deux cents dernières pesées.
       </p>
     {/if}
 
@@ -504,7 +504,7 @@
                         La trame repart dans le décodeur du poste EN SERVICE : le poids
                         affiché au client change, et rien ne le remet comme il était. C’est
                         ce qui fait d’un refus inexpliqué un test permanent, sans
-                        déplacement au magasin et sans balance (§15.4).
+                        déplacement au magasin et sans balance.
                       </p>
                     {/if}
                   </td>

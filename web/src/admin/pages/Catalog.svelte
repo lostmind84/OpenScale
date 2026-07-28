@@ -597,7 +597,7 @@
     </div>
     <p class="fact muted">
       « Oublier la quarantaine » fait relire un fichier que le poste avait écarté : c’est le
-      seul geste de cette page qui puisse remettre en service un catalogue refusé (§10.5).
+      seul geste de cette page qui puisse remettre en service un catalogue refusé.
     </p>
   </Panel>
 
@@ -640,7 +640,7 @@
     </div>
     <p class="fact muted">
       Ce dépôt remplace toute la grille par le fichier apporté : il change ce que le poste
-      vend, et le mot de passe est donc demandé au moment du dépôt (ADR-033).
+      vend, et le mot de passe est donc demandé au moment du dépôt.
     </p>
   </Panel>
 
@@ -665,7 +665,7 @@
 
   <Panel
     title="Unités divergentes"
-    note="Le produit reste proposé : le code-barres fait foi, seul le libellé du prix est faux (§10.2)."
+    note="Le produit reste proposé : le code-barres fait foi, seul le libellé du prix est faux."
   >
     {#if historyState !== 'read'}
       <p class="fact" data-unread="mismatches">{findingsUnknown}</p>
@@ -697,7 +697,7 @@
 
   <Panel
     title="Produits retirés depuis l’import précédent"
-    note="Un produit absent du nouveau fichier est marqué retiré à sa date, jamais supprimé (§10.9)."
+    note="Un produit absent du nouveau fichier est marqué retiré à sa date, jamais supprimé."
   >
     {#if health.catalog === null}
       <p class="fact">Aucun import enregistré : rien n’a encore pu être retiré.</p>
@@ -716,7 +716,7 @@
 
   <Panel
     title="Décider d’un produit"
-    note="Une seule table de décisions humaines : « ne plus proposer » et la dérogation de poids en sont deux colonnes, écrites séparément (§14.5)."
+    note="Retirer un produit et l’autoriser à peser moins sont deux décisions séparées : l’une n’efface pas l’autre."
   >
     <label class="search" for="product-search">Chercher un produit</label>
     <input id="product-search" type="search" bind:value={query} placeholder="ail, tomme, œufs…" />

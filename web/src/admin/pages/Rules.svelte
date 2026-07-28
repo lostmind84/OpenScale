@@ -334,10 +334,7 @@
       thresholds: [],
       switchPath: '',
       switchLabel: '',
-      note:
-        'Aucun seuil ici : la péremption est DÉRIVÉE de la cadence réellement observée ' +
-        '(§6.5), bornée par stability.expiry_floor_ms, stability.expiry_ceiling_ms et ' +
-        'stability.expiry_factor.',
+      note: 'Aucun seuil à régler : le poste calcule lui-même à partir du rythme de la balance.',
     },
     {
       rank: 3,
@@ -361,7 +358,7 @@
       ],
       switchPath: 'limits.basket_check_enabled',
       switchLabel: 'Ce poste travaille avec un panier taré',
-      note: 'C’est l’un des deux arbitrages nommés de §6.4 : la règle s’active ou non, en bloc.',
+      note: 'La règle s’active ou non, en bloc : il n’y a pas de demi-mesure à régler.',
     },
     {
       rank: 4,
@@ -381,8 +378,8 @@
       switchPath: '',
       switchLabel: '',
       note:
-        'Toucher une tuile sur un plateau vide ARME la sélection au lieu d’être refusé ' +
-        '(ADR-022) : la règle reste évaluée pour la saisie manuelle et les chemins dérivés.',
+        'Toucher une tuile sur un plateau vide ARME la sélection au lieu d’être refusé : ' +
+        'la règle reste évaluée pour la saisie manuelle et les chemins dérivés.',
     },
     {
       rank: 5,
@@ -409,8 +406,8 @@
       switchPath: '',
       switchLabel: '',
       note:
-        'Second arbitrage nommé de §6.4 : la sévérité passe à Bloquant si stability.mode ' +
-        'vaut « blocking ». L’impression n’est jamais bloquée par défaut.',
+        'La sévérité suit l’exigence de stabilité : elle passe à Bloquant quand celle-ci ' +
+        'est réglée sur « blocking ». L’impression n’est jamais bloquée par défaut.',
     },
     {
       rank: 7,
@@ -446,7 +443,7 @@
         {
           path: 'limits.min_weight_g',
           label: 'Poids minimum',
-          hint: 'Une dérogation par produit existe, dans l’onglet Catalogue (§10.6).',
+          hint: 'Une dérogation par produit existe, dans l’onglet Catalogue.',
         },
       ],
       switchPath: '',
@@ -501,7 +498,7 @@
           path: 'limits.max_amount_cents',
           label: 'Montant maximum',
           hint: 'En centimes. Aucun préfixe du plan livré n’encode un prix : la règle est ' +
-            'éprouvée sans qu’aucun produit puisse l’atteindre (§6.2).',
+            'éprouvée sans qu’aucun produit puisse l’atteindre.',
         },
       ],
       switchPath: '',
@@ -519,7 +516,7 @@
       thresholds: [],
       switchPath: '',
       switchLabel: '',
-      note: 'Aucun seuil : un produit à 0 € est une anomalie sans nuance (§10.3).',
+      note: 'Aucun seuil : un produit à 0 € est une anomalie sans nuance.',
     },
     {
       rank: 13,
@@ -534,7 +531,7 @@
       switchLabel: '',
       note:
         'Aucun seuil général : c’est la dérogation par produit, listée plus bas et posée ' +
-        'depuis l’onglet Catalogue (§10.6). Rien ne s’affiche au client ; l’id du produit ' +
+        'depuis l’onglet Catalogue. Rien ne s’affiche au client ; l’id du produit ' +
         'est journalisé.',
     },
     {
@@ -549,7 +546,7 @@
       switchPath: '',
       switchLabel: '',
       note:
-        'Aucun seuil : c’est la décision humaine de §10.6, prise depuis l’onglet Catalogue. ' +
+        'Aucun seuil : c’est une décision humaine, prise depuis l’onglet Catalogue. ' +
         'Aucune règle d’import ne peut la déduire.',
     },
   ]
@@ -603,7 +600,7 @@
 <div class="pages">
   <Panel
     title="Grille de tarifs"
-    note="Le double tarif n’est pas un booléen : c’est la cardinalité de cette grille (§6.3, ADR-009)."
+    note="Un second tarif n’est pas une case à cocher : c’est une ligne de plus dans cette grille."
   >
     {#if tiers.length === 0}
       <p class="fact">Aucun tarif déclaré dans la configuration lue.</p>
@@ -743,14 +740,14 @@
     <p class="fact muted">
       Les deux arrondis sont distincts parce qu’ils tombent à des endroits différents du
       calcul : arrondir le prix au kilo puis le multiplier, ou multiplier puis arrondir, ne
-      donne pas le même centime sur une étiquette. Le poste applique l’arrondi commercial
-      (ADR-008) et l’écart se voit au centime près sur la même pesée.
+      donne pas le même centime sur une étiquette. Le poste applique l’arrondi commercial,
+      et l’écart se voit au centime près sur la même pesée.
     </p>
   </Panel>
 
   <Panel
     title="Les quatorze garde-fous, dans l’ordre d’évaluation"
-    note="Le seuil est modifiable. La sévérité est en lecture seule par conception : elle dit si le poste refuse ou avertit, et ce n’est pas un réglage de magasin (§6.4, ADR-025). Le message, lui, devrait être modifiable ici (§6.4) et ne l’est pas encore : il manque la clé de configuration qui le porte et la route qui l’écrit — pas le contrôle de sa saisie, que le service porte déjà. Écart constaté et différé, pas oublié."
+    note="Le seuil se modifie ici. La sévérité ne se règle pas : elle dit si le poste refuse ou avertit, et cela ne dépend pas du magasin. Le message affiché au client n’est pas encore modifiable depuis cet écran."
   >
     <p class="fact muted">
       L’ordre compte : le premier verdict bloquant décide de ce que le client lit. Les
@@ -865,9 +862,9 @@
       'Décoché, le poste recalcule une clé juste sur une référence fausse, en silence — et la caisse encaisse un autre article.',
     )}
     <p class="fact muted">
-      Le plan de numérotation n’est PAS ici, et c’est tout l’intérêt (§6.2, ADR-028) :
-      préfixes, largeur de la référence, largeur de la charge utile, décimales et mode de
-      vente sont une constante du binaire, indexée par préfixe et vérifiée au démarrage.
+      Le plan de numérotation n’est PAS ici, et c’est tout l’intérêt : préfixes, largeur de
+      la référence, largeur de la charge utile, décimales et mode de vente sont une
+      constante du binaire, indexée par préfixe et vérifiée au démarrage.
       Un champ qui change le SENS du code lu par la caisse n’est pas un réglage, c’est un
       contrat externe : il change avec une version du binaire, relue et testée, jamais
       depuis l’écran d’un poste.
@@ -882,7 +879,7 @@
   -->
   <Panel
     title="Dérogations de poids minimum"
-    note="En lecture ici ; elles se modifient depuis l’onglet Catalogue, là où se trouve le produit (§10.6)."
+    note="En lecture ici ; elles se modifient depuis l’onglet Catalogue, là où se trouve le produit."
   >
     {#if waivers.length === 0}
       <p class="fact">Aucune dérogation : la limite générale s’applique à tous les produits.</p>

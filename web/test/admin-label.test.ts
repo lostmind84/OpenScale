@@ -481,8 +481,9 @@ describe('le bandeau chiffré de Diagnose(), que §14.4 demande', () => {
     await open()
 
     // Aucune route ne les porte et aucun DTO n'a de champ pour eux : la troncature reste
-    // annoncée (ADR-003), les chiffres sont annoncés ABSENTS.
+    // annoncée (ADR-003), les chiffres sont annoncés ABSENTS. Le renvoi, lui, vit dans ce
+    // commentaire-ci et plus dans la phrase : l'écran dit le fait, pas où il est décidé.
     expect(host.querySelector('[data-diagnose-absent]')).not.toBeNull()
-    expect(text()).toContain('volontairement tronqué (ADR-003)')
+    expect(text()).toContain('volontairement tronqué')
   })
 })

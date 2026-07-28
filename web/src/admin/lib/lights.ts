@@ -138,7 +138,7 @@ function printerLight(health: HealthDTO): Light {
         value: 'elle prend les étiquettes et ne dit rien en retour',
         remedy:
           'C’est la réponse normale d’une file Windows en RAW ou d’un fichier de ' +
-          'périphérique, pas une panne (ADR-007). Pour savoir si elle imprime, touchez ' +
+          'périphérique, pas une panne. Pour savoir si elle imprime, touchez ' +
           '« Imprimer une étiquette de test ».',
       }
   }
@@ -323,7 +323,7 @@ function journalLight(health: HealthDTO): Light {
       level: 'unknown',
       value: 'ce poste n’a pas de journal ouvert',
       remedy:
-        'Le poste pèse et imprime quand même (ADR-013). Téléchargez le fichier de ' +
+        'Le poste pèse et imprime quand même. Téléchargez le fichier de ' +
         'diagnostic : il dit pourquoi la base n’a pas pu être ouverte.',
     }
   }

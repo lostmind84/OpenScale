@@ -111,7 +111,7 @@
 
   <Panel
     title="Décisions locales en vigueur"
-    note="Ce qu’un humain a décidé de ce catalogue, avec son motif et sa date (§10.6)."
+    note="Ce qu’un humain a décidé de ce catalogue, avec son motif et sa date."
   >
     {#if decisions.length === 0}
       <p class="fact">Aucune décision locale : le catalogue est proposé tel qu’il arrive.</p>

@@ -491,7 +491,7 @@
       word: 'Silencieuse',
       detail:
         'Elle prend les étiquettes et ne dit rien en retour : c’est la réponse normale ' +
-        'd’une file Windows en RAW ou d’un fichier de périphérique, pas une panne (ADR-007).',
+        'd’une file Windows en RAW ou d’un fichier de périphérique, pas une panne.',
     },
   }
 
@@ -788,7 +788,7 @@
           label="Protocole"
           path="scale.type"
           value={draft.text('scale.type')}
-          hint="Les deux entrées de registre de §9.3. Les valeurs acceptées apparaissent ici si l’enregistrement est refusé."
+          hint="Les valeurs acceptées apparaissent ici si l’enregistrement est refusé."
           fault={faultOf('scale.type')}
           allowed={allowedFor('scale.type')}
           disabled={!configRead}
@@ -915,7 +915,7 @@
           label="Driver"
           path="printer.type"
           value={draft.text('printer.type')}
-          hint="Le driver raster est le chemin de production (ADR-002)."
+          hint="Gardez le driver raster : c’est celui que les postes en service utilisent."
           fault={faultOf('printer.type')}
           allowed={allowedFor('printer.type')}
           disabled={!configRead}
@@ -925,7 +925,7 @@
           label="Transport"
           path="printer.options.transport"
           value={draft.text('printer.options.transport')}
-          hint="Local par défaut : file Windows ou fichier de périphérique (ADR-007)."
+          hint="Local par défaut : une file Windows ou un fichier de périphérique de ce poste."
           fault={faultOf('printer.options.transport')}
           allowed={allowedFor('printer.options.transport')}
           disabled={!configRead}

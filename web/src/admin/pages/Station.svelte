@@ -653,7 +653,7 @@
 
   <Panel
     title="Exporter, importer"
-    note="L’export sans le matériel est ce qui sert à cloner un poste (§11.5). Restent sur place : le mot de passe, le code de secours, le numéro et le nom du poste, les réglages de la balance, ceux de l’imprimante, la source du catalogue et le réseau. Voyage ce que les quatre postes doivent avoir en commun : tarifs, garde-fous, étiquette, catégories."
+    note="Pour installer un autre poste : ce fichier emporte les tarifs, les garde-fous, l’étiquette et les catégories. Tout ce qui est propre à ce poste-ci reste ici — le mot de passe, le code de secours, le numéro et le nom du poste, les réglages de la balance, ceux de l’imprimante, la source du catalogue et le réseau."
   >
     <div class="actions">
       <Act
@@ -689,8 +689,8 @@
     </div>
     <p class="fact muted">
       L’export emporte encore l’empreinte du mot de passe : c’est la seule lecture que le
-      poste garde derrière la clé (§11.5, ADR-033). L’import, lui, est lu PAR LE POSTE, qui
-      écarte les deux secrets et le numéro de poste avant de dire ce qui changerait.
+      poste garde derrière la clé. L’import, lui, est lu PAR LE POSTE, qui écarte les deux
+      secrets et le numéro de poste avant de dire ce qui changerait.
     </p>
 
     {#if servedError !== ''}
@@ -745,9 +745,8 @@
       {:else if diff.length === 0}
         <p class="fact same" data-same>
           Ce fichier décrit la même configuration que celle en service : il n’y a rien à
-          recopier. C’est ce qu’on veut lire à la fin d’un clonage (§11.5). La date du
-          dernier enregistrement n’est pas comparée — chaque poste écrit la sienne, et
-          l’empreinte de §11.5 l’ignore pour la même raison.
+          recopier. C’est ce qu’on veut lire à la fin d’un clonage. La date du dernier
+          enregistrement n’est pas comparée : chaque poste écrit la sienne.
         </p>
       {:else}
         <p class="fact muted" data-tally="diff">
@@ -779,8 +778,8 @@
         {#if stripped.length > 0}
           <p class="fact warned" data-stripped>
             Ce fichier ne porte pas {frenchList(stripped.map((block) => block.name))} :
-            l’export sans le matériel les retire (§11.5), et l’import ne remet que le
-            numéro du poste. Les lignes correspondantes sont VIDES ci-dessus, et
+            l’export sans le matériel les retire, et l’import ne remet que le numéro du
+            poste. Les lignes correspondantes sont VIDES ci-dessus, et
             « Recopier » recopie ce vide dans le brouillon.
           </p>
         {/if}

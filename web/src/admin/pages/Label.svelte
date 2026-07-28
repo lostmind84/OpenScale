@@ -431,9 +431,9 @@
     </div>
 
     <p class="truncation">
-      Le symbole code-barres est volontairement tronqué (ADR-003) : un symbole conforme
-      n’entre pas sur 40 × 25 mm avec les cinq champs texte. Ce n’est pas un défaut de
-      rendu et il n’y a rien à corriger.
+      Le symbole code-barres est volontairement tronqué : un symbole conforme n’entre pas
+      sur 40 × 25 mm avec les cinq champs texte. Ce n’est pas un défaut de rendu et il n’y
+      a rien à corriger.
     </p>
     <!--
       §14.4 asks for the FIGURES of the symbol here — the numbered banner of `Diagnose()`.
@@ -507,9 +507,8 @@
       {/each}
     </div>
     <p class="cost">
-      Chaque appui sort une étiquette pour de bon, et demande le mot de passe (ADR-033) :
-      il est demandé au moment d’imprimer, et l’impression repart d’elle-même une fois la
-      session ouverte.
+      Chaque appui sort une étiquette pour de bon : le mot de passe est demandé au moment
+      d’imprimer, et l’impression repart d’elle-même une fois la session ouverte.
     </p>
   </Panel>
 </div>
