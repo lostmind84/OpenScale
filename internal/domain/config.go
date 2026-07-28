@@ -592,6 +592,23 @@ func (o DriverOptions) Has(key string) bool {
 // validation produce the faults in the same sequence.
 func (o DriverOptions) Keys() []string { return sortedKeys(o) }
 
+// WithText returns the same options with one key set to a string value.
+//
+// It never touches the receiver, for the reason clone exists: a DriverOptions is a MAP,
+// so a copy of a Config shares it with the configuration the station is running on, and
+// writing through one of them would change the other.
+func (o DriverOptions) WithText(key, value string) DriverOptions {
+	next := o.clone()
+	if next == nil {
+		next = make(DriverOptions, 1)
+	}
+	// json.Marshal of a string cannot fail: it escapes what it must, and replaces what is
+	// not valid UTF-8 rather than refusing it.
+	raw, _ := json.Marshal(value)
+	next[key] = raw
+	return next
+}
+
 // clone returns a shallow copy, so that Export can strip a secret without reaching
 // into the configuration the station is running on.
 func (o DriverOptions) clone() DriverOptions {

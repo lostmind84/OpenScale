@@ -40,6 +40,14 @@ type configVersionDTO struct {
 	Fingerprint string `json:"config_fingerprint"`
 }
 
+// catalogPasswordOption is the credential a WebDAV share asks for.
+//
+// Spelled here rather than imported from internal/catalog/webdav: this layer must not
+// depend on a driver to know that a password is a secret. The name is the one control 39
+// of the domain already refuses on local_drop, and the one the webdav descriptor
+// declares — three spellings of a key that has never had a second one.
+const catalogPasswordOption = "password"
+
 // configDTO is GET /admin/api/config.
 //
 // The configuration travels AS THE FILE, because that is what it is: the screen edits
@@ -91,6 +99,18 @@ func (s *Server) configPayload(cfg domain.Config, pending *confirmationDTO) conf
 	// screen: §11.2 says so of the export, and a GET is an export with fewer steps.
 	redacted.Admin.PasswordHash = ""
 	redacted.Admin.RecoveryCodeHash = ""
+
+	// The catalog password is a credential like those two, and this route asks for no
+	// password of its own (ADR-033): the pages of settings open in READ, deliberately.
+	// Anything served here is therefore readable by whoever reaches the station, and a
+	// producer's WebDAV account is not something a shop chose to publish.
+	//
+	// BLANKED and not removed, exactly like the two hashes above: this document is what the
+	// screen edits and saves back, so a key deleted here would come back as a `catalog`
+	// block that moved and nobody touched. A source that carries no password keeps none.
+	if redacted.Catalog.Options.Has(catalogPasswordOption) {
+		redacted.Catalog.Options = redacted.Catalog.Options.WithText(catalogPasswordOption, "")
+	}
 
 	// The three option maps are deliberately left as they are, `null` included. Turning
 	// them into `{}` here looked like the same repair as `retired_keys` and is not: this
@@ -151,7 +171,8 @@ func (s *Server) writeConfig(w http.ResponseWriter, r *http.Request) {
 	// write is the same reasoning control 20 already applies to an upload that names a
 	// retired key outright, extended to a key already sitting on disk (ADR-034):
 	// repairing the file is done IN the file, not by laundering it through this screen.
-	if onDisk, err := s.configStore.Read(r.Context()); err == nil {
+	onDisk, onDiskErr := s.configStore.Read(r.Context())
+	if onDiskErr == nil {
 		if faults := retiredFaultsOf(onDisk, s.registries); len(faults) > 0 {
 			writeJSON(w, http.StatusUnprocessableEntity, problem{
 				Code: "ERR-CFG-01",
@@ -180,7 +201,33 @@ func (s *Server) writeConfig(w http.ResponseWriter, r *http.Request) {
 	next.Admin.RecoveryCodeHash = current.Admin.RecoveryCodeHash
 	next.ModifiedAt = s.clock.Now()
 
-	if faults := (&next).Validate(s.registries); len(faults) > 0 {
+	// served is the document the screen was GIVEN and edited, which is what a submission
+	// has to be compared against: the FILE, as readConfig serves it, and only what is
+	// running when no file could be read.
+	//
+	// The distinction is the difference between repairing a station and destroying it. A
+	// station that started out of service runs the NEUTRAL profile, whose catalog carries
+	// no password at all (serve.go, fallbackProfile): taking the secret back from what is
+	// running would erase the cooperative's WebDAV account on the very save that repaired
+	// the file. The two hashes above escape that trap only because the fallback profile
+	// copies Admin over by hand.
+	served := current
+	if onDiskErr == nil {
+		served = onDisk
+	}
+	next.Catalog.Options = carriedOverSecret(served.Catalog.Options, next.Catalog.Options)
+
+	// The drop probe touches the filesystem, so it runs only when the block it is about has
+	// MOVED: a save about the weighing thresholds must not fail because a producer's share
+	// happens to be down that morning. The decision belongs here, to the layer that holds
+	// both versions; the execution stays in the domain (§11.3, control 46).
+	registries := s.registries
+	if registries.Paths != nil &&
+		domain.BlockFingerprint(served.Catalog) == domain.BlockFingerprint(next.Catalog) {
+		registries.Paths = readOnlyPaths{inner: registries.Paths}
+	}
+
+	if faults := (&next).Validate(registries); len(faults) > 0 {
 		writeJSON(w, http.StatusUnprocessableEntity, problem{
 			Code:    "ERR-CFG-01",
 			Message: "Cette configuration ne peut pas être appliquée.",
@@ -207,6 +254,40 @@ func (s *Server) writeConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.configPayload(next,
 		s.confirmationOf(outcome.Changed, outcome.ConfirmBefore)))
 }
+
+// carriedOverSecret puts the catalog password back when the submitted document carries
+// none, and leaves a typed one alone.
+//
+// The screen never received it — configPayload blanks it — so it cannot send it back. This
+// is the same reasoning as the two hashes of writeConfig and the same repair: without it, a
+// save about the polling interval would take the catalog down at the next poll, silently.
+//
+// A password can therefore not be EMPTIED from this screen. That is the price of a
+// write-only field, and it is paid where every other irreversible repair is paid: in the
+// file itself (ADR-034).
+func carriedOverSecret(served, submitted domain.DriverOptions) domain.DriverOptions {
+	if typed, ok := submitted.Text(catalogPasswordOption); ok && typed != "" {
+		return submitted
+	}
+	inForce, ok := served.Text(catalogPasswordOption)
+	if !ok || inForce == "" {
+		return submitted
+	}
+	return submitted.WithText(catalogPasswordOption, inForce)
+}
+
+// readOnlyPaths answers every DROP question with "nothing to check".
+//
+// It is what says « this save is not about the catalog ». The READ question of control 44
+// still travels, because it is about another key entirely and costs one stat.
+//
+// inner is never nil: writeConfig wraps a probe that exists, and wraps nothing otherwise —
+// a nil PathChecker already means « we cannot know » to every control.
+type readOnlyPaths struct{ inner domain.PathChecker }
+
+func (p readOnlyPaths) Readable(path string) error { return p.inner.Readable(path) }
+
+func (readOnlyPaths) Droppable(string) error { return nil }
 
 // confirmationOf renders the countdown, or nothing when there is none.
 func (s *Server) confirmationOf(changed []string, before time.Time) *confirmationDTO {
