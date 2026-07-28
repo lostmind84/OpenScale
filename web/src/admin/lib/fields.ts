@@ -124,3 +124,49 @@ export const FIELD_LABELS: Readonly<Record<string, string>> = {
 export function labelOf(path: string): string {
   return FIELD_LABELS[path] ?? path
 }
+
+/**
+ * Le nom français de chaque BLOC de la configuration.
+ *
+ * Il existe pour la même raison que l'index des champs, un cran au-dessus : le bandeau
+ * de confirmation de §11.4 énumère les blocs qui ont bougé, et le poste les nomme en
+ * anglais — `changedBlocks` de `internal/web/config.go` répond `scale`, `printer`,
+ * `catalog`. Ce sont exactement les jetons que l'interrupteur « Montrer les noms
+ * techniques » doit cacher, et les cacher sans rien mettre à la place laisserait un
+ * bandeau qui annonce un compte à rebours de soixante secondes sans dire sur quoi.
+ *
+ * Les douze entrées sont les douze blocs que `changedBlocks` compare, ni plus ni moins.
+ * Le bloc `admin` n'y est pas parce que ce comparateur ne le regarde pas : il ne porte
+ * que des secrets et la durée d'une session, et il ne déclenche aucune confirmation.
+ * Un banc lit le fichier Go et échoue si un treizième bloc y apparaît sans nom français.
+ *
+ * Les libellés portent leur article : ils s'énumèrent dans une phrase — « ce qui a
+ * changé : la balance, le catalogue » —, là où les noms de champs titrent une case.
+ */
+export const BLOCK_LABELS: Readonly<Record<string, string>> = {
+  station: 'l’identité du poste',
+  network: 'le réseau',
+  ui: 'l’écran client',
+  scale: 'la balance',
+  printer: 'l’imprimante',
+  pricing: 'les tarifs',
+  barcode: 'le code-barres',
+  limits: 'les garde-fous',
+  stability: 'la stabilité',
+  catalog: 'le catalogue',
+  journal: 'le journal',
+  maintenance: 'la maintenance',
+}
+
+/**
+ * Le nom français d'un bloc, ou le jeton lui-même.
+ *
+ * Même repli que pour les champs, et la même raison : un bloc que cet écran ne connaît
+ * pas doit rester nommé, fût-ce en anglais. Un bandeau qui annonce une configuration non
+ * confirmée sans dire de quoi elle parle vaut moins qu'un jeton illisible.
+ *
+ * @param block - le nom du bloc, tel que le service l'écrit.
+ */
+export function blockLabelOf(block: string): string {
+  return BLOCK_LABELS[block] ?? block
+}

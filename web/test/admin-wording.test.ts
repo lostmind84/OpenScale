@@ -5,8 +5,9 @@ import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/admin/App.svelte'
 import Field from '../src/admin/components/Field.svelte'
-import { FIELD_LABELS, labelOf } from '../src/admin/lib/fields'
+import { BLOCK_LABELS, FIELD_LABELS, blockLabelOf, labelOf } from '../src/admin/lib/fields'
 import { preferences } from '../src/admin/lib/preferences.svelte'
+import type { ConfirmationDTO } from '../src/admin/lib/dto'
 import { nominalHealth } from './fixtures/health'
 
 /**
@@ -202,6 +203,43 @@ describe('l’index des champs', () => {
   })
 })
 
+/** Le fichier Go qui décide, seul, quels blocs peuvent apparaître dans le bandeau. */
+const CHANGED_BLOCKS_SOURCE = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../internal/web/config.go',
+)
+
+/**
+ * Les blocs que le poste compare, lus dans la fonction Go qui les déclare.
+ *
+ * La liste ne vit pas dans le navigateur : `changedBlocks` la porte, et un treizième bloc
+ * ajouté là-bas sortirait en jeton anglais dans un bandeau français sans que rien ne le
+ * dise. Ce banc lit la source à la place de l'œil.
+ */
+function blocksTheStationCompares(): string[] {
+  const source = readFileSync(CHANGED_BLOCKS_SOURCE, 'utf8')
+  const body = /func changedBlocks\([\s\S]*?\n\}/u.exec(source)?.[0] ?? ''
+  return [...body.matchAll(/\{"([a-z_]+)",/gu)].map((match) => match[1] as string)
+}
+
+describe('l’index des blocs', () => {
+  it('nomme en français chaque bloc que le poste sait déclarer changé', () => {
+    const blocks = blocksTheStationCompares()
+
+    // Le banc ne vaut que s'il a vraiment lu le fichier : douze blocs, pas zéro.
+    expect(blocks).toHaveLength(12)
+    expect(blocks.filter((block) => BLOCK_LABELS[block] === undefined)).toEqual([])
+  })
+
+  it('ne porte aucun nom que l’index des champs ne connaisse pas comme bloc', () => {
+    expect(Object.keys(BLOCK_LABELS).sort()).toEqual(blocksTheStationCompares().sort())
+  })
+
+  it('rend le jeton lui-même quand il ne connaît pas le bloc — le bandeau nomme toujours', () => {
+    expect(blockLabelOf('bloc-de-demain')).toBe('bloc-de-demain')
+  })
+})
+
 /**
  * L'interrupteur lui-même, avant que le rail ne le montre et que le champ ne l'écoute.
  *
@@ -262,6 +300,8 @@ let host: HTMLElement
 let component: unknown
 /** Ce que le fichier du poste porte de périmé, pour le bandeau qui le dit. */
 let retired: string[] = []
+/** La confirmation que le poste attend, quand un test veut voir le bandeau des 60 s. */
+let pending: ConfirmationDTO | null = null
 
 /**
  * L'interrupteur en service : ce qu'il cache, où on le trouve, et ce qui reste sans lui.
@@ -276,6 +316,7 @@ describe('l’interrupteur des noms techniques', () => {
     globalThis.localStorage.clear()
     preferences.showTechnicalNames = false
     retired = []
+    pending = null
     host = document.createElement('div')
     document.body.append(host)
     vi.stubGlobal('fetch', fakeFetch)
@@ -340,6 +381,32 @@ describe('l’interrupteur des noms techniques', () => {
     expect(host.querySelector('[data-faults]')?.textContent).toContain(REFUSED_FIELD)
   })
 
+  it('nomme en français les blocs du bandeau de confirmation, les jetons sous l’interrupteur', async () => {
+    pending = {
+      changed_blocks: ['scale', 'printer'],
+      confirm_before: '2026-07-28T09:03:12Z',
+      seconds_left: 42,
+    }
+    await openAdmin()
+    // Le bandeau vient du BROUILLON, que seule l'ouverture d'une page de réglages lit.
+    await press('Matériel')
+
+    const banner = host.querySelector('[data-pending]')
+    expect(banner, 'aucun bandeau de confirmation').not.toBeNull()
+    expect(banner?.textContent).toContain('la balance, l’imprimante')
+    // Les jetons du service : ce qu'un bénévole lisait avant, et qui ne lui disait rien.
+    expect(banner?.textContent).not.toContain('scale')
+    expect(banner?.textContent).not.toContain('printer')
+    // Ce que le bandeau garde en toutes circonstances : sur quoi porte le compte à rebours.
+    expect(banner?.textContent).toContain('42 secondes')
+
+    preferences.showTechnicalNames = true
+    flushSync()
+
+    expect(host.querySelector('[data-pending] [data-blocks]')?.textContent).toBe('scale, printer')
+    expect(host.querySelector('[data-pending]')?.textContent).toContain('la balance, l’imprimante')
+  })
+
   it('dit d’une clé périmée ce qu’elle est, sans cesser de nommer celle qu’on retire', async () => {
     retired = [RETIRED_KEY]
     await openAdmin()
@@ -372,7 +439,7 @@ function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
       config: { station: { number: 2 } },
       config_fingerprint: 'a1b2c3d4',
       retired_keys: retired,
-      pending_confirmation: null,
+      pending_confirmation: pending,
     })
   }
   return json({ ports: [], printers: [], weighings: [], entries: [], versions: [] })

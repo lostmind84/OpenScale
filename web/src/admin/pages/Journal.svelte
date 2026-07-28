@@ -4,6 +4,7 @@
   import * as api from '../lib/api'
   import type { TechnicalLineDTO, WeighingDTO } from '../lib/dto'
   import { frenchDateTime, frenchDuration, frenchInteger } from '../lib/format'
+  import { preferences } from '../lib/preferences.svelte'
   import type { Admin } from '../lib/session.svelte'
 
   /**
@@ -538,7 +539,21 @@
               <span class="when">{frenchDateTime(line.occurred_at)}</span>
               <span class="level">{french(LEVELS, line.level, 'niveau inconnu')}</span>
               <span class="from">{french(LOG_SOURCES, line.source, 'origine inconnue')}</span>
-              {#if line.code !== ''}<span class="code">{line.code}</span>{/if}
+              <!--
+                The event code is a TECHNICAL NAME and sits behind the switch, like the
+                configuration keys: `ERR-CAT-05` teaches nothing to whoever will never open
+                the source, and the French message beside it says what happened on its own.
+
+                It stays reachable in three places, which is why hiding it costs nothing:
+                the switch is two clicks away in the rail, `technical.csv` inside
+                `diagnostic.zip` carries the `code` column whatever the screen shows
+                (internal/diag/archive.go), and the station's own text log keeps it. The CSV
+                export of this page never carried it — that one exports weighings, and a
+                weighing has no event code (internal/web/admin.go).
+              -->
+              {#if line.code !== '' && preferences.showTechnicalNames}
+                <span class="code">{line.code}</span>
+              {/if}
               <span class="message">{line.message}</span>
               {#if line.detail !== ''}<span class="detail-text">{line.detail}</span>{/if}
             </li>

@@ -5,6 +5,7 @@
   import type { HealthDTO } from '../lib/dto'
   import { frenchDate, frenchDateTime, frenchDuration, frenchInteger, frenchTime } from '../lib/format'
   import { lightsOf } from '../lib/lights'
+  import { preferences } from '../lib/preferences.svelte'
 
   /**
    * Le tableau de bord de §14.4, page ouverte par défaut et SANS mot de passe (ADR-018).
@@ -175,7 +176,15 @@
           <li data-level={event.level}>
             <span class="time">{frenchTime(event.occurred_at)}</span>
             <span class="source">{event.source}</span>
-            {#if event.code !== ''}<span class="code">{event.code}</span>{/if}
+            <!--
+              Le code technique passe derrière l'interrupteur, comme au Journal : c'est le
+              MÊME journal technique, montré ici en dix lignes et là en cinquante, et un
+              écran qui cacherait `ERR-CAT-05` d'un côté pour le montrer de l'autre ne
+              cacherait rien du tout. Le message français dit déjà ce qui s'est passé.
+            -->
+            {#if event.code !== '' && preferences.showTechnicalNames}
+              <span class="code">{event.code}</span>
+            {/if}
             <span class="message">{event.message}</span>
           </li>
         {/each}

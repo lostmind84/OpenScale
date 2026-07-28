@@ -55,15 +55,26 @@ neutre et que la reprise aurait effacé le compte de la coopérative en silence.
 source fait le ménage des réglages de l'autre : sans cela, les contrôles 39 et 47
 refusaient le seul geste que le panneau existe pour offrir.
 
+**L'interrupteur rend bien les quatre choses de §2.3.** Les deux qui manquaient étaient
+celles qui n'avaient jamais été masquées, si bien que « coché, la clé revient partout où
+elle était » ne voulait rien dire pour elles. Le **bandeau de confirmation** énumérait les
+blocs en jetons anglais du service — `scale, printer` —, alors qu'il annonce un retour
+arrière automatique dans soixante secondes : c'est la phrase où il faut le plus dire sur
+quoi. Un index de douze blocs le nomme désormais en français, et un banc lit
+`changedBlocks` dans `internal/web/config.go` pour échouer si un treizième bloc y apparaît
+sans nom. Le **code technique d'un événement** était affiché sur *deux* pages et non une —
+le Journal et les « dix derniers événements » du tableau de bord, qui sont le même journal
+montré court ; le cacher d'un côté seulement n'aurait rien caché. Il reste atteignable par
+l'interrupteur, et surtout par `technical.csv` du fichier de diagnostic, qui porte la
+colonne `code` quoi que l'écran montre.
+
 **Ce qui reste ouvert.** Deux renvois morts vers les « réglages avancés » supprimés le
 27/07 survivent hors du périmètre traité — `lib/lights.ts` (deux consignes de feux) et
 `cmd/openscale/admin.go` (le refus d'impression) ; la page qui porte ces réglages s'appelle
 « Matériel ». La page Règles montre encore deux clés de configuration en clair dans des
-notes de garde-fou, hors interrupteur. Et §2.3 de la conception veut que l'interrupteur
-rende **quatre** choses : la clé sous un champ et la clé brute du refus sont faites, le nom
-d'un bloc dans le bandeau de confirmation et le code technique d'un événement ne le sont
-pas — le premier demanderait un index nouveau, les noms de blocs étant des jetons anglais
-du service.
+notes de garde-fou, hors interrupteur. Et le tableau de bord écrit encore en anglais
+l'**origine** d'un événement (`catalog`, `scale`) là où le Journal la traduit — ce n'est
+pas un nom technique au sens de §2.3, c'est un jeton non traduit.
 
 **Le contrôle 20 a mordu ses propres livrables (28/07/2026).** La refonte de l'écran
 client en « Grand Format » (ADR-035) retire `ui.tile_size` du schéma et fait refuser

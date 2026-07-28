@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Draft } from './lib/draft.svelte'
-  import { labelOf } from './lib/fields'
+  import { blockLabelOf, labelOf } from './lib/fields'
   import { preferences } from './lib/preferences.svelte'
   import { Admin, needsPassword, type PageID } from './lib/session.svelte'
   import Act from './components/Act.svelte'
@@ -84,6 +84,21 @@
       ? `Poste ${String(admin.health?.station ?? '')}`
       : admin.health.station_name,
   )
+
+  /**
+   * Ce que le poste dit avoir changé, en français, pour le bandeau de confirmation.
+   *
+   * Le service énumère des BLOCS et non des champs — `scale`, `printer`, `catalog` —, et
+   * ces jetons anglais sont de la même famille que les clés de configuration : ils ne
+   * s'affichent que sous l'interrupteur. Sans nom français à leur place, le bandeau
+   * annoncerait un retour arrière automatique dans soixante secondes sans dire sur quoi.
+   */
+  const changedBlocks = $derived(
+    (draft.pending?.changed_blocks ?? []).map((block) => blockLabelOf(block)).join(', '),
+  )
+
+  /** Les mêmes blocs en jetons du service, pour qui a coché l'interrupteur. */
+  const changedBlockTokens = $derived((draft.pending?.changed_blocks ?? []).join(', '))
 
   onMount(() => {
     admin.start()
@@ -173,9 +188,17 @@
 
     {#if draft.pending !== null}
       <div class="banner pending" data-pending>
+        <!--
+          Le bandeau nomme les blocs en FRANÇAIS, la même règle que la barre de refus juste
+          en dessous : ce qui vient du service en jeton anglais passe sous l'interrupteur,
+          et ce qui reste doit se lire sans lui. « la balance, l'imprimante » dit à un
+          bénévole ce qu'il doit aller vérifier avant de confirmer ; « scale, printer » ne
+          le dit qu'à qui a ouvert `internal/web/config.go`.
+        -->
         <p>
-          Configuration appliquée mais NON CONFIRMÉE : {draft.pending.changed_blocks.join(', ')}. Le
-          poste reviendra tout seul à la version précédente dans
+          Configuration appliquée mais NON CONFIRMÉE. Ce qui a changé : {changedBlocks}.
+          {#if preferences.showTechnicalNames}<code data-blocks>{changedBlockTokens}</code>{/if}
+          Le poste reviendra tout seul à la version précédente dans
           {draft.pending.seconds_left} secondes si personne ne confirme.
         </p>
         <Act
