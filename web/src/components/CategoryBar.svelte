@@ -4,7 +4,10 @@
   import Icon from './Icon.svelte'
 
   /**
-   * The bottom bar: the category filters, the search key and the health dot.
+   * The bottom bar: the category filters and the search key.
+   *
+   * The health dot and the settings entry moved to StatusBar (ADR-036 addendum,
+   * Task 10) — this bar is now purely about narrowing what the grid shows.
    *
    * Categories are FILTERS, not four screens. The legacy application had four
    * hard-coded buttons because four forms were prebuilt at start-up; the real
@@ -16,16 +19,14 @@
   interface Props {
     chips: Chip[]
     active: string
-    searchOpen: boolean
-    /** Both devices nominal: one dot a volunteer reads at a glance (§14.3). */
-    healthy: boolean
+    /** Whether the physical search field is currently revealed (Task 6). */
+    searchFieldOpen: boolean
     onselect: (code: string) => void
-    ontogglesearch: () => void
-    /** Opens the administration — one press on a named key (ADR-032). */
-    onadmin: () => void
+    /** Reveals the physical search field — no touch keyboard to toggle anymore. */
+    onopensearch: () => void
   }
 
-  const { chips, active, searchOpen, healthy, onselect, ontogglesearch, onadmin }: Props = $props()
+  const { chips, active, searchFieldOpen, onselect, onopensearch }: Props = $props()
 </script>
 
 <nav class="filters" aria-label="Catégories">
@@ -50,30 +51,12 @@
   <button
     type="button"
     class="chip touch-target search-key"
-    class:active={searchOpen}
-    aria-pressed={searchOpen}
-    onclick={ontogglesearch}
+    class:active={searchFieldOpen}
+    aria-pressed={searchFieldOpen}
+    onclick={onopensearch}
   >
     <Icon name="search" size="1.75rem" />
     <span class="visually-hidden">Chercher un produit</span>
-  </button>
-
-  <span
-    class="health"
-    class:fault={!healthy}
-    role="status"
-    aria-label={healthy ? 'Matériel disponible' : 'Matériel indisponible'}
-  ></span>
-
-  <!--
-    The way into the administration, and it is VISIBLE (ADR-032).
-    A three second press on an unmarked corner is a way in nobody finds without
-    being told; the long press stays, on this same button, for the day a station
-    is put behind a counter where a customer could reach the screen.
-  -->
-  <button type="button" class="chip touch-target admin" onclick={onadmin}>
-    <Icon name="settings" size="1.75rem" />
-    <span class="admin-label">Réglages</span>
   </button>
 </nav>
 
@@ -84,7 +67,7 @@
     flex: 0 0 auto;
     align-items: center;
     gap: 0.75rem;
-    height: var(--filter-height);
+    height: var(--category-height);
     padding: 0 var(--touch-gap);
     background: var(--surface);
     border-top: 1px solid var(--border);
@@ -151,36 +134,6 @@
   .search-key.active {
     border-color: var(--ink);
     background: var(--bg);
-  }
-
-  .health {
-    flex: 0 0 auto;
-    width: 0.875rem;
-    height: 0.875rem;
-    border-radius: 50%;
-    background: var(--ready);
-    box-shadow: 0 0 0 0.375rem var(--ready-wash);
-    transition: background-color var(--slide) var(--ease);
-  }
-
-  .health.fault {
-    background: var(--fault);
-    box-shadow: 0 0 0 0.375rem var(--fault-wash);
-  }
-
-  /* Quiet, and named. It sits after the health dot, at the far edge, where a
-     customer's hand does not go and a volunteer's eye does. */
-  .admin {
-    flex: 0 0 auto;
-    gap: 0.5rem;
-    padding: 0 1.25rem;
-    border-radius: var(--radius);
-    color: var(--ink-muted);
-    font-size: 1.25rem;
-  }
-
-  .admin-label {
-    letter-spacing: 0.02em;
   }
 
   .visually-hidden {
