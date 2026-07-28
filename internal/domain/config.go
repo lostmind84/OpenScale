@@ -679,8 +679,8 @@ type DriverDescriptor struct {
 	Options []OptionSchema
 }
 
-// PathChecker answers the one question a pure validation cannot: is this path
-// readable FROM THE CONTEXT OF THE SERVICE?
+// PathChecker answers the questions a pure validation cannot: what can this path do
+// FROM THE CONTEXT OF THE SERVICE?
 //
 // It is an interface declared on the consumer side, and a nil one is a legitimate
 // state: `openscale config validate` on a laptop cannot know what the service
@@ -688,6 +688,12 @@ type DriverDescriptor struct {
 type PathChecker interface {
 	// Readable reports nil when the service could read that path.
 	Readable(path string) error
+	// Droppable reports nil when the service could create AND DELETE a file there.
+	//
+	// Two questions and not one: a catalog is acknowledged by DELETING it (ADR-004), so a
+	// directory the service may only read would make the same import loop for ever --
+	// applied, archived, and still there at the next poll.
+	Droppable(path string) error
 }
 
 // Registries carries the driver descriptors and the templates a running binary

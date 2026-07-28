@@ -116,7 +116,8 @@ func testRegistries() Registries {
 // unreadablePaths is the PathChecker of a service that cannot see a path.
 type unreadablePaths struct{}
 
-func (unreadablePaths) Readable(string) error { return fmt.Errorf("accès refusé") }
+func (unreadablePaths) Readable(string) error  { return fmt.Errorf("accès refusé") }
+func (unreadablePaths) Droppable(string) error { return fmt.Errorf("accès refusé") }
 
 // setOption writes one driver option the way a file would carry it.
 func setOption(t *testing.T, options DriverOptions, key string, value any) {
