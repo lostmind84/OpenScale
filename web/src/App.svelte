@@ -169,7 +169,8 @@
 
   /** A single match: Enter weighs it, physical keyboard or click alike. */
   function pickIfSingleMatch(): void {
-    if (shown.length === 1) void pick(shown[0])
+    const only = shown.length === 1 ? shown[0] : undefined
+    if (only !== undefined) void pick(only)
   }
 
   /**
