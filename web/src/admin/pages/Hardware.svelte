@@ -1187,11 +1187,11 @@
   }
 
   /*
-   * Le visualiseur de trames : borné, défilant, et SÉLECTIONNABLE.
+   * Le visualiseur de trames : borné et défilant.
    *
-   * Le poste interdit la sélection partout ailleurs — ce n'est pas un document (app.css)
-   * — mais ces lignes-là sont ce qu'un support demande au téléphone, et les recopier à la
-   * main est le meilleur moyen d'appeler pour rien.
+   * Sa sélection ne se déclare plus ici : `app.css` la rend à toute l'administration, qui
+   * est un document quand l'écran client n'en est pas un. Ces lignes-là sont ce qu'un
+   * support demande au téléphone, et elles ont été la première à en avoir besoin.
    */
   .frames {
     margin-top: 1rem;
@@ -1200,7 +1200,6 @@
     background: var(--waiting-wash);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    user-select: text;
   }
 
   .frames-head {

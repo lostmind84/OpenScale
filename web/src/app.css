@@ -144,6 +144,26 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/*
+ * The administration IS a document, and it is the only thing here that is.
+ *
+ * It is mounted in the SAME window as the client screen (§14.1), so it inherited the
+ * rule above — and nothing on those nine pages could be selected: not the detail of an
+ * error in the technical journal, not a raw frame, not a path, not a fingerprint.
+ * Those lines exist to be READ OUT or PASTED — into a support message, into Odoo, into
+ * a search — and copying them by hand off a screen is the best way to call for nothing.
+ *
+ * The buttons keep the kiosk behaviour: a press that drags a little must not smear a
+ * selection across the page, and no button here carries a word worth copying.
+ */
+[data-admin] {
+  user-select: text;
+}
+
+[data-admin] button {
+  user-select: none;
+}
+
 button {
   font: inherit;
   color: inherit;

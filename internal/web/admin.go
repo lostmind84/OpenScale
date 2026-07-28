@@ -312,10 +312,14 @@ func (s *Server) imports(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusInternalServerError, "ERR-DB-01", err.Error())
 		return
 	}
+	// Both lists are BUILT, including the one this call may never fill: a station with no
+	// catalog has no import to name, so `?id=` is absent, so the findings are never read —
+	// and a nil slice would go out as `null` against a contract that declares an array.
+	// That is what took the Catalogue page down on a station installed this morning.
 	body := struct {
 		Imports  []importDTO  `json:"imports"`
 		Findings []findingDTO `json:"findings"`
-	}{Imports: make([]importDTO, 0, len(list))}
+	}{Imports: make([]importDTO, 0, len(list)), Findings: []findingDTO{}}
 	for _, record := range list {
 		body.Imports = append(body.Imports, importOf(record))
 	}

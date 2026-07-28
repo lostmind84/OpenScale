@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -125,6 +126,95 @@ func assertNoCoreType(t *testing.T, typ reflect.Type, seen map[reflect.Type]bool
 		default:
 			t.Errorf("%s.%s est de type %s : le DTO ne sérialise jamais un type du noyau (coupe 4)",
 				typ.Name(), field.Name, inner.String())
+		}
+	}
+}
+
+// TestNoListEverComesBackAsNull holds the promise every list of §14.5 makes: a list
+// with nothing in it is written `[]`, and never `null`.
+//
+// A Go slice left nil serializes as `null`, and the TypeScript contract declares those
+// fields as arrays — `findings: FindingDTO[]`, never `FindingDTO[] | null`. So the
+// screen filters them, maps them or spreads them the instant it has read them, and a
+// `null` is an uncaught TypeError: the ERR-UI-01 net reports it and RELOADS the page, so
+// what a volunteer sees is an administration that closes itself in their face.
+//
+// It has happened twice. `retiredOrEmpty` in config.go is the scar of the first, on the
+// very first render after a successful login. The second was the Catalogue page of a
+// station with no catalog — the nominal state of a station installed this morning:
+// `GET /admin/api/imports` is read with no `?id=` because there is no import to name,
+// answered `"findings": null`, and the page died on the first filter.
+//
+// The station under this bench has read nothing yet, which is precisely the state that
+// tests built on rich fixtures cannot see.
+func TestNoListEverComesBackAsNull(t *testing.T) {
+	b := adminBench(t)
+
+	// The dashboard is walked through its OWN type rather than a list of names: it is
+	// the widest payload of §14.5, it grows, and a list added tomorrow has to be covered
+	// without anybody remembering this test exists.
+	assertListsAreWritten(t, "/admin/api/health",
+		decodeStatus[map[string]json.RawMessage](t, b.get("/admin/api/health"), http.StatusOK),
+		reflect.TypeOf(adminHealthDTO{}))
+
+	// The other routes frame their answer in an anonymous struct, which has no type to
+	// walk. They carry one or two lists each, and here they are named.
+	for _, route := range []struct {
+		path  string
+		lists []string
+	}{
+		{"/admin/api/imports", []string{"imports", "findings"}},
+		{"/admin/api/journal", []string{"weighings"}},
+		{"/admin/api/technical", []string{"entries"}},
+		{"/api/v1/catalog", []string{"products", "categories"}},
+	} {
+		payload := decodeStatus[map[string]json.RawMessage](t, b.get(route.path), http.StatusOK)
+		for _, name := range route.lists {
+			if string(payload[name]) == "null" {
+				t.Errorf("%s : %q répond null, et le contrat le déclare liste", route.path, name)
+			}
+		}
+	}
+
+	// A station with NO journal at all (ADR-013) still draws its dashboard, and it is the
+	// harshest case: nothing is read, so every list is left exactly as Go declared it.
+	bare := newBench(t, func(o *benchOptions) { o.noStore = true })
+	assertListsAreWritten(t, "/admin/api/health sans journal",
+		decodeStatus[map[string]json.RawMessage](t, bare.get("/admin/api/health"), http.StatusOK),
+		reflect.TypeOf(adminHealthDTO{}))
+}
+
+// assertListsAreWritten fails for every field the struct declares as a list and the
+// payload answered `null` for, walking into the objects that payload carries.
+//
+// A field the payload omits is skipped: `omitempty` makes absence the contract, and the
+// TypeScript side declares those optional.
+func assertListsAreWritten(
+	t *testing.T, where string, payload map[string]json.RawMessage, typ reflect.Type,
+) {
+	t.Helper()
+	for i := 0; i < typ.NumField(); i++ {
+		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		raw, published := payload[name]
+		if name == "" || name == "-" || !published {
+			continue
+		}
+		inner := typ.Field(i).Type
+		if inner.Kind() == reflect.Pointer {
+			inner = inner.Elem()
+		}
+		switch inner.Kind() {
+		case reflect.Slice:
+			if string(raw) == "null" {
+				t.Errorf("%s : %q répond null, et le contrat le déclare liste", where, name)
+			}
+		case reflect.Struct:
+			// A null object is a legitimate answer — « ce poste n'a pas de rouleau » — and
+			// it carries no list to check.
+			var nested map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &nested); err == nil && nested != nil {
+				assertListsAreWritten(t, where+" → "+name, nested, inner)
+			}
 		}
 	}
 }
