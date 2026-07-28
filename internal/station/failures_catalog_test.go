@@ -114,6 +114,31 @@ func (s *dropFolder) acknowledgements() []ports.BatchResult {
 }
 
 // awaitAcknowledgements waits for n files to have been acknowledged.
+// awaitTechnical waits for a technical line to REACH THE SINK, and never merely for the
+// act that produces it to have run.
+//
+// The two are not the same instant, and the whole reason this helper exists is that the
+// gap between them is invisible on a fast machine. `Hub.logTechnical` (hub.go) hands the
+// entry to a CHANNEL — a non-blocking send, so that journalling can never hold up the one
+// goroutine that decides — and `journalWorker.run` (workers.go) drains it on ANOTHER
+// goroutine. An acknowledgement therefore proves that `logTechnical` was CALLED; it
+// proves nothing about the entry having been written where a test can read it.
+//
+// Read straight after the acknowledgement, `technical.has` was a race that this repository
+// won six hundred times in a row locally and lost on a loaded CI runner:
+// TestAnAmputatedCatalogIsRefusedAndNamesItsReasons, « aucune ligne technique : le feu
+// rouge n'a rien à afficher ». Delaying the drain by 50 ms reproduces it every time, which
+// is how it was found.
+//
+// The NEGATIVE readings around this file need no such wait: they assert that a line will
+// never come, and waiting for it would only make them slower at being right.
+// It takes the SINK and not the bench: the two harnesses of this package hold the same
+// `*recordingTechnical`, and what is being waited on belongs to it.
+func awaitTechnical(t *testing.T, technical *recordingTechnical, code, message string) {
+	t.Helper()
+	awaitCondition(t, func() bool { return technical.has(code) }, message)
+}
+
 func (s *dropFolder) awaitAcknowledgements(t *testing.T, n int) []ports.BatchResult {
 	t.Helper()
 	awaitCondition(t, func() bool { return len(s.acknowledgements()) >= n },
@@ -314,9 +339,8 @@ func TestACorruptedCatalogIsQuarantinedAndNMinusOneServesOn(t *testing.T) {
 	if b.hub.Catalog() != initial {
 		t.Fatal("un lot refusé a remplacé le catalogue N−1")
 	}
-	if !b.technical.has("ERR-CAT-03") {
-		t.Fatal("aucune ligne technique ERR-CAT-03 : un refus de contenu est silencieux")
-	}
+	awaitTechnical(t, b.technical, "ERR-CAT-03",
+		"aucune ligne technique ERR-CAT-03 : un refus de contenu est silencieux")
 
 	entry, err := db.Quarantine(ctx, sha)
 	if err != nil {
@@ -557,9 +581,7 @@ func TestAnAmputatedCatalogIsRefusedAndNamesItsReasons(t *testing.T) {
 	if got := b.hub.Catalog().WeighableCount(); got != 331 {
 		t.Fatalf("%d tuiles en service, attendu les 331 du catalogue N−1", got)
 	}
-	if !b.technical.has("ERR-CAT-03") {
-		t.Fatal("aucune ligne technique : le feu rouge n'a rien à afficher")
-	}
+	awaitTechnical(t, b.technical, "ERR-CAT-03", "aucune ligne technique : le feu rouge n'a rien à afficher")
 }
 
 // --- 12 bis: an ordinary catalog lights nothing ------------------------------
@@ -1534,9 +1556,7 @@ func TestAnAmputatedCatalogIsRefusedAgainstTheRealGuard(t *testing.T) {
 	if !hasReason(b.archived()) {
 		t.Errorf("aucun .reason.txt à côté de la copie refusée : %v", b.archived())
 	}
-	if !b.technical.has("ERR-CAT-03") {
-		t.Error("aucune ligne technique : le feu rouge n'a rien à afficher")
-	}
+	awaitTechnical(t, b.technical, "ERR-CAT-03", "aucune ligne technique : le feu rouge n'a rien à afficher")
 }
 
 // hasReason reports whether a refusal left its explanation next to a copy.
