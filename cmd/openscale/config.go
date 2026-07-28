@@ -246,9 +246,11 @@ func mintRecoveryCode(out io.Writer, path string) error {
 // readSecretLine reads ONE line off the standard input.
 //
 // No echo suppression, and it is a deliberate refusal rather than an oversight: turning
-// the terminal echo off means a terminal package, which means an eleventh module in a
-// perimeter §17.1 closed at ten. The usage text says the line is visible, and the machine
-// it is typed on is the station's own console.
+// the terminal echo off means a terminal package, which means a seventh module in a
+// perimeter §17.1 closes at six, bought for the one call it would take — ADR-039 weighs
+// a dependency on the surface actually called, and this one is a single call. The usage
+// text says the line is visible, and the machine it is typed on is the station's own
+// console.
 func readSecretLine(in io.Reader) (string, error) {
 	if in == nil {
 		return "", errors.New("aucune entrée standard : le mot de passe se tape au clavier, " +

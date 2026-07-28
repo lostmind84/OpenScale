@@ -21,7 +21,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('all', 'test', 'vet', 'boundary', 'build', 'dist', 'release', 'cover', 'front', 'front-check', 'clean', 'help')]
+  [ValidateSet('all', 'test', 'vet', 'boundary', 'deps', 'build', 'dist', 'release', 'cover', 'front', 'front-check', 'clean', 'help')]
   [string]$Target = 'all',
 
   # -Version impose le numéro au lieu de le dériver de l'histoire, comme
@@ -103,6 +103,11 @@ function Invoke-Boundary {
   Assert-Success 'make boundary'
 }
 
+function Invoke-Deps {
+  go run ./tools/deps
+  Assert-Success 'make deps'
+}
+
 function Invoke-Test {
   Invoke-Vet
 
@@ -124,6 +129,7 @@ function Invoke-Test {
   Assert-Success 'go test (CGO_ENABLED=0)'
 
   Invoke-Boundary
+  Invoke-Deps
 }
 
 function Invoke-Cover {
@@ -224,9 +230,10 @@ function Invoke-Release {
 }
 
 switch ($Target) {
-  'help' { 'Cibles : test - vet - boundary - build - dist - release - cover - front - front-check - clean' }
+  'help' { 'Cibles : test - vet - boundary - deps - build - dist - release - cover - front - front-check - clean' }
   'vet' { Invoke-Vet }
   'boundary' { Invoke-Boundary }
+  'deps' { Invoke-Deps }
   'test' { Invoke-Test }
   'cover' { Invoke-Cover }
   'build' { Invoke-Build }

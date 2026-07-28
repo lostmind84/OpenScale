@@ -26,12 +26,12 @@ LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.dat
 
 TARGETS := windows/amd64 linux/amd64 linux/arm64
 
-.PHONY: all test vet boundary build dist release front front-check clean cover help
+.PHONY: all test vet boundary deps build dist release front front-check clean cover help
 
 all: test build
 
 help:
-	@echo "Cibles : test · vet · boundary · build · dist · release · cover · front · front-check · clean"
+	@echo "Cibles : test · vet · boundary · deps · build · dist · release · cover · front · front-check · clean"
 
 # front construit l'écran client vers internal/web/dist, qui est COMMITÉ : `go
 # build` doit fonctionner sur une machine sans Node (§14.1).
@@ -55,10 +55,16 @@ vet:
 boundary:
 	go run ./tools/boundary
 
+# deps vérifie que les dépendances DÉCLARÉES sont les dépendances RÉELLES : go.mod
+# comparé aux deux tables de l'inventaire, dans les deux sens (§17.1, ADR-039).
+deps:
+	go run ./tools/deps
+
 test: vet
 	CGO_ENABLED=1 go test ./... -race -count=1
 	CGO_ENABLED=0 go test ./... -count=1
 	$(MAKE) boundary
+	$(MAKE) deps
 
 # Couverture par paquet, avec les seuils de §16.4 : domain 95 %, scale 90 %,
 # printing 80 %, catalog 85 %.

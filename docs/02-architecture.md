@@ -1743,7 +1743,7 @@ Golden **octet à octet** par commande et pour la trame complète, plus un test 
 
 | Transport | Plateforme | Défaut | Mise en œuvre |
 |---|---|---|---|
-| `winspool` | Windows | **oui** | `github.com/alexbrainman/printer` : `Open(queue)` → `StartRawDocument` (`DOC_INFO_1.pDatatype = "RAW"`) → `Write` → `EndDocument`. Le spouleur transmet les octets tels quels, **sans passer par le rendu GDI du pilote**. Pur `syscall`, aucun cgo. |
+| `winspool` | Windows | **oui** | Sept appels `syscall` vers `winspool.drv`, liés paresseusement : `OpenPrinterW` → `StartDocPrinterW` (`DOC_INFO_1.pDatatype = "RAW"`) → `StartPagePrinter` → `WritePrinter` → `EndPagePrinter` → `EndDocPrinter` → `ClosePrinter`. Le spouleur transmet les octets tels quels, **sans passer par le rendu GDI du pilote**. Aucun cgo, et **aucun module** : `github.com/alexbrainman/printer` était budgété et n'a pas été pris (§17.1, ADR-039). |
 | `devfile` | Linux | **oui** | `os.OpenFile("/dev/usb/lp0", O_RDWR|O_SYNC, 0)`. Utilisateur dans le groupe `lp`, plus une règle udev qui fixe un nom stable `/dev/sato-weighing`. **Jamais `libusb`/`gousb`** : cgo obligatoire, cross-compilation cassée. |
 | `tcp` | toutes | non | `net.DialTimeout` sur `:9100`, une connexion neuve par travail (plus robuste qu'une socket longue face à un redémarrage d'imprimante ; 16 ko par étiquette le permettent). **Réservé aux imprimantes réellement en réseau**, avec IP fixe posée sur le panneau et procédure écrite dans `INSTALLATION.md`. |
 | `file` | toutes | non | écrit `2026-07-24T14-32-05_<jobid>.sbpl` et le PNG correspondant. Développement, tests, support à distance (« envoyez-moi le fichier de la dernière étiquette »). |
@@ -4217,11 +4217,15 @@ front:
 boundary:
 	@./tools/boundary/check.sh          # imports forbidden from internal/domain
 
+deps:
+	@go run ./tools/deps                # go.mod vs §17.1 and THIRD-PARTY.md (ADR-039)
+
 test: front
 	go vet ./...
 	CGO_ENABLED=1 go test ./... -race -count=1   # needs mingw-w64 on Windows (README)
 	CGO_ENABLED=0 go test ./... -count=1         # ★ proves the SHIPPED config builds without cgo
 	$(MAKE) boundary
+	$(MAKE) deps
 
 build: front
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/balance ./cmd/openscale
@@ -4236,7 +4240,7 @@ dist: test
 
 Le second passage `CGO_ENABLED=0 go test` est **ce qui protège la contrainte 2** : il prouve que la configuration réellement livrée compile et passe. En CI, le job `-race` est restreint à `linux/amd64` ; `mingw-w64` est documenté comme prérequis de développement sous Windows dans le README.
 
-Pipeline : `npm ci && npm run build` **avant** `go` (`//go:embed all:dist`) · `vitest` · `go vet` · `staticcheck` · `make boundary` · `go test -race` · couverture (`domain` 95 %, `scale` 90 %, `printing` 80 %, `catalog` 85 %) · **3 cibles en `CGO_ENABLED=0`** · Playwright contre le binaire réel.
+Pipeline : `npm ci && npm run build` **avant** `go` (`//go:embed all:dist`) · `vitest` · `go vet` · `staticcheck` · `make boundary` · `make deps` · `go test -race` · couverture (`domain` 95 %, `scale` 90 %, `printing` 80 %, `catalog` 85 %) · **3 cibles en `CGO_ENABLED=0`** · Playwright contre le binaire réel.
 
 - **`go test ./... -race -count=1` doit passer en < 10 s.** Si un test a besoin d'un `time.Sleep`, c'est que la dépendance temporelle n'a pas été extraite — critère de conception, pas consigne.
 - **Aucun diff byte-exact sur `web/dist`** : les sorties Vite ne sont pas reproductibles entre versions de Node ; le garde-fou est le Playwright contre le dist fraîchement rebâti.
@@ -4246,7 +4250,7 @@ Pipeline : `npm ci && npm run build` **avant** `go` (`//go:embed all:dist`) · `
 
 ## 17. Livraison
 
-### 17.1 Dépendances — 10, toutes vérifiées pur Go
+### 17.1 Dépendances — 6, toutes vérifiées pur Go
 
 | Module | Rôle | Licence | cgo |
 |---|---|---|---|
@@ -4255,15 +4259,22 @@ Pipeline : `npm ci && npm run build` **avant** `go` (`//go:embed all:dist`) · `
 | `golang.org/x/image` | `font/sfnt`, `font/opentype`, `vector` | BSD-3 | non |
 | `golang.org/x/text` | NFD, désaccentuation | BSD-3 | non |
 | `golang.org/x/crypto` | argon2id | BSD-3 | non |
-| `golang.org/x/sys` | syscalls Windows/Linux | BSD-3 | non |
-| `github.com/alexbrainman/printer` | spouleur Windows RAW + statut de file | BSD-3 | non (`syscall`) |
-| `github.com/go-pdf/fpdf` | PDF d'aperçu | MIT | non |
-| `github.com/kardianos/service` | service Windows (SCM) / systemd | zlib | non |
-| `github.com/oklog/ulid/v2` | JobID triable | Apache-2.0 | non |
+| `golang.org/x/sys` | syscalls Windows/Linux, `windows/svc` | BSD-3 | non |
+
+**Quatre budgétées, non prises.** Elles figuraient dans cette table ; l'implémentation les a écartées une par une, et chaque refus est argumenté **dans le fichier qui les remplace**. Cette annexe est conservée et non effacée : c'est la base de preuve d'ADR-039, et la trace que ces quatre décisions ont été prises plutôt que subies.
+
+| Module budgété | Ce qui s'est passé | Où c'est écrit | Forme du refus |
+|---|---|---|---|
+| `github.com/alexbrainman/printer` | sept appels `syscall` vers `winspool.drv`, liés paresseusement | `internal/printing/transport/winspool_windows.go:18` | surface trop petite |
+| `github.com/go-pdf/fpdf` | cinq objets PDF, une table d'offsets, un trailer | `internal/printing/preview/pdf.go:11` | surface trop petite |
+| `github.com/kardianos/service` | `golang.org/x/sys/windows/svc` était déjà une dépendance du module | `internal/platform/service_windows.go:22` | redondante |
+| `github.com/oklog/ulid/v2` | le front frappe la clé d'idempotence au `pointerdown` ; `deriveJobID` est une fonction pure, sans entropie ni horloge, et n'a donc jamais à en générer une | `internal/domain/machine.go:1651`, `web/src/lib/ulid.ts` | sans objet |
+
+Le quatrième est le plus instructif : **aucune ligne de code maison n'a remplacé `oklog/ulid`**. C'est une décision de conception qui a fait disparaître le besoin. La meilleure dépendance est celle qu'une décision d'architecture supprime.
 
 **Retirées par rapport à la synthèse** : `golang.org/x/text/encoding/charmap` (plus de mode texte natif, A2), `github.com/OpenPrinting/goipp` (CUPS/IPP hors V1, important-16), `gopkg.in/natefinch/lumberjack.v2` (remplacé par ~60 lignes de rotation maison : trois fichiers de 5 Mo, c'est une dépendance qu'on n'a pas besoin de maintenir 10 ans).
 
-**Aucune** dépendance de framework web, de logging, de configuration, de CLI, de migration, de mock, d'assertion. Chaque module a une ligne de justification dans `docs/adr/0018-dependencies.md` ; **la CI échoue si une nouvelle apparaît sans mise à jour de ce document.**
+**Aucune** dépendance de framework web, de logging, de configuration, de CLI, de migration, de mock, d'assertion — et ce n'est pas une préférence de style, c'est **ADR-039**, qui donne le critère et, ce qui compte autant, le critère de réouverture. L'inventaire des licences est `THIRD-PARTY.md`. **`make deps` échoue si une dépendance apparaît ou disparaît sans que cette table et celle de `THIRD-PARTY.md` soient mises à jour**, et la CI l'exécute — c'est ce contrôle qui manquait, et son absence est la raison pour laquelle cette table a annoncé dix modules pendant que le binaire en portait six.
 
 ### 17.2 Le livrable
 
@@ -4657,6 +4668,29 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 **Décision.** `catalog.options.directory` nomme le répertoire surveillé. **Vide**, le poste garde `<data>/catalog/incoming`, qu'il crée. **Renseigné**, il surveille ce répertoire-là et **ne le crée jamais** : un chemin mal saisi fabriquerait une arborescence que personne ne surveille.
 
 **Conséquences.** Le contrôle 46 vérifie à l'enregistrement qu'un fichier témoin peut être créé **puis supprimé** dans ce répertoire — l'acquittement d'un import *est* une suppression (ADR-004) — et refuse le répertoire d'archives du poste, comparé par inode et non par chaîne. Le contrôle 47 refuse la clé sur `webdav`. `local_drop` continue de refuser `username` et `password` : c'est le contrôle 39, et il ne bouge pas. `domain.PathChecker` gagne `Droppable` à côté de `Readable` et reçoit enfin l'implémentation de production qui lui manquait (`platform.NewPathChecker`) — **le contrôle 44 se met à travailler du même coup**, lui qui n'était câblé que dans les tests. Le refus nomme le piège qui arrive vraiment : un service Windows ne voit pas les lecteurs réseau montés par une session, et la faute sort au moment de la saisie plutôt qu'au premier import manqué. Les archives restent sur le disque local : la copie puis le `os.Remove` gardent leur raison d'être, un `Rename` entre un partage et le disque échouant en `EXDEV`.
+
+---
+
+### ADR-039 — Une dépendance se justifie par la surface appelée, pas par la réputation du module
+
+**Statut** : accepté · **Date** : 28/07/2026 · **Portée** : §8.4, §17.1, `THIRD-PARTY.md`, `tools/deps`, `Makefile`, `make.ps1`, `.github/workflows/ci.yml` · **Complète** : ADR-001
+
+**Contexte.** La question a été posée dans les termes où elle se pose toujours : pourquoi ne pas prendre un framework HTTP, un ORM, un framework d'injection, tous éprouvés, plutôt que d'écrire à la main ? En allant vérifier l'état du dépôt avant d'y répondre, trois choses sont apparues. Le code avait déjà **refusé quatre des dix dépendances** que §17.1 budgétait, chaque fois avec une raison écrite dans le fichier qui les remplace — mais la règle commune n'était formulée nulle part. Le fichier de justification annoncé, `docs/adr/0018-dependencies.md`, **n'existait pas**. Et le garde-fou promis par la même ligne — « la CI échoue si une nouvelle apparaît » — **n'existait pas non plus** : rien n'empêchait d'ajouter un framework sans que personne ne le voie.
+
+**Décision — le critère.** Une dépendance entre quand la surface **réellement appelée** est grande devant ce qu'elle coûte : une ligne de licence, un maillon de chaîne d'approvisionnement, et dix ans de montées de version que personne ne fera sur site. Elle n'entre ni parce qu'elle est réputée, ni parce qu'elle est « le standard de l'industrie ». Les deux extrêmes de l'inventaire disent le critère mieux qu'une définition : `modernc.org/sqlite` apporte un moteur SQL entier dont on emprunte l'intégralité par `database/sql`, et n'a jamais fait débat ; `alexbrainman/printer` enveloppe sept appels, et n'est pas entré. Les quatre refus de l'annexe de §17.1 donnent les trois questions à poser à un candidat : sa surface est-elle **trop petite**, est-il **redondant** avec ce qui est déjà là, ou une décision de conception l'a-t-elle rendu **sans objet** ?
+
+**Décision — le refus par catégorie.** Une raison unique répétée quatre fois serait un slogan ; ces catégories échouent pour des motifs différents, et c'est la différence qui est utile.
+
+| Catégorie | Raison du refus |
+|---|---|
+| Framework HTTP (chi, gin, echo) | `net/http.ServeMux` route par méthode et par wildcard depuis **Go 1.22** — `POST /api/v1/weigh`, `GET /images/{name}` sont dans `internal/web/server.go`. La surface appelée se réduit à `HandleFunc` et à un intercepteur (`internal/web/guard.go`). **Sans objet** : la roue éprouvée est déjà celle de la bibliothèque standard |
+| ORM (GORM, ent) | Deux murs **durs**, pas des préférences. (1) Le driver SQLite de référence de GORM est `mattn/go-sqlite3`, exclu par ADR-001 ; l'alternative pur Go est un fork moins éprouvé que `modernc` — on échangerait de l'éprouvé contre du moins éprouvé. (2) La coupe n° 1 (§5.2) interdit à `domain` d'importer `database/sql`, et un ORM à balises de structure ferait entrer la persistance dans le noyau. **`sqlc` franchit les deux murs** — il génère du Go typé au-dessus de `database/sql`, sans dépendance à l'exécution — et il est nommé ici comme le seul candidat recevable de sa catégorie |
+| Injection de dépendances (fx, wire) | Sur un poste sans développeur sur site, une erreur de câblage doit être une erreur **de compilation**. `fx` la déplace vers un graphe résolu par réflexion au démarrage, c'est-à-dire vers une panne devant un client. `wire` (codegen, sans dépendance à l'exécution) passe ce filtre, mais la chaîne de constructeurs explicite de `cmd/openscale/serve.go` est déjà la forme d'injection la plus lisible **sans outil** — et c'est la lisibilité par un inconnu qui est en jeu |
+| Journalisation, configuration, CLI, migration, assertions | `log/slog`, `encoding/json` (ADR-012), `flag`, un fichier `.sql`, `testing`. Tous dans la bibliothèque standard |
+
+**Décision — le critère de réouverture.** Sans lui, ce qui précède est un dogme. Un candidat entre si les cinq points sont réunis : (1) **déclencheur** — le code maison qui tient le rôle dépasse ~500 lignes, ou il a fallu l'amender au moins deux fois pour corriger un défaut fonctionnel distinct ; (2) il est **pur Go**, vérifié et non supposé (ADR-001) ; (3) il n'oblige `domain` à importer aucun paquet interdit et ne fait entrer aucune balise de sérialisation dans le noyau (coupe n° 1) ; (4) son API n'a pas cassé depuis **trois ans**, ou il publie une promesse de compatibilité ; (5) il entre par **un ADR qui amende celui-ci**, et par une ligne dans §17.1 et dans `THIRD-PARTY.md` — sans quoi `make deps` échoue.
+
+**Conséquence.** L'argument de revue et l'argument des dix ans sont le même argument : `net/http` et `database/sql` sont couverts par la **promesse de compatibilité de Go** — du code qui compile aujourd'hui compilera contre les versions 1.x à venir. Un framework tiers ne l'est pas ; la version épinglée en 2026 demandera des montées de version pour suivre le Go de 2034, et chaque montée est une migration que personne ne fera dans une épicerie coopérative sans développeur. La règle cesse par ailleurs d'être une convention : `tools/deps` compare `go.mod` aux deux tables de l'inventaire, dans les deux sens, et la CI l'exécute. C'est ce contrôle qui manquait — son absence est la raison pour laquelle §17.1 a annoncé dix modules pendant que le binaire en portait six.
 
 ---
 

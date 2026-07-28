@@ -417,7 +417,9 @@ démarrage, inatteignables sans tuer le processus — c'est leur raison d'être.
 | ~~`BALANCE_` contre `OPENSCALE_` dans le glossaire~~ | **Corrigé en L4** : le préfixe réel est `OPENSCALE_`, et c'est le code qui a tranché |
 
 **Licence retenue : AGPL-3.0-or-later** (`LICENSE`, `THIRD-PARTY.md`). Le point qui a
-tranché : Apache-2.0, portée par `oklog/ulid`, n'est compatible qu'avec la GPL **version 3**.
+tranché : Apache-2.0, portée par `typescript` — une dépendance de développement du front,
+jamais livrée —, n'est compatible qu'avec la GPL **version 3**. Les six dépendances Go du
+binaire sont toutes BSD-3-Clause.
 
 ---
 
@@ -480,6 +482,21 @@ journal technique en base sont ce qui reste pour comprendre un démarrage manqu�
 | 4 | **D'où viennent les images produits ?** Le CSV récent en porte 181/355 ; le reste est absent | Complétude de la grille (L7) | Vérifier `C:\Balance\Images\` sur un poste |
 
 Liste complète des 15 inconnues : `docs/02-architecture.md` §21.
+
+---
+
+## Dérives documentaires connues, non traitées
+
+Relevées par la revue de la branche `feature/politique-de-dependances` (ADR-039), hors de
+son périmètre. Aucune ne bloque : ce sont des endroits où la documentation décrit un passé.
+
+| # | Où | Ce qui a dérivé |
+|---|---|---|
+| 1 | §16.4, l'extrait du `Makefile` | Montre `bin/balance`, `./tools/boundary/check.sh` et `test: front` là où le `Makefile` réel dit `bin/openscale`, `go run ./tools/boundary` et `test: vet` |
+| 2 | §16.4, l'énumération du pipeline CI | Nomme `staticcheck`, qu'aucune étape de `ci.yml` ne lance ; et place `make boundary` / `make deps` **avant** `go test -race`, alors que la CI les lance après |
+
+C'est exactement la classe de défaut qu'ADR-039 et `make deps` suppriment pour les
+**dépendances**. Ces deux-là portent sur les **outils**, et rien ne les vérifie encore.
 
 ---
 

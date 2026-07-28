@@ -6,8 +6,10 @@ distribution sous AGPL-3.0.
 
 ## Dépendances Go
 
-Les dix modules du périmètre V1 (`docs/02-architecture.md` §17.1). Aucun ne demande cgo —
-c'est une condition d'entrée, pas une observation (ADR-001).
+Les six modules du périmètre V1 (`docs/02-architecture.md` §17.1, qui liste en annexe les
+quatre budgétées et non prises). Aucun ne demande cgo — c'est une condition d'entrée, pas
+une observation (ADR-001). Et aucun n'est un framework — c'est ADR-039, qui donne le
+critère et son critère de réouverture.
 
 | Module | Rôle | Licence |
 |---|---|---|
@@ -16,14 +18,16 @@ c'est une condition d'entrée, pas une observation (ADR-001).
 | `golang.org/x/image` | `font/sfnt`, `font/opentype`, `vector`, `bmp` | BSD-3-Clause |
 | `golang.org/x/text` | NFD, désaccentuation | BSD-3-Clause |
 | `golang.org/x/crypto` | argon2id | BSD-3-Clause |
-| `golang.org/x/sys` | appels système Windows et Linux | BSD-3-Clause |
-| `github.com/alexbrainman/printer` | spouleur Windows RAW, statut de file | BSD-3-Clause |
-| `github.com/go-pdf/fpdf` | PDF d'aperçu | MIT |
-| `github.com/kardianos/service` | service Windows (SCM), unité systemd | zlib |
-| `github.com/oklog/ulid/v2` | identifiant de travail triable | Apache-2.0 |
+| `golang.org/x/sys` | appels système Windows et Linux, service Windows (`windows/svc`) | BSD-3-Clause |
 
-Apache-2.0 est compatible avec la GPL **version 3** — pas avec la version 2. C'est une des
-raisons du choix de l'AGPL-3.0 plutôt qu'une licence de la génération GPLv2.
+**Les six sont BSD-3-Clause**, et cette table est vérifiée : `make deps` la compare à
+`go.mod` et à celle de §17.1, dans les deux sens.
+
+**Les dépendances indirectes ne sont pas inventoriées ici, et c'est une décision.** Elles
+sont la fermeture transitive de ces six, elles suivent leurs montées de version, et en
+tenir une table à la main créerait un second inventaire à faire dériver — la panne même
+que `make deps` existe pour empêcher. `go mod graph` les donne à jour ; une table figée
+ne le ferait pas.
 
 ## Polices embarquées
 
@@ -83,9 +87,12 @@ métier n'installe pas de chaîne JS (§14.1).
 | `@types/node` | types de la bibliothèque standard Node, pour les tests | MIT |
 | `@fontsource-variable/inter` | **source** du fichier Inter WOFF2 recopié dans `web/src/assets/` | MIT (l'empaquetage) · SIL OFL 1.1 (la police) |
 
-Apache-2.0 (TypeScript) est compatible avec la GPL **version 3**, comme `oklog/ulid` plus
-haut. `web/public/OFL.txt` accompagne la police jusque dans `internal/web/dist`, donc jusque
-dans le binaire : la SIL OFL demande que son texte voyage avec la police redistribuée.
+Apache-2.0 (TypeScript) est compatible avec la GPL **version 3** — pas avec la version 2.
+C'est une des raisons du choix de l'AGPL-3.0 plutôt qu'une licence de la génération GPLv2,
+et TypeScript est aujourd'hui le seul composant Apache-2.0 du projet : les six dépendances
+Go sont toutes BSD-3-Clause. `web/public/OFL.txt` accompagne la police jusque dans
+`internal/web/dist`, donc jusque dans le binaire : la SIL OFL demande que son texte voyage
+avec la police redistribuée.
 
 **Aucune dépendance d'exécution.** Il n'y a ni framework CSS, ni bibliothèque de composants,
 ni client HTTP, ni générateur d'identifiants : `EventSource`, `fetch` et une fonction ULID de
