@@ -37,8 +37,21 @@ servi à un Chrome piloté — a mesuré les trois largeurs de référence de §
   réduit la grille de 331 à 17 tuiles (recherche normalisée : `CORAIL`, `THAÏLANDE`
   comptent) ; Échap referme le champ et ramène la grille à 331.
 
-**Aucune borne de `app.css` n'a eu besoin d'être resserrée** : les valeurs posées en
-tâches 3/7/8 tiennent telles quelles sur le vrai catalogue, à 1366, 1920 et 2560 px.
+**Aucune borne de `app.css` n'a eu besoin d'être resserrée** : les valeurs de la grille
+posées en tâches 3/7/8 tiennent telles quelles sur le vrai catalogue, à 1366, 1920 et
+2560 px.
+
+**Une borne l'a été, et ce banc-là ne la mesurait pas : le bandeau.** Reprise du poste
+lancé pour la revue, la carte du poids faisait **171 px dans un bandeau de 160 px** à
+1920 × 1080 — 6 px dehors en haut, 5 en bas. Le corps du poids était borné par la
+LARGEUR (`6.5vw`) sans que rien ne le borne par la hauteur de la bande qui le contient ;
+et son plancher fluide, `4.5rem`, le faisait tomber à **72 px à 1366**, sous les 96 px
+dont §14.2 fait la condition de lecture à 2,5 m — la raison d'être de ce chiffre.
+`clamp(6rem, 5.5vw, 6.75rem)` remet les deux d'aplomb : bloc à 142 / 152 / 154 px dans
+des bandeaux de 160 / 160 / 187 px, corps à 96 / 105,6 / 108 px aux trois largeurs, les
+331 tuiles gardant une hauteur unique (340 px à 2560). *La leçon est celle de la veille,
+au même endroit : un banc ne voit que ce qu'on lui demande de mesurer, et celui-ci
+comptait les tuiles, les noms, les tarifs et les deux barres — pas la bande du haut.*
 
 **État au 27/07/2026** : **L1 à L8 livrés.** Il ne reste que L0 (le banc) et L9 (la recette sur site). `openscale serve` démarre un
 poste complet : noyau métier, balance, étiquette, impression, Hub à horloge injectée,
