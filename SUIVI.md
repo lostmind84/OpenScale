@@ -409,6 +409,21 @@ Liste complète des 15 inconnues : `docs/02-architecture.md` §21.
 
 ---
 
+## Dérives documentaires connues, non traitées
+
+Relevées par la revue de la branche `feature/politique-de-dependances` (ADR-037), hors de
+son périmètre. Aucune ne bloque : ce sont des endroits où la documentation décrit un passé.
+
+| # | Où | Ce qui a dérivé |
+|---|---|---|
+| 1 | §16.4, l'extrait du `Makefile` | Montre `bin/balance`, `./tools/boundary/check.sh` et `test: front` là où le `Makefile` réel dit `bin/openscale`, `go run ./tools/boundary` et `test: vet` |
+| 2 | §16.4, l'énumération du pipeline CI | Nomme `staticcheck`, qu'aucune étape de `ci.yml` ne lance ; et place `make boundary` / `make deps` **avant** `go test -race`, alors que la CI les lance après |
+
+C'est exactement la classe de défaut qu'ADR-037 et `make deps` suppriment pour les
+**dépendances**. Ces deux-là portent sur les **outils**, et rien ne les vérifie encore.
+
+---
+
 ## Bugs actifs sur l'application en production
 
 Découverts pendant l'analyse. Indépendants de la réécriture — ils peuvent être corrigés
