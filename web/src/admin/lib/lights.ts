@@ -88,8 +88,8 @@ function scaleLight(health: HealthDTO): Light {
       value: `une mesure toutes les ${cadence}, plus lent que la péremption`,
       remedy:
         'À cette cadence, un poids serait déclaré périmé avant l’arrivée de la mesure ' +
-        'suivante. Vérifiez le câble et l’adaptateur USB, puis la cadence dans ' +
-        'Réglages avancés → Matériel.',
+        'suivante. Vérifiez le câble et l’adaptateur USB, puis la cadence sur la ' +
+        'page Matériel.',
     }
   }
   return {
@@ -174,7 +174,7 @@ function rollLight(health: HealthDTO): Light {
       value: 'aucun compteur d’étiquettes sur ce poste',
       remedy:
         'Sans imprimante construite, il n’y a pas de rouleau à compter : vérifiez ' +
-        `le « ${labelOf('printer.type')} » et ses réglages dans Réglages avancés → Matériel.`,
+        `le « ${labelOf('printer.type')} » et ses réglages sur la page Matériel.`,
     }
   }
   if (!roll.known) {

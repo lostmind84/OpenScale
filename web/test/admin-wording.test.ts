@@ -180,6 +180,57 @@ describe('ni les clés de configuration, que l’interrupteur est seul à montre
   })
 })
 
+/**
+ * Les deux écrans, et non l'administration seule.
+ *
+ * Un renvoi vers une page n'est pas un sujet d'écran d'expert : l'écran client porte lui
+ * aussi des phrases écrites pour un bénévole. Le banc regarde donc `src` entier, pour que
+ * la règle ne s'arrête pas à la frontière du dossier où la faute a été trouvée.
+ */
+const WEB_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../src')
+
+/** Tout ce que les deux écrans portent, pour la règle des renvois morts. */
+const everything = withText(sources(WEB_SRC, /\.(svelte|ts)$/u))
+
+/**
+ * L'onglet supprimé le 27/07/2026, sous toutes ses casses.
+ *
+ * `\s+` et non une espace : deux chaînes concaténées coupent la phrase en deux, et c'est
+ * exactement ainsi que le tableau de bord l'écrivait — « puis la cadence dans » suivi de
+ * « Réglages avancés → Matériel. ».
+ */
+const REMOVED_SCREEN = /réglages\s+avancés/iu
+
+/**
+ * Ce qu'un fichier MONTRE : le markup d'une page, et les chaînes que son code compose.
+ *
+ * Les commentaires en sont exclus, et c'est délibéré : plusieurs disent que cet onglet a
+ * été retiré, et pourquoi. Interdire le mot partout effacerait cette mémoire au lieu du
+ * renvoi mort — un banc doit pousser à corriger la phrase, pas à taire l'histoire.
+ */
+function shownText(file: { path: string; text: string }): string {
+  const markup = file.path.endsWith('.svelte') ? markupText(file.text) : ''
+  return [markup, ...literals(composedText(file))].join('\n')
+}
+
+/**
+ * Le renvoi vers un écran qui n'existe plus.
+ *
+ * « Réglages avancés » était une porte ; les neuf pages s'ouvrent maintenant d'emblée.
+ * Une consigne qui y envoie est pire que pas de consigne du tout : le bénévole cherche
+ * un onglet absent au lieu de faire le geste, et le tableau de bord est la page que tout
+ * le monde ouvre en premier.
+ */
+describe('aucune phrase ne renvoie vers l’onglet supprimé', () => {
+  it.each(everything)('$path', (file) => {
+    expect(shownText(file)).not.toMatch(REMOVED_SCREEN)
+  })
+
+  it('a bien lu les deux écrans, et pas un dossier vide', () => {
+    expect(everything.length).toBeGreaterThan(40)
+  })
+})
+
 describe('l’index des champs', () => {
   it('nomme en français tout chemin qu’une page édite', () => {
     const unknown = new Set<string>()
