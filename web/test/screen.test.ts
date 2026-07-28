@@ -222,7 +222,7 @@ describe('la grille et la barre basse', () => {
       }),
     )
     const button = host.querySelector<HTMLButtonElement>('.reprint')
-    expect(host.querySelector('.summary')?.textContent).toContain('ail 1,236 kg')
+    expect(host.querySelector('.block.label')?.textContent).toContain('ail 1,236 kg')
     expect(button?.disabled).toBe(false)
 
     stream?.push(restingState({ revision: 2 }))
@@ -462,7 +462,7 @@ describe('ce qui occupe l’écran, et rien d’autre', () => {
       false,
     )
     // Ce qui accuse le succès, c'est le bandeau et la barre — et le papier.
-    expect(host.querySelector('.summary')?.textContent).toContain('ail 1,236 kg')
+    expect(host.querySelector('.block.label')?.textContent).toContain('ail 1,236 kg')
   })
 
   it('prend tout l’écran sur Faulted, avec le code lisible au téléphone', async () => {

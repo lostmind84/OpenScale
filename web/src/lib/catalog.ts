@@ -67,6 +67,8 @@ export interface Catalog {
   revision: string
   /** Quand ce catalogue est entré en service, RFC 3339, ou vide si aucun ne l'est. */
   updated_at: string
+  /** La version de l'application, affichée en permanence par la barre basse (§14.3). */
+  app_version: string
   product_count: number
   categories: Category[]
   products: Product[]

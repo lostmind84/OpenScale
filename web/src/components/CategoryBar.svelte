@@ -92,7 +92,10 @@
     gap: 0.625rem;
     padding: 0 1.375rem;
     border: 2px solid var(--border);
-    border-radius: var(--radius-pill);
+    /* Le rayon des touches de la maquette, et non une gélule : à cette taille,
+       un arrondi complet fait lire une pastille décorative là où il y a une
+       commande. */
+    border-radius: var(--radius-lg);
     background: var(--surface);
     font-size: 1.75rem;
     white-space: nowrap;

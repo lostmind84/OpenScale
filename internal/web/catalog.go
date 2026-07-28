@@ -24,7 +24,13 @@ type catalogDTO struct {
 	// ever has. The client screen shows it PERMANENTLY: « ces prix datent de
 	// quand ? » is the one question a volunteer asks in front of a grid, and a date
 	// that stops moving is how a station says it received nothing (§14.3).
-	UpdatedAt    string                 `json:"updated_at"`
+	UpdatedAt string `json:"updated_at"`
+	// AppVersion is what the client screen states permanently, beside the number of
+	// weighable products: « 331 produits pesables · application 2.4.0 » (§14.3). It
+	// travels with the catalog because it changes once per deployment and this
+	// payload is already cached behind an ETag — and because the other place that
+	// knows it, /admin/api/health, must not be reachable from the grid (§14.1).
+	AppVersion   string                 `json:"app_version"`
 	ProductCount int                    `json:"product_count"`
 	Categories   []categoryDTO          `json:"categories"`
 	Products     []catalogProductDTO    `json:"products"`
@@ -221,7 +227,8 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 			ReprintWindowSeconds: cfg.UI.ReprintWindowSeconds,
 			Sound:                cfg.UI.Sound,
 		},
-		UpdatedAt: rfc3339OrEmpty(s.hub.CatalogUpdatedAt()),
+		UpdatedAt:  rfc3339OrEmpty(s.hub.CatalogUpdatedAt()),
+		AppVersion: s.version,
 	}
 	for _, p := range products {
 		if p.Qualification != domain.Weighable {

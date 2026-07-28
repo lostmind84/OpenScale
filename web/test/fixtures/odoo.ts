@@ -138,6 +138,9 @@ export function catalogOf(rows: QualifiedRow[], revision = '"fixture"'): Catalog
     // L'instant de la bascule, tel que le Hub le date (§14.3). Figé ici : un
     // catalogue de test ne doit pas changer d'empreinte à chaque exécution.
     updated_at: '2026-07-27T08:06:48Z',
+    // La version que la barre basse énonce en permanence (§14.3). Figée comme
+    // la date, et pour la même raison.
+    app_version: '2.4.0',
     product_count: products.length,
     products,
     categories: LACAGETTE_CATEGORIES.map((c) => ({

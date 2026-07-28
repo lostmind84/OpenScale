@@ -284,6 +284,8 @@
     label={snapshot?.last_label ?? null}
     available={snapshot?.reprint.available ?? false}
     {catalogAt}
+    productCount={products.length}
+    appVersion={catalog?.app_version ?? ''}
     {healthy}
     onreprint={reprint}
     onadmin={openAdmin}

@@ -98,7 +98,7 @@
   </p>
 
   <button type="button" class="tare-key touch-target" class:active={taring} onclick={ontare}>
-    <Icon name="tare" size="2rem" />
+    <Icon name="tare" size="1.4em" />
     <span>TARE</span>
   </button>
 
@@ -212,17 +212,28 @@
     font-weight: 700;
   }
 
+  /*
+   * La touche TARE est dimensionnée par la MAIN, pas par son texte.
+   *
+   * C'est la seule commande du bandeau, et elle est touchée par quelqu'un qui
+   * tient un bocal de l'autre main : elle occupe une colonne entière du bandeau
+   * — 7 à 11 rem selon l'écran — au lieu de se replier sur les 4,5 rem du
+   * minimum tactile. Le dessin monte à 1,4 fois le corps du texte pour la même
+   * raison : ce qu'on reconnaît de loin est la forme du bocal, pas le mot.
+   */
   .tare-key {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 0.375rem;
+    flex: 0 0 auto;
+    min-width: clamp(7rem, 9vw, 11rem);
     padding: 0 1.5rem;
     border: 2px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
     background: var(--bg);
-    font-size: 1.125rem;
+    font-size: clamp(1.5rem, 1.5vw, 2.25rem);
     font-weight: 700;
     letter-spacing: 0.08em;
     transition:

@@ -49,6 +49,23 @@ func TestTheCatalogIsServedWholeWithAValidator(t *testing.T) {
 	}
 }
 
+// TestTheCatalogCarriesTheApplicationVersion: the client screen states, permanently,
+// which version is running — « 331 produits pesables · application 2.4.0 » (§14.3).
+//
+// It travels with the CATALOG and not with the state stream, because it changes once
+// per deployment and the catalog is already cached behind an ETag. The other place that
+// knows it, /admin/api/health, is deliberately out of reach: `npm run budget` asserts
+// that not one byte of the administration is loaded to draw the grid.
+func TestTheCatalogCarriesTheApplicationVersion(t *testing.T) {
+	b := newBench(t)
+
+	page := decodeStatus[catalogDTO](t, b.get("/api/v1/catalog"), http.StatusOK)
+
+	if page.AppVersion != "test" {
+		t.Fatalf("app_version = %q, attendu « test » — la version que ce banc injecte", page.AppVersion)
+	}
+}
+
 // TestTheCatalogSaysWhenItEnteredService: « ces prix datent de quand ? » is the one
 // question a volunteer asks in front of a grid, and §14.3 now answers it permanently.
 //
