@@ -20,10 +20,13 @@
     available: boolean
     /** When the catalog entered service, already formatted, or empty (§14.3). */
     catalogAt?: string
+    /** Whether the scale and printer are both answering right now. */
+    healthy: boolean
     onreprint: () => void
+    onadmin: () => void
   }
 
-  const { label, available, catalogAt = '', onreprint }: Props = $props()
+  const { label, available, catalogAt = '', healthy, onreprint, onadmin }: Props = $props()
 </script>
 
 <div class="bar" class:live={label !== null}>
@@ -52,6 +55,23 @@
   {#if catalogAt !== ''}
     <p class="catalog">Catalogue du <strong>{catalogAt}</strong></p>
   {/if}
+
+  <span
+    class="health"
+    class:fault={!healthy}
+    role="status"
+    aria-label={healthy ? 'Matériel disponible' : 'Matériel indisponible'}
+  ></span>
+
+  <!--
+    Icône seule, sans texte — décision du 28/07/2026, qui revient sur la
+    partie « touche nommée » d'ADR-032 (voir Task 12, note d'addendum). Le
+    bouton reste visible et bordé dans une barre permanente, ce qui reste
+    l'essentiel de ce qu'ADR-032 corrigeait : ce n'est plus un coin muet.
+  -->
+  <button type="button" class="admin touch-target" aria-label="Réglages" onclick={onadmin}>
+    <Icon name="settings" size="1.75rem" />
+  </button>
 </div>
 
 <style>
@@ -61,7 +81,7 @@
     flex: 0 0 auto;
     align-items: center;
     gap: 1rem;
-    height: var(--reprint-height);
+    height: var(--status-height);
     padding: 0 1rem 0 1.25rem;
     background: var(--bg);
     border-top: 1px solid var(--border);
@@ -145,5 +165,31 @@
   .catalog strong {
     color: var(--ink);
     font-weight: 600;
+  }
+
+  .health {
+    flex: 0 0 auto;
+    width: 0.875rem;
+    height: 0.875rem;
+    border-radius: 50%;
+    background: var(--ready);
+    box-shadow: 0 0 0 0.375rem var(--ready-wash);
+    transition: background-color var(--slide) var(--ease);
+  }
+
+  .health.fault {
+    background: var(--fault);
+    box-shadow: 0 0 0 0.375rem var(--fault-wash);
+  }
+
+  .admin {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    border: 2px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--ink-muted);
   }
 </style>
