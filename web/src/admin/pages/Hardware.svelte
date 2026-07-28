@@ -719,6 +719,17 @@
     {/if}
 
     <div class="actions">
+      <!--
+        The key badge is DECLARED on the markup and never deduced: `Act` has no way of
+        seeing which route a handler ends up calling, so a protected act whose markup stays
+        silent asks for the password AFTER the click — the one moment ADR-033 wanted it not
+        to surprise anybody. Six buttons of this page were in that case.
+
+        The two exceptions are here on purpose: « Lister les ports » and « Lister les
+        files » are the reads of the open table (`internal/web/server.go`), and they are the
+        only acts of this page that carry no badge. Everything else goes through
+        `admin.protect`, which is the same list, checked handler by handler.
+      -->
       <Act
         label="Lister les ports"
         busy={acting === 'ports'}
@@ -733,6 +744,7 @@
       <Act
         act="detect"
         label={detectLabel()}
+        protected
         disabled={acting !== ''}
         onrun={() => void act('detect', detect)}
       />
@@ -824,6 +836,7 @@
             <Act
               act="listen"
               label={askLabel}
+              protected
               busy={acting === 'listen'}
               disabled={acting !== ''}
               onrun={() => void act('listen', listenOnce)}
@@ -868,6 +881,7 @@
       />
       <Act
         label="Rechercher l’imprimante"
+        protected
         busy={acting === 'discover'}
         disabled={acting !== ''}
         onrun={() => void act('discover', discover)}
@@ -880,6 +894,7 @@
         <Act
           act={test.what}
           label={`Auto-test : ${test.name}${acting === test.what ? ' — en cours…' : ''}`}
+          protected
           disabled={acting !== ''}
           onrun={() => void act(test.what, () => selfTest(test.what))}
         />

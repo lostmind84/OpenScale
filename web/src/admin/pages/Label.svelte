@@ -490,10 +490,23 @@
     />
     <div class="actions">
       <!--
-        Neutres, comme les trois auto-tests de la page Matériel : un auto-test INTERROGE le
-        poste, il ne change ni ce qu'il vend ni la façon dont il pèse. Ce qu'il coûte — une
-        étiquette de la bobine — est dit par la phrase juste en dessous, et la densité de
-        44 px de cette page est ce qu'ADR-033 lui laisse.
+        NEUTRAL, where the plan asked for the irreversible red on the alignment target.
+        This is the decision, and the reason it went the other way.
+
+        A self-test costs something real and nothing puts it back: one label off the roll,
+        and a strip of paper fed through. But the families answer a narrower question than
+        « does this cost anything ». Red is « this does not undo itself in one click », and
+        what it stands in front of is a STATION left somewhere no second click returns
+        from: the scale cut out, a quarantine forgotten, the whole grid replaced by a file.
+        A printed label leaves the station exactly where it was.
+
+        And one act cannot wear two colours. `POST /admin/api/printer/test` is also the
+        three self-tests of the Hardware page, which are neutral, and « Imprimer une
+        étiquette de test » of the Troubleshooting page, which is neutral too: a red here
+        would have made the colour of one act depend on the screen it was reached from.
+
+        What it costs is SAID — the sentence right below this block — which is what words
+        are for. A red that is not earned wears out the one that is.
       -->
       {#each SELF_TESTS as test (test.what)}
         <Act

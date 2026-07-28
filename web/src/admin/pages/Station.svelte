@@ -681,11 +681,18 @@
       />
       <!--
         A LABEL and not a button — turning it into one would break the file picker it
-        wraps — so it copies the irreversible family by hand. It gets the press feedback
-        of a command all the same: one that answers nothing under the finger reads as a
-        dead page, whatever element it happens to be made of (§3.2).
+        wraps — so it copies a family of `Act` by hand. It gets the press feedback of a
+        command all the same: one that answers nothing under the finger reads as a dead
+        page, whatever element it happens to be made of (§3.2).
+
+        The family is the NEUTRAL one, and it took a red to see why. Red means « this does
+        not undo itself in one click », and `POST /admin/api/config/import` applies
+        strictly nothing: it validates, and answers the diff a human then reads. The button
+        that DOES write — « Recopier » below — is blue, so the two were painted the wrong
+        way round from each other. An unearned red wears out the one that is earned, and
+        this page carries a real one ten lines further down, on the restore.
       -->
-      <label class="choose touch-target" class:working={working === 'import'} class:off={busy}>
+      <label class="choose" class:working={working === 'import'} class:off={busy}>
         {working === 'import' ? 'Lecture du fichier…' : 'Importer un fichier'}
         <span class="key" title="Demande le mot de passe">clé</span>
         <input
@@ -904,19 +911,24 @@
 
   /*
    * The file chooser, and the only control of this page that is not an `<Act>`: it is a
-   * `<label>` wrapping an `<input type="file">`, which a button cannot replace. It wears
-   * the irreversible red by hand, and keeps the 72 px that go with it.
+   * `<label>` wrapping an `<input type="file">`, which a button cannot replace. It copies
+   * the NEUTRAL family of `Act` by hand — the tokens and the 44 px both, because in that
+   * component the family carries the height as much as the colour: 72 px belong to
+   * `destructive`, and reading a file into a diff is not one.
    */
   .choose {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
+    /* The 44 px of the administration's form controls (ADR-033), spelled the way `.act`
+       spells them: this label is a command of the same page and the same density. */
+    min-height: 2.75rem;
     padding: 0 1rem;
     font-size: 1.0625rem;
     font-weight: 700;
-    color: var(--surface);
-    background: var(--danger);
-    border: 1px solid var(--danger);
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-1);
     cursor: pointer;
@@ -940,11 +952,11 @@
     transform: scale(0.975);
   }
 
-  /* A solid background DARKENS under the pointer, like `Act`: lightening it drops the
-     white ink below the 7:1 the token was chosen for. */
+  /* The neutral family answers the pointer with its BORDER, exactly like `.read` of
+     `Act`: there is no solid background here to darken. */
   @media (hover: hover) {
     .choose:hover:not(.off) {
-      filter: brightness(0.92);
+      border-color: var(--ink-muted);
       box-shadow: var(--shadow-2);
     }
   }
@@ -967,12 +979,16 @@
 
   /* A key, not a red padlock: the act is possible, it only asks who you are. The word is
      written out — an icon alone teaches nothing to whoever does not know it (§14.4).
-     The acts carry their own; this one belongs to the chooser, which is a label. */
+     The acts carry their own; this one belongs to the chooser, which is a label.
+
+     It takes the tokens `Act` gives a NEUTRAL button, and not the inverted pair: the
+     inversion exists so the badge does not dissolve into a solid fill, and there is no
+     longer a solid fill to dissolve into. */
   .key {
     padding: 0.0625rem 0.375rem;
     border-radius: var(--radius-pill);
-    background: var(--surface);
-    color: var(--ink);
+    background: var(--bg);
+    color: var(--ink-muted);
     font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0.06em;

@@ -1357,13 +1357,40 @@ git commit -m "feat(web): Act — un bouton, trois familles, une seule verite"
 | Catalogue | Oublier la quarantaine · Ne plus proposer ce produit · la zone de dépôt | `destructive` |
 | Catalogue | Reprendre cette décision · choisir un produit dans la liste | `read` |
 | Matériel | Lister les files · Rechercher l'imprimante · Détecter automatiquement · les trois auto-tests | `read` |
-| Étiquette | Aperçu · les flèches ±1 | `read` |
-| Étiquette | Imprimer une mire d'alignement | `destructive` |
+| Étiquette | Aperçu · les flèches ±1 · Imprimer la mire d'alignement · Imprimer la réglette | `read` |
 | Journal | Export CSV · ouvrir un détail | `read` |
 | Journal | Rejouer cette trame | `destructive` |
-| Poste | Exporter la configuration | `read` |
-| Poste | Importer · Restaurer une version | `destructive` |
+| Poste | Exporter la configuration · Importer un fichier | `read` |
+| Poste | Restaurer une version | `destructive` |
 | App | Enregistrer la configuration · Tout fonctionne : confirmer · retirer une clé périmée | `write` |
+
+**Deux lignes de cette table ont été corrigées à l'implémentation**, contre la règle de
+§3.1 — rouge = « ne se défait pas d'un clic » — dont elles s'écartaient :
+
+- **« Imprimer une mire d'alignement »** passe de `destructive` à `read`. Elle consomme
+  une étiquette de la bobine et sort du papier, et rien ne le rend ; mais la famille
+  répond à une question plus étroite que « est-ce que ça coûte quelque chose ». Le rouge
+  se dresse devant un POSTE qu'un second clic ne ramène pas — la balance mise de côté, une
+  quarantaine oubliée, la grille entière remplacée par un fichier. Une étiquette imprimée
+  laisse le poste exactement où il était. Décisif : `POST /admin/api/printer/test` est
+  aussi le bouton des trois auto-tests de la page Matériel, que la ligne au-dessus donne
+  neutres, et celui d'« Imprimer une étiquette de test » du Dépannage, neutre lui aussi —
+  un même acte ne peut pas porter deux couleurs selon l'écran par lequel on l'atteint. Ce
+  qu'il coûte est dit par la phrase sous les boutons.
+- **« Importer un fichier »** du Poste passe de `destructive` à `read`.
+  `POST /admin/api/config/import` « VALIDATES and returns the diff, and applies nothing »
+  (`internal/web/config.go`) : la zone de dépôt était peinte en rouge et « Recopier », qui
+  écrit vraiment dans le brouillon, en bleu — les deux à l'envers l'une de l'autre. La
+  page le disait déjà en toutes lettres quatre lignes plus bas. Restaurer une version
+  garde son rouge : c'est le seul geste de cette page qui change le poste sur-le-champ.
+
+**La pastille « clé » est orthogonale à la famille**, et elle se déduit d'une seule
+source : la table `guarded` d'`internal/web/server.go`. Tout `<Act>` dont le gestionnaire
+traverse `admin.protect` porte `protected`, et lui seul. Six boutons de la page Matériel
+— « Détecter automatiquement », « Rechercher l'imprimante », les trois auto-tests et
+l'écoute d'un port — demandaient le mot de passe sans le dire avant le clic ; `Act` ne
+peut pas le deviner, la déclaration est le seul moyen de le tenir. `web/test/admin-families.test.ts`
+fige les deux règles.
 
 - [ ] **Step 1: Migrate one page and run its tests**
 
