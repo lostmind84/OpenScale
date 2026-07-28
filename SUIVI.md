@@ -68,13 +68,16 @@ montré court ; le cacher d'un côté seulement n'aurait rien caché. Il reste a
 l'interrupteur, et surtout par `technical.csv` du fichier de diagnostic, qui porte la
 colonne `code` quoi que l'écran montre.
 
-**Ce qui reste ouvert.** Deux renvois morts vers les « réglages avancés » supprimés le
-27/07 survivent hors du périmètre traité — `lib/lights.ts` (deux consignes de feux) et
-`cmd/openscale/admin.go` (le refus d'impression) ; la page qui porte ces réglages s'appelle
-« Matériel ». La page Règles montre encore deux clés de configuration en clair dans des
-notes de garde-fou, hors interrupteur. Et le tableau de bord écrit encore en anglais
-l'**origine** d'un événement (`catalog`, `scale`) là où le Journal la traduit — ce n'est
-pas un nom technique au sens de §2.3, c'est un jeton non traduit.
+**Ce qui reste ouvert.** Le tableau de bord écrit encore en anglais l'**origine** d'un
+événement (`catalog`, `scale`) là où le Journal la traduit — ce n'est pas un nom technique
+au sens de §2.3, c'est un jeton non traduit, et c'est le seul point de cette liste qui
+tienne encore. Les trois autres ont été fermés depuis : les renvois morts vers les
+« réglages avancés » de `lib/lights.ts` et de `cmd/openscale/admin.go` nomment désormais la
+page « Matériel », et un banc interdit la phrase dans les deux écrans comme dans le CLI ;
+les clés de configuration que la page Règles laissait voir n'étaient pas dans des notes de
+garde-fou mais dans son gabarit `toggle`, qui écrivait `<code>{path}</code>` sans la garde
+qu'a `Field` — elles sont derrière l'interrupteur, et un banc qui MONTE les pages au lieu
+de lire leur source le vérifie.
 
 **Le contrôle 20 a mordu ses propres livrables (28/07/2026).** La refonte de l'écran
 client en « Grand Format » (ADR-035) retire `ui.tile_size` du schéma et fait refuser

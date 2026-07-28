@@ -251,7 +251,10 @@
         void importFile(event.dataTransfer?.files.item(0))
       }}
     >
-      <p>Déposez ici le fichier <code>flv_{health.station}.csv</code></p>
+      <p>
+        Déposez ici le fichier <code>flv_{health.station}.csv</code>
+        <span class="key" title="Demande le mot de passe">clé</span>
+      </p>
       <label class="choose touch-target">
         Choisir un fichier
         <input
@@ -344,6 +347,22 @@
   .drop p {
     margin: 0;
     font-size: 1.125rem;
+  }
+
+  /* A key, not a red padlock: the act is possible, it only asks who you are. The word is
+     written out — an icon alone teaches nothing to whoever does not know it. The badge is
+     the same one the Catalogue page puts on the SAME drop zone: `POST
+     /admin/api/catalog/import` is a guarded route, and an act cannot announce itself
+     differently depending on the screen it is reached from. */
+  .key {
+    padding: 0.0625rem 0.375rem;
+    border-radius: var(--radius-pill);
+    background: var(--bg);
+    color: var(--ink-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 
   /* Le rouge irréversible d'`Act`, sans en être un : le dépôt remplace TOUTE la grille par

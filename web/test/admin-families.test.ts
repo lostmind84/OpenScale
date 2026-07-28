@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * La famille d'un bouton, et la pastille « clé », sur les trois pages de réglages.
+ * La famille d'un bouton, et la pastille « clé », partout où un acte est protégé.
  *
  * `admin-troubleshooting.test.ts` tient déjà cette garantie sur les neuf gros boutons du
- * Dépannage. Elle manquait partout ailleurs, et trois choses en avaient profité :
+ * Dépannage. Elle manquait partout ailleurs, et quatre choses en avaient profité :
  *
  *  1. « Importer un fichier » du poste était PEINT EN ROUGE alors que sa route valide et
  *     n'applique rien, pendant que « Recopier », qui écrit vraiment dans le brouillon,
@@ -16,8 +16,10 @@ import { describe, expect, it } from 'vitest'
  *  2. six boutons de la page Matériel demandaient le mot de passe SANS LE DIRE avant le
  *     clic, alors que les mêmes auto-tests le disaient sur la page Étiquette ;
  *  3. la mire d'alignement est neutre, contre la table du plan — décision prise et écrite
- *     dans le code, table du plan corrigée. Ce fichier est ce qui empêche les trois de
- *     revenir au prochain passage.
+ *     dans le code, table du plan corrigée ;
+ *  4. la zone de dépôt du catalogue portait la pastille sur la page Catalogue et PAS sur
+ *     le Dépannage, alors que c'est le même acte et la même route gardée. Ce fichier est
+ *     ce qui empêche les quatre de revenir au prochain passage.
  *
  * Le contrôle se fait sur le TEXTE SOURCE, comme celui du Dépannage : ce qui est vérifié
  * est la déclaration, et une déclaration absente est précisément le défaut.
@@ -28,6 +30,11 @@ const ADMIN = resolve(dirname(fileURLToPath(import.meta.url)), '../src/admin')
 const station = readFileSync(resolve(ADMIN, 'pages/Station.svelte'), 'utf8')
 const hardware = readFileSync(resolve(ADMIN, 'pages/Hardware.svelte'), 'utf8')
 const label = readFileSync(resolve(ADMIN, 'pages/Label.svelte'), 'utf8')
+const catalog = readFileSync(resolve(ADMIN, 'pages/Catalog.svelte'), 'utf8')
+const troubleshooting = readFileSync(resolve(ADMIN, 'pages/Troubleshooting.svelte'), 'utf8')
+
+/** La pastille, telle que les trois pages qui la portent l'écrivent, au caractère près. */
+const KEY_BADGE = '<span class="key" title="Demande le mot de passe">clé</span>'
 
 /**
  * Le `<Act …/>` de cette page dont le balisage porte ce fragment.
@@ -72,7 +79,7 @@ describe('la zone d’import du poste ne peint pas en rouge ce qui n’applique 
   })
 
   it('garde la pastille « clé » : la route, elle, est bien protégée', () => {
-    expect(station).toContain('<span class="key" title="Demande le mot de passe">clé</span>')
+    expect(station).toContain(KEY_BADGE)
   })
 
   it('laisse le bleu à ce qui écrit et le rouge à ce qui ne se défait pas', () => {
@@ -154,5 +161,33 @@ describe('les auto-tests d’impression ont UNE couleur, quelle que soit la page
   it('dit ce que l’impression coûte, en toutes lettres', () => {
     // Ce que la couleur ne porte pas, la phrase le porte.
     expect(label).toContain('Chaque appui sort une étiquette pour de bon')
+  })
+})
+
+/**
+ * La zone de dépôt d'un CSV est le MÊME acte sur les deux pages qui la portent.
+ *
+ * Elle n'est pas un `<Act>` et ne peut pas le devenir — c'est un `<label>` habillant un
+ * `<input type="file">`, et en faire un bouton casserait le sélecteur de fichier —, donc
+ * rien de ce que le composant garantit ne s'applique à elle : chaque page écrit la
+ * pastille à la main, ou l'oublie. Le Dépannage l'avait oubliée, sur un balisage par
+ * ailleurs identique à celui de la page Catalogue.
+ */
+describe('la zone de dépôt du catalogue annonce la clé sur les DEUX pages', () => {
+  it.each([
+    ['la page Catalogue', catalog],
+    ['le Dépannage', troubleshooting],
+  ])('%s porte la pastille, écrite pareil', (_where, page) => {
+    expect(page).toContain(KEY_BADGE)
+  })
+
+  it.each([
+    ['la page Catalogue', catalog],
+    ['le Dépannage', troubleshooting],
+  ])('%s tient la promesse : l’acte passe par admin.protect', (_where, page) => {
+    // La pastille est une PROMESSE. `POST /admin/api/catalog/import` est dans la table
+    // `guarded` de `internal/web/server.go` ; l'annoncer sur un écran et pas sur l'autre
+    // laissait croire, depuis le Dépannage, que le dépôt ne demandait rien.
+    expect(page).toContain('admin.protect(() => api.importCatalog(file))')
   })
 })
