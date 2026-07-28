@@ -1,4 +1,5 @@
 import type { HealthDTO } from './dto'
+import { labelOf } from './fields'
 import { frenchBytes, frenchDuration, frenchInteger } from './format'
 
 /**
@@ -173,7 +174,7 @@ function rollLight(health: HealthDTO): Light {
       value: 'aucun compteur d’étiquettes sur ce poste',
       remedy:
         'Sans imprimante construite, il n’y a pas de rouleau à compter : vérifiez ' +
-        'printer.type et printer.options dans Réglages avancés → Matériel.',
+        `le « ${labelOf('printer.type')} » et ses réglages dans Réglages avancés → Matériel.`,
     }
   }
   if (!roll.known) {

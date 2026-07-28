@@ -4,6 +4,7 @@
   import Panel from '../components/Panel.svelte'
   import type { Draft } from '../lib/draft.svelte'
   import type { HealthDTO } from '../lib/dto'
+  import { labelOf } from '../lib/fields'
   import { frenchDate, frenchInteger } from '../lib/format'
 
   /**
@@ -21,6 +22,10 @@
    * configuration key per message and the route that writes it, NOT the validation: the
    * service already carries `domain.CheckMessage` and `domain.MessagePlaceholders`,
    * written "so that the Rules screen can list them next to the field being edited".
+   *
+   * A rule whose threshold is EDITED ELSEWHERE says so through {@link labelOf} and never
+   * by writing the key: the technical name is behind the « Montrer les noms techniques »
+   * switch, and a note that spells it out puts back on screen what that switch hides.
    *
    * The second gap is the live preview §14.4 asks for by name ("à 8 g, ce produit serait
    * refusé"). `domain.Evaluate` returns EVERY diagnostic expressly so this screen can
@@ -321,7 +326,7 @@
       thresholds: [],
       switchPath: '',
       switchLabel: '',
-      note: 'Seuil : la capacité limits.max_weight_g, réglée au garde-fou 9.',
+      note: `Seuil : la capacité, réglée au garde-fou 9 sous « ${labelOf('limits.max_weight_g')} ».`,
     },
     {
       rank: 2,
@@ -392,7 +397,9 @@
       thresholds: [],
       switchPath: '',
       switchLabel: '',
-      note: 'Seuil : moins limits.empty_max_g, réglé au garde-fou 4.',
+      note:
+        'Seuil : la valeur négative de celui du garde-fou 4, ' +
+        `« ${labelOf('limits.empty_max_g')} ».`,
     },
     {
       rank: 6,

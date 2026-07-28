@@ -107,6 +107,78 @@ describe('ni les phrases que le code compose avant de les montrer', () => {
   })
 })
 
+/**
+ * Ce que l'œil lit d'une page : les accolades Svelte, puis les balises, en moins.
+ *
+ * `visibleText` laisse encore du code dans le markup — `path="pricing.primary_code"` dans
+ * une balise, `{@render toggle('barcode.…')}` dans une expression. Ni l'un ni l'autre
+ * n'arrive à l'écran : le premier est une propriété que `Field` ne montre que si
+ * l'interrupteur est coché, le second un appel dont on ne sait rien statiquement.
+ *
+ * Les accolades partent AVANT les balises, et l'ordre n'est pas indifférent : une flèche
+ * `=>` dans un `onchange={…}` porte un `>` qui refermerait la balise trop tôt et rendrait
+ * visible la moitié de ses propriétés.
+ */
+function markupText(source: string): string {
+  let text = visibleText(source)
+  let previous = ''
+  while (text !== previous) {
+    previous = text
+    text = text.replace(/\{[^{}]*\}/gu, ' ')
+  }
+  return text.replace(/<[^>]*>/gu, ' ')
+}
+
+/**
+ * Les chaînes littérales d'un morceau de code, le `${…}` des gabarits en moins.
+ *
+ * Le tri s'arrête au bout de la ligne pour les guillemets simples et doubles : une
+ * apostrophe droite égarée fait perdre la fin de SA ligne, jamais la suite du fichier —
+ * ce banc rate alors une chaîne, il n'en invente aucune.
+ */
+function literals(code: string): string[] {
+  const quoted = /'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/gu
+  return [...code.matchAll(quoted)].map((match) =>
+    (match[1] ?? match[2] ?? match[3] ?? '').replace(/\$\{[^}]*\}/gu, ' '),
+  )
+}
+
+/**
+ * Les clés de l'index qu'un texte laisse voir.
+ *
+ * Une chaîne qui n'est QUE la clé est un argument — le chemin d'un champ, celui d'un
+ * interrupteur — et le composant qui la reçoit décide de la montrer ou non. Dès qu'une
+ * phrase l'entoure, plus personne ne décide : elle part à l'écran telle quelle.
+ *
+ * Le tri se fait sur les clés de l'index et non sur un motif « mot.mot », qui prendrait
+ * « 10.5 » et « flv_2.csv » pour des réglages.
+ */
+function keysShown(text: string): string[] {
+  const trimmed = text.trim()
+  return Object.keys(FIELD_LABELS)
+    .filter((key) => trimmed !== key && text.includes(key))
+    .map((key) => `${key} dans « ${trimmed} »`)
+}
+
+/**
+ * La clé technique est derrière l'interrupteur, ou elle n'est pas.
+ *
+ * Deux notes de la page Règles renvoyaient au seuil d'un autre garde-fou en l'appelant
+ * par sa clé, et le tableau de bord nommait le pilote d'impression de la même façon :
+ * décoché, l'interrupteur ne cachait donc rien de ces trois phrases-là. Elles ne passent
+ * par aucune balise ni aucun composant — ce sont des chaînes du code —, ce qui est
+ * exactement ce que les deux bancs ci-dessus ne regardaient pas.
+ */
+describe('ni les clés de configuration, que l’interrupteur est seul à montrer', () => {
+  it.each(screens)('à l’écran de $path', ({ text }) => {
+    expect(keysShown(markupText(text))).toEqual([])
+  })
+
+  it.each(files)('dans les phrases composées par $path', (file) => {
+    expect(literals(composedText(file)).flatMap(keysShown)).toEqual([])
+  })
+})
+
 describe('l’index des champs', () => {
   it('nomme en français tout chemin qu’une page édite', () => {
     const unknown = new Set<string>()
