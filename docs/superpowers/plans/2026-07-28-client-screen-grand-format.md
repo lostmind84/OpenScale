@@ -1197,6 +1197,60 @@ git commit -m "test(web): adapter la suite front — recherche physique, Categor
 - Modify : `docs/02-architecture.md`
 - Modify : `SUIVI.md`
 
+**Format des ADR — à respecter, il est uniforme dans tout le fichier.** Chaque
+ADR porte une ligne d'en-tête juste sous son titre, de cette forme exacte
+(voir ADR-031 ligne ~4532 et ADR-032 ligne ~4550) :
+
+```markdown
+**Statut** : accepté · **Date** : 28/07/2026 · **Portée** : §11.2, §14.2, §14.3 · **Amende** : ADR-031
+```
+
+puis des paragraphes **Contexte.** / **Décision.** / **Ce qui ne change pas.**
+Les deux ADR ci-dessous doivent porter cet en-tête ; les corps donnés plus bas
+sont à compléter avec, pas à copier tels quels sans lui.
+
+**Quatre endroits du fichier décrivent encore l'ancien réglage et doivent être
+repris — ils ont été relevés ligne par ligne, ne pas se contenter des ADR :**
+
+1. **Ligne ~2321**, dans l'exemple de configuration annoté : les lignes
+   `"tile_size": "medium",` et ses six lignes de commentaire (jusqu'à « garde
+   sa grille. ») doivent disparaître, remplacées par une ligne suivant la
+   convention que le bloc utilise déjà quelques lignes plus bas
+   (`// title REMOVED: …`, `// open_category REMOVED: …`, `// grid_density
+   REMOVED: …`) :
+
+   ```
+             // tile_size REMOVED: la densité s'adapte en continu à l'écran (clamp CSS,
+             // ADR-035). Le contrôle 20 REFUSE désormais cette clé — un exemple qui la
+             // porterait encore ferait recopier une configuration que le poste rejette.
+   ```
+
+   Retirer aussi la virgule devenue orpheline en fin de la ligne
+   `"show_grid_prices": true,` qui précède, si elle termine désormais l'objet.
+
+2. **Ligne ~3786**, dans la table des routes HTTP : `— et
+   `presentation.tile_size` (ADR-031)` décrit une charge utile qui n'existe
+   plus. La remplacer par la mention du champ AJOUTÉ par ADR-036 : chaque
+   produit porte désormais `prices[]`, un prix dérivé par palier configuré.
+
+3. **Lignes ~4530-4544**, la section `### ADR-031` elle-même : ne PAS la
+   supprimer (un ADR est un journal, on ne réécrit pas l'histoire) mais lui
+   ajouter, juste après sa ligne d'en-tête `**Statut**`, une mention de
+   remplacement dans le style du fichier :
+
+   ```markdown
+   > **Remplacé par ADR-035 le 28/07/2026** : la densité redevient continue, et
+   > `ui.tile_size` est retiré du schéma. Le tableau des trois tailles ci-dessous
+   > décrit ce qui a été livré entre le 27 et le 28/07/2026, et rien d'actuel.
+   ```
+
+4. **`SUIVI.md` ligne ~121** : la puce « la densité de la grille devient un
+   réglage à trois valeurs — `ui.tile_size` ∈ … » raconte la mise en service du
+   27/07. Elle reste vraie de CE jour-là — ne pas la réécrire, mais la nouvelle
+   entrée de journal du 28/07 (étape 4 ci-dessous) doit dire explicitement
+   qu'elle est annulée, sans quoi deux affirmations contradictoires cohabitent
+   dans le même fichier.
+
 - [ ] **Étape 1 : ADR-035 (densité continue)**
 
 Après `### ADR-034` :
@@ -1256,11 +1310,21 @@ Ajouter au tableau des décisions structurantes :
 | **036** | **Double tarif affiché sur chaque tuile de la grille**, pas seulement au moment de peser |
 ```
 
-Ajouter en tête du journal :
+Ajouter en tête du journal (remplacer le compte de tests par le chiffre RÉEL
+rapporté par la tâche précédente, jamais un chiffre inventé) :
 
 ```markdown
-| 28/07/2026 | Écran client repris en « Grand Format » (ADR-035, ADR-036) : grille continue, double tarif par tuile, recherche au clavier physique, CategoryBar/StatusBar remplacent FilterBar/ReprintBar |
+| 28/07/2026 | Écran client repris en « Grand Format » (ADR-035, ADR-036) : grille continue — `ui.tile_size` retiré, ce qui **annule le réglage à trois valeurs livré la veille** —, double tarif affiché par tuile, recherche au clavier physique (le poste n'est pas tactile), CategoryBar/StatusBar remplacent FilterBar/ReprintBar |
 ```
+
+Mentionner aussi, dans le corps du SUIVI, le défaut que la refonte a trouvé
+dans les fichiers livrés : `testdata/config-lacagette.json` et
+`testdata/config-demo.json` portaient encore `ui.tile_size`, donc les deux
+configurations que le poste LIVRE étaient refusées par son propre contrôle 20
+dès qu'ADR-035 a pris effet — sept tests de trois paquets sont tombés d'un
+coup. Corrigé en commit `80f278e`. C'est le même mode de défaillance
+qu'ADR-034 décrivait pour `coef_num`, pris ici par les tests plutôt que par un
+bénévole devant un poste mort.
 
 - [ ] **Étape 5 : commit**
 
