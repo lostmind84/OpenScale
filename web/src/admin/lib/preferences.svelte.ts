@@ -1,28 +1,29 @@
-/** La clé sous laquelle le navigateur garde les préférences de cet écran. */
+/** The key under which the browser keeps the preferences of this screen. */
 const STORAGE_KEY = 'openscale.admin.preferences'
 
-/** Ce que le navigateur retient quand les noms techniques sont demandés. */
+/** What the browser remembers when the technical names are asked for. */
 const TECHNICAL = 'technical'
 
 /**
- * Ce que la personne qui conduit l'écran a choisi de voir.
+ * What the person driving the screen has chosen to see.
  *
- * Dans le NAVIGATEUR et non dans la configuration du poste : ce n'est pas un réglage de
- * magasin, aucun contrôle ne le valide, et il suit celui qui règle plutôt que la machine
- * qu'il règle. Un poste n'a donc rien de plus à écrire, à valider ni à recharger.
+ * In the BROWSER and not in the station's configuration: this is no shop setting, no
+ * check validates it, and it follows the person doing the settings rather than the
+ * machine being set. A station therefore has nothing more to write, to validate, or to
+ * reload.
  */
 class Preferences {
   /**
-   * Vrai quand l'écran montre les clés de configuration, les noms de blocs et les codes
-   * techniques.
+   * True when the screen shows the configuration keys, the block names and the technical
+   * codes.
    *
-   * Décoché par défaut : 99 % des personnes devant cet écran ne sont pas développeuses,
-   * et « limits.max_weight_g » sous un champ nommé « Poids maximum accepté » n'apprend
-   * rien à qui n'ouvrira jamais le fichier.
+   * Unticked by default: 99 % of the people standing in front of this screen are not
+   * developers, and « limits.max_weight_g » under a field named « Poids maximum accepté »
+   * teaches nothing to someone who will never open the file.
    */
   showTechnicalNames = $state(read())
 
-  /** Bascule l'affichage des noms techniques et s'en souvient. */
+  /** Toggles the display of the technical names, and remembers it. */
   toggleTechnicalNames(): void {
     this.showTechnicalNames = !this.showTechnicalNames
     write(this.showTechnicalNames)
@@ -30,10 +31,10 @@ class Preferences {
 }
 
 /**
- * Lit la préférence, et répond « non » à la moindre difficulté.
+ * Reads the preference, and answers « no » at the slightest difficulty.
  *
- * Un navigateur de kiosque peut refuser le stockage local — mode privé, quota, stratégie
- * de groupe —, et une exception levée ici emporterait le montage de tout l'écran.
+ * A kiosk browser may refuse local storage — private mode, quota, group policy — and an
+ * exception thrown here would carry away the mounting of the whole screen.
  */
 function read(): boolean {
   try {
@@ -43,15 +44,15 @@ function read(): boolean {
   }
 }
 
-/** Écrit la préférence, et se tait quand le navigateur refuse. */
+/** Writes the preference, and keeps quiet when the browser refuses. */
 function write(technical: boolean): void {
   try {
     if (technical) globalThis.localStorage?.setItem(STORAGE_KEY, TECHNICAL)
     else globalThis.localStorage?.removeItem(STORAGE_KEY)
   } catch {
-    // Un écran qui ne se souvient pas reste un écran qui marche.
+    // A screen that does not remember is still a screen that works.
   }
 }
 
-/** La préférence de cette session d'administration. */
+/** The preference of this administration session. */
 export const preferences = new Preferences()

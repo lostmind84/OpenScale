@@ -1,35 +1,35 @@
 <script lang="ts">
   /**
-   * Un bouton de l'administration.
+   * A button of the administration screens.
    *
-   * La couleur dit LA NATURE DE L'ACTE et rien d'autre : neutre quand il interroge le
-   * poste, plein bleu quand il l'écrit, plein rouge quand il ne se défait pas d'un
-   * clic. C'est la seule information qu'un bénévole peut lire sans légende.
+   * The colour states THE NATURE OF THE ACT and nothing else: neutral when it questions
+   * the station, solid blue when it writes to it, solid red when one click will not undo
+   * it. That is the only piece of information a volunteer can read without a legend.
    *
-   * Il existe parce que `.act` était redéfinie dans quatre fichiers avec des variantes
-   * qui avaient divergé, et parce que chacun des trente-sept boutons recopiait à la
-   * main sa pastille et son « En cours… ».
+   * It exists because `.act` was redefined in four files, in variants that had drifted
+   * apart, and because each of the thirty-seven buttons copied its badge and its
+   * « En cours… » by hand.
    */
   interface Props {
-    /** Ce que l'acte fait au poste : il le lit, il l'écrit, ou il ne se défait pas. */
+    /** What the act does to the station: it reads it, it writes it, or it cannot be undone. */
     kind?: 'read' | 'write' | 'destructive'
     label: string
-    /** Vrai pendant que CE bouton travaille : il le dit et refuse un second clic. */
+    /** True while THIS button is working: it says so, and refuses a second click. */
     busy?: boolean
     disabled?: boolean
     /**
-     * Vrai quand l'acte demandera le mot de passe (ADR-033).
+     * True when the act will ask for the password (ADR-033).
      *
-     * Dit AVANT le clic : quelqu'un qui n'a pas le mot de passe doit savoir ce qui lui
-     * est accessible sans aller chercher un responsable. La pastille est orthogonale à
-     * la famille — un acte neutre peut être protégé.
+     * Said BEFORE the click: someone without the password must know what is open to them
+     * without going to fetch a manager. The badge is orthogonal to the family — a neutral
+     * act can be protected too.
      */
     protected?: boolean
     /**
-     * Le nom de l'acte, pour les tests.
+     * The name of the act, for the tests.
      *
-     * Le libellé devient « En cours… » pendant le travail, donc il ne retrouve pas un
-     * bouton au moment précis où l'on veut l'interroger. Ce nom-là ne bouge pas.
+     * The label turns into « En cours… » while the work runs, so it cannot find a button
+     * at the very moment one wants to question it. This name does not move.
      */
     act?: string
     onrun: () => void
@@ -78,7 +78,7 @@
       box-shadow var(--slide) var(--ease);
   }
 
-  /* Lire ou tester ne change rien au poste : le bouton se tait. */
+  /* Reading or testing changes nothing on the station: the button stays quiet. */
   .read {
     color: var(--ink);
     background: var(--surface);
@@ -92,9 +92,9 @@
   }
 
   .destructive {
-    /* Les 72 px de §14.2 sont RÉPÉTÉS ici et non laissés à `.touch-target` : cette
-       classe-là pèse une classe, et le `min-height` de `.act` en pèse deux une fois
-       porté par la portée de Svelte. La cible aurait rétréci en silence. */
+    /* The 72 px of §14.2 are REPEATED here rather than left to `.touch-target`: that
+       class weighs one class, whereas the `min-height` of `.act` weighs two once Svelte
+       scoping is applied to it. The touch target would have shrunk silently. */
     min-height: var(--touch-min);
     color: var(--surface);
     background: var(--danger);
@@ -107,8 +107,8 @@
       box-shadow: var(--shadow-2);
     }
 
-    /* Le liseré reste de la teinte de la famille : `button:hover` de la feuille globale
-       pose un gris qui, sur un fond plein, se lit comme le bord d'un autre bouton. */
+    /* The rim keeps the hue of its family: `button:hover` in the global stylesheet lays
+       down a grey which, over a solid fill, reads as the edge of a different button. */
     .write:hover:not(:disabled) {
       border-color: var(--action);
     }
@@ -117,9 +117,9 @@
       border-color: var(--danger);
     }
 
-    /* Un fond plein FONCE au survol au lieu de s'éclaircir : éclaircir #17518f de 12 %
-       le ramène à 6,9:1 sous l'encre blanche, sous le 7:1 pour lequel ces deux teintes
-       ont été choisies. Foncer va dans le sens du contraste. */
+    /* A solid fill DARKENS on hover instead of lightening: lightening #17518f by 12 %
+       brings it back to 6.9:1 under white ink, below the 7:1 for which these two hues
+       were chosen in the first place. Darkening works with the contrast, not against. */
     .write:hover:not(:disabled),
     .destructive:hover:not(:disabled) {
       box-shadow: var(--shadow-2);
@@ -133,13 +133,14 @@
     cursor: default;
   }
 
-  /* Le bouton qui travaille reste PLEINEMENT lisible : c'est celui qu'on regarde. */
+  /* The button that is working stays FULLY legible: it is the one being watched. */
   .act.busy:disabled {
     opacity: 1;
   }
 
-  /* Une clé, pas un cadenas rouge : l'acte est possible, il demande seulement qui vous
-     êtes. Le mot est écrit — une icône seule n'apprend rien à qui ne la connaît pas. */
+  /* A key, not a red padlock: the act IS possible, it only asks who you are. The word is
+     spelled out — an icon alone teaches nothing to someone who does not already know
+     it. */
   .key {
     padding: 0.0625rem 0.375rem;
     border-radius: var(--radius-pill);
@@ -151,8 +152,8 @@
     color: var(--ink-muted);
   }
 
-  /* Sur un fond plein, la pastille s'inverse plutôt que de disparaître dedans. Elle
-     garde l'encre : une couleur ne porte pas de lettres, c'est la règle de §14.2. */
+  /* Over a solid fill the badge inverts rather than sinking into it. It keeps the ink:
+     a colour does not carry letters, that is the rule of §14.2. */
   .write .key,
   .destructive .key {
     background: var(--surface);

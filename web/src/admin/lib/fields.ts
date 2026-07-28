@@ -1,18 +1,18 @@
 /**
- * Le nom français de chaque clé de configuration.
+ * The French name of every configuration key.
  *
- * Il existe parce que les refus du poste ne sont PAS auto-porteurs : le service répond
- * un couple clé + message, et « attendu : nombre entier » ne nomme rien tout seul. Tant
- * que l'écran affichait la clé, la phrase se suffisait ; masquée, il fallait autre chose
- * à mettre à sa place.
+ * It exists because the station's refusals are NOT self-carrying: the service answers a
+ * key plus a message, and « attendu : nombre entier » names nothing on its own. As long
+ * as the screen displayed the key, the sentence was enough by itself; once the key is
+ * hidden, something else has to take its place.
  *
- * C'est la SEULE source de ces noms : les pages le lisent pour dessiner leurs champs, et
- * la barre de refus le lit pour nommer ce que le poste a refusé. Un test vérifie que tout
- * chemin édité par une page y figure.
+ * This is the ONLY source of those names: the pages read it to draw their fields, and the
+ * refusal bar reads it to name what the station turned down. A test checks that every
+ * path edited by a page appears here.
  *
- * Un libellé y est plus long que celui qu'une page pose sous son propre titre : « Port
- * série » se lit sous le panneau « Balance », mais la barre de refus, elle, n'a pas de
- * panneau au-dessus d'elle — le nom doit y suffire seul.
+ * A label here is longer than the one a page puts under its own heading: « Port série »
+ * reads fine beneath the « Balance » panel, but the refusal bar has no panel above it —
+ * there, the name has to be enough on its own.
  */
 export const FIELD_LABELS: Readonly<Record<string, string>> = {
   'station.number': 'Numéro du poste',
@@ -114,34 +114,35 @@ export const FIELD_LABELS: Readonly<Record<string, string>> = {
 }
 
 /**
- * Le nom français d'une clé, ou la clé elle-même.
+ * The French name of a key, or the key itself.
  *
- * Le repli n'est pas un pis-aller : un refus venu d'un contrôle qu'aucune page n'édite
- * doit rester lisible par quelqu'un au téléphone, plutôt que de disparaître.
+ * The fallback is not a stopgap: a refusal coming from a check that no page edits must
+ * stay readable to someone on the telephone, rather than vanish altogether.
  *
- * @param path - le chemin pointé de la clé, tel que le service le nomme.
+ * @param path - the dotted path of the key, as the service names it.
  */
 export function labelOf(path: string): string {
   return FIELD_LABELS[path] ?? path
 }
 
 /**
- * Le nom français de chaque BLOC de la configuration.
+ * The French name of every BLOCK of the configuration.
  *
- * Il existe pour la même raison que l'index des champs, un cran au-dessus : le bandeau
- * de confirmation de §11.4 énumère les blocs qui ont bougé, et le poste les nomme en
- * anglais — `changedBlocks` de `internal/web/config.go` répond `scale`, `printer`,
- * `catalog`. Ce sont exactement les jetons que l'interrupteur « Montrer les noms
- * techniques » doit cacher, et les cacher sans rien mettre à la place laisserait un
- * bandeau qui annonce un compte à rebours de soixante secondes sans dire sur quoi.
+ * It exists for the same reason as the field index, one notch above it: the confirmation
+ * banner of §11.4 lists the blocks that moved, and the station names them in English —
+ * `changedBlocks` in `internal/web/config.go` answers `scale`, `printer`, `catalog`.
+ * Those are exactly the tokens the « Montrer les noms techniques » switch has to hide,
+ * and hiding them with nothing in their place would leave a banner announcing a sixty
+ * second countdown without saying what it is about.
  *
- * Les douze entrées sont les douze blocs que `changedBlocks` compare, ni plus ni moins.
- * Le bloc `admin` n'y est pas parce que ce comparateur ne le regarde pas : il ne porte
- * que des secrets et la durée d'une session, et il ne déclenche aucune confirmation.
- * Un banc lit le fichier Go et échoue si un treizième bloc y apparaît sans nom français.
+ * The twelve entries are the twelve blocks `changedBlocks` compares, no more and no less.
+ * The `admin` block is absent because that comparison never looks at it: it carries only
+ * secrets and the length of a session, and it triggers no confirmation at all. A test
+ * bench reads the Go file and fails if a thirteenth block appears there with no French
+ * name.
  *
- * Les libellés portent leur article : ils s'énumèrent dans une phrase — « ce qui a
- * changé : la balance, le catalogue » —, là où les noms de champs titrent une case.
+ * The labels carry their article: they are listed inside a sentence — « ce qui a changé :
+ * la balance, le catalogue » — where a field name instead titles a box.
  */
 export const BLOCK_LABELS: Readonly<Record<string, string>> = {
   station: 'l’identité du poste',
@@ -159,13 +160,13 @@ export const BLOCK_LABELS: Readonly<Record<string, string>> = {
 }
 
 /**
- * Le nom français d'un bloc, ou le jeton lui-même.
+ * The French name of a block, or the token itself.
  *
- * Même repli que pour les champs, et la même raison : un bloc que cet écran ne connaît
- * pas doit rester nommé, fût-ce en anglais. Un bandeau qui annonce une configuration non
- * confirmée sans dire de quoi elle parle vaut moins qu'un jeton illisible.
+ * Same fallback as for the fields, and for the same reason: a block this screen does not
+ * know must still be named, even if only in English. A banner announcing an unconfirmed
+ * configuration without saying what it covers is worth less than an unreadable token.
  *
- * @param block - le nom du bloc, tel que le service l'écrit.
+ * @param block - the name of the block, as the service writes it.
  */
 export function blockLabelOf(block: string): string {
   return BLOCK_LABELS[block] ?? block
