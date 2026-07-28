@@ -31,11 +31,16 @@ afterEach(() => {
   host = null
 })
 
-/** Monte la grille sur une liste de produits et rend les tuiles obtenues. */
-function render(list: Product[]): HTMLElement[] {
+/**
+ * Monte la grille sur une liste de produits et rend les tuiles obtenues.
+ *
+ * @param extra - props additionnelles (ex. `primaryCode`, `tierAbbrev`), fusionnées
+ * après les props par défaut sans changer les appels existants.
+ */
+function render(list: Product[], extra: Record<string, unknown> = {}): HTMLElement[] {
   host = document.createElement('div')
   document.body.appendChild(host)
-  component = mount(Grid, { target: host, props: { products: list, onpick: () => {} } })
+  component = mount(Grid, { target: host, props: { products: list, onpick: () => {}, ...extra } })
   flushSync()
   return [...host.querySelectorAll<HTMLElement>('button[data-product-id]')]
 }
@@ -122,5 +127,40 @@ describe('la recherche, filtre en place et sans plafond de résultats', () => {
     const many = filterProducts(products, ALL_CATEGORIES, 'a')
     expect(many.length).toBeGreaterThan(50)
     expect(render(many)).toHaveLength(many.length)
+  })
+})
+
+describe('le double tarif de la tuile, empilé primaire d’abord (ADR-036)', () => {
+  const primaryCode = 'A'
+  const tierAbbrev: Record<string, string> = { A: 'A', S: 'S' }
+
+  it('rend un tarif par entrée de product.prices, dans l’ordre reçu — jamais recalculé', () => {
+    const product = products[0] as Product
+    const tile = render([product], { primaryCode, tierAbbrev })[0] as HTMLElement
+    const prices = [...tile.querySelectorAll<HTMLElement>('.price')]
+    expect(prices).toHaveLength(product.prices.length)
+    prices.forEach((price, i) => {
+      expect(price.querySelector('.amount')?.textContent).toBe(product.prices[i]?.text)
+    })
+  })
+
+  it('seul le tarif dont le code correspond à primaryCode porte le badge plein ; les autres, l’anneau creux', () => {
+    const product = products[0] as Product
+    const tile = render([product], { primaryCode, tierAbbrev })[0] as HTMLElement
+    const prices = [...tile.querySelectorAll<HTMLElement>('.price')]
+    prices.forEach((price, i) => {
+      const isPrimary = product.prices[i]?.code === primaryCode
+      expect(price.classList.contains('secondary')).toBe(!isPrimary)
+      expect(price.querySelector('.abbrev')?.classList.contains('hollow')).toBe(!isPrimary)
+    })
+  })
+
+  it('l’abréviation affichée vient de tierAbbrev, jamais du code brut du palier', () => {
+    const product = products[0] as Product
+    const tile = render([product], { primaryCode, tierAbbrev })[0] as HTMLElement
+    const abbrevs = [...tile.querySelectorAll<HTMLElement>('.abbrev')].map((el) =>
+      el.textContent?.trim(),
+    )
+    expect(abbrevs).toEqual(product.prices.map((p) => tierAbbrev[p.code]))
   })
 })

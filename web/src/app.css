@@ -69,6 +69,8 @@
   --radius: 0.875rem;
   --radius-lg: 1.25rem;
   --radius-pill: 62.5rem;
+  /* The tier abbreviation badge only — unrelated to grid density. */
+  --radius-inner: 0.25rem;
 
   /* Two shadows and no more: one to lift a surface off the background, one to
      say « this is above everything else ». */
