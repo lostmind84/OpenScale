@@ -35,4 +35,4 @@ start "OpenScale - ecran client" "%OPENSCALE%" kiosk
 
 echo.
 echo Le poste tourne. Fermez la fenetre "OpenScale - poste" pour l'arreter.
-echo Ecran de depannage : appui long de 3 secondes dans le coin bas-droit.
+echo Ecran de depannage : bouton Reglages, en bas a droite, puis Depannage.

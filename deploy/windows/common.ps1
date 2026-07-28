@@ -706,13 +706,25 @@ CONFIGURATION
 
 CODE DE SECOURS D'ADMINISTRATION
 $recoveryLine
-  C'est le seul moyen de reprendre la main si le mot de passe d'administration
-  est perdu. Il s'utilise depuis l'écran : « Réglages avancés », puis
-  « Mot de passe oublié : j'ai le code de secours ».
+  C'est lui qui POSE le mot de passe d'administration la première fois, depuis
+  l'écran et sans ligne de commande. Le poste ne demande rien pour être
+  regardé : il demande au moment où l'on change quelque chose.
+  1. Bouton « Réglages » sur l'écran client : l'engrenage, tout à droite de la
+     barre du bas. L'administration s'ouvre sur le Tableau de bord.
+  2. Colonne de gauche, page « Matériel », puis « Détecter automatiquement ».
+     Ce premier geste qui change le poste est celui qui pose la question.
+  3. Le panneau « Ce poste n'a pas encore de mot de passe » demande ce code,
+     puis le mot de passe à poser. 8 caractères au minimum.
+  Si le mot de passe est perdu PLUS TARD, ce code ne se saisit plus à l'écran —
+  il n'y est demandé qu'à un poste qui n'a aucun mot de passe. La reprise en
+  main passe alors par la ligne de commande, sur le poste, en administrateur :
+      Stop-Service $script:ServiceName
+      "$(Join-Path $script:InstallDir $script:BinaryName)" config password
+      Start-Service $script:ServiceName
 
 EN CAS DE PROBLÈME
-  1. Ouvrez l'écran de dépannage : appui long de 3 secondes dans le coin
-     bas-droit de l'écran client.
+  1. Ouvrez l'écran de dépannage : bouton « Réglages » sur l'écran client,
+     puis « Dépannage » dans la colonne de gauche.
   2. Sur le poste, en ligne de commande :
          "$(Join-Path $script:InstallDir $script:BinaryName)" doctor
   3. Pour demander de l'aide : bouton « Télécharger le fichier de diagnostic »

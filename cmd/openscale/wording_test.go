@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -82,5 +83,133 @@ func TestNoSentenceSendsAnyoneToTheRemovedScreen(t *testing.T) {
 	// lie about what it proved. The station carries well over a hundred Go sources.
 	if scanned < 100 {
 		t.Fatalf("seulement %d sources Go lues : le banc n'a pas balayé le dépôt", scanned)
+	}
+}
+
+// deadGesture is a wording no procedure may still carry, and what took its place.
+type deadGesture struct {
+	// wording is matched lowercased, with typographic apostrophes folded onto straight
+	// ones: a Markdown page, a `Write-Host` and a printed sheet do not agree on either.
+	wording string
+	// instead is the sentence the failure hands the next author. A bench that only says
+	// « this is banned » leaves them to guess, and guessing is how the dead pointer came
+	// back the last time.
+	instead string
+}
+
+// deadGestures lists the ways into the administration the station no longer has.
+//
+// Both were taken away on 27/07/2026: ADR-032 replaced the mute 72 × 72 px corner with a
+// visible « Réglages » key in the bottom bar, and ADR-033 removed the « Réglages avancés »
+// tab — with it went the « Mot de passe oublié » button, since the password is now asked
+// AT THE ACT, in a panel that opens over the page one was already on.
+var deadGestures = []deadGesture{
+	{
+		wording: removedScreen,
+		instead: "cet onglet a disparu le 27/07/2026 ; nommez une page qui existe (" +
+			screensThatExist + ")",
+	},
+	{
+		wording: "coin bas-droit",
+		instead: "ce coin muet a disparu le 27/07/2026 ; l'administration s'ouvre par la " +
+			"touche « Réglages » de la barre du bas de l'écran client",
+	},
+	{
+		wording: "appui long",
+		instead: "il n'y a plus d'appui long ; la touche « Réglages » de la barre du bas " +
+			"ouvre l'administration en un appui",
+	},
+	{
+		wording: "j'ai le code de secours",
+		instead: "ce bouton n'existe plus ; le code de secours se saisit dans le panneau " +
+			"« Ce poste n'a pas encore de mot de passe », qui s'ouvre au premier acte qui " +
+			"change le poste",
+	},
+}
+
+// procedureExtensions are what somebody READS OR RUNS with their hands on a station: the
+// two notices, and the scripts that print their own steps and write the installation
+// sheet. Go sources are left to TestNoSentenceSendsAnyoneToTheRemovedScreen, which parses
+// them and can tell a string from a comment.
+var procedureExtensions = map[string]bool{".md": true, ".ps1": true, ".sh": true, ".bat": true}
+
+// dirsWithoutProcedures adds to skippedDirs the trees that must keep naming what was
+// taken away: `docs` is the design record, and ADR-032 cannot state which corner it
+// deleted without writing the corner down.
+var dirsWithoutProcedures = map[string]bool{"docs": true, "testdata": true}
+
+// recordsOfWhatWasRemoved is the project journal, whose whole job is to say what went and
+// when. It is the one Markdown page outside `docs` that must be allowed the dead wording.
+var recordsOfWhatWasRemoved = map[string]bool{"SUIVI.md": true}
+
+// proceduresTheCoopHolds is the sanity floor: these three are the documents the shop
+// actually has — the notice, the symptom guide, and the sheet printed and filed in the
+// folder. A walk that read none of them would pass in silence.
+var proceduresTheCoopHolds = []string{
+	"INSTALLATION.md",
+	"TROUBLESHOOTING.md",
+	filepath.Join("deploy", "windows", "common.ps1"),
+}
+
+// TestNoProcedureAsksForAGestureThatIsGone fails on any step-by-step still telling a
+// volunteer to do something the screen no longer offers.
+//
+// The two existing benches could not see these: the Go one walks `.go` only, the front one
+// `web/src`. The wording therefore survived in Markdown and in PowerShell — including on
+// the sheet that is PRINTED and filed in the shop's folder, on the costliest path there
+// is: taking the station back when the password is lost, on a machine in Assigned Access
+// where there is neither desktop nor prompt left.
+//
+// Matching is on raw lines and not on parsed structure, which is right here and wrong for
+// Go: a Markdown page has no comments — every line of it is read by somebody.
+func TestNoProcedureAsksForAGestureThatIsGone(t *testing.T) {
+	root := filepath.Join("..", "..")
+	read := make(map[string]bool)
+
+	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if skippedDirs[entry.Name()] || dirsWithoutProcedures[entry.Name()] {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !procedureExtensions[strings.ToLower(filepath.Ext(path))] {
+			return nil
+		}
+		if recordsOfWhatWasRemoved[entry.Name()] {
+			return nil
+		}
+
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		relative, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		read[relative] = true
+
+		for number, line := range strings.Split(string(content), "\n") {
+			folded := strings.ToLower(strings.ReplaceAll(line, "’", "'"))
+			for _, gesture := range deadGestures {
+				if strings.Contains(folded, gesture.wording) {
+					t.Errorf("%s:%d : « %s » — %s", relative, number+1, gesture.wording, gesture.instead)
+				}
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatalf("lecture des procédures : %v", walkErr)
+	}
+
+	for _, procedure := range proceduresTheCoopHolds {
+		if !read[procedure] {
+			t.Fatalf("%s n'a pas été lu : le banc n'a pas balayé ce qu'il annonce", procedure)
+		}
 	}
 }
