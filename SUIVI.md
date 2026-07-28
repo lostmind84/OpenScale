@@ -3,6 +3,16 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Le contrôle 20 a mordu ses propres livrables (28/07/2026).** La refonte de l'écran
+client en « Grand Format » (ADR-035) retire `ui.tile_size` du schéma et fait refuser
+toute configuration qui le porte encore. Or `testdata/config-lacagette.json` et
+`testdata/config-demo.json` — les deux configurations que le poste **livre** —
+portaient encore cette clé : dès qu'ADR-035 a pris effet, le poste refusait sa propre
+configuration livrée, et **sept tests de trois paquets** sont tombés d'un coup. Corrigé
+en commit `80f278e`. C'est le même mode de défaillance qu'ADR-034 décrivait pour
+`coef_num` — un fichier qui ne se relit plus en silence —, pris ici par les tests
+plutôt que par un bénévole devant un poste mort.
+
 **État au 27/07/2026** : **L1 à L8 livrés.** Il ne reste que L0 (le banc) et L9 (la recette sur site). `openscale serve` démarre un
 poste complet : noyau métier, balance, étiquette, impression, Hub à horloge injectée,
 écran client Svelte, catalogue, écrans d'administration, `openscale doctor` et ses quinze
@@ -378,7 +388,7 @@ de référence produit, pas une correction cosmétique.
 
 ## Décisions structurantes
 
-29 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
+36 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
 
 | ADR | Décision |
 |---|---|
@@ -392,6 +402,8 @@ de référence produit, pas une correction cosmétique.
 | 020 | Carlito comme police d'étiquette (clone métrique de Calibri, OFL) |
 | 021 | « Ce produit est-il pesable ? » remplace le contrôle d'intégrité |
 | **029** | **Barres du code-barres uniformes** — le texte cesse de les recouvrir, +30 % de hauteur lisible |
+| **035** | **Densité de grille continue, `ui.tile_size` retiré** — remplace ADR-031 |
+| **036** | **Double tarif affiché sur chaque tuile de la grille**, pas seulement au moment de peser |
 
 ---
 
@@ -399,6 +411,7 @@ de référence produit, pas une correction cosmétique.
 
 | Date | Événement |
 |---|---|
+| 28/07/2026 | Écran client repris en « Grand Format » (ADR-035, ADR-036) : grille continue — `ui.tile_size` retiré, ce qui **annule le réglage à trois valeurs livré la veille** —, double tarif affiché par tuile, recherche au clavier physique (le poste n'est pas tactile), CategoryBar/StatusBar remplacent FilterBar/ReprintBar. **438 tests front** (23 fichiers), tous verts, mesurés sur ce poste |
 | 24/07/2026 | Analyse du legacy : 16 rapports, 240 000 lignes de VBA lues |
 | 24/07/2026 | Conception : 4 architectures en concurrence, 12 jugements, 32 critiques |
 | 25/07/2026 | Revue anti-clonage : 30 transpositions corrigées, dont 10 structurelles |

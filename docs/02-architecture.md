@@ -2317,15 +2317,10 @@ Surcharges : `--config`, `--data`, `OPENSCALE_CONFIG`, `OPENSCALE_DATA`. **Aucun
                                               // there are none left (§14.3).
           "reprint_window_s": 60,             // PERMANENT bottom bar — trade-off between
                                               // serving the customer and the fraud window
-          "show_grid_prices": true,
-          "tile_size": "medium",              // small | medium | large — la densité de la
-                                              // grille (ADR-031). Le seul réglage d'écran
-                                              // qui existe, et il existe parce que la
-                                              // contrainte physique qui l'interdisait a une
-                                              // exception : un poste conduit à la SOURIS
-                                              // n'est pas tenu par la cible de 20 mm.
-                                              // Absent ⇒ medium, donc un fichier écrit
-                                              // avant ce réglage garde sa grille.
+          "show_grid_prices": true
+          // tile_size REMOVED: la densité s'adapte en continu à l'écran (clamp CSS,
+          // ADR-035). Le contrôle 20 REFUSE désormais cette clé — un exemple qui la
+          // porterait encore ferait recopier une configuration que le poste rejette.
           // title REMOVED: "La Cagette" was not decoration, it was the string passed to
           // FindWindowA to lock the Access kiosk down. The name of the cooperative lives in
           // station.coop and is shown on the administration dashboard (§14.4).
@@ -3783,7 +3778,8 @@ GET  /api/v1/catalog                   catalogue complet (~60 ko pour 355 produi
                                        images exclues), ETag. Porte `updated_at` —
                                        l'instant de la BASCULE (§10.8), RFC 3339,
                                        vide tant qu'aucun catalogue n'est en service
-                                       — et `presentation.tile_size` (ADR-031)
+                                       — et, par produit, `prices[]` : un prix dérivé
+                                       par palier configuré (ADR-036)
 POST /api/v1/weigh                     {product_id, tare_g, units, manual_weight_g,
                                         seen_weight_g, measurement_seq, key} → 202 {job_id}
 POST /api/v1/reprint                   {job_id, key}                 → 202
@@ -4531,6 +4527,10 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 
 **Statut** : accepté · **Date** : 27/07/2026 · **Portée** : §11.2, §14.2, §14.3 · **Amende** : ADR-024, ADR-025
 
+> **Remplacé par ADR-035 le 28/07/2026** : la densité redevient continue, et
+> `ui.tile_size` est retiré du schéma. Le tableau des trois tailles ci-dessous
+> décrit ce qui a été livré entre le 27 et le 28/07/2026, et rien d'actuel.
+
 **Contexte.** §14.3-1 déclarait la densité **non réglable**, et le raisonnement était juste : elle se déduit de deux contraintes physiques — une cible tactile de 20 mm et la lisibilité d'un nom de 69 caractères à 60–80 cm — et ADR-025 interdit un réglage sur lequel aucun exploitant n'a de choix légitime. Deux faits ont changé. **La première contrainte a une exception** : le poste pilote est conduit à la **souris**, sur un écran non tactile, et un pointeur n'est pas tenu par les 20 mm. Et le parc n'est pas fait d'un seul écran : le 24″ de référence n'est pas le 22″ qu'un magasin a déjà.
 
 **Décision.** Une clé, `ui.tile_size`, à **trois valeurs mesurées** — `small`, `medium`, `large` — et rien d'autre : ni nombre de colonnes, ni largeur en pixels, ni bascule « grandes vignettes ». Chaque valeur fixe quatre longueurs (largeur de colonne, plaque, bloc de nom, hauteur) dont la somme est vérifiée dans le navigateur. `medium` est le défaut, et une configuration écrite avant l'existence du réglage garde exactement la grille qu'elle avait. Le contrôle 46 refuse toute autre valeur, avec la liste des trois — sans lui, « moyen » retomberait en silence sur le défaut et l'exploitant conclurait que le réglage ne fait rien.
@@ -4554,6 +4554,8 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 **Décision.** Une touche **« Réglages »**, visible, en barre basse, à l'extrémité opposée aux puces de catégorie, ouvrant l'administration **en un appui**. Le coin muet disparaît : garder les deux, c'était garder un mécanisme que personne n'emploierait, et deux chemins vers un même montage qui doit rester unique.
 
 **Ce que cela coûte, et pourquoi c'est acceptable.** Un client peut désormais atteindre le tableau de bord et l'écran de dépannage. Ces deux pages sont **délibérément sans mot de passe** (§14.4, important-10) parce que quiconque est devant le poste peut déjà débrancher l'imprimante : le secret n'y ajoutait aucune sécurité. **Tout ce qui écrit la configuration reste derrière le mot de passe**, et cela n'a pas bougé. Le jour où un poste sera placé là où un client peut s'y attarder, la réponse ne sera pas de recacher la touche — ce serait revenir au défaut d'aujourd'hui — mais de protéger les deux pages ouvertes, ce qui est une décision d'exploitation et non de dessin.
+
+**Addendum du 28/07/2026.** Le bouton redevient une icône seule, sans texte visible, à la demande explicite du commanditaire (maquette « Grand Format »). Il reste un bouton VISIBLE et bordé dans une barre permanente — ce que ADR-032 corrigeait était un coin muet et invisible, pas l'absence de texte en soi.
 
 ---
 
@@ -4587,6 +4589,28 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 **Décision.** La remise se déclare en **pourcentage au dixième de point** (`discount_percent`), stocké en dixièmes entiers. Le tarif désigné par `reference_code` **ne porte aucune clé de remise** : l'absence *est* le prix du catalogue. `coef_num` et `coef_den` rejoignent les clés retirées du contrôle 20.
 
 **Conséquences.** L'exactitude est tenue : le calcul reste entier de bout en bout, et aucun prix imprimé ne bouge. Le dénominateur devient une constante, ce qui **supprime par construction** la panne que le contrôle 11 retenait — un dénominateur non positif atteignant `Divide` et tuant la goroutine du Hub. « Le tarif solidaire n'est pas configurable » devient un fait du format et non une règle d'écran. Le fichier redevient lisible par un humain, ce qui compte pour un artefact que quatre postes comparent à l'œil. **Contrepartie assumée** : les majorations et les remises non décimales — dont le `1/3 exactement` dont ADR-009 se réclamait — deviennent inexprimables ; un tiers se saisit 33,3 %. ADR-009 est **amendé** sur la forme du coefficient, et confirmé sur tout le reste : ordre des opérations, application sur tous les chemins de saisie, double tarif comme cardinal de la grille.
+
+---
+
+### ADR-035 — La densité de la grille redevient continue, `ui.tile_size` est retiré
+
+**Statut** : accepté · **Date** : 28/07/2026 · **Portée** : §11.2, §14.2, §14.3 · **Amende** : ADR-031
+
+**Contexte.** ADR-031 avait figé trois paliers mesurés au pixel près pour absorber un parc d'écrans hétérogène (22″/24″). La maquette « Grand Format » validée par le commanditaire choisit un dimensionnement **continu** (`clamp()` en `vw`/`vh`) : la grille s'adapte à la largeur réelle de l'écran sans qu'un exploitant ait à choisir entre trois valeurs.
+
+**Décision.** Les jetons de densité passent en `clamp()`. `ui.tile_size` est retiré du schéma de configuration par le mécanisme des clés retirées (§11.2, précédent ADR-034) : un fichier qui le porte encore est refusé, pas ignoré.
+
+**Conséquence.** ADR-030 reste entier : la hauteur du bloc de nom est toujours mesurée dans la mise en page par `Grid.svelte`, seulement continue.
+
+---
+
+### ADR-036 — La tuile de la grille montre les deux tarifs, pas seulement la référence
+
+**Statut** : accepté · **Date** : 28/07/2026 · **Portée** : §6.3, §14.2, §14.5
+
+**Contexte.** Le calcul par palier (`domain.Price`) n'existait qu'au moment de peser ; la grille n'affichait que le prix de référence (Odoo), jamais le tarif réellement payé par un adhérent. La maquette « Grand Format » montre les deux tarifs empilés sur chaque tuile, avant même que le client ne pose son produit.
+
+**Décision.** `internal/domain/pricing.go` expose `UnitPriceFor`, la même arithmétique que `Price` extraite pour un usage sans pesée. Le DTO de catalogue (`internal/web/catalog.go`) porte un prix dérivé par palier configuré. Le calcul reste ENTIÈREMENT côté Go — jamais réimplémenté en JavaScript, pour ne pas dupliquer l'arrondi validé par ailleurs (§16.4).
 
 ---
 
