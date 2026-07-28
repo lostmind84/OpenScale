@@ -171,3 +171,36 @@ export const BLOCK_LABELS: Readonly<Record<string, string>> = {
 export function blockLabelOf(block: string): string {
   return BLOCK_LABELS[block] ?? block
 }
+
+/**
+ * The French name of the part of the station that wrote a technical line.
+ *
+ * The seven tokens of `LogSource*`, internal/store/technical.go. They live here rather
+ * than on the Journal page because TWO screens read the same technical log — the
+ * Dashboard shows its last ten lines, the Journal its last fifty — and the table stayed
+ * private to one of them: a volunteer read « catalogue » on one page and « catalog » on
+ * the other, for the very same event.
+ */
+export const LOG_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  scale: 'balance',
+  printer: 'imprimante',
+  catalog: 'catalogue',
+  ui: 'écran',
+  config: 'configuration',
+  http: 'réseau',
+  system: 'système',
+}
+
+/**
+ * The French name of a log source, or an honest sentence.
+ *
+ * The fallback is NOT the token here, unlike the fields and the blocks: those name
+ * something the reader can act on — a field to correct, a block to confirm — whereas an
+ * origin is a label. An unknown one is worth saying so rather than showing a word the
+ * screen cannot translate.
+ *
+ * @param source - the origin, as the service writes it.
+ */
+export function logSourceLabelOf(source: string): string {
+  return LOG_SOURCE_LABELS[source] ?? 'origine inconnue'
+}

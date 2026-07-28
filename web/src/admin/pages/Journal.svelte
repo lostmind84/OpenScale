@@ -3,6 +3,7 @@
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
   import type { TechnicalLineDTO, WeighingDTO } from '../lib/dto'
+  import { logSourceLabelOf } from '../lib/fields'
   import { frenchDateTime, frenchDuration, frenchInteger } from '../lib/format'
   import { preferences } from '../lib/preferences.svelte'
   import type { Admin } from '../lib/session.svelte'
@@ -126,16 +127,6 @@
     critical: 'critique',
   }
 
-  /** What part of the station wrote a technical line, in French. */
-  const LOG_SOURCES: Record<string, string> = {
-    scale: 'balance',
-    printer: 'imprimante',
-    catalog: 'catalogue',
-    ui: 'écran',
-    config: 'configuration',
-    http: 'réseau',
-    system: 'système',
-  }
 
   let weighings = $state<WeighingDTO[]>([])
   let technical = $state<TechnicalLineDTO[]>([])
@@ -538,7 +529,7 @@
             <li data-level={line.level}>
               <span class="when">{frenchDateTime(line.occurred_at)}</span>
               <span class="level">{french(LEVELS, line.level, 'niveau inconnu')}</span>
-              <span class="from">{french(LOG_SOURCES, line.source, 'origine inconnue')}</span>
+              <span class="from">{logSourceLabelOf(line.source)}</span>
               <!--
                 The event code is a TECHNICAL NAME and sits behind the switch, like the
                 configuration keys: `ERR-CAT-05` teaches nothing to whoever will never open

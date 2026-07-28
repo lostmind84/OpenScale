@@ -3,6 +3,7 @@
   import Light from '../components/Light.svelte'
   import Panel from '../components/Panel.svelte'
   import type { HealthDTO } from '../lib/dto'
+  import { logSourceLabelOf } from '../lib/fields'
   import { frenchDate, frenchDateTime, frenchDuration, frenchInteger, frenchTime } from '../lib/format'
   import { lightsOf } from '../lib/lights'
   import { preferences } from '../lib/preferences.svelte'
@@ -175,7 +176,13 @@
         {#each health.events as event (event.id)}
           <li data-level={event.level}>
             <span class="time">{frenchTime(event.occurred_at)}</span>
-            <span class="source">{event.source}</span>
+            <!--
+              The origin is translated HERE TOO, and the reason is the one written just
+              below about the code: the Journal reads the same technical log and says
+              « catalogue » where this page said « catalog ». One log, two screens, one
+              vocabulary — and this is the page that opens without a password.
+            -->
+            <span class="source">{logSourceLabelOf(event.source)}</span>
             <!--
               The technical code goes behind the switch, as on the Journal page: this is
               the SAME technical log, shown here in ten lines and there in fifty, and a

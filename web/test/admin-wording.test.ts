@@ -5,7 +5,14 @@ import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/admin/App.svelte'
 import Field from '../src/admin/components/Field.svelte'
-import { BLOCK_LABELS, FIELD_LABELS, blockLabelOf, labelOf } from '../src/admin/lib/fields'
+import {
+  BLOCK_LABELS,
+  FIELD_LABELS,
+  LOG_SOURCE_LABELS,
+  blockLabelOf,
+  labelOf,
+  logSourceLabelOf,
+} from '../src/admin/lib/fields'
 import { preferences } from '../src/admin/lib/preferences.svelte'
 import type { ConfirmationDTO } from '../src/admin/lib/dto'
 import { nominalHealth } from './fixtures/health'
@@ -288,6 +295,69 @@ describe('l’index des blocs', () => {
 
   it('rend le jeton lui-même quand il ne connaît pas le bloc — le bandeau nomme toujours', () => {
     expect(blockLabelOf('bloc-de-demain')).toBe('bloc-de-demain')
+  })
+})
+
+/** Le fichier Go qui déclare, seul, les origines que le journal technique peut porter. */
+const LOG_SOURCES_SOURCE = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../internal/store/technical.go',
+)
+
+/**
+ * Les origines que le poste écrit, lues dans les constantes Go qui les déclarent.
+ *
+ * Même raison que pour les blocs : la liste ne vit pas dans le navigateur. Une huitième
+ * origine ajoutée côté service sortirait en jeton anglais au milieu d'une phrase
+ * française, et personne ne le verrait avant qu'un bénévole ne le lise.
+ */
+function logSourcesTheStationWrites(): string[] {
+  const source = readFileSync(LOG_SOURCES_SOURCE, 'utf8')
+  return [...source.matchAll(/LogSource[A-Za-z]+\s*=\s*"([a-z]+)"/gu)].map(
+    (match) => match[1] as string,
+  )
+}
+
+/**
+ * L'index des origines du journal technique.
+ *
+ * Il existe parce que DEUX écrans lisent le même journal — le tableau de bord en montre
+ * dix lignes, le Journal cinquante — et que la table était privée à l'un des deux : on
+ * lisait « catalogue » sur une page et « catalog » sur l'autre, pour le même événement.
+ * Celle des deux qui montrait le jeton brut était le tableau de bord, page ouverte par
+ * défaut et sans mot de passe.
+ */
+describe('l’index des origines du journal technique', () => {
+  it('nomme en français chacune des origines que le poste écrit', () => {
+    const sources = logSourcesTheStationWrites()
+
+    // Le banc ne vaut que s'il a vraiment lu le fichier : sept origines, pas zéro.
+    expect(sources).toHaveLength(7)
+    expect(sources.filter((source) => LOG_SOURCE_LABELS[source] === undefined)).toEqual([])
+  })
+
+  it('n’en porte aucune que le service n’écrive plus', () => {
+    expect(Object.keys(LOG_SOURCE_LABELS).sort()).toEqual(logSourcesTheStationWrites().sort())
+  })
+
+  it('dit « origine inconnue » plutôt qu’un mot que l’écran ne sait pas traduire', () => {
+    expect(logSourceLabelOf('origine-de-demain')).toBe('origine inconnue')
+  })
+})
+
+/**
+ * Les deux écrans qui lisent le journal technique disent-ils la même chose ?
+ *
+ * Le constat qui a motivé ce banc : le tableau de bord rendait `{event.source}` brut là
+ * où le Journal traduisait la même colonne du même journal. Aucun banc ne l'avait vu —
+ * ils cherchaient des clés pointées et des codes ERR-xxx-nn, pas un jeton d'un seul mot.
+ */
+describe('les deux écrans qui lisent le journal technique', () => {
+  it('ne laissent aucun jeton d’origine brut dans leur markup', () => {
+    for (const page of ['Dashboard.svelte', 'Journal.svelte']) {
+      const source = readFileSync(join(ADMIN_DIR, 'pages', page), 'utf8')
+      expect(source).not.toMatch(/\{(event|line)\.source\}/u)
+    }
   })
 })
 
