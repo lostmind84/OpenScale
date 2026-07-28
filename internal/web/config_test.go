@@ -238,6 +238,40 @@ func TestATypedCatalogPasswordReplacesTheOneInForce(t *testing.T) {
 	}
 }
 
+// TestACatalogSubmittedWithoutThePasswordKeyKeepsTheOneInForce.
+//
+// The key GONE and the key BLANK are the same thing under an unchanged source, and this
+// is the one that no longer had a net. A browser produces it without anybody meaning to:
+// the Station page copies an imported file into the draft, the export it came from carries
+// no password at all (Config.Export deletes it whatever `hardware` says), and
+// JSON.stringify drops a property whose value is undefined — so the PUT arrives with a
+// `catalog.options` that has lost the key.
+//
+// To be read against TestSwitchingToALocalDirectoryDoesNotBringTheSecretBack, which is the
+// same absent key with the source MOVED, and which must keep erasing it.
+func TestACatalogSubmittedWithoutThePasswordKeyKeepsTheOneInForce(t *testing.T) {
+	saved := &savedConfig{}
+	b := adminBench(t, webdavPassword("tres-secret"),
+		func(o *benchOptions) { o.configStore = saved })
+	writeFileOf(t, saved, b.hub.Config())
+
+	next := reread(t, b.hub.Config())
+	delete(next.Catalog.Options, "password")
+	if next.Catalog.Type != domain.CatalogSourceWebDAV {
+		t.Fatalf("source du catalogue = %q : ce test porte sur une source qui NE bouge PAS",
+			next.Catalog.Type)
+	}
+
+	response := b.do(http.MethodPut, "/admin/api/config", marshal(t, next), nil)
+	if refusal := body(t, response); response.StatusCode != http.StatusOK {
+		t.Fatalf("PUT sans la clé password = %d, attendu 200 : %s", response.StatusCode, refusal)
+	}
+
+	if got, _ := saved.saved().Catalog.Options.Text("password"); got != "tres-secret" {
+		t.Fatalf("mot de passe après enregistrement = %q, attendu celui en service", got)
+	}
+}
+
 // TestTheDropProbeOnlyRunsWhenTheCatalogBlockMoved.
 //
 // The probe touches the filesystem, so it runs only when the block it is about has MOVED:

@@ -215,7 +215,7 @@ func (s *Server) writeConfig(w http.ResponseWriter, r *http.Request) {
 	if onDiskErr == nil {
 		served = onDisk
 	}
-	next.Catalog.Options = carriedOverSecret(served.Catalog.Options, next.Catalog.Options)
+	next.Catalog.Options = carriedOverSecret(served.Catalog, next.Catalog)
 
 	// The drop probe touches the filesystem, so it runs only when the block it is about has
 	// MOVED: a save about the weighing thresholds must not fail because a producer's share
@@ -265,24 +265,33 @@ func (s *Server) writeConfig(w http.ResponseWriter, r *http.Request) {
 // A password can therefore not be EMPTIED from this screen. That is the price of a
 // write-only field, and it is paid where every other irreversible repair is paid: in the
 // file itself (ADR-034).
-func carriedOverSecret(served, submitted domain.DriverOptions) domain.DriverOptions {
-	// A key the submission REMOVED is a source that has no password at all, and not a field
-	// left blank: the Catalogue screen deletes the account of a share when somebody moves
-	// the station to a local directory, because control 39 refuses its mere presence there.
+//
+// # What says « this share really has no password », and what does not
+//
+// It is the SOURCE that says it, never the shape of the key. A blank value and an absent
+// key are two spellings of the same silence, and a browser produces the second without
+// anybody meaning to: the Station page copies an imported file into the draft, the export
+// it came from carries no password at all (Config.Export deletes it whatever `hardware`
+// says), and JSON.stringify drops a property whose value is undefined. Reading that as a
+// deletion erased the cooperative's WebDAV account through Importer → Recopier →
+// Enregistrer, on a save about something else entirely.
+func carriedOverSecret(served, submitted domain.CatalogConfig) domain.DriverOptions {
+	// Changing the SOURCE is the one gesture that legitimately drops the account: the
+	// Catalogue screen deletes the url, the user and the password when somebody moves the
+	// station to a local directory, because control 39 refuses their mere presence there.
 	// Writing the secret back would answer that move with a refusal on a field the screen no
-	// longer shows — and configPayload blanks the key rather than dropping it, so a document
-	// that made the round trip untouched still carries it.
-	if !submitted.Has(catalogPasswordOption) {
-		return submitted
+	// longer shows, and no screen could ever repair it.
+	if submitted.Type != served.Type {
+		return submitted.Options
 	}
-	if typed, ok := submitted.Text(catalogPasswordOption); ok && typed != "" {
-		return submitted
+	if typed, ok := submitted.Options.Text(catalogPasswordOption); ok && typed != "" {
+		return submitted.Options
 	}
-	inForce, ok := served.Text(catalogPasswordOption)
+	inForce, ok := served.Options.Text(catalogPasswordOption)
 	if !ok || inForce == "" {
-		return submitted
+		return submitted.Options
 	}
-	return submitted.WithText(catalogPasswordOption, inForce)
+	return submitted.Options.WithText(catalogPasswordOption, inForce)
 }
 
 // readOnlyPaths answers every DROP question with "nothing to check".

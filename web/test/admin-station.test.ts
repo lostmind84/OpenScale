@@ -152,6 +152,31 @@ function configWithPort(port: string, modifiedAt = SERVED_STAMP): Record<string,
 }
 
 /**
+ * La configuration en service telle que le POSTE la sert : le mot de passe WebDAV blanchi.
+ *
+ * `configPayload` remplace le secret par une chaîne vide et ne retire pas la clé — elle
+ * doit survivre à l'aller-retour, sans quoi le bloc `catalog` aurait bougé sans que
+ * personne n'y touche. C'est cette chaîne vide que le diff comparait à une clé absente.
+ */
+function configWithBlankedSecret(): Record<string, unknown> {
+  const config = configWithPort('COM8')
+  const catalog = config.catalog as Record<string, unknown>
+  catalog.options = { url: 'https://dav.local/flv', user: 'poste1', password: '' }
+  return config
+}
+
+/**
+ * Un export, tel que le poste le rend : `Config.Export` SUPPRIME la clé du mot de passe,
+ * que `hardware` vaille 0 ou 1. Deux secrets ne quittent jamais le poste (§11.5).
+ */
+function exportWithoutTheSecret(): Record<string, unknown> {
+  const config = configWithPort('COM3', FILE_STAMP)
+  const catalog = config.catalog as Record<string, unknown>
+  catalog.options = { url: 'https://dav.local/flv', user: 'poste1' }
+  return config
+}
+
+/**
  * Un export « sans le matériel », tel que le poste le REND après l'avoir relu.
  *
  * `Config.Export(false)` vide six choses et `importConfig` n'en rétablit qu'une, le
@@ -502,6 +527,41 @@ describe('la date d’écriture n’est pas une différence', () => {
     expect(host.querySelector('[data-diff]')).toBeNull()
     expect(pageText()).toContain('décrit la même configuration que celle en service')
     expect(pageText()).not.toContain('Recopier ce champ dans le brouillon')
+  })
+})
+
+describe('le mot de passe WebDAV n’est pas un champ du diff', () => {
+  it('ne compare pas un secret que ni le poste ni le fichier ne portent en clair', async () => {
+    servedConfig = configWithBlankedSecret()
+    importedConfig = exportWithoutTheSecret()
+    await open()
+
+    chooseFile('config-poste1-2026-07-24.json', importedConfig)
+    await settle()
+
+    // La ligne existait : « » d'un côté, « — » de l'autre. Elle ne comparait rien de vrai
+    // — le poste blanchit son secret et l'export le supprime — et « Recopier » la traitait
+    // comme n'importe quelle autre.
+    expect(() => diffRow('catalog.options.password')).toThrow()
+    expect(diffRow('scale.options.port')).toEqual({ before: 'COM8', after: 'COM3' })
+  })
+
+  it('ne fait pas disparaître la clé du brouillon quand « Recopier » passe', async () => {
+    servedConfig = configWithBlankedSecret()
+    importedConfig = exportWithoutTheSecret()
+    const { draft } = await open()
+
+    chooseFile('config-poste1-2026-07-24.json', importedConfig)
+    await settle()
+    buttonNamed('Recopier').click()
+    await settle()
+
+    // `JSON.stringify` supprime une propriété valant `undefined` : recopier le « — » du
+    // fichier faisait donc partir un PUT dont `catalog.options` n'avait plus de clé
+    // `password`, et le compte WebDAV de la coopérative disparaissait du fichier.
+    const sent = JSON.parse(JSON.stringify(draft.config)) as Record<string, unknown>
+    const options = (sent.catalog as Record<string, unknown>).options as Record<string, unknown>
+    expect(Object.keys(options)).toContain('password')
   })
 })
 

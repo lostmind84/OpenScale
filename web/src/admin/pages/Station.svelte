@@ -50,8 +50,8 @@
    *     states, and so are « no version » and « no answer »: an empty array was the value
    *     of both, and the reassuring sentence was the false one. Whatever is unknown says
    *     so — see {@link compared} and {@link versionsStanding};
-   *  7. compare `modified_at`, which no two stations can ever share (see
-   *     {@link NOT_COMPARED});
+   *  7. compare `modified_at`, which no two stations can ever share, or the WebDAV
+   *     password, which neither document carries in clear (see {@link NOT_COMPARED});
    *  8. promise less than the truth. The note now names the SIX things §11.5 strips, and
    *     the screen names the ones the file came back empty on before « Recopier » copies
    *     that emptiness (see {@link CLONE_STRIPS});
@@ -78,7 +78,7 @@
   const VERSIONS_SHOWN = 5
 
   /**
-   * The one key the comparison LEAVES OUT, and why it has to.
+   * The two keys the comparison LEAVES OUT, and why it has to.
    *
    * `modified_at` is stamped by whoever writes the file — `writeConfig` fills it from the
    * station's own clock on every save — so the file carried from station 1 holds the
@@ -87,8 +87,17 @@
    * at the exact moment §11.5 wanted somebody to read « rien ne change ». The fingerprint
    * of §11.5 clears the same field for the same reason (`Config.Fingerprint`), and copying
    * it into the draft would change nothing anyway — the next save overwrites it.
+   *
+   * `catalog.options.password` is a secret NEITHER document carries in clear: the station
+   * blanks it before serving anything (`configPayload`) and `Config.Export` deletes it
+   * outright, whatever `hardware` says. The row therefore compared « » to « — », which is
+   * a difference between two ways of not saying a password — and « Recopier » treated it
+   * like any other, wrote `undefined` into the draft, and `JSON.stringify` dropped the key
+   * on the way out. The cooperative's WebDAV account disappeared from the file through
+   * Importer → Recopier → Enregistrer, in silence. A write-only field has nothing to do in
+   * a field-by-field diff; the service carries the secret over on its own side.
    */
-  const NOT_COMPARED = new Set(['modified_at'])
+  const NOT_COMPARED = new Set(['modified_at', 'catalog.options.password'])
 
   /**
    * What a hardware-free export does NOT carry, and the French name of each.
@@ -745,8 +754,9 @@
       {:else if diff.length === 0}
         <p class="fact same" data-same>
           Ce fichier décrit la même configuration que celle en service : il n’y a rien à
-          recopier. C’est ce qu’on veut lire à la fin d’un clonage. La date du dernier
-          enregistrement n’est pas comparée : chaque poste écrit la sienne.
+          recopier. C’est ce qu’on veut lire à la fin d’un clonage. Deux champs ne sont pas
+          comparés : la date du dernier enregistrement, que chaque poste écrit lui-même, et
+          le mot de passe du catalogue, qu’aucun des deux ne porte en clair.
         </p>
       {:else}
         <p class="fact muted" data-tally="diff">
