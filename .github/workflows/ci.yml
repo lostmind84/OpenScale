@@ -65,6 +65,12 @@ jobs:
       - name: make boundary
         run: go run ./tools/boundary
 
+      # Les dépendances DÉCLARÉES sont-elles les dépendances RÉELLES ? C'est le
+      # contrôle que §17.1 promettait sans qu'il existe, et son absence est la
+      # raison pour laquelle la table a annoncé dix modules pour six réels.
+      - name: make deps
+        run: go run ./tools/deps
+
       # Les seuils de §16.4. `domain` est le seul paquet livré à ce stade ; les
       # autres entrent avec leur lot, et leur seuil est déjà écrit ici pour qu'il
       # n'y ait pas à y penser ce jour-là.
