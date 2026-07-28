@@ -1,6 +1,7 @@
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App.svelte'
+import type { Product } from '../src/lib/catalog'
 import type { LabelDTO, StateDTO } from '../src/lib/dto'
 import { catalogFromExport } from './fixtures/odoo'
 
@@ -172,12 +173,13 @@ function tiles(): HTMLElement[] {
   return [...host.querySelectorAll<HTMLElement>('button[data-product-id]')]
 }
 
-/** Clique une touche du clavier réduit par son libellé. */
-function pressKey(label: string): void {
-  const key = [...host.querySelectorAll<HTMLElement>('.panel button')].find(
-    (b) => b.textContent?.trim() === label,
-  )
-  key?.click()
+/**
+ * Simule une frappe au clavier PHYSIQUE du poste — il n'y a plus de clavier
+ * tactile à toucher (§14.3-3, revu le 28/07/2026) : `App.svelte` écoute
+ * directement `window`, ce que ce test reproduit au lieu de cliquer une touche.
+ */
+function typeKey(key: string): void {
+  window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
   flushSync()
 }
 
@@ -238,12 +240,12 @@ describe('ce que l’écran dit en permanence', () => {
     expect(bar).toMatch(/\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}/u)
   })
 
-  it('ouvre l’administration d’un seul appui sur une touche nommée', async () => {
+  it('ouvre l’administration d’un seul appui sur l’icône Réglages', async () => {
     await open()
-    const key = [...host.querySelectorAll<HTMLElement>('.filters button')].find((b) =>
-      b.textContent?.includes('Réglages'),
-    )
-    expect(key).toBeDefined()
+    // Icône seule depuis le 28/07/2026 (addendum ADR-032) : plus de texte visible,
+    // le nom du bouton ne vit plus que dans `aria-label`.
+    const key = host.querySelector<HTMLElement>('[aria-label="Réglages"]')
+    expect(key).not.toBeNull()
     // Le coin muet de trois secondes n'existe plus : rien à trouver à l'aveugle.
     expect(host.querySelector('.admin-corner')).toBeNull()
   })
@@ -252,9 +254,7 @@ describe('ce que l’écran dit en permanence', () => {
     // Le garde d'ADR-032 ne se relâchait jamais : après un aller-retour, la touche
     // Réglages ne répondait plus JAMAIS. `mountAdmin` se garde déjà d'un doublon.
     await open()
-    const key = [...host.querySelectorAll<HTMLElement>('.filters button')].find((b) =>
-      b.textContent?.includes('Réglages'),
-    ) as HTMLElement
+    const key = host.querySelector<HTMLElement>('[aria-label="Réglages"]') as HTMLElement
 
     key.click()
     await vi.waitUntil(() => document.querySelector('[data-admin]') !== null)
@@ -269,58 +269,70 @@ describe('ce que l’écran dit en permanence', () => {
     await vi.waitUntil(() => document.querySelector('[data-admin]') !== null)
   })
 
-  it('applique la densité de tuile que le poste configure', async () => {
+  it('n’a plus de palier de densité de tuile — la grille est continue (ADR-035)', async () => {
     await open()
-    expect(host.querySelector('.screen')?.getAttribute('data-tile-size')).toBe('medium')
+    expect(host.querySelector('[data-tile-size]')).toBeNull()
   })
 })
 
 describe('la recherche : un filtre en place, jamais une vue', () => {
-  it('garde la grille visible et la réduit lettre après lettre', async () => {
+  it('n’affiche le champ qu’à la première frappe, et réduit la grille lettre après lettre', async () => {
     await open()
-    host.querySelector<HTMLElement>('.search-key')?.click()
-    flushSync()
+    // Rien ne s'affiche tant que rien n'est tapé — « Sans champ : on tape, le
+    // bandeau apparaît » (décision du 28/07/2026).
+    expect(host.querySelector('.search-field')).toBeNull()
     expect(tiles()).toHaveLength(331)
 
-    pressKey('C')
+    typeKey('c')
+    expect(host.querySelector('.search-field input')).not.toBeNull()
     const afterC = tiles().length
     expect(afterC).toBeLessThan(331)
     expect(afterC).toBeGreaterThan(0)
 
-    pressKey('A')
+    typeKey('a')
     expect(tiles().length).toBeLessThanOrEqual(afterC)
     // La grille n'a jamais disparu : c'est toute la différence avec l'existant,
     // qui remplaçait l'écran par FormulaireClavier puis FormulaireProduitsClavier.
     expect(host.querySelector('.grid')).not.toBeNull()
   })
 
-  it('n’offre que les 26 lettres, l’espace et le retour arrière', async () => {
+  it('efface en fermant le champ : fermer EST l’effacement', async () => {
     await open()
-    host.querySelector<HTMLElement>('.search-key')?.click()
-    flushSync()
-    const keys = [...host.querySelectorAll('.keys button')].map((b) => b.textContent?.trim() ?? '')
-    const letters = keys.filter((k) => /^[A-Z]$/u.test(k))
-    expect(new Set(letters).size).toBe(26)
-    expect(keys).toContain('Espace')
-    expect(keys.filter((k) => /[ÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ]/u.test(k))).toEqual([])
-    expect(keys.filter((k) => /[;'"°*]/u.test(k))).toEqual([])
-  })
-
-  it('efface en refermant le panneau : fermer EST l’effacement', async () => {
-    await open()
-    host.querySelector<HTMLElement>('.search-key')?.click()
-    flushSync()
-    pressKey('C')
-    pressKey('A')
+    typeKey('c')
+    typeKey('a')
     expect(tiles().length).toBeLessThan(331)
 
-    const close = [...host.querySelectorAll<HTMLElement>('.panel button')].find(
-      (b) => b.textContent?.trim() === 'Fermer',
-    )
+    const close = host.querySelector<HTMLElement>('[aria-label="Fermer la recherche"]')
     close?.click()
     flushSync()
-    expect(host.querySelector('.panel')).toBeNull()
+    expect(host.querySelector('.search-field')).toBeNull()
     expect(tiles()).toHaveLength(331)
+  })
+
+  it('Échap referme et efface, exactement comme le bouton ✕', async () => {
+    await open()
+    typeKey('c')
+    expect(host.querySelector('.search-field')).not.toBeNull()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    flushSync()
+    expect(host.querySelector('.search-field')).toBeNull()
+    expect(tiles()).toHaveLength(331)
+  })
+})
+
+describe('le double tarif de chaque tuile (ADR-036)', () => {
+  it('empile le tarif Adhérent en badge plein, puis le tarif Solidaire en anneau creux', async () => {
+    await open()
+    const product = catalog.products[3] as Product
+    const prices = [
+      ...host.querySelectorAll<HTMLElement>(`[data-product-id="${product.id}"] .price`),
+    ]
+    expect(prices).toHaveLength(2)
+    expect(prices[0]?.classList.contains('secondary')).toBe(false)
+    expect(prices[0]?.querySelector('.amount')?.textContent).toBe('8,40')
+    expect(prices[1]?.classList.contains('secondary')).toBe(true)
+    expect(prices[1]?.querySelector('.amount')?.textContent).toBe('9,33')
   })
 })
 
