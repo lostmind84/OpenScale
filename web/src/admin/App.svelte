@@ -86,18 +86,18 @@
   )
 
   /**
-   * Ce que le poste dit avoir changé, en français, pour le bandeau de confirmation.
+   * What the station says it changed, in French, for the confirmation banner.
    *
-   * Le service énumère des BLOCS et non des champs — `scale`, `printer`, `catalog` —, et
-   * ces jetons anglais sont de la même famille que les clés de configuration : ils ne
-   * s'affichent que sous l'interrupteur. Sans nom français à leur place, le bandeau
-   * annoncerait un retour arrière automatique dans soixante secondes sans dire sur quoi.
+   * The service lists BLOCKS and not fields — `scale`, `printer`, `catalog` — and those
+   * English tokens belong to the same family as the configuration keys: they only show
+   * under the switch. With no French name in their place, the banner would announce an
+   * automatic rollback in sixty seconds without saying what it covers.
    */
   const changedBlocks = $derived(
     (draft.pending?.changed_blocks ?? []).map((block) => blockLabelOf(block)).join(', '),
   )
 
-  /** Les mêmes blocs en jetons du service, pour qui a coché l'interrupteur. */
+  /** The same blocks in the service's own tokens, for whoever ticked the switch. */
   const changedBlockTokens = $derived((draft.pending?.changed_blocks ?? []).join(', '))
 
   onMount(() => {
@@ -158,8 +158,8 @@
         <p class="build">configuration {admin.health.config_fingerprint}</p>
       {/if}
       <!--
-        L'interrupteur vit ici et NON dans une page de réglages : il ne règle pas le
-        poste, il règle l'écran, et il doit rester atteignable depuis les neuf pages.
+        The switch lives here and NOT on a settings page: it does not set the station, it
+        sets the screen, and it has to stay within reach from all nine pages.
       -->
       <label class="technical">
         <input
@@ -189,11 +189,11 @@
     {#if draft.pending !== null}
       <div class="banner pending" data-pending>
         <!--
-          Le bandeau nomme les blocs en FRANÇAIS, la même règle que la barre de refus juste
-          en dessous : ce qui vient du service en jeton anglais passe sous l'interrupteur,
-          et ce qui reste doit se lire sans lui. « la balance, l'imprimante » dit à un
-          bénévole ce qu'il doit aller vérifier avant de confirmer ; « scale, printer » ne
-          le dit qu'à qui a ouvert `internal/web/config.go`.
+          The banner names the blocks in FRENCH, the same rule as the refusal bar just
+          below it: whatever the service hands over as an English token goes under the
+          switch, and what remains has to read without it. « la balance, l'imprimante »
+          tells a volunteer what to go and check before confirming; « scale, printer »
+          only tells it to whoever has opened `internal/web/config.go`.
         -->
         <p>
           Configuration appliquée mais NON CONFIRMÉE. Ce qui a changé : {changedBlocks}.
@@ -241,9 +241,9 @@
       <footer class="save-bar">
         {#if draft.retired.length > 0}
           <!--
-            Les boutons nomment la CLÉ EXACTE et non son libellé : c'est elle qu'ils
-            suppriment, et une clé périmée n'a le plus souvent aucun nom français — le
-            binaire ne la connaît plus.
+            The buttons name the EXACT KEY and not its label: the key is what they delete,
+            and a retired key most often has no French name at all — the binary does not
+            know it any more.
           -->
           <p class="retired">
             Ce fichier porte des réglages que cette version du poste ne connaît plus :
@@ -255,10 +255,10 @@
         {/if}
         {#if draft.faults.length > 0}
           <!--
-            Le refus nomme le champ en FRANÇAIS : le service répond un couple clé +
-            message, et « attendu : nombre entier » ne nomme rien tout seul une fois la
-            clé masquée. Le repli de `labelOf` garde lisible un contrôle qu'aucune page
-            n'édite.
+            The refusal names the field in FRENCH: the service answers a key plus a
+            message, and « attendu : nombre entier » names nothing on its own once the key
+            is hidden. The fallback in `labelOf` keeps a control that no page edits
+            readable.
           -->
           <ul class="faults" data-faults>
             {#each draft.faults as fault (fault.field)}
@@ -387,8 +387,8 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    /* 44 px et une case de 24 px : la densité des commandes de formulaire de
-       l'administration (ADR-033). Le rail se touche au doigt comme le reste. */
+    /* 44 px, and a 24 px box: the density of the administration's form controls
+       (ADR-033). The rail is touched with a finger like everything else. */
     min-height: 2.75rem;
     margin-top: 0.75rem;
     color: var(--ink-muted);

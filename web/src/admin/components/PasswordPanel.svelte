@@ -105,8 +105,8 @@
 
     <footer>
       <Act label="Annuler" onrun={() => admin.cancelPassword()} />
-      <!-- Bleu : répondre ici OUVRE la session et rejoue l'acte qui a amené ce panneau —
-           et, la première fois, POSE le mot de passe du poste. -->
+      <!-- Blue: answering here OPENS the session and replays the act that brought this
+           panel up — and, the first time, SETS the station's password. -->
       <Act
         kind="write"
         label={first ? 'Poser ce mot de passe' : 'Continuer'}

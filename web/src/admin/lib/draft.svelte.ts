@@ -101,16 +101,16 @@ export class Draft {
   }
 
   /**
-   * Retire une clé du document.
+   * Removes a key from the document.
    *
-   * Une clé qui n'a pas de sens pour ce qui est choisi doit DISPARAÎTRE et non rester
-   * vide : le poste refuse la PRÉSENCE d'un compte sur un répertoire local et celle d'un
-   * répertoire sur un serveur, et une chaîne vide reste une présence. Sans cela, changer
-   * la source du catalogue revenait en trois refus portant sur des champs que la personne
-   * n'avait ni remplis ni même vus.
+   * A key that means nothing for what has been chosen must DISAPPEAR rather than stay
+   * empty: the station refuses the PRESENCE of an account on a local directory and that
+   * of a directory on a server, and an empty string is still a presence. Without this,
+   * switching the catalog source came back as three refusals over fields the person had
+   * neither filled in nor even seen.
    *
-   * @param path - le chemin pointé de la clé.
-   * @returns vrai quand le document a pu être parcouru jusqu'à elle.
+   * @param path - the dotted path of the key.
+   * @returns true when the document could be walked all the way down to it.
    */
   unset(path: string): boolean {
     const keys = path.split('.')

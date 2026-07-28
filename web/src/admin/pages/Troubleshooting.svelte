@@ -189,9 +189,9 @@
       onrun={() => void run('reload', api.reloadCatalog)}
     />
     <!--
-      Rouge dans les deux sens : couper la balance ET la rebrancher changent la façon dont
-      le poste pèse, et le bénévole qui revient doit le lire aussi clairement que celui qui
-      bascule.
+      Red in both directions: cutting the scale out AND putting it back both change the way
+      the station weighs, and the volunteer coming back has to read it as plainly as the
+      one switching over.
     -->
     <BigButton
       label={manual ? 'Revenir à la balance' : 'Basculer en saisie manuelle'}
@@ -365,9 +365,9 @@
     text-transform: uppercase;
   }
 
-  /* Le rouge irréversible d'`Act`, sans en être un : le dépôt remplace TOUTE la grille par
-     le fichier apporté. Il reste un `<label>` — en faire un bouton casserait le sélecteur
-     de fichier qu'il habille. */
+  /* The IRREVERSIBLE red of `Act`, without being one: a drop replaces the WHOLE grid by
+     the file brought in. It stays a `<label>` — turning it into a button would break the
+     file picker it wraps. */
   .choose {
     display: inline-flex;
     align-items: center;
@@ -381,8 +381,8 @@
     cursor: pointer;
   }
 
-  /* Un fond plein FONCE au survol : l'éclaircir ferait passer l'encre blanche sous le
-     7:1 pour lequel la teinte a été choisie. */
+  /* A solid fill DARKENS on hover: lightening it would drop the white ink below the 7:1
+     the hue was chosen for. */
   @media (hover: hover) {
     .choose:hover {
       filter: brightness(0.92);

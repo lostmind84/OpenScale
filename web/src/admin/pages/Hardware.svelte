@@ -68,14 +68,14 @@
   type SelfTest = 'label' | 'alignment' | 'ruler'
 
   /**
-   * Ce que la page est en train de faire, ou une chaîne vide quand elle ne fait rien.
+   * What the page is doing, or an empty string when it is doing nothing.
    *
-   * UN SEUL acte à la fois, et ce n'est pas une commodité d'affichage. D'abord le port :
-   * il est exclusif, et deux gestes qui l'ouvrent ensemble s'excluent l'un l'autre.
-   * Ensuite le mot de passe : `Admin.protect` n'a qu'une seule place pour l'acte qui
-   * attend la réponse du panneau, et deux actes protégés lancés ensemble en perdraient un.
+   * ONE act at a time, and that is no display convenience. The port first: it is
+   * exclusive, and two gestures opening it together rule each other out. Then the
+   * password: `Admin.protect` has a single slot for the act waiting on the panel's
+   * answer, and two protected acts started together would lose one of them.
    *
-   * Le nom porte son suffixe pour laisser `Act` au composant qui dessine les boutons.
+   * The name carries its suffix to leave `Act` to the component that draws the buttons.
    */
   type ActName = '' | 'ports' | 'printers' | 'discover' | 'detect' | 'listen' | SelfTest
 
@@ -737,9 +737,9 @@
         onrun={() => void act('ports', loadPorts)}
       />
       <!--
-        Le seul acte de cette page dont le libellé DIT OÙ IL EN EST : « port 2 sur 5 » sur
-        un balayage qui dure une minute vaut mieux que « En cours… », donc il porte son
-        avancement lui-même et laisse `busy` de côté.
+        The only act of this page whose label SAYS HOW FAR IT HAS GOT: « port 2 sur 5 » on
+        a scan that runs for a minute is worth more than « En cours… », so it carries its
+        own progress and leaves `busy` aside.
       -->
       <Act
         act="detect"
@@ -869,9 +869,9 @@
 
     <div class="actions">
       <!--
-        `disabled` porte « un acte tourne quelque part sur la page », `busy` porte
-        « c'est CELUI-CI » : le premier désarme, le second est le seul à rester
-        pleinement lisible.
+        `disabled` carries « an act is running somewhere on the page », `busy` carries
+        « it is THIS one »: the first disarms them all, the second is the only one left
+        fully legible.
       -->
       <Act
         label="Lister les files"
@@ -887,8 +887,9 @@
         onrun={() => void act('discover', discover)}
       />
       <!--
-        Trois auto-tests côte à côte : le libellé garde LEQUEL travaille. Réduits tous les
-        trois à « En cours… », rien à l'écran ne dirait plus lequel sort une étiquette.
+        Three self-tests side by side: the label keeps WHICH ONE is working. Reduced all
+        three to « En cours… », nothing on screen would say any more which one is putting
+        out a label.
       -->
       {#each SELF_TESTS as test (test.what)}
         <Act

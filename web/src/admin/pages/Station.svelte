@@ -829,8 +829,8 @@
           </p>
         {/if}
         <div class="actions">
-          <!-- Bleu et non rouge : ce qui est recopié entre dans le BROUILLON, et rien
-               n'est en service tant que « Enregistrer » n'a pas été touché. -->
+          <!-- Blue and not red: what is copied over goes into the DRAFT, and nothing is
+               in service until « Enregistrer » has been touched. -->
           <Act kind="write" label={adoptLabel} disabled={busy} onrun={() => void adopt()} />
         </div>
         <p class="fact muted">

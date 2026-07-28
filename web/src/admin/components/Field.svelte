@@ -2,13 +2,12 @@
   import { preferences } from '../lib/preferences.svelte'
 
   /**
-   * Un champ de la configuration : son libellé, sa valeur, et le pourquoi à côté.
+   * A field of the configuration: its label, its value, and the why beside it.
    *
-   * Le chemin de la clé n'est montré que si on l'a demandé. Les contrôles de §11.3
-   * nomment bien une CLÉ quand ils refusent, mais c'est désormais la barre de refus qui
-   * la traduit en français : la répéter sous chaque champ de l'écran apprenait quelque
-   * chose à une personne sur cent, et encombrait la lecture des quatre-vingt-dix-neuf
-   * autres.
+   * The path of the key is only shown when it has been asked for. The controls of §11.3
+   * do name a KEY when they refuse, but it is now the refusal bar that translates it into
+   * French: repeating it under every field of the screen taught something to one person
+   * in a hundred, and cluttered the reading of the ninety-nine others.
    */
   interface Props {
     label: string
@@ -17,9 +16,9 @@
     /** Ce que ce réglage décide, en une phrase. */
     hint?: string
     /**
-     * `password` masque la saisie et ne fait que ÉCRIRE : le service ne sert jamais un
-     * mot de passe au navigateur, donc un champ ouvert sur sa valeur s'ouvrirait vide et
-     * se lirait comme un secret effacé.
+     * `password` masks what is typed and only ever WRITES: the service never serves a
+     * password to the browser, so a field opened on its value would open empty and read
+     * as a secret that had been wiped.
      */
     kind?: 'text' | 'number' | 'password'
     disabled?: boolean

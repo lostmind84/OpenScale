@@ -10,10 +10,11 @@
   interface Props {
     label: string
     /**
-     * Ce que l'acte fait au poste — même vocabulaire que {@link Act}, et la même couleur.
+     * What the act does to the station — the same vocabulary as {@link Act}, and the same
+     * colour.
      *
-     * Ce composant garde son markup propre : deux lignes et 96 px de haut ne sont pas ce
-     * qu'`Act` dessine. Il n'en prend que les jetons.
+     * This component keeps its own markup: two lines and 96 px of height are not what
+     * `Act` draws. It borrows nothing from it but the tokens.
      */
     kind?: 'read' | 'write' | 'destructive'
     /** Ce que le bouton fait, en une phrase. Il n'y a pas de deuxième écran pour l'expliquer. */
@@ -92,9 +93,9 @@
     border-color: var(--danger);
   }
 
-  /* Sur un fond plein, l'explication garde son contraste : --ink-muted y disparaîtrait.
-     Le voile de 15 % la laisse au-dessus de 6:1 sous ses 16 px, et c'est ce qui la
-     distingue du libellé sans la rendre grise. */
+  /* Over a solid fill the hint keeps its contrast: --ink-muted would vanish into it. The
+     15 % veil leaves it above 6:1 at its 16 px, and that is what sets it apart from the
+     label without turning it grey. */
   .write .hint,
   .destructive .hint {
     color: var(--surface);
@@ -118,9 +119,9 @@
     background: var(--waiting-wash);
   }
 
-  /* Les deux fonds pleins GARDENT leur couleur pendant le travail : le lavis clair de
-     `.busy` sous l'encre blanche de leur famille tomberait sous 2:1. Le liseré d'attente
-     suffit à dire lequel travaille. */
+  /* The two solid fills KEEP their colour while the work runs: the pale wash of `.busy`
+     under the white ink of their family would fall below 2:1. The waiting rim is enough
+     to say which one is working. */
   .big.busy.write {
     background: var(--action);
   }

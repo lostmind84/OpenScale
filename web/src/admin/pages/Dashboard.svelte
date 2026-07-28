@@ -177,10 +177,10 @@
             <span class="time">{frenchTime(event.occurred_at)}</span>
             <span class="source">{event.source}</span>
             <!--
-              Le code technique passe derrière l'interrupteur, comme au Journal : c'est le
-              MÊME journal technique, montré ici en dix lignes et là en cinquante, et un
-              écran qui cacherait `ERR-CAT-05` d'un côté pour le montrer de l'autre ne
-              cacherait rien du tout. Le message français dit déjà ce qui s'est passé.
+              The technical code goes behind the switch, as on the Journal page: this is
+              the SAME technical log, shown here in ten lines and there in fifty, and a
+              screen that hid `ERR-CAT-05` on one side to show it on the other would hide
+              nothing at all. The French message already says what happened.
             -->
             {#if event.code !== '' && preferences.showTechnicalNames}
               <span class="code">{event.code}</span>

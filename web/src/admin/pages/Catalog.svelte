@@ -44,7 +44,7 @@
    */
   interface Props {
     admin: Admin
-    /** Le document de configuration : cette page édite le bloc `catalog`. */
+    /** The configuration document: this page edits the `catalog` block. */
     draft: Draft
     health: HealthDTO
   }
@@ -91,15 +91,14 @@
   }
 
   /**
-   * Les réglages que chaque source possède EN PROPRE.
+   * The settings each source owns OUTRIGHT.
    *
-   * Changer de source les efface, parce que le poste refuse leur seule PRÉSENCE sous
-   * l'autre : ni compte ni mot de passe pour lire un répertoire qu'on possède (contrôle
-   * 39), pas de répertoire de cette machine derrière une adresse (contrôle 47). Sans ce
-   * ménage, le seul geste que ce panneau existe pour offrir revenait en trois refus
-   * portant sur des champs que personne n'avait remplis. Ce qui vaut pour les deux
-   * sources — la cadence de veille, le séparateur, les plafonds — n'est pas ici et ne
-   * bouge donc jamais.
+   * Switching source wipes them, because the station refuses their mere PRESENCE under
+   * the other one: no account and no password to read a directory one owns (control 39),
+   * no directory of this machine behind an address (control 47). Without that clean-up,
+   * the one gesture this panel exists to offer came back as three refusals over fields
+   * nobody had filled in. What holds for both sources — the watch cadence, the separator,
+   * the ceilings — is not listed here and therefore never moves.
    */
   const OWN_OPTIONS: Record<string, string[]> = {
     local_drop: ['catalog.options.directory'],
@@ -107,12 +106,12 @@
   }
 
   /**
-   * La source que le document déclare, vide tant qu'il n'a pas été lu.
+   * The source the document declares, empty for as long as it has not been read.
    *
-   * Aucun repli sur « dépôt local » : un document sans source est refusé par le poste
-   * (contrôle 5), et cocher un bouton à sa place ferait lire à l'écran un choix que le
-   * fichier ne porte pas — puis répondre « aucune source de catalogue n'est déclarée » à
-   * un enregistrement que rien n'annonçait.
+   * No fallback on « dépôt local »: a document with no source is refused by the station
+   * (control 5), and ticking a radio in its place would have the screen read out a choice
+   * the file does not carry — then answer « aucune source de catalogue n'est déclarée » to
+   * a save that nothing had announced.
    */
   const source = $derived(draft.text('catalog.type'))
 
@@ -359,9 +358,9 @@
   }
 
   /**
-   * Choisit la source du catalogue, et efface les réglages de l'autre.
+   * Chooses the catalog source, and wipes the settings of the other one.
    *
-   * @param chosen - la source, telle que le service la nomme.
+   * @param chosen - the source, as the service names it.
    */
   function chooseSource(chosen: string): void {
     draft.set('catalog.type', chosen)
@@ -371,7 +370,7 @@
     }
   }
 
-  /** Le message du contrôle qui a refusé cette clé, vide quand il n'y en a pas. */
+  /** The message of the control that refused this key, empty when there is none. */
   function faultOf(path: string): string {
     return draft.faults.find((fault) => fault.field === path)?.message ?? ''
   }
@@ -614,10 +613,10 @@
 
 <div class="pages">
   <!--
-    En tête de la page : d'où vient le catalogue se lit avant ce qu'il a donné. Le champ
-    du répertoire n'apparaît que sous la source qui en surveille un, et l'adresse que sous
-    celle qui en interroge une — un champ vide sous une source qui l'ignore est une
-    invitation à le remplir, et le poste refuserait l'enregistrement.
+    At the top of the page: where the catalog comes from is read before what it delivered.
+    The directory field only appears under the source that watches one, and the address
+    only under the source that queries one — an empty field under a source that ignores it
+    is an invitation to fill it in, and the station would refuse the save.
   -->
   <Panel title="Où le poste va chercher le catalogue">
     <div class="choice" role="radiogroup" aria-label="Source du catalogue">
@@ -674,8 +673,8 @@
         onchange={(value) => draft.set('catalog.options.username', value)}
       />
       <!--
-        Le champ s'ouvre VIDE et non sur la valeur en service : le poste ne sert plus le
-        mot de passe au navigateur. Vide, il ne bouge pas.
+        The field opens EMPTY and not on the value in service: the station no longer serves
+        the password to the browser. Left empty, it changes nothing.
       -->
       <Field
         label={labelOf('catalog.options.password')}
@@ -1171,8 +1170,8 @@
   }
 
   /*
-   * Les deux sources, l'une sous l'autre : elles s'excluent, et deux lignes se comparent
-   * mieux que deux cases côte à côte sur un écran tenu en largeur.
+   * The two sources, one under the other: they rule each other out, and two lines compare
+   * better than two boxes side by side on a screen held to a reading width.
    */
   .choice {
     display: flex;
@@ -1183,16 +1182,16 @@
     display: flex;
     gap: 0.75rem;
     align-items: center;
-    /* 44 px : la densité des commandes de formulaire de l'administration. */
+    /* 44 px: the density of the administration's form controls. */
     min-height: 2.75rem;
     margin: 0;
     font-weight: 400;
   }
 
   /*
-   * Un bouton radio n'est pas un champ de saisie, et la règle `input` de cette page lui
-   * donnerait la largeur, la hauteur, le cadre et le fond d'un champ. Tout est repris ici
-   * pour qu'il se dessine comme le navigateur le dessine.
+   * A radio button is not a text field, and the `input` rule of this page would hand it
+   * the width, the height, the border and the background of one. Everything is taken back
+   * here so that the browser draws it the way it draws a radio.
    */
   .choice input {
     width: 1.5rem;
