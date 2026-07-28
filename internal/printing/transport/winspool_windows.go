@@ -16,13 +16,13 @@ import (
 // QueueOpener seam and is tested there.
 //
 // WHY syscall AND NOT github.com/alexbrainman/printer. That module was budgeted and it
-// was REFUSED, and ADR-037 gives the form of the refusal: a surface too small. What this
+// was REFUSED, and ADR-039 gives the form of the refusal: a surface too small. What this
 // package would call of it is the seven lazily-bound entry points of winspool.drv listed
 // just below — and seven calls do not buy a licence line, a supply-chain link and ten
 // years of upgrades nobody will do on site. The standard library reaches winspool.drv
 // through syscall.NewLazyDLL with no cgo and no dependency, which is what the project
 // rule « préfère la bibliothèque standard » asks for. Reopening the question stays
-// possible, at the price ADR-037 sets: an ADR that amends it, plus a row in §17.1 and a
+// possible, at the price ADR-039 sets: an ADR that amends it, plus a row in §17.1 and a
 // row in THIRD-PARTY.md — without the three, `make deps` fails.
 
 // The spooler entry points, bound LAZILY: a binary must still start on a machine where

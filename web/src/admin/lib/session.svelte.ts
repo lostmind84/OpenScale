@@ -89,7 +89,7 @@ export class Admin {
   /** Vrai pendant qu'une action est en vol : les boutons se désarment. */
   busy = $state(false)
   /**
-   * Les 45 contrôles du dernier refus de configuration (§11.3).
+   * Les 47 contrôles du dernier refus de configuration (§11.3).
    *
    * Ils vivent ici et non dans la phrase d'erreur parce qu'ils voyagent TOUS ENSEMBLE
    * dans le même corps : « cette configuration ne peut pas être appliquée » sans dire

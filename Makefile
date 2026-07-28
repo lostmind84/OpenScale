@@ -56,7 +56,7 @@ boundary:
 	go run ./tools/boundary
 
 # deps vérifie que les dépendances DÉCLARÉES sont les dépendances RÉELLES : go.mod
-# comparé aux deux tables de l'inventaire, dans les deux sens (§17.1, ADR-037).
+# comparé aux deux tables de l'inventaire, dans les deux sens (§17.1, ADR-039).
 deps:
 	go run ./tools/deps
 

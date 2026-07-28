@@ -65,8 +65,11 @@ const maxDroppedBytes = 8 << 20
 func (c adminCatalog) Reload(_ context.Context) error {
 	source := c.source.current()
 	if source == nil {
+		// The refusal names a PAGE and not two configuration keys: the volunteer reading it
+		// has an administration screen in front of them, not a file, and the « réglages
+		// avancés » this sentence used to send them to were removed on 27/07/2026.
 		return errors.New("aucune source de catalogue n'a pu être ouverte sur ce poste : " +
-			"corrigez catalog.type et catalog.options dans les réglages avancés")
+			"choisissez où le poste va chercher le catalogue, sur la page Catalogue")
 	}
 	wake, ok := source.(waker)
 	if !ok {

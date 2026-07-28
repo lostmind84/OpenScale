@@ -72,7 +72,7 @@ let calls: Call[] = []
 let servedConfig: Record<string, unknown> = {}
 /** Le document que `POST /admin/api/config/import` dit avoir lu dans le fichier. */
 let importedConfig: Record<string, unknown> = {}
-/** Ce que les 45 contrôles de §11.3 disent du fichier importé. */
+/** Ce que les 47 contrôles de §11.3 disent du fichier importé. */
 let importFaults: FaultDTO[] = []
 /** Les versions restaurables que le poste publie. */
 let versions: ConfigVersionDTO[] = []
@@ -149,6 +149,31 @@ function configWithPort(port: string, modifiedAt = SERVED_STAMP): Record<string,
     catalog: { source: 'webdav', options: { url: 'https://dav.local/flv', user: 'poste1' } },
     limits: { min_weight_g: 10, max_weight_g: 15_000 },
   }
+}
+
+/**
+ * La configuration en service telle que le POSTE la sert : le mot de passe WebDAV blanchi.
+ *
+ * `configPayload` remplace le secret par une chaîne vide et ne retire pas la clé — elle
+ * doit survivre à l'aller-retour, sans quoi le bloc `catalog` aurait bougé sans que
+ * personne n'y touche. C'est cette chaîne vide que le diff comparait à une clé absente.
+ */
+function configWithBlankedSecret(): Record<string, unknown> {
+  const config = configWithPort('COM8')
+  const catalog = config.catalog as Record<string, unknown>
+  catalog.options = { url: 'https://dav.local/flv', user: 'poste1', password: '' }
+  return config
+}
+
+/**
+ * Un export, tel que le poste le rend : `Config.Export` SUPPRIME la clé du mot de passe,
+ * que `hardware` vaille 0 ou 1. Deux secrets ne quittent jamais le poste (§11.5).
+ */
+function exportWithoutTheSecret(): Record<string, unknown> {
+  const config = configWithPort('COM3', FILE_STAMP)
+  const catalog = config.catalog as Record<string, unknown>
+  catalog.options = { url: 'https://dav.local/flv', user: 'poste1' }
+  return config
 }
 
 /**
@@ -283,10 +308,17 @@ function buttonNamed(label: string): HTMLButtonElement {
   return found
 }
 
-/** Les deux valeurs qu'une ligne du diff affiche pour un chemin de clé. */
+/**
+ * Les deux valeurs qu'une ligne du diff affiche pour un chemin de clé.
+ *
+ * La ligne se retrouve par son `data-path` et non par le chemin écrit dedans : la colonne
+ * « Champ » nomme désormais le champ en français, et le chemin n'est à l'écran que sous
+ * l'interrupteur des noms techniques. Ce que ce banc vérifie est ce que la ligne COMPARE,
+ * pas comment elle se nomme — c'est le sujet de `admin-technical-names.test.ts`.
+ */
 function diffRow(path: string): { before: string; after: string } {
   const rows = [...host.querySelectorAll('[data-diff] tbody tr')]
-  const found = rows.find((row) => collapse(row.querySelector('code')?.textContent ?? '') === path)
+  const found = rows.find((row) => row.getAttribute('data-path') === path)
   if (found === undefined) throw new Error(`aucune ligne « ${path} » dans le diff`)
   const cells = [...found.querySelectorAll('td')].map((cell) => collapse(cell.textContent ?? ''))
   return { before: cells[1] ?? '', after: cells[2] ?? '' }
@@ -505,6 +537,41 @@ describe('la date d’écriture n’est pas une différence', () => {
   })
 })
 
+describe('le mot de passe WebDAV n’est pas un champ du diff', () => {
+  it('ne compare pas un secret que ni le poste ni le fichier ne portent en clair', async () => {
+    servedConfig = configWithBlankedSecret()
+    importedConfig = exportWithoutTheSecret()
+    await open()
+
+    chooseFile('config-poste1-2026-07-24.json', importedConfig)
+    await settle()
+
+    // La ligne existait : « » d'un côté, « — » de l'autre. Elle ne comparait rien de vrai
+    // — le poste blanchit son secret et l'export le supprime — et « Recopier » la traitait
+    // comme n'importe quelle autre.
+    expect(() => diffRow('catalog.options.password')).toThrow()
+    expect(diffRow('scale.options.port')).toEqual({ before: 'COM8', after: 'COM3' })
+  })
+
+  it('ne fait pas disparaître la clé du brouillon quand « Recopier » passe', async () => {
+    servedConfig = configWithBlankedSecret()
+    importedConfig = exportWithoutTheSecret()
+    const { draft } = await open()
+
+    chooseFile('config-poste1-2026-07-24.json', importedConfig)
+    await settle()
+    buttonNamed('Recopier').click()
+    await settle()
+
+    // `JSON.stringify` supprime une propriété valant `undefined` : recopier le « — » du
+    // fichier faisait donc partir un PUT dont `catalog.options` n'avait plus de clé
+    // `password`, et le compte WebDAV de la coopérative disparaissait du fichier.
+    const sent = JSON.parse(JSON.stringify(draft.config)) as Record<string, unknown>
+    const options = (sent.catalog as Record<string, unknown>).options as Record<string, unknown>
+    expect(Object.keys(options)).toContain('password')
+  })
+})
+
 describe('ce que l’export sans le matériel ne porte pas', () => {
   it('nomme les blocs retirés avant que « Recopier » n’en recopie le vide', async () => {
     importedConfig = hardwareFreeExport()
@@ -575,10 +642,11 @@ describe('les cinq versions ont trois états, pas deux', () => {
 describe('le retour tactile ne répond pas à un geste mort', () => {
   it('exclut le sélecteur de fichier désarmé de la compression sous le doigt', () => {
     // Un `<label>` n'a pas d'état désactivé : c'est l'`<input>` qu'il porte qui l'est, et
-    // c'est `.off` qui le grise. La règle globale d'app.css a `:not(:disabled)` ; celle-ci
-    // avait perdu les deux.
-    expect(STATION_SVELTE).toContain('.act:active:not(:disabled):not(.off)')
-    expect(STATION_SVELTE).not.toMatch(/^\s*\.act:active\s*\{/mu)
+    // c'est `.off` qui le grise. La règle avait perdu cette garde et répondait à un geste
+    // qui n'ouvrait rien. Depuis que les boutons de la page sont des `Act`, le sélecteur
+    // est le seul à porter la classe, et `:disabled` n'a donc plus personne à écarter.
+    expect(STATION_SVELTE).toContain('.choose:active:not(.off)')
+    expect(STATION_SVELTE).not.toMatch(/^\s*\.choose:active\s*\{/mu)
   })
 })
 
@@ -601,7 +669,7 @@ describe('un export remis au navigateur n’est pas un export enregistré', () =
 })
 
 describe('les trois champs éditables portent leur refus', () => {
-  it('allume la clé que les 45 contrôles ont nommée, pas seulement la bannière', async () => {
+  it('allume la clé que les 47 contrôles ont nommée, pas seulement la bannière', async () => {
     const { draft } = await open()
 
     // Ce que §11.3 renvoie sur un enregistrement refusé, tel que `draft.save` le range.

@@ -150,24 +150,37 @@ passe, et le poste est inutilisable alors que tout va bien à l'intérieur.
 
 **Prenez la fiche d'installation** : l'installeur y a imprimé un **code de secours de
 8 caractères**. Il n'est écrit nulle part ailleurs — le poste n'en garde qu'une empreinte
-et ne sait pas le relire. C'est lui qui ouvre la porte la première fois.
+et ne sait pas le relire. C'est lui qui pose le mot de passe la première fois.
 
-1. **Appui long de 3 secondes dans le coin bas-droit** de l'écran client. L'écran de
-   dépannage s'ouvre.
-2. Onglet **Réglages avancés**, puis **« Mot de passe oublié : j'ai le code de secours »**.
-3. Tapez les 8 caractères de la fiche — les minuscules passent aussi — et choisissez le
-   mot de passe d'administration. Prenez-en un que l'équipe connaît, pas celui de votre
-   boîte mail. Huit caractères au minimum.
-4. **Rangez la fiche dans le classeur du magasin.** Le code y reste valable : c'est le
-   seul moyen de reprendre la main si le mot de passe est perdu — il n'y a pas de
-   « mot de passe oublié » sur un poste hors ligne.
+**Le poste ne demande aucun mot de passe pour être regardé** : l'administration s'ouvre,
+toutes les pages se lisent. Il le demande **au moment où l'on change quelque chose**, et
+pas avant. Il n'y a donc rien à taper tant que rien n'a été touché : c'est le premier
+réglage qui fait apparaître la question.
+
+1. Touchez le bouton **Réglages** — l'engrenage, tout à droite de la barre du bas de
+   l'écran client. L'administration s'ouvre sur le **Tableau de bord**.
+2. Dans la colonne de gauche, ouvrez **Matériel**, puis touchez **Détecter
+   automatiquement** dans l'encadré *Balance*. C'est le premier geste de l'installation
+   qui change le poste — les boutons de ce genre portent une pastille **clé**.
+3. Le panneau **« Ce poste n'a pas encore de mot de passe »** s'ouvre par-dessus la page.
+   Tapez les 8 caractères de la fiche dans **Code de secours** — les minuscules passent
+   aussi —, choisissez le mot de passe d'administration dans **Nouveau mot de passe**,
+   puis touchez **Poser ce mot de passe**. Prenez-en un que l'équipe connaît, pas celui
+   de votre boîte mail. Huit caractères au minimum.
+4. **Le geste que vous veniez de faire repart tout seul** : la détection de la balance se
+   lance sans que vous ayez à retoucher le bouton. L'étape 5 est déjà commencée.
+5. **Rangez la fiche dans le classeur du magasin.** Gardez le code : il n'y a pas de
+   « mot de passe oublié » sur un poste hors ligne. **Attention** : une fois un mot de
+   passe posé, ce code ne se saisit plus à l'écran — l'écran ne le redemande qu'à un
+   poste qui n'en a aucun. Reprendre la main plus tard passe par la ligne de commande
+   ci-dessous.
 
 > **Le poste affiche encore « Poste hors service » à ce stade, et c'est normal** : sa
 > configuration est incomplète tant que les étapes 5 à 7 n'ont pas été faites. Il revient
 > en service tout seul, sans redémarrage, dès qu'il ne reste plus une seule faute.
 
-> **Si la fiche a été perdue avant d'avoir servi**, il reste la ligne de commande, sur le
-> poste, en administrateur :
+> **Si la fiche a été perdue avant d'avoir servi**, ou **si le mot de passe est perdu
+> plus tard**, il reste la ligne de commande, sur le poste, en administrateur :
 >
 > ```powershell
 > Stop-Service OpenScale
@@ -178,7 +191,8 @@ et ne sait pas le relire. C'est lui qui ouvre la porte la première fois.
 
 ## Étape 5 — La balance (1 min)
 
-1. Page **Balance** → **Détecter automatiquement**.
+1. Page **Matériel**, encadré **Balance** → **Détecter automatiquement**. C'est le geste
+   que l'étape 4 vient de lancer : s'il tourne encore, laissez-le finir.
 2. Le poste liste les ports série qu'il voit et essaie de lire des trames sur chacun.
    Il vous propose celui qui répond.
 3. Posez un objet sur la balance : le poids doit s'afficher et bouger.
@@ -190,8 +204,8 @@ et ne sait pas le relire. C'est lui qui ouvre la porte la première fois.
 
 C'est l'étape la plus longue, et celle qui décide de la qualité du résultat.
 
-1. Page **Imprimante**. Le poste liste les files d'impression qu'il voit. Choisissez
-   celle de l'imprimante d'étiquettes (`SATO WS408_...`).
+1. Page **Matériel**, encadré **Imprimante** → **Lister les files**. Choisissez celle de
+   l'imprimante d'étiquettes (`SATO WS408_...`).
 2. **Imprimer une étiquette de test.**
 3. **Prenez l'étiquette qui sort et superposez-la à une étiquette de l'ancienne
    application**, contre une vitre ou une fenêtre. Regardez si le contenu est décalé

@@ -9,6 +9,14 @@
    */
   interface Props {
     label: string
+    /**
+     * What the act does to the station — the same vocabulary as {@link Act}, and the same
+     * colour.
+     *
+     * This component keeps its own markup: two lines and 96 px of height are not what
+     * `Act` draws. It borrows nothing from it but the tokens.
+     */
+    kind?: 'read' | 'write' | 'destructive'
     /** Ce que le bouton fait, en une phrase. Il n'y a pas de deuxième écran pour l'expliquer. */
     hint?: string
     disabled?: boolean
@@ -33,6 +41,7 @@
 
   const {
     label,
+    kind = 'read',
     hint = '',
     disabled = false,
     engaged = false,
@@ -44,7 +53,8 @@
 
 <button
   type="button"
-  class="big touch-target"
+  class="big touch-target {kind}"
+  data-kind={kind}
   class:engaged
   class:busy
   disabled={disabled || busy}
@@ -71,6 +81,33 @@
     border-radius: var(--radius);
   }
 
+  .write {
+    color: var(--surface);
+    background: var(--action);
+    border-color: var(--action);
+  }
+
+  .destructive {
+    color: var(--surface);
+    background: var(--danger);
+    border-color: var(--danger);
+  }
+
+  /* Over a solid fill the hint keeps its contrast: --ink-muted would vanish into it. The
+     15 % veil leaves it above 6:1 at its 16 px, and that is what sets it apart from the
+     label without turning it grey. */
+  .write .hint,
+  .destructive .hint {
+    color: var(--surface);
+    opacity: 0.85;
+  }
+
+  .write .guarded,
+  .destructive .guarded {
+    background: var(--surface);
+    color: var(--ink);
+  }
+
   .big:disabled {
     opacity: 0.5;
   }
@@ -80,6 +117,17 @@
     opacity: 1;
     border-color: var(--waiting);
     background: var(--waiting-wash);
+  }
+
+  /* The two solid fills KEEP their colour while the work runs: the pale wash of `.busy`
+     under the white ink of their family would fall below 2:1. The waiting rim is enough
+     to say which one is working. */
+  .big.busy.write {
+    background: var(--action);
+  }
+
+  .big.busy.destructive {
+    background: var(--danger);
   }
 
   /* Une clé, pas un cadenas rouge : l'acte est possible, il demande seulement qui vous

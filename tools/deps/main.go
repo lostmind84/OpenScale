@@ -21,7 +21,7 @@ import (
 //
 // Indirect requirements are deliberately left out: they are the transitive
 // closure of the direct ones, they follow their upgrades, and inventorying them
-// by hand would create a second table to drift (ADR-037).
+// by hand would create a second table to drift (ADR-039).
 //
 // WHY a textual read AND NOT golang.org/x/mod/modfile, which parses this grammar
 // for a living: a checker of dependencies that adds a dependency is worth
@@ -257,7 +257,7 @@ func main() {
 	}
 
 	if failures > 0 {
-		fmt.Fprintf(os.Stderr, "\ndeps: %d écart(s) — voir docs/02-architecture.md §17.1 et ADR-037\n", failures)
+		fmt.Fprintf(os.Stderr, "\ndeps: %d écart(s) — voir docs/02-architecture.md §17.1 et ADR-039\n", failures)
 		os.Exit(1)
 	}
 	fmt.Printf("deps: %d dépendances directes, déclarées à l'identique dans §17.1 et THIRD-PARTY.md\n", len(required))
@@ -277,7 +277,7 @@ func main() {
 func compare(required map[string]bool, source string, declared map[string]bool, report func(string, ...any)) {
 	for _, module := range sortedModules(required) {
 		if !declared[module] {
-			report("%s est dans go.mod et absent de %s — une dépendance entre par un ADR (ADR-037), jamais en silence", module, source)
+			report("%s est dans go.mod et absent de %s — une dépendance entre par un ADR (ADR-039), jamais en silence", module, source)
 		}
 	}
 	for _, module := range sortedModules(declared) {

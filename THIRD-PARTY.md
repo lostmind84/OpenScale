@@ -8,7 +8,7 @@ distribution sous AGPL-3.0.
 
 Les six modules du périmètre V1 (`docs/02-architecture.md` §17.1, qui liste en annexe les
 quatre budgétées et non prises). Aucun ne demande cgo — c'est une condition d'entrée, pas
-une observation (ADR-001). Et aucun n'est un framework — c'est ADR-037, qui donne le
+une observation (ADR-001). Et aucun n'est un framework — c'est ADR-039, qui donne le
 critère et son critère de réouverture.
 
 | Module | Rôle | Licence |

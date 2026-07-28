@@ -83,7 +83,7 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `tools/frontiere/verifier.sh` | `tools/boundary/check.sh` | « les cinq coupes » = frontières architecturales = boundaries. |
 | cible Makefile `frontiere` | cible Makefile `boundary` | `make boundary` ; cohérent avec `tools/boundary/`. |
 | `tools/dependances/` | `tools/deps/` | Compare `go.mod` aux deux tables d'inventaire (§17.1, `THIRD-PARTY.md`), dans les deux sens. `deps` est l'abréviation qu'emploie déjà `go mod`, et elle nomme le répertoire comme la cible. |
-| cible Makefile `dependances` | cible Makefile `deps` | `make deps` ; cohérent avec `tools/deps/`, comme `make boundary` l'est avec `tools/boundary/` (ADR-037). |
+| cible Makefile `dependances` | cible Makefile `deps` | `make deps` ; cohérent avec `tools/deps/`, comme `make boundary` l'est avec `tools/boundary/` (ADR-039). |
 | `<donnees>/` | `<data>/` | Répertoire de données ; flag `--data`, variable `OPENSCALE_DATA`. |
 | `<donnees>/catalogue/entrant/` | `<data>/catalog/incoming/` | Répertoire surveillé du dépôt local. |
 | `<donnees>/catalogue/{archives,rejets}/` | `<data>/catalog/{archives,rejected}/` | « rejets » = fichiers rejetés. |
@@ -572,6 +572,7 @@ portent.
 | `stabilite{peremption_plancher_ms, peremption_plafond_ms, facteur_peremption, taux_min_bloquant, fenetre_taux_min_ms}` | `stability{expiry_floor_ms, expiry_ceiling_ms, expiry_factor, min_latch_rate, latch_rate_window_ms}` |
 | `catalogue.type : depot_local \| webdav` | `catalog.type : local_drop \| webdav` |
 | `catalogue.options{url, utilisateur, mot_de_passe, separateur}` | `catalog.options{url, username, password, separator}` |
+| clé sans équivalent dans l'existant, née d'ADR-038 : le répertoire surveillé par `depot_local` | `catalog.options.directory` — `local_drop` **seule** (contrôle 47) ; le paquet la déclare sous `localdrop.DirectoryOption`, et `internal/domain` la réécrit en `catalogDirectoryOption` parce que le noyau n'importe aucun driver |
 | `catalogue.options{scrutation_s, stabilite_scrutations}` | `catalog.options{poll_interval_s, stable_polls}` |
 | `catalogue.options{taille_max_mo, taille_max_image_ko}` | `catalog.options{max_file_size_mb, max_image_size_kb}` |
 | `catalogue.options{taux_minimal_lisibles, baisse_max_pesables, echecs_avant_rejet}` | `catalog.options{min_readable_ratio, max_weighable_drop, failures_before_reject}` |
@@ -660,7 +661,7 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `OptionSchema` | La déclaration d'UNE option d'un driver : sa clé, sa forme, ses bornes. C'est ce qui permet à un driver enfichable d'être validé sans que le noyau connaisse ses réglages. |
 | `OptionKind` | La forme qu'une option accepte. Constantes `OptionText`, `OptionInt`, `OptionBool`, `OptionEnum`, `OptionRatio`, `OptionURL`, `OptionHostPort`, `OptionGroup`. |
 | `DriverDescriptor` | Ce que la validation d'une configuration a besoin de savoir d'un driver : son `ID`, son `Label` français, son schéma d'options. Distinct de `ScaleDescriptor` et `PrinterDescriptor`, qui décrivent une INSTANCE en service. |
-| `PathChecker` | La seule question qu'une validation pure ne peut pas trancher : « ce chemin est-il lisible ? ». Interface d'une méthode, `Readable`, injectée pour que `Validate` reste sans I/O. |
+| `PathChecker` | Les questions qu'une validation pure ne peut pas trancher : que peut faire le service de ce chemin ? Interface de deux méthodes, `Readable` et `Droppable`, injectée pour que `Validate` reste sans I/O. Une valeur `nil` est un état légitime : « on ne peut pas savoir ». |
 | `Preparation` | Ce que le chemin de calcul unique répond d'une pesée : `Label`, `Priced`, `Diagnostics`, `Refusal`. |
 | `PrepareInput` | Tout ce que `Prepare` a le droit de lire. Même intention que `CheckInput` pour `Evaluate` : la fonction ne va rien chercher. |
 | `Severity` | Qui doit agir sur un diagnostic. Constantes `Info` (affiché, imprime quand même) et `Blocking` (l'étiquette s'arrête). |
@@ -740,7 +741,7 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `(DriverOptions).Has` · `Text` · `Int` · `Bool` · `Ratio` · `Group` · `Keys` | Lecture typée d'une option de driver, chacune rendant aussi « présente et de la bonne forme ? ». |
 | `(Weighing).Line` | La ligne archivée d'un code de tarif, ou `nil`. Pendant de `(Label).Find` côté calcul. |
 | `(Decoder).Feed` · `(Decoder).Reset` | Les deux méthodes du seul point de variation par modèle d'une balance série : livrer des octets, et oublier ce qui restait quand le port est rouvert. Homonymes assumés de `(Accumulator).Feed` / `Reset` — c'est le même contrat à un étage de plus. |
-| `(PathChecker).Readable` | Ce chemin est-il lisible ? La seule I/O dont `Validate` a besoin, et la raison pour laquelle elle est injectée plutôt qu'appelée. |
+| `(PathChecker).Readable` · `(PathChecker).Droppable` | Ce chemin est-il lisible ? Le service peut-il y créer **et supprimer** un fichier ? Toute l'I/O dont `Validate` a besoin, et la raison pour laquelle elle est injectée plutôt qu'appelée. Deux questions et non une : l'acquittement d'un import **est** une suppression (ADR-004), donc un répertoire qu'on ne peut que lire reboucle indéfiniment. |
 | `MarshalJSON` / `UnmarshalJSON` sur `Config`, `Category`, `WeighingLimits`, `RoundingPolicy`, `Duration` | La sérialisation de `config.json`. `UnmarshalJSON` **conserve ce que l'objet ne nomme pas** : un bloc partiellement écrit ne remet pas les autres clés à zéro. |
 
 ### `internal/domain/frame`

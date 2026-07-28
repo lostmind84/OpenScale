@@ -1,8 +1,11 @@
 <script lang="ts">
+  import Act from '../components/Act.svelte'
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
   import type { TechnicalLineDTO, WeighingDTO } from '../lib/dto'
+  import { logSourceLabelOf } from '../lib/fields'
   import { frenchDateTime, frenchDuration, frenchInteger } from '../lib/format'
+  import { preferences } from '../lib/preferences.svelte'
   import type { Admin } from '../lib/session.svelte'
 
   /**
@@ -124,16 +127,6 @@
     critical: 'critique',
   }
 
-  /** What part of the station wrote a technical line, in French. */
-  const LOG_SOURCES: Record<string, string> = {
-    scale: 'balance',
-    printer: 'imprimante',
-    catalog: 'catalogue',
-    ui: 'écran',
-    config: 'configuration',
-    http: 'réseau',
-    system: 'système',
-  }
 
   let weighings = $state<WeighingDTO[]>([])
   let technical = $state<TechnicalLineDTO[]>([])
@@ -346,9 +339,7 @@
           <option value={choice.value}>{choice.label}</option>
         {/each}
       </select>
-      <button type="button" class="act" disabled={reading} onclick={() => void load()}>
-        {reading ? 'Lecture…' : 'Rafraîchir'}
-      </button>
+      <Act label="Rafraîchir" busy={reading} onrun={() => void load()} />
       <!--
         The link appears once the journal HAS ANSWERED, and 'loading' is not that. The
         `{:else}` caught 'loading' as much as 'read', so on a station without a journal the
@@ -363,7 +354,7 @@
           L’export n’est pas proposé : ce poste n’a pas répondu à la lecture du journal.
         </span>
       {:else}
-        <a class="act" href={api.journalCSVURL(exportFilters)} download>Exporter en CSV</a>
+        <a class="export" href={api.journalCSVURL(exportFilters)} download>Exporter en CSV</a>
       {/if}
     </div>
     {#if readState === 'read'}
@@ -372,7 +363,7 @@
         jusqu’à {frenchInteger(EXPORT_PAGE)} pesées, en point-virgule et en UTF-8 — il s’ouvre
         tel quel dans le tableur d’un Windows français. Il ne demande aucun mot de passe : la
         lecture du journal n’en demande pas non plus, et le fichier de diagnostic emporte déjà
-        les deux cents dernières pesées (ADR-033).
+        les deux cents dernières pesées.
       </p>
     {/if}
 
@@ -492,20 +483,20 @@
                         rien à rejouer.
                       </p>
                     {:else}
-                      <button
-                        type="button"
-                        class="act danger touch-target"
-                        disabled={replaying}
-                        onclick={() => void replay(detail.frame)}
-                      >
-                        {replaying ? 'Rejeu en cours…' : 'Rejouer cette trame'}
-                        <span class="key" title="Demande le mot de passe">clé</span>
-                      </button>
+                      <div class="replay">
+                        <Act
+                          kind="destructive"
+                          label="Rejouer cette trame"
+                          protected
+                          busy={replaying}
+                          onrun={() => void replay(detail.frame)}
+                        />
+                      </div>
                       <p class="fact muted">
                         La trame repart dans le décodeur du poste EN SERVICE : le poids
                         affiché au client change, et rien ne le remet comme il était. C’est
                         ce qui fait d’un refus inexpliqué un test permanent, sans
-                        déplacement au magasin et sans balance (§15.4).
+                        déplacement au magasin et sans balance.
                       </p>
                     {/if}
                   </td>
@@ -538,8 +529,22 @@
             <li data-level={line.level}>
               <span class="when">{frenchDateTime(line.occurred_at)}</span>
               <span class="level">{french(LEVELS, line.level, 'niveau inconnu')}</span>
-              <span class="from">{french(LOG_SOURCES, line.source, 'origine inconnue')}</span>
-              {#if line.code !== ''}<span class="code">{line.code}</span>{/if}
+              <span class="from">{logSourceLabelOf(line.source)}</span>
+              <!--
+                The event code is a TECHNICAL NAME and sits behind the switch, like the
+                configuration keys: `ERR-CAT-05` teaches nothing to whoever will never open
+                the source, and the French message beside it says what happened on its own.
+
+                It stays reachable in three places, which is why hiding it costs nothing:
+                the switch is two clicks away in the rail, `technical.csv` inside
+                `diagnostic.zip` carries the `code` column whatever the screen shows
+                (internal/diag/archive.go), and the station's own text log keeps it. The CSV
+                export of this page never carried it — that one exports weighings, and a
+                weighing has no event code (internal/web/admin.go).
+              -->
+              {#if line.code !== '' && preferences.showTechnicalNames}
+                <span class="code">{line.code}</span>
+              {/if}
               <span class="message">{line.message}</span>
               {#if line.detail !== ''}<span class="detail-text">{line.detail}</span>{/if}
             </li>
@@ -602,11 +607,15 @@
   }
 
   /*
-   * The export is an `<a>` wearing the clothes of a command, so it gets the press
-   * feedback of one: `app.css` only gives that to `button`, and a command that answers
-   * nothing under the finger reads as a dead page whatever element it is made of (§3.2).
+   * The export is an `<a>` and stays one — a download is what the browser does with an
+   * href, not with a click handler. It therefore cannot be an `<Act>`, and copies the
+   * neutral family by hand: reading the journal changes nothing on the station.
+   *
+   * It also gets the press feedback of a command: `app.css` only gives that to `button`,
+   * and a command that answers nothing under the finger reads as a dead page whatever
+   * element it is made of (§3.2).
    */
-  .act {
+  .export {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
@@ -626,42 +635,20 @@
       box-shadow var(--slide) var(--ease);
   }
 
-  .act:active {
+  .export:active {
     transform: scale(0.975);
   }
 
   @media (hover: hover) {
-    .act:hover:not(:disabled) {
+    .export:hover {
       border-color: var(--ink-muted);
       box-shadow: var(--shadow-2);
     }
   }
 
-  .act:disabled {
-    opacity: 0.5;
-    box-shadow: none;
-    cursor: default;
-  }
-
-  /* Height comes from `.touch-target`, which imposes 72 px on this one button alone. */
-  .act.danger {
-    height: auto;
+  /* The replay sits under its own prose and needs the air the old button carried itself. */
+  .replay {
     margin-top: 0.5rem;
-    border-color: var(--fault);
-    background: var(--fault-wash);
-  }
-
-  /* A key, not a red padlock: the act is possible, it only asks who you are. The word is
-     written out — an icon alone teaches nothing to whoever does not know it (§14.4). */
-  .key {
-    padding: 0.0625rem 0.375rem;
-    border-radius: var(--radius-pill);
-    background: var(--bg);
-    color: var(--ink-muted);
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
   }
 
   /* Prose stays in the reading column even though the tables have left it. */

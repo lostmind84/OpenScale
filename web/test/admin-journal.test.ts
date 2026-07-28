@@ -5,6 +5,7 @@ import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Journal from '../src/admin/pages/Journal.svelte'
 import type { TechnicalLineDTO, WeighingDTO } from '../src/admin/lib/dto'
+import { preferences } from '../src/admin/lib/preferences.svelte'
 import { Admin } from '../src/admin/lib/session.svelte'
 
 /**
@@ -67,6 +68,10 @@ beforeEach(() => {
   technicalCount = 1
   replayCalls = 0
   gate = null
+  // La préférence est un singleton de module : un test qui la coche la laisserait cochée
+  // pour tous les suivants, et « aucun jeton anglais n'atteint un bénévole » passerait
+  // alors sur un écran qui les montre tous.
+  preferences.showTechnicalNames = false
   host = document.createElement('div')
   document.body.appendChild(host)
   vi.stubGlobal('fetch', fakeFetch)
@@ -394,6 +399,38 @@ describe('aucun jeton anglais n’atteint un bénévole', () => {
     // Les jetons de `internal/domain/journal.go` et de `internal/store/technical.go`
     // n'apparaissent nulle part, y compris dans le journal technique.
     expect(text()).not.toMatch(/\b(sent|rejected|failed|reprint|unstable|scale|warn)\b/u)
+  })
+})
+
+/**
+ * Le code d'un événement est un NOM TECHNIQUE, et il en suit la règle.
+ *
+ * §2.3 de la conception confie quatre choses au même interrupteur, et celle-ci en est
+ * une : `ERR-SCL-07` n'apprend rien à qui n'ouvrira jamais le source, et le message
+ * français à côté dit déjà ce qui s'est passé. Le masquer ne le met pas hors de portée —
+ * l'interrupteur est dans le rail, et `technical.csv` du fichier de diagnostic porte la
+ * colonne `code` quoi que l'écran montre (internal/diag/archive.go).
+ *
+ * Le banc va DANS LES DEUX SENS : un masquage qu'on ne sait pas défaire vaudrait une
+ * suppression, et c'est ce code-là qu'on lit au téléphone à qui dépanne.
+ */
+describe('le code technique d’un événement passe sous l’interrupteur', () => {
+  it('ne le montre pas tant que personne ne l’a demandé', async () => {
+    await open()
+
+    expect(textOf('[data-scroll="technical"]')).toContain(
+      'La balance a émis une trame illisible.',
+    )
+    expect(text()).not.toContain('ERR-SCL-07')
+  })
+
+  it('le rend dès qu’on coche, où il était', async () => {
+    await open()
+
+    preferences.showTechnicalNames = true
+    flushSync()
+
+    expect(textOf('[data-scroll="technical"]')).toContain('ERR-SCL-07')
   })
 })
 

@@ -798,7 +798,7 @@ func (d *Doctor) checkSerialPort(ctx context.Context, loaded loadedConfig) Contr
 	if declared == "" {
 		control.Status, control.Code = StatusFail, codePortUnavailable
 		control.Observed = "aucun port n'est déclaré (scale.options.port) alors que ce poste annonce une balance"
-		control.Remedy = "Ouvrez Réglages avancés → Matériel et lancez « Détecter automatiquement » : " +
+		control.Remedy = "Ouvrez la page Matériel et lancez « Détecter automatiquement » : " +
 			"la détection ouvre chaque port, applique les parseurs et annonce celui qui répond. " +
 			"Ou déclarez scale.present = false si ce poste n'a réellement pas de balance."
 		return control
@@ -1050,7 +1050,7 @@ func (d *Doctor) checkCatalogSource(loaded loadedConfig, health Health, healthEr
 			"précédent reste en service, %d produits pesables",
 			last.Source, or(last.FileName, "sans nom"), or(last.Reason, "sans motif"), weighable)
 		control.Remedy = "Le poste continue de peser avec le catalogue précédent : rien n'est perdu. " +
-			"Ouvrez Réglages avancés → Catalogue : les lignes fautives y sont nommées, avec leur " +
+			"Ouvrez la page Catalogue : les lignes fautives y sont nommées, avec leur " +
 			"numéro de ligne dans le CSV, et c'est cette liste-là qu'il faut envoyer au producteur."
 	case last != nil && last.Result == domain.ImportFailed:
 		control.Status, control.Code = StatusWarn, or(last.Code, codeCatalogSource)
@@ -1064,7 +1064,7 @@ func (d *Doctor) checkCatalogSource(loaded loadedConfig, health Health, healthEr
 		control.Status, control.Code = StatusWarn, codeCatalogSource
 		control.Observed = fmt.Sprintf("le dernier import a réussi (%s, %s) et le service ne sert "+
 			"aucun produit pesable", last.Source, or(last.FileName, "sans nom"))
-		control.Remedy = "La grille du client est vide. Vérifiez dans Réglages avancés → Catalogue " +
+		control.Remedy = "La grille du client est vide. Vérifiez sur la page Catalogue " +
 			"que les produits reçus portent bien un code-barres commençant par 0493 à 0499 : " +
 			"c'est le préfixe qui décide si un produit se pèse."
 	default:

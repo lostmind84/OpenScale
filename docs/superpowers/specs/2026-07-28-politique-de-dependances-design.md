@@ -90,7 +90,7 @@ formule jamais côté Go.
 
 ---
 
-## 3. Livrable 1 — ADR-037
+## 3. Livrable 1 — ADR-039
 
 **Titre** : *Une dépendance se justifie par la surface appelée, pas par la réputation du
 module.*
@@ -102,7 +102,7 @@ refus vieillit ; un critère se rejoue.
 
 L'ADR prend place dans `docs/02-architecture.md` §20, après ADR-036, au format des ADR
 récents (**Statut** · **Date** · **Portée** · **Amende**), et **complète ADR-001** sans le
-contredire : ADR-001 dit ce qui est interdit (cgo), ADR-037 dit ce qui doit être prouvé
+contredire : ADR-001 dit ce qui est interdit (cgo), ADR-039 dit ce qui doit être prouvé
 avant d'entrer.
 
 ### 3.1 Contexte
@@ -164,10 +164,10 @@ coopérative sans développeur. Le poste doit se reconstruire en 2036.
 - Titre : *« Dépendances — 10, toutes vérifiées pur Go »* → **6**.
 - Table réduite aux six modules réellement en require direct.
 - **Annexe « Quatre budgétées, non prises »** : la table de §2, avec ses `fichier:ligne`.
-  Elle est conservée et non effacée — c'est la base de preuve d'ADR-037, et la trace que
+  Elle est conservée et non effacée — c'est la base de preuve d'ADR-039, et la trace que
   ces quatre décisions ont été prises et non subies.
 - Le renvoi à `docs/adr/0018-dependencies.md` est remplacé par un renvoi à
-  `THIRD-PARTY.md` et à ADR-037.
+  `THIRD-PARTY.md` et à ADR-039.
 - La phrase *« la CI échoue si une nouvelle apparaît… »* est conservée : le livrable 3 la
   rend vraie.
 
@@ -258,7 +258,7 @@ d'en ajouter un à `boundary`.)*
   `cmd/openscale/`, hors le nouveau `tools/deps`.
 - **Aucune dépendance ajoutée ni retirée du binaire.** Les six require directs de `go.mod`
   ne bougent pas : c'est la documentation qui rejoint le code, jamais l'inverse.
-- **`sqlc` et `wire` ne sont pas adoptés.** ADR-037 les nomme comme les seuls candidats
+- **`sqlc` et `wire` ne sont pas adoptés.** ADR-039 les nomme comme les seuls candidats
   recevables de leur catégorie ; les adopter serait une réécriture du paquet `store`
   (5 281 lignes, tests compris) et du câblage de `cmd/openscale/serve.go`, pendant la
   recette (L9), sans le moindre gain fonctionnel pour un bénévole ni pour un client. Le

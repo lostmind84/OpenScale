@@ -31,7 +31,7 @@
 | `tools/deps/main_test.go` (créé) | Tests en tables des trois fonctions pures d'analyse et de comparaison | 1, 2, 3 |
 | `docs/02-architecture.md` §17.1 (modifié, l. 4227-4244) | Inventaire de référence : 6 modules + annexe des 4 refusées | 4 |
 | `THIRD-PARTY.md` (modifié, l. 9-26 et 86) | Notice de licences livrée avec le binaire : les mêmes 6 modules | 5 |
-| `docs/02-architecture.md` §20 (modifié, après ADR-036) | ADR-037 — le critère et son critère de réouverture | 6 |
+| `docs/02-architecture.md` §20 (modifié, après ADR-036) | ADR-039 — le critère et son critère de réouverture | 6 |
 | `Makefile`, `make.ps1`, `.github/workflows/ci.yml` (modifiés) | Câblage : `make deps` sur les deux systèmes de construction, une étape CI | 7 |
 
 **Pourquoi trois tâches pour un seul fichier de 200 lignes.** Les trois fonctions d'analyse sont indépendantes et chacune a son piège propre : la ligne `// indirect` pour `go.mod`, les fausses lignes `| Module |` pour la table de §17.1, le sens de l'écart pour la comparaison. Un relecteur peut rejeter l'une en acceptant les deux autres — c'est le critère de découpe.
@@ -45,7 +45,7 @@
           │
           ├── 4  (§17.1 corrigé)
           ├── 5  (THIRD-PARTY.md corrigé → l'outil passe au VERT)
-          ├── 6  (ADR-037)
+          ├── 6  (ADR-039)
           └── 7  (câblage make + CI ; la CI ne peut être rouge que si 4 et 5 sont faits)
 ```
 
@@ -186,7 +186,7 @@ import (
 //
 // Indirect requirements are deliberately left out: they are the transitive
 // closure of the direct ones, they follow their upgrades, and inventorying them
-// by hand would create a second table to drift (ADR-037).
+// by hand would create a second table to drift (ADR-039).
 //
 // WHY a textual read AND NOT golang.org/x/mod/modfile, which parses this grammar
 // for a living: a checker of dependencies that adds a dependency is worth
@@ -661,7 +661,7 @@ func main() {
 	}
 
 	if failures > 0 {
-		fmt.Fprintf(os.Stderr, "\ndeps: %d écart(s) — voir docs/02-architecture.md §17.1 et ADR-037\n", failures)
+		fmt.Fprintf(os.Stderr, "\ndeps: %d écart(s) — voir docs/02-architecture.md §17.1 et ADR-039\n", failures)
 		os.Exit(1)
 	}
 	fmt.Printf("deps: %d dépendances directes, déclarées à l'identique dans §17.1 et THIRD-PARTY.md\n", len(required))
@@ -681,7 +681,7 @@ func main() {
 func compare(required map[string]bool, source string, declared map[string]bool, report func(string, ...any)) {
 	for _, module := range sortedModules(required) {
 		if !declared[module] {
-			report("%s est dans go.mod et absent de %s — une dépendance entre par un ADR (ADR-037), jamais en silence", module, source)
+			report("%s est dans go.mod et absent de %s — une dépendance entre par un ADR (ADR-039), jamais en silence", module, source)
 		}
 	}
 	for _, module := range sortedModules(declared) {
@@ -746,7 +746,7 @@ deps: github.com/go-pdf/fpdf est déclaré dans THIRD-PARTY.md et absent de go.m
 deps: github.com/kardianos/service est déclaré dans THIRD-PARTY.md et absent de go.mod — ...
 deps: github.com/oklog/ulid/v2 est déclaré dans THIRD-PARTY.md et absent de go.mod — ...
 
-deps: 8 écart(s) — voir docs/02-architecture.md §17.1 et ADR-037
+deps: 8 écart(s) — voir docs/02-architecture.md §17.1 et ADR-039
 ```
 
 **Si la sortie diffère, ne pas continuer** : soit l'ancrage lit la mauvaise table (vérifier qu'aucun module de géométrie comme `293` n'apparaît), soit un module attendu manque. Le nombre exact et les quatre noms sont le critère de recette de cette tâche.
@@ -799,7 +799,7 @@ Dans `docs/02-architecture.md`, remplacer les lignes 4227 à 4244 (du titre `###
 | `golang.org/x/crypto` | argon2id | BSD-3 | non |
 | `golang.org/x/sys` | syscalls Windows/Linux, `windows/svc` | BSD-3 | non |
 
-**Quatre budgétées, non prises.** Elles figuraient dans cette table ; l'implémentation les a écartées une par une, et chaque refus est argumenté **dans le fichier qui les remplace**. Cette annexe est conservée et non effacée : c'est la base de preuve d'ADR-037, et la trace que ces quatre décisions ont été prises plutôt que subies.
+**Quatre budgétées, non prises.** Elles figuraient dans cette table ; l'implémentation les a écartées une par une, et chaque refus est argumenté **dans le fichier qui les remplace**. Cette annexe est conservée et non effacée : c'est la base de preuve d'ADR-039, et la trace que ces quatre décisions ont été prises plutôt que subies.
 
 | Module budgété | Ce qui s'est passé | Où c'est écrit | Forme du refus |
 |---|---|---|---|
@@ -812,7 +812,7 @@ Le quatrième est le plus instructif : **aucune ligne de code maison n'a remplac
 
 **Retirées par rapport à la synthèse** : `golang.org/x/text/encoding/charmap` (plus de mode texte natif, A2), `github.com/OpenPrinting/goipp` (CUPS/IPP hors V1, important-16), `gopkg.in/natefinch/lumberjack.v2` (remplacé par ~60 lignes de rotation maison : trois fichiers de 5 Mo, c'est une dépendance qu'on n'a pas besoin de maintenir 10 ans).
 
-**Aucune** dépendance de framework web, de logging, de configuration, de CLI, de migration, de mock, d'assertion — et ce n'est pas une préférence de style, c'est **ADR-037**, qui donne le critère et, ce qui compte autant, le critère de réouverture. L'inventaire des licences est `THIRD-PARTY.md`. **`make deps` échoue si une dépendance apparaît ou disparaît sans que cette table et celle de `THIRD-PARTY.md` soient mises à jour**, et la CI l'exécute — c'est ce contrôle qui manquait, et son absence est la raison pour laquelle cette table a annoncé dix modules pendant que le binaire en portait six.
+**Aucune** dépendance de framework web, de logging, de configuration, de CLI, de migration, de mock, d'assertion — et ce n'est pas une préférence de style, c'est **ADR-039**, qui donne le critère et, ce qui compte autant, le critère de réouverture. L'inventaire des licences est `THIRD-PARTY.md`. **`make deps` échoue si une dépendance apparaît ou disparaît sans que cette table et celle de `THIRD-PARTY.md` soient mises à jour**, et la CI l'exécute — c'est ce contrôle qui manquait, et son absence est la raison pour laquelle cette table a annoncé dix modules pendant que le binaire en portait six.
 ```
 
 - [ ] **Step 2: Vérifier que l'écart de §17.1 a disparu**
@@ -863,7 +863,7 @@ Dans `THIRD-PARTY.md`, remplacer de la ligne 9 (*« Les dix modules du périmèt
 ```markdown
 Les six modules du périmètre V1 (`docs/02-architecture.md` §17.1, qui liste en annexe les
 quatre budgétées et non prises). Aucun ne demande cgo — c'est une condition d'entrée, pas
-une observation (ADR-001). Et aucun n'est un framework — c'est ADR-037, qui donne le
+une observation (ADR-001). Et aucun n'est un framework — c'est ADR-039, qui donne le
 critère et son critère de réouverture.
 
 | Module | Rôle | Licence |
@@ -920,7 +920,7 @@ deps: 6 dépendances directes, déclarées à l'identique dans §17.1 et THIRD-P
 Retirer temporairement la ligne `| golang.org/x/crypto | argon2id | BSD-3-Clause |` de `THIRD-PARTY.md`, puis :
 
 Run: `go run ./tools/deps`
-Expected: un écart — *« golang.org/x/crypto est dans go.mod et absent de THIRD-PARTY.md — une dépendance entre par un ADR (ADR-037), jamais en silence »*, sortie 1.
+Expected: un écart — *« golang.org/x/crypto est dans go.mod et absent de THIRD-PARTY.md — une dépendance entre par un ADR (ADR-039), jamais en silence »*, sortie 1.
 
 Rétablir la ligne, puis relancer : vert. **Un contrôle qu'on n'a jamais vu échouer n'est pas un contrôle.**
 
@@ -947,14 +947,14 @@ EOF
 
 ---
 
-### Task 6: ADR-037
+### Task 6: ADR-039
 
 **Files:**
 - Modify: `docs/02-architecture.md` — insérer après le bloc ADR-036 (qui se termine par le paragraphe **Décision.** de l'ADR-036), avant le `---` qui précède `## 21. Inconnues à lever sur site`.
 
 **Interfaces:**
 - Consumes: l'annexe de §17.1 (tâche 4) comme base de preuve.
-- Produces: la référence `ADR-037`, citée par §17.1, `THIRD-PARTY.md` et les messages de `tools/deps`.
+- Produces: la référence `ADR-039`, citée par §17.1, `THIRD-PARTY.md` et les messages de `tools/deps`.
 
 **Forme.** Celle des ADR récents (034 à 036) : titre `### ADR-0NN — …`, puis une ligne **Statut** · **Date** · **Portée** · **Amende**, puis **Contexte.** / **Décision.** / **Conséquence.** Séparer d'ADR-036 par une ligne `---`, comme entre 035 et 036.
 
@@ -963,7 +963,7 @@ EOF
 ```markdown
 ---
 
-### ADR-037 — Une dépendance se justifie par la surface appelée, pas par la réputation du module
+### ADR-039 — Une dépendance se justifie par la surface appelée, pas par la réputation du module
 
 **Statut** : accepté · **Date** : 28/07/2026 · **Portée** : §17.1, `THIRD-PARTY.md`, `tools/deps` · **Complète** : ADR-001
 
@@ -995,7 +995,7 @@ Expected: vert — l'ADR n'ajoute aucune table `| Module |`.
 ```bash
 git add docs/02-architecture.md
 git commit -F - <<'EOF'
-docs(adr): ADR-037, une dependance se justifie par la surface appelee
+docs(adr): ADR-039, une dependance se justifie par la surface appelee
 
 Un critere plutot qu'une liste de refus : un critere explique les six
 dependances acceptees autant que les quatre refusees, se teste contre un
@@ -1049,7 +1049,7 @@ Après la cible `boundary` (l. 55-56), ajouter :
 
 ```makefile
 # deps vérifie que les dépendances DÉCLARÉES sont les dépendances RÉELLES : go.mod
-# comparé aux deux tables de l'inventaire, dans les deux sens (§17.1, ADR-037).
+# comparé aux deux tables de l'inventaire, dans les deux sens (§17.1, ADR-039).
 deps:
 	go run ./tools/deps
 ```
@@ -1150,7 +1150,7 @@ EOF
 
 ## Auto-revue du plan
 
-**Couverture de la spec.** Chaque section a sa tâche : §3 (ADR-037) → tâche 6 ; §4.1 (§17.1) → tâche 4 ; §4.2 (`THIRD-PARTY.md`, dont les deux effets de bord Apache-2.0 et l'absence d'inventaire des indirectes) → tâche 5 ; §5.1 à §5.3 (l'outil à trois voies, les deux sens, la lecture sans dépendance) → tâches 1 à 3 ; §5.4 (tests) → tâches 1 à 3 ; le câblage annoncé en tête de §5 → tâche 7 ; §7 (vérification) → tâche 7, steps 6 et 7. §6 (ce qui n'est pas fait) est repris dans les contraintes globales.
+**Couverture de la spec.** Chaque section a sa tâche : §3 (ADR-039) → tâche 6 ; §4.1 (§17.1) → tâche 4 ; §4.2 (`THIRD-PARTY.md`, dont les deux effets de bord Apache-2.0 et l'absence d'inventaire des indirectes) → tâche 5 ; §5.1 à §5.3 (l'outil à trois voies, les deux sens, la lecture sans dépendance) → tâches 1 à 3 ; §5.4 (tests) → tâches 1 à 3 ; le câblage annoncé en tête de §5 → tâche 7 ; §7 (vérification) → tâche 7, steps 6 et 7. §6 (ce qui n'est pas fait) est repris dans les contraintes globales.
 
 **Écart assumé par rapport à la spec.** §5.3 décrivait le repérage des tables par leur seul en-tête `| Module |`. La vérification a montré que `docs/02-architecture.md` porte **deux lignes de données** commençant ainsi (l. 1405 et 1518, géométrie du symbole EAN-13) : le repérage de la spec aurait lu la mauvaise table. Le plan ajoute donc deux garde-fous — l'ancrage sur `### 17.1` et l'exigence d'une ligne de séparation — et la tâche 2 les couvre par un test dédié (`TestTableModulesRefusesADataRowAsHeader`). C'est un durcissement, pas un changement de périmètre.
 

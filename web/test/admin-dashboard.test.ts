@@ -2,6 +2,7 @@ import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import Dashboard from '../src/admin/pages/Dashboard.svelte'
 import type { HealthDTO } from '../src/admin/lib/dto'
+import { preferences } from '../src/admin/lib/preferences.svelte'
 import { nominalHealth } from './fixtures/health'
 
 /**
@@ -18,6 +19,9 @@ let host: HTMLElement
 let component: Record<string, unknown> | null = null
 
 beforeEach(() => {
+  // La préférence est un singleton de module : sans remise à zéro, le test qui la coche
+  // la laisserait cochée pour tous ceux d'après.
+  preferences.showTechnicalNames = false
   host = document.createElement('div')
   document.body.appendChild(host)
 })
@@ -111,6 +115,47 @@ describe('le redémarrage sans intervention (bloquant-7)', () => {
     // doive attirer l'œil ressemblait à tous les autres.
     expect(line?.getAttribute('data-verdict')).toBe('missing')
     expect(host.textContent).toContain('netplwiz')
+  })
+})
+
+/**
+ * Le code d'un événement suit la même règle ici qu'au Journal, et pour la même raison.
+ *
+ * Les « dix derniers événements » sont le journal technique montré court : cacher
+ * `ERR-CAT-05` sur une page pour le montrer sur l'autre ne cacherait rien du tout. Le
+ * message français, lui, dit ce qui s'est passé sans avoir besoin du code.
+ */
+describe('le code technique des dix derniers événements', () => {
+  /** Un événement du journal technique, tel que `internal/web/health.go` le sert. */
+  function withEvent(): HealthDTO {
+    const health = nominal()
+    health.events = [
+      {
+        id: 1,
+        occurred_at: '2026-07-28T09:02:12.000Z',
+        level: 'error',
+        source: 'catalog',
+        code: 'ERR-CAT-05',
+        message: 'Le fichier du catalogue est illisible.',
+        detail: '',
+      },
+    ]
+    return health
+  }
+
+  it('reste caché tant que personne ne demande les noms techniques', () => {
+    show(withEvent())
+
+    expect(host.textContent).toContain('Le fichier du catalogue est illisible.')
+    expect(host.textContent).not.toContain('ERR-CAT-05')
+  })
+
+  it('revient là où il était dès que l’interrupteur est coché', () => {
+    preferences.showTechnicalNames = true
+
+    show(withEvent())
+
+    expect(host.querySelector('.events .code')?.textContent).toBe('ERR-CAT-05')
   })
 })
 

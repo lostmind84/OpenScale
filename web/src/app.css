@@ -26,6 +26,13 @@
   --fault: #b3261e; /* red: hardware failure, a volunteer acts */
   --focus: #1e5fa8;
 
+  /* The two solid fills of the administration. Here the colour is the BACKGROUND and the
+     ink is white, which is why these two exist rather than --focus and --fault: those cap
+     at 6,45:1 and 6,54:1 on white, under the 7:1 §14.2 demands beyond 24 px, where these
+     hold 8,05:1 and 7,71:1 whatever size a button takes tomorrow. */
+  --action: #17518f; /* blue: this act WRITES */
+  --danger: #a11f19; /* red: this act cannot be undone in one click */
+
   /* The same four hues washed to 10 % over --surface, computed once here rather
      than by color-mix(): a station renders on whatever browser the kiosk ships
      with, and a wash that silently falls back to transparent takes the meaning

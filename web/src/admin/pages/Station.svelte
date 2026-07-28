@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Act from '../components/Act.svelte'
   import Field from '../components/Field.svelte'
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
@@ -7,7 +8,9 @@
   import type { Difference } from '../lib/diff'
   import type { Draft } from '../lib/draft.svelte'
   import type { ConfigVersionDTO, FaultDTO, HealthDTO, ProblemDTO } from '../lib/dto'
+  import { labelOf } from '../lib/fields'
   import { frenchBytes, frenchDateTime, frenchInteger } from '../lib/format'
+  import { preferences } from '../lib/preferences.svelte'
   import type { Admin } from '../lib/session.svelte'
 
   /**
@@ -49,8 +52,8 @@
    *     states, and so are « no version » and « no answer »: an empty array was the value
    *     of both, and the reassuring sentence was the false one. Whatever is unknown says
    *     so — see {@link compared} and {@link versionsStanding};
-   *  7. compare `modified_at`, which no two stations can ever share (see
-   *     {@link NOT_COMPARED});
+   *  7. compare `modified_at`, which no two stations can ever share, or the WebDAV
+   *     password, which neither document carries in clear (see {@link NOT_COMPARED});
    *  8. promise less than the truth. The note now names the SIX things §11.5 strips, and
    *     the screen names the ones the file came back empty on before « Recopier » copies
    *     that emptiness (see {@link CLONE_STRIPS});
@@ -77,7 +80,7 @@
   const VERSIONS_SHOWN = 5
 
   /**
-   * The one key the comparison LEAVES OUT, and why it has to.
+   * The two keys the comparison LEAVES OUT, and why it has to.
    *
    * `modified_at` is stamped by whoever writes the file — `writeConfig` fills it from the
    * station's own clock on every save — so the file carried from station 1 holds the
@@ -86,8 +89,17 @@
    * at the exact moment §11.5 wanted somebody to read « rien ne change ». The fingerprint
    * of §11.5 clears the same field for the same reason (`Config.Fingerprint`), and copying
    * it into the draft would change nothing anyway — the next save overwrites it.
+   *
+   * `catalog.options.password` is a secret NEITHER document carries in clear: the station
+   * blanks it before serving anything (`configPayload`) and `Config.Export` deletes it
+   * outright, whatever `hardware` says. The row therefore compared « » to « — », which is
+   * a difference between two ways of not saying a password — and « Recopier » treated it
+   * like any other, wrote `undefined` into the draft, and `JSON.stringify` dropped the key
+   * on the way out. The cooperative's WebDAV account disappeared from the file through
+   * Importer → Recopier → Enregistrer, in silence. A write-only field has nothing to do in
+   * a field-by-field diff; the service carries the secret over on its own side.
    */
-  const NOT_COMPARED = new Set(['modified_at'])
+  const NOT_COMPARED = new Set(['modified_at', 'catalog.options.password'])
 
   /**
    * What a hardware-free export does NOT carry, and the French name of each.
@@ -130,7 +142,7 @@
   let candidate = $state<Record<string, unknown> | null>(null)
   /** The name of that file, so the panel can say which one it is talking about. */
   let candidateName = $state('')
-  /** What the 45 controls of §11.3 said of that file. */
+  /** What the 47 controls of §11.3 said of that file. */
   let candidateFaults = $state<FaultDTO[]>([])
   /** Which protected act is in flight, or an empty string. */
   let working = $state('')
@@ -441,7 +453,7 @@
    *
    * The file goes to the station rather than being compared in the browser, and that is a
    * PROTECTED act (ADR-033). The station strips what must not travel — the two secrets and
-   * the station number (§11.5) — and passes the 45 controls of §11.3 over it, so the diff
+   * the station number (§11.5) — and passes the 47 controls of §11.3 over it, so the diff
    * shows what would REALLY be applied and the refusals are known before anybody copies
    * anything.
    *
@@ -600,7 +612,7 @@
 <div class="pages">
   <Panel title="Identité du poste">
     <!--
-      The three fields carry their own refusal: the 45 controls of §11.3 name a KEY, and a
+      The three fields carry their own refusal: the 47 controls of §11.3 name a KEY, and a
       page that shows only the global banner leaves somebody hunting for which one.
     -->
     <Field
@@ -652,23 +664,37 @@
 
   <Panel
     title="Exporter, importer"
-    note="L’export sans le matériel est ce qui sert à cloner un poste (§11.5). Restent sur place : le mot de passe, le code de secours, le numéro et le nom du poste, les réglages de la balance, ceux de l’imprimante, la source du catalogue et le réseau. Voyage ce que les quatre postes doivent avoir en commun : tarifs, garde-fous, étiquette, catégories."
+    note="Pour installer un autre poste : ce fichier emporte les tarifs, les garde-fous, l’étiquette et les catégories. Tout ce qui est propre à ce poste-ci reste ici — le mot de passe, le code de secours, le numéro et le nom du poste, les réglages de la balance, ceux de l’imprimante, la source du catalogue et le réseau."
   >
     <div class="actions">
-      <button type="button" class="act" disabled={busy} onclick={() => void exportConfig(true)}>
-        {working === 'export-all' ? 'Export en cours…' : 'Exporter tout'}
-        <span class="key" title="Demande le mot de passe">clé</span>
-      </button>
-      <button type="button" class="act" disabled={busy} onclick={() => void exportConfig(false)}>
-        {working === 'export-clone' ? 'Export en cours…' : 'Exporter sans le matériel'}
-        <span class="key" title="Demande le mot de passe">clé</span>
-      </button>
+      <Act
+        label="Exporter tout"
+        protected
+        busy={working === 'export-all'}
+        disabled={busy}
+        onrun={() => void exportConfig(true)}
+      />
+      <Act
+        label="Exporter sans le matériel"
+        protected
+        busy={working === 'export-clone'}
+        disabled={busy}
+        onrun={() => void exportConfig(false)}
+      />
       <!--
-        A LABEL and not a button, and it gets the same press feedback all the same: a
-        command that answers nothing under the finger reads as a dead page, whatever
-        element it happens to be made of (§3.2).
+        A LABEL and not a button — turning it into one would break the file picker it
+        wraps — so it copies a family of `Act` by hand. It gets the press feedback of a
+        command all the same: one that answers nothing under the finger reads as a dead
+        page, whatever element it happens to be made of (§3.2).
+
+        The family is the NEUTRAL one, and it took a red to see why. Red means « this does
+        not undo itself in one click », and `POST /admin/api/config/import` applies
+        strictly nothing: it validates, and answers the diff a human then reads. The button
+        that DOES write — « Recopier » below — is blue, so the two were painted the wrong
+        way round from each other. An unearned red wears out the one that is earned, and
+        this page carries a real one ten lines further down, on the restore.
       -->
-      <label class="act" class:working={working === 'import'} class:off={busy}>
+      <label class="choose" class:working={working === 'import'} class:off={busy}>
         {working === 'import' ? 'Lecture du fichier…' : 'Importer un fichier'}
         <span class="key" title="Demande le mot de passe">clé</span>
         <input
@@ -681,8 +707,8 @@
     </div>
     <p class="fact muted">
       L’export emporte encore l’empreinte du mot de passe : c’est la seule lecture que le
-      poste garde derrière la clé (§11.5, ADR-033). L’import, lui, est lu PAR LE POSTE, qui
-      écarte les deux secrets et le numéro de poste avant de dire ce qui changerait.
+      poste garde derrière la clé. L’import, lui, est lu PAR LE POSTE, qui écarte les deux
+      secrets et le numéro de poste avant de dire ce qui changerait.
     </p>
 
     {#if servedError !== ''}
@@ -706,7 +732,15 @@
           <ul>
             {#each shownFaults as fault}
               <li>
-                <code>{fault.field}</code>
+                <!--
+                  The French name FIRST, as the save bar of `App.svelte` renders the very
+                  same refusals: the service answers a key plus a message, and « 99999 hors
+                  bornes [1, 50000] » names nothing on its own once the key is hidden. The
+                  two lists show the same object and must read the same way — one of them
+                  spelling the key out would put back on screen what the switch hides.
+                -->
+                <strong>{labelOf(fault.field)}</strong>
+                {#if preferences.showTechnicalNames}<code>{fault.field}</code>{/if}
                 {fault.message}
                 <!--
                   Half the control was being thrown away: `allowed` carries the values that
@@ -737,9 +771,9 @@
       {:else if diff.length === 0}
         <p class="fact same" data-same>
           Ce fichier décrit la même configuration que celle en service : il n’y a rien à
-          recopier. C’est ce qu’on veut lire à la fin d’un clonage (§11.5). La date du
-          dernier enregistrement n’est pas comparée — chaque poste écrit la sienne, et
-          l’empreinte de §11.5 l’ignore pour la même raison.
+          recopier. C’est ce qu’on veut lire à la fin d’un clonage. Deux champs ne sont pas
+          comparés : la date du dernier enregistrement, que chaque poste écrit lui-même, et
+          le mot de passe du catalogue, qu’aucun des deux ne porte en clair.
         </p>
       {:else}
         <p class="fact muted" data-tally="diff">
@@ -758,9 +792,27 @@
               </tr>
             </thead>
             <tbody>
+              <!--
+                The path stays the KEY of the row and its `data-path`, and stops being what
+                the row is named by. A dotted key identifies a line to whoever wrote the
+                file; it identifies nothing to the volunteer this table was widened for,
+                and the switch is what tells the two apart.
+
+                `labelOf` falls back to the path, so a row the index does not name stays
+                readable — a clone diff always carries a few of those, `pricing.tiers` and
+                `catalog.categories` among them. The `name !== entry.path` guard is what
+                keeps that fallback from being written twice in the same cell once the
+                switch is on.
+              -->
               {#each shownDiff as entry (entry.path)}
-                <tr>
-                  <td><code>{entry.path}</code></td>
+                {@const name = labelOf(entry.path)}
+                <tr data-path={entry.path}>
+                  <td>
+                    {name}
+                    {#if preferences.showTechnicalNames && name !== entry.path}
+                      <code>{entry.path}</code>
+                    {/if}
+                  </td>
                   <td>{entry.before}</td>
                   <td>{entry.after}</td>
                 </tr>
@@ -771,15 +823,15 @@
         {#if stripped.length > 0}
           <p class="fact warned" data-stripped>
             Ce fichier ne porte pas {frenchList(stripped.map((block) => block.name))} :
-            l’export sans le matériel les retire (§11.5), et l’import ne remet que le
-            numéro du poste. Les lignes correspondantes sont VIDES ci-dessus, et
+            l’export sans le matériel les retire, et l’import ne remet que le numéro du
+            poste. Les lignes correspondantes sont VIDES ci-dessus, et
             « Recopier » recopie ce vide dans le brouillon.
           </p>
         {/if}
         <div class="actions">
-          <button type="button" class="act" disabled={busy} onclick={() => void adopt()}>
-            {adoptLabel}
-          </button>
+          <!-- Blue and not red: what is copied over goes into the DRAFT, and nothing is
+               in service until « Enregistrer » has been touched. -->
+          <Act kind="write" label={adoptLabel} disabled={busy} onrun={() => void adopt()} />
         </div>
         <p class="fact muted">
           Recopier n’applique rien : les valeurs entrent dans le brouillon, et c’est
@@ -815,17 +867,14 @@
               <span class="what">version {frenchInteger(version.version)}</span>
               <span class="detail">{frenchDateTime(version.modified_at)}</span>
               <span class="detail">{version.config_fingerprint}</span>
-              <button
-                type="button"
-                class="act danger touch-target"
+              <Act
+                kind="destructive"
+                label="Remettre cette version en service"
+                protected
+                busy={working === `restore-${String(version.version)}`}
                 disabled={busy}
-                onclick={() => void restore(version.version)}
-              >
-                {working === `restore-${String(version.version)}`
-                  ? 'En cours…'
-                  : 'Remettre cette version en service'}
-                <span class="key" title="Demande le mot de passe">clé</span>
-              </button>
+                onrun={() => void restore(version.version)}
+              />
             </li>
           {/each}
         </ul>
@@ -889,15 +938,19 @@
   }
 
   /*
-   * A form control of the administration is 44 px and not the 72 px of the customer grid:
-   * this page is driven with a mouse (ADR-033). What keeps its 72 px is what cannot be
-   * undone in one click — putting a backup back in service.
+   * The file chooser, and the only control of this page that is not an `<Act>`: it is a
+   * `<label>` wrapping an `<input type="file">`, which a button cannot replace. It copies
+   * the NEUTRAL family of `Act` by hand — the tokens and the 44 px both, because in that
+   * component the family carries the height as much as the colour: 72 px belong to
+   * `destructive`, and reading a file into a diff is not one.
    */
-  .act {
+  .choose {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    height: 2.75rem;
+    /* The 44 px of the administration's form controls (ADR-033), spelled the way `.act`
+       spells them: this label is a command of the same page and the same density. */
+    min-height: 2.75rem;
     padding: 0 1rem;
     font-size: 1.0625rem;
     font-weight: 700;
@@ -915,7 +968,7 @@
   }
 
   /*
-   * The file chooser is a label: `button:active` of app.css does not reach it.
+   * `button:active` of app.css does not reach a label.
    *
    * It repeats that rule's `:not(:disabled)` AND adds `.off`, because a `<label>` has no
    * disabled state of its own: what is disabled is the `<input>` inside it. Without the
@@ -923,42 +976,42 @@
    * nothing at all — an answer to a dead gesture, which is the exact opposite of what §3.2
    * asks this feedback for.
    */
-  .act:active:not(:disabled):not(.off) {
+  .choose:active:not(.off) {
     transform: scale(0.975);
   }
 
+  /* The neutral family answers the pointer with its BORDER, exactly like `.read` of
+     `Act`: there is no solid background here to darken. */
   @media (hover: hover) {
-    .act:hover:not(:disabled) {
+    .choose:hover:not(.off) {
       border-color: var(--ink-muted);
       box-shadow: var(--shadow-2);
     }
   }
 
-  .act:disabled,
-  .act.off {
+  .choose.off {
     opacity: 0.5;
     box-shadow: none;
     cursor: default;
   }
 
-  .act.working {
+  /* The chooser that is reading stays FULLY legible: it is the one being watched. */
+  .choose.working {
+    opacity: 1;
     border-color: var(--waiting);
-    background: var(--waiting-wash);
   }
 
-  .act.danger {
-    /* Height comes from `.touch-target`, which imposes 72 px on this one alone. */
-    height: auto;
-    border-color: var(--fault);
-    background: var(--fault-wash);
-  }
-
-  .act input {
+  .choose input {
     display: none;
   }
 
   /* A key, not a red padlock: the act is possible, it only asks who you are. The word is
-     written out — an icon alone teaches nothing to whoever does not know it (§14.4). */
+     written out — an icon alone teaches nothing to whoever does not know it (§14.4).
+     The acts carry their own; this one belongs to the chooser, which is a label.
+
+     It takes the tokens `Act` gives a NEUTRAL button, and not the inverted pair: the
+     inversion exists so the badge does not dissolve into a solid fill, and there is no
+     longer a solid fill to dissolve into. */
   .key {
     padding: 0.0625rem 0.375rem;
     border-radius: var(--radius-pill);

@@ -20,6 +20,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +40,29 @@ const (
 
 // Label is the wording a volunteer reads in the drop-down list.
 const Label = "Répertoire de dépôt local"
+
+// DirectoryOption is the key that moves the watched directory off the station.
+//
+// It did not exist until a producer's export landed somewhere the service could not be
+// pointed at: the directory was a constant of this file, and the only way round it was
+// to mount something on top of it.
+const DirectoryOption = "directory"
+
+// Directory reports the directory this configuration watches, and whether the SERVICE
+// owns it.
+//
+// An empty option is the shipped case and keeps §10.1 word for word:
+// <data>/catalog/incoming, which the service creates. A directory a human NAMED is never
+// created here — a typo would build a tree nobody watches, and the station would wait for
+// a file in a place no human knows about. Control 46 refuses it long before New sees it.
+func Directory(c catalog.SourceConfig) (path string, owned bool) {
+	if chosen, ok := c.Catalog.Options.Text(DirectoryOption); ok {
+		if trimmed := strings.TrimSpace(chosen); trimmed != "" {
+			return filepath.Clean(trimmed), false
+		}
+	}
+	return filepath.Join(c.DataDir, "catalog", "incoming"), true
+}
 
 // Source is the local drop watcher.
 //
@@ -89,10 +113,11 @@ type Source struct {
 
 // New builds the source from what a configuration declares.
 //
-// It CREATES the two directories it uses. A station that has never received a catalog
-// must show an existing, named directory on its administration screen — « dropping a
-// file here » is not an instruction anybody can follow against a path that does not
-// exist yet.
+// It CREATES the directories IT OWNS. A station that has never received a catalog must
+// show an existing, named directory on its administration screen — « dropping a file
+// here » is not an instruction anybody can follow against a path that does not exist
+// yet. A drop directory somebody NAMED is the one exception, and it is refused rather
+// than created: see Directory.
 func New(c catalog.SourceConfig) (*Source, error) {
 	if c.Clock == nil {
 		return nil, errors.New("localdrop : une source de catalogue reçoit une horloge, jamais time.Now")
@@ -100,9 +125,15 @@ func New(c catalog.SourceConfig) (*Source, error) {
 	if c.DataDir == "" {
 		return nil, errors.New("localdrop : le répertoire de données du poste n'est pas déclaré")
 	}
-	directory := filepath.Join(c.DataDir, "catalog", "incoming")
-	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return nil, fmt.Errorf("localdrop : répertoire de dépôt %s : %w", directory, err)
+	directory, owned := Directory(c)
+	if owned {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			return nil, fmt.Errorf("localdrop : répertoire de dépôt %s : %w", directory, err)
+		}
+	} else if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+		return nil, fmt.Errorf(
+			"localdrop : le répertoire de dépôt %s n'existe pas ou n'est pas un répertoire : "+
+				"ce poste ne le crée pas, corrigez-le dans les réglages du catalogue", directory)
 	}
 	archive, err := catalog.NewArchive(filepath.Join(c.DataDir, "catalog", "archives"), c.Clock,
 		option(c, "max_archives", defaultMaxArchives), option(c, "archive_days", defaultArchiveDays))
@@ -381,11 +412,16 @@ func (s *Source) Close() error {
 // There is deliberately NO url, username or password here: a directory one owns needs
 // no secret, and control 41 refuses those keys on this source precisely so that the
 // authenticated channel stays the one that really is authenticated, `webdav`.
+//
+// The directory is a plain text option and carries no secret: a directory one owns needs
+// none, which is exactly why it may now be named without turning this source into the Z:
+// drive of the legacy application.
 func Descriptor() catalog.Source {
 	return catalog.Source{
 		ID:    domain.CatalogSourceLocalDrop,
 		Label: Label,
 		Options: []domain.OptionSchema{
+			{Key: DirectoryOption, Kind: domain.OptionText},
 			{Key: "separator", Kind: domain.OptionText},
 			{Key: "poll_interval_s", Kind: domain.OptionInt, Min: 1, Max: 3600},
 			{Key: "stable_polls", Kind: domain.OptionInt, Min: 2, Max: 60},

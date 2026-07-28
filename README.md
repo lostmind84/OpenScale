@@ -300,7 +300,7 @@ front. Rien d'autre — pas de chaîne C, pas de Docker.
 | `make front-check` | En plus : types, tests du front, et le **budget de poids** mesuré |
 | `make cover` | La couverture, avec les planchers par paquet de §16.4 |
 | `make boundary` | Les coupes architecturales de §5.2 |
-| `make deps` | Les dépendances déclarées contre celles de `go.mod` (§17.1, ADR-037) |
+| `make deps` | Les dépendances déclarées contre celles de `go.mod` (§17.1, ADR-039) |
 | `make dist` | Les trois binaires + `SHA256SUMS` |
 | `make release` | **Les archives d'installation** — voir « Déployer » |
 | `make clean` | Efface `bin/`, `dist/` et `coverage.out` |

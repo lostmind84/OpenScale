@@ -323,8 +323,10 @@ Write-Host "    Elle contient le mot de passe du compte Windows. Supprimez-la du
 Write-Host ' 2. REDÉMARREZ LA MACHINE et vérifiez que le poste revient SEUL sur'
 Write-Host "    l'écran client. Cette recette est OBLIGATOIRE : c'est la seule preuve"
 Write-Host "    que le poste se relèvera d'une coupure de courant."
-Write-Host " 3. Appui long de 3 secondes dans le coin bas-droit de l'écran client :"
-Write-Host "    l'assistant impose un mot de passe d'administration, puis réglez la"
-Write-Host '    balance, l''imprimante et le catalogue. Voir INSTALLATION.md.'
+Write-Host " 3. Bouton « Réglages » sur l'écran client — l'engrenage, tout à droite de la"
+Write-Host "    barre du bas —, page « Matériel », « Détecter automatiquement » : le poste"
+Write-Host "    demande alors le code de secours de la fiche et le mot de passe"
+Write-Host "    d'administration à poser. Réglez ensuite la balance, l'imprimante et le"
+Write-Host '    catalogue. Voir INSTALLATION.md.'
 Write-Host ''
 Write-Host " Journal de cette installation : $($paths.LogFile)"

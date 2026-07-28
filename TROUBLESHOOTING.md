@@ -7,10 +7,11 @@ chercher.
 
 **Les deux gestes qui servent presque toujours :**
 
-1. **Ouvrir l'écran de dépannage** : appui long de **3 secondes dans le coin bas-droit**
-   de l'écran client. Il n'y a pas de mot de passe pour l'ouvrir. Il montre six feux —
-   Balance, Imprimante, Rouleau, Catalogue, Disque, Journal — et **chaque feu qui n'est
-   pas vert dit ce qu'il faut faire**.
+1. **Ouvrir l'écran de dépannage** : touchez le bouton **Réglages** — l'engrenage, tout à
+   droite de la barre du bas de l'écran client —, puis **Dépannage** dans la colonne de
+   gauche. Il n'y a pas de mot de passe pour l'ouvrir. Il montre six feux — Balance,
+   Imprimante, Rouleau, Catalogue, Disque, Journal — et **chaque feu qui n'est pas vert
+   dit ce qu'il faut faire**.
 2. **Le bouton « Télécharger le fichier de diagnostic »**, sur ce même écran. Pas de mot
    de passe non plus. Le fichier obtenu contient tout ce qu'il faut pour comprendre à
    distance ; les mots de passe et les adresses de partage en sont retirés. **C'est ce

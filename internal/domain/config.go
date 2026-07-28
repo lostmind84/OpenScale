@@ -68,6 +68,13 @@ const (
 	ImageSourceNone = "none"
 )
 
+// catalogDirectoryOption is the key control 46 and control 47 both name.
+//
+// It is spelled here rather than imported from internal/catalog/localdrop: the domain
+// depends on NOTHING, and tools/boundary is what keeps that true. The two spellings are
+// tied together by a test in the localdrop package, which is the side that owns the name.
+const catalogDirectoryOption = "directory"
+
 // fingerprintLength is how many hexadecimal characters the dashboard shows.
 //
 // Eight is what makes "do the four stations display the same string?" a check
@@ -585,6 +592,23 @@ func (o DriverOptions) Has(key string) bool {
 // validation produce the faults in the same sequence.
 func (o DriverOptions) Keys() []string { return sortedKeys(o) }
 
+// WithText returns the same options with one key set to a string value.
+//
+// It never touches the receiver, for the reason clone exists: a DriverOptions is a MAP,
+// so a copy of a Config shares it with the configuration the station is running on, and
+// writing through one of them would change the other.
+func (o DriverOptions) WithText(key, value string) DriverOptions {
+	next := o.clone()
+	if next == nil {
+		next = make(DriverOptions, 1)
+	}
+	// json.Marshal of a string cannot fail: it escapes what it must, and replaces what is
+	// not valid UTF-8 rather than refusing it.
+	raw, _ := json.Marshal(value)
+	next[key] = raw
+	return next
+}
+
 // clone returns a shallow copy, so that Export can strip a secret without reaching
 // into the configuration the station is running on.
 func (o DriverOptions) clone() DriverOptions {
@@ -679,8 +703,8 @@ type DriverDescriptor struct {
 	Options []OptionSchema
 }
 
-// PathChecker answers the one question a pure validation cannot: is this path
-// readable FROM THE CONTEXT OF THE SERVICE?
+// PathChecker answers the questions a pure validation cannot: what can this path do
+// FROM THE CONTEXT OF THE SERVICE?
 //
 // It is an interface declared on the consumer side, and a nil one is a legitimate
 // state: `openscale config validate` on a laptop cannot know what the service
@@ -688,6 +712,12 @@ type DriverDescriptor struct {
 type PathChecker interface {
 	// Readable reports nil when the service could read that path.
 	Readable(path string) error
+	// Droppable reports nil when the service could create AND DELETE a file there.
+	//
+	// Two questions and not one: a catalog is acknowledged by DELETING it (ADR-004), so a
+	// directory the service may only read would make the same import loop for ever --
+	// applied, archived, and still there at the next poll.
+	Droppable(path string) error
 }
 
 // Registries carries the driver descriptors and the templates a running binary
@@ -706,7 +736,7 @@ type Registries struct {
 	// Templates is the label layouts this binary can load. Nil means "the templates
 	// compiled into the binary", which is where they live until L4.
 	Templates map[string]Template
-	// Paths probes the filesystem for control 44. Nil means "we cannot know".
+	// Paths probes the filesystem for controls 44 and 46. Nil means "we cannot know".
 	Paths PathChecker
 }
 
@@ -1194,6 +1224,30 @@ func (c *Config) Validate(reg Registries) []Fault {
 				"%d ko dépasse le plafond du fichier qui la contient (%d Mo) : une image ne peut pas être plus grosse que son catalogue",
 				imageKB, fileMB)
 		}
+	}
+
+	// 46. The NAMED drop directory must be one the SERVICE can really work in (§10.1).
+	//     Empty is the shipped case -- <data>/catalog/incoming, which the service owns
+	//     and creates -- so there is nothing to probe. A nil probe means "we cannot
+	//     know": `openscale config validate` on a laptop validates the form and not the
+	//     existence, exactly like control 44 on catalog.images.path.
+	if c.Catalog.Type == CatalogSourceLocalDrop && reg.Paths != nil {
+		if directory, ok := c.Catalog.Options.Text(catalogDirectoryOption); ok {
+			if named := strings.TrimSpace(directory); named != "" {
+				if err := reg.Paths.Droppable(named); err != nil {
+					fail("catalog.options."+catalogDirectoryOption, "%s", err)
+				}
+			}
+		}
+	}
+
+	// 47. The symmetry of 39: a drop directory means nothing to a WebDAV share, and a
+	//     key silently ignored is how a station ends up watching a directory nobody
+	//     believes it watches.
+	if c.Catalog.Type == CatalogSourceWebDAV && c.Catalog.Options.Has(catalogDirectoryOption) {
+		failWith("catalog.options."+catalogDirectoryOption, []string{CatalogSourceLocalDrop},
+			"%q ne surveille pas un répertoire de cette machine : c'est la source %q qui en surveille un",
+			CatalogSourceWebDAV, CatalogSourceLocalDrop)
 	}
 
 	return faults

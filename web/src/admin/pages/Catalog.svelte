@@ -1,10 +1,14 @@
 <script lang="ts">
   import { fetchCatalog } from '../../lib/api'
   import { ALL_CATEGORIES, filterProducts, type Product } from '../../lib/catalog'
+  import Act from '../components/Act.svelte'
+  import Field from '../components/Field.svelte'
   import Inventory from '../components/Inventory.svelte'
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
+  import type { Draft } from '../lib/draft.svelte'
   import type { DecisionDTO, FindingDTO, HealthDTO, ImportDTO } from '../lib/dto'
+  import { labelOf } from '../lib/fields'
   import { frenchDate, frenchDateTime, frenchInteger } from '../lib/format'
   import type { Admin } from '../lib/session.svelte'
 
@@ -40,10 +44,12 @@
    */
   interface Props {
     admin: Admin
+    /** The configuration document: this page edits the `catalog` block. */
+    draft: Draft
     health: HealthDTO
   }
 
-  const { admin, health }: Props = $props()
+  const { admin, draft, health }: Props = $props()
 
   /** How many products the search draws. Past that, the search gets narrowed. */
   const MATCHES_SHOWN = 20
@@ -83,6 +89,31 @@
     webdav: 'WebDAV',
     manual: 'déposé sur l’écran',
   }
+
+  /**
+   * The settings each source owns OUTRIGHT.
+   *
+   * Switching source wipes them, because the station refuses their mere PRESENCE under
+   * the other one: no account and no password to read a directory one owns (control 39),
+   * no directory of this machine behind an address (control 47). Without that clean-up,
+   * the one gesture this panel exists to offer came back as three refusals over fields
+   * nobody had filled in. What holds for both sources — the watch cadence, the separator,
+   * the ceilings — is not listed here and therefore never moves.
+   */
+  const OWN_OPTIONS: Record<string, string[]> = {
+    local_drop: ['catalog.options.directory'],
+    webdav: ['catalog.options.url', 'catalog.options.username', 'catalog.options.password'],
+  }
+
+  /**
+   * The source the document declares, empty for as long as it has not been read.
+   *
+   * No fallback on « dépôt local »: a document with no source is refused by the station
+   * (control 5), and ticking a radio in its place would have the screen read out a choice
+   * the file does not carry — then answer « aucune source de catalogue n'est déclarée » to
+   * a save that nothing had announced.
+   */
+  const source = $derived(draft.text('catalog.type'))
 
   let imports = $state<ImportDTO[]>([])
   let findings = $state<FindingDTO[]>([])
@@ -327,6 +358,24 @@
   }
 
   /**
+   * Chooses the catalog source, and wipes the settings of the other one.
+   *
+   * @param chosen - the source, as the service names it.
+   */
+  function chooseSource(chosen: string): void {
+    draft.set('catalog.type', chosen)
+    for (const [type, paths] of Object.entries(OWN_OPTIONS)) {
+      if (type === chosen) continue
+      for (const path of paths) draft.unset(path)
+    }
+  }
+
+  /** The message of the control that refused this key, empty when there is none. */
+  function faultOf(path: string): string {
+    return draft.faults.find((fault) => fault.field === path)?.message ?? ''
+  }
+
+  /**
    * Opens a product for decision, wherever it was picked from.
    *
    * The waiver field opens on the waiver IN FORCE and not empty: an empty field in front
@@ -563,6 +612,92 @@
 {/snippet}
 
 <div class="pages">
+  <!--
+    At the top of the page: where the catalog comes from is read before what it delivered.
+    The directory field only appears under the source that watches one, and the address
+    only under the source that queries one — an empty field under a source that ignores it
+    is an invitation to fill it in, and the station would refuse the save.
+  -->
+  <Panel title="Où le poste va chercher le catalogue">
+    <div class="choice" role="radiogroup" aria-label="Source du catalogue">
+      <label>
+        <input
+          type="radio"
+          name="catalog-source"
+          value="local_drop"
+          checked={source === 'local_drop'}
+          onchange={() => chooseSource('local_drop')}
+        />
+        Un répertoire de ce poste ou du réseau
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="catalog-source"
+          value="webdav"
+          checked={source === 'webdav'}
+          onchange={() => chooseSource('webdav')}
+        />
+        Un serveur WebDAV
+      </label>
+    </div>
+
+    {#if draft.config === null}
+      <p class="fact muted">Lecture des réglages du poste…</p>
+    {:else if source === 'local_drop'}
+      <Field
+        label={labelOf('catalog.options.directory')}
+        path="catalog.options.directory"
+        value={draft.text('catalog.options.directory')}
+        hint="Laissez vide pour le répertoire du poste, celui que le service crée lui-même. Un répertoire nommé ici doit exister : le poste ne le crée pas."
+        fault={faultOf('catalog.options.directory')}
+        onchange={(value) => draft.set('catalog.options.directory', value)}
+      />
+      <p class="fact muted">
+        Le poste y cherche le fichier <code>flv_{health.station}.csv</code>, et le supprime
+        une fois lu : c’est ce qui dit au producteur que la livraison est prise.
+      </p>
+    {:else if source === 'webdav'}
+      <Field
+        label={labelOf('catalog.options.url')}
+        path="catalog.options.url"
+        value={draft.text('catalog.options.url')}
+        fault={faultOf('catalog.options.url')}
+        onchange={(value) => draft.set('catalog.options.url', value)}
+      />
+      <Field
+        label={labelOf('catalog.options.username')}
+        path="catalog.options.username"
+        value={draft.text('catalog.options.username')}
+        fault={faultOf('catalog.options.username')}
+        onchange={(value) => draft.set('catalog.options.username', value)}
+      />
+      <!--
+        The field opens EMPTY and not on the value in service: the station no longer serves
+        the password to the browser. Left empty, it changes nothing.
+      -->
+      <Field
+        label={labelOf('catalog.options.password')}
+        path="catalog.options.password"
+        kind="password"
+        value=""
+        hint="Laissez vide : le mot de passe actuel est conservé."
+        fault={faultOf('catalog.options.password')}
+        onchange={(value) => draft.set('catalog.options.password', value)}
+      />
+      <p class="fact muted" data-webdav-warning>
+        Sur un serveur WebDAV, le dépôt d’un fichier CSV depuis cet écran n’est plus
+        possible : le poste n’a plus de répertoire local où l’écrire. C’est le seul recours
+        du jour de la mise en service.
+      </p>
+    {:else}
+      <p class="fact">
+        Ce poste ne déclare aucune source : choisissez-en une ci-dessus, sinon il n’ira
+        chercher aucun catalogue.
+      </p>
+    {/if}
+  </Panel>
+
   <Panel title="Dernier import">
     {#if health.catalog === null}
       <p class="fact">Aucun import enregistré sur ce poste.</p>
@@ -575,30 +710,28 @@
         : 'Source : ' + health.catalog_source.label}
     </p>
     <div class="actions">
-      <button
-        type="button"
-        class="act"
-        data-act="reload"
+      <Act
+        act="reload"
+        kind="write"
+        label="Recharger le catalogue"
+        protected
+        busy={working === 'reload'}
         disabled={busy}
-        onclick={() => void guarded('reload', api.reloadCatalogAsExpert)}
-      >
-        {working === 'reload' ? 'En cours…' : 'Recharger le catalogue'}
-        <span class="key" title="Demande le mot de passe">clé</span>
-      </button>
-      <button
-        type="button"
-        class="act danger touch-target"
-        data-act="quarantine"
+        onrun={() => void guarded('reload', api.reloadCatalogAsExpert)}
+      />
+      <Act
+        act="quarantine"
+        kind="destructive"
+        label="Oublier la quarantaine"
+        protected
+        busy={working === 'quarantine'}
         disabled={busy}
-        onclick={() => void guarded('quarantine', api.forgetQuarantine)}
-      >
-        {working === 'quarantine' ? 'En cours…' : 'Oublier la quarantaine'}
-        <span class="key" title="Demande le mot de passe">clé</span>
-      </button>
+        onrun={() => void guarded('quarantine', api.forgetQuarantine)}
+      />
     </div>
     <p class="fact muted">
       « Oublier la quarantaine » fait relire un fichier que le poste avait écarté : c’est le
-      seul geste de cette page qui puisse remettre en service un catalogue refusé (§10.5).
+      seul geste de cette page qui puisse remettre en service un catalogue refusé.
     </p>
   </Panel>
 
@@ -641,7 +774,7 @@
     </div>
     <p class="fact muted">
       Ce dépôt remplace toute la grille par le fichier apporté : il change ce que le poste
-      vend, et le mot de passe est donc demandé au moment du dépôt (ADR-033).
+      vend, et le mot de passe est donc demandé au moment du dépôt.
     </p>
   </Panel>
 
@@ -666,7 +799,7 @@
 
   <Panel
     title="Unités divergentes"
-    note="Le produit reste proposé : le code-barres fait foi, seul le libellé du prix est faux (§10.2)."
+    note="Le produit reste proposé : le code-barres fait foi, seul le libellé du prix est faux."
   >
     {#if historyState !== 'read'}
       <p class="fact" data-unread="mismatches">{findingsUnknown}</p>
@@ -698,7 +831,7 @@
 
   <Panel
     title="Produits retirés depuis l’import précédent"
-    note="Un produit absent du nouveau fichier est marqué retiré à sa date, jamais supprimé (§10.9)."
+    note="Un produit absent du nouveau fichier est marqué retiré à sa date, jamais supprimé."
   >
     {#if health.catalog === null}
       <p class="fact">Aucun import enregistré : rien n’a encore pu être retiré.</p>
@@ -717,7 +850,7 @@
 
   <Panel
     title="Décider d’un produit"
-    note="Une seule table de décisions humaines : « ne plus proposer » et la dérogation de poids en sont deux colonnes, écrites séparément (§14.5)."
+    note="Retirer un produit et l’autoriser à peser moins sont deux décisions séparées : l’une n’efface pas l’autre."
   >
     <label class="search" for="product-search">Chercher un produit</label>
     <input id="product-search" type="search" bind:value={query} placeholder="ail, tomme, œufs…" />
@@ -774,27 +907,25 @@
           <p class="what">Ce produit est-il proposé dans la grille ?</p>
           <div class="actions">
             {#if offeredInForce}
-              <button
-                type="button"
-                class="act danger touch-target"
-                data-act="offered"
+              <Act
+                act="offered"
+                kind="destructive"
+                label="Ne plus proposer ce produit"
+                protected
+                busy={working === 'offered'}
                 disabled={busy || !canWithdraw}
-                onclick={() => void setOffered(false)}
-              >
-                {working === 'offered' ? 'En cours…' : 'Ne plus proposer ce produit'}
-                <span class="key" title="Demande le mot de passe">clé</span>
-              </button>
+                onrun={() => void setOffered(false)}
+              />
             {:else}
-              <button
-                type="button"
-                class="act"
-                data-act="offered"
+              <Act
+                act="offered"
+                kind="write"
+                label="Le proposer de nouveau"
+                protected
+                busy={working === 'offered'}
                 disabled={busy || !canOfferAgain}
-                onclick={() => void setOffered(true)}
-              >
-                {working === 'offered' ? 'En cours…' : 'Le proposer de nouveau'}
-                <span class="key" title="Demande le mot de passe">clé</span>
-              </button>
+                onrun={() => void setOffered(true)}
+              />
             {/if}
           </div>
         </div>
@@ -817,27 +948,25 @@
             oninput={(event) => (waiver = event.currentTarget.value)}
           />
           <div class="actions">
-            <button
-              type="button"
-              class="act"
-              data-act="waiver"
+            <Act
+              act="waiver"
+              kind="write"
+              label="Enregistrer la dérogation"
+              protected
+              busy={working === 'waiver'}
               disabled={busy || !canSaveWaiver}
-              onclick={() => void setWaiver(typedWaiver)}
-            >
-              {working === 'waiver' ? 'En cours…' : 'Enregistrer la dérogation'}
-              <span class="key" title="Demande le mot de passe">clé</span>
-            </button>
+              onrun={() => void setWaiver(typedWaiver)}
+            />
             {#if waiverInForce !== null}
-              <button
-                type="button"
-                class="act"
-                data-act="waiver-off"
+              <Act
+                act="waiver-off"
+                kind="write"
+                label="Retirer la dérogation"
+                protected
+                busy={working === 'waiver-off'}
                 disabled={busy || !canDropWaiver}
-                onclick={() => void setWaiver(null)}
-              >
-                {working === 'waiver-off' ? 'En cours…' : 'Retirer la dérogation'}
-                <span class="key" title="Demande le mot de passe">clé</span>
-              </button>
+                onrun={() => void setWaiver(null)}
+              />
             {/if}
           </div>
           <p class="fact muted">
@@ -947,53 +1076,10 @@
     margin: 0.75rem 0 0;
   }
 
-  /*
-   * A form control of the administration is 44 px, and not the 72 px of the customer
-   * grid: this page is driven with a mouse (ADR-033). What keeps its 72 px is what
-   * cannot be undone in one click — forgetting the quarantine, taking a product out of
-   * the grid, and dropping a file that replaces the whole catalog.
-   */
-  .act {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    height: 2.75rem;
-    padding: 0 1rem;
-    font-size: 1.0625rem;
-    font-weight: 700;
-    color: var(--ink);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-1);
-    transition:
-      background-color var(--tap) var(--ease),
-      border-color var(--tap) var(--ease),
-      box-shadow var(--slide) var(--ease);
-  }
-
-  .act.danger {
-    /* Height comes from `.touch-target`, which imposes 72 px on this one alone. */
-    height: auto;
-    border-color: var(--fault);
-    background: var(--fault-wash);
-  }
-
-  @media (hover: hover) {
-    .act:hover:not(:disabled) {
-      border-color: var(--ink-muted);
-      box-shadow: var(--shadow-2);
-    }
-  }
-
-  .act:disabled {
-    opacity: 0.5;
-    box-shadow: none;
-    cursor: default;
-  }
-
   /* A key, not a red padlock: the act is possible, it only asks who you are. The word is
-     written out — an icon alone teaches nothing to whoever does not know it (§14.4). */
+     written out — an icon alone teaches nothing to whoever does not know it (§14.4). The
+     acts of this page carry their own; this one belongs to the drop zone, which is a
+     LABEL and not a button. */
   .key {
     padding: 0.0625rem 0.375rem;
     border-radius: var(--radius-pill);
@@ -1083,6 +1169,41 @@
     font-weight: 700;
   }
 
+  /*
+   * The two sources, one under the other: they rule each other out, and two lines compare
+   * better than two boxes side by side on a screen held to a reading width.
+   */
+  .choice {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .choice label {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    /* 44 px: the density of the administration's form controls. */
+    min-height: 2.75rem;
+    margin: 0;
+    font-weight: 400;
+  }
+
+  /*
+   * A radio button is not a text field, and the `input` rule of this page would hand it
+   * the width, the height, the border and the background of one. Everything is taken back
+   * here so that the browser draws it the way it draws a radio.
+   */
+  .choice input {
+    width: 1.5rem;
+    height: 1.5rem;
+    min-height: 0;
+    flex: 0 0 auto;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 0;
+  }
+
   input {
     min-height: 2.75rem;
     width: 100%;
@@ -1150,6 +1271,12 @@
     font-size: 1.125rem;
   }
 
+  /*
+   * The chooser wears the IRREVERSIBLE red of `Act`, without being one: a drop replaces
+   * the whole grid by the file brought in, and that is the same nature of act as
+   * withdrawing a product. It cannot become an `<Act>` — turning the label into a button
+   * would break the file picker it wraps — so it takes the token and nothing else.
+   */
   .choose {
     display: inline-flex;
     align-items: center;
@@ -1157,8 +1284,9 @@
     padding: 0 1rem;
     font-size: 1.125rem;
     font-weight: 700;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    color: var(--surface);
+    background: var(--danger);
+    border: 1px solid var(--danger);
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-1);
     cursor: pointer;
@@ -1182,9 +1310,11 @@
     }
   }
 
+  /* Same reading as `Act`: a solid background DARKENS under the pointer. Lightening it
+     drops the white ink below the 7:1 the token was chosen for. */
   @media (hover: hover) {
     .choose:hover {
-      border-color: var(--ink-muted);
+      filter: brightness(0.92);
     }
   }
 

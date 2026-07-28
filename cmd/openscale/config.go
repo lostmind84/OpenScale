@@ -247,7 +247,7 @@ func mintRecoveryCode(out io.Writer, path string) error {
 //
 // No echo suppression, and it is a deliberate refusal rather than an oversight: turning
 // the terminal echo off means a terminal package, which means a seventh module in a
-// perimeter §17.1 closes at six, bought for the one call it would take — ADR-037 weighs
+// perimeter §17.1 closes at six, bought for the one call it would take — ADR-039 weighs
 // a dependency on the surface actually called, and this one is a single call. The usage
 // text says the line is visible, and the machine it is typed on is the station's own
 // console.

@@ -176,7 +176,7 @@ const BREAKDOWNS: { what: string; id: string; level: string; says: RegExp; healt
     what: 'aucun compteur de rouleau n’est publié',
     id: 'roll',
     level: 'unknown',
-    says: /Réglages avancés → Matériel/u,
+    says: /page Matériel/u,
     health: nominalHealth({ roll: null }),
   },
 ]

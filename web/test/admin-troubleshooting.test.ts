@@ -22,6 +22,20 @@ const ADMIN = resolve(dirname(fileURLToPath(import.meta.url)), '../src/admin')
 const bigButton = readFileSync(resolve(ADMIN, 'components/BigButton.svelte'), 'utf8')
 const page = readFileSync(resolve(ADMIN, 'pages/Troubleshooting.svelte'), 'utf8')
 
+/** Le gros bouton dont le libellé porte ce fragment, du `<BigButton` à son `/>`. */
+function buttonSaying(fragment: string): string {
+  const found = [...page.matchAll(/<BigButton\b[\s\S]*?\/>/gu)]
+    .map((match) => match[0])
+    .find((markup) => markup.includes(fragment))
+  if (found === undefined) throw new Error(`aucun gros bouton « ${fragment} »`)
+  return found
+}
+
+/** La famille que ce bouton déclare — « read » quand il n'en déclare aucune. */
+function kindOf(markup: string): string {
+  return /kind="(\w+)"/u.exec(markup)?.[1] ?? 'read'
+}
+
 describe('les gros boutons de §14.4', () => {
   it('déclarent la cible tactile, et une hauteur au-delà', () => {
     expect(bigButton).toContain('touch-target')
@@ -75,5 +89,39 @@ describe('ce que chaque bouton dit avant et pendant', () => {
     // venait d'écarter : le bénévole repartait en croyant son catalogue à jour.
     expect(page).toContain('REFUSÉ')
     expect(page).toContain("record.result === 'rejected'")
+  })
+})
+
+/**
+ * La couleur d'un gros bouton dit CE QU'IL FAIT AU POSTE, et rien d'autre : neutre quand
+ * il l'interroge, bleu quand il l'écrit, rouge quand rien ne le défait d'un clic. C'est
+ * la seule information qu'un bénévole lit sans légende, et elle ne vaut que si elle est
+ * exacte sur les neuf.
+ */
+describe('la couleur dit la nature de l’acte', () => {
+  it.each([
+    ['Tester la balance', 'read'],
+    ['Tester l’imprimante', 'read'],
+    ['Imprimer une étiquette de test', 'read'],
+    ['Réimprimer la dernière', 'read'],
+    ['Recharger le catalogue', 'write'],
+    ['J’ai changé le rouleau', 'write'],
+    ['imprimante du poste voisin', 'write'],
+    ['Basculer en saisie manuelle', 'destructive'],
+  ])('« %s » est un acte « %s »', (fragment, kind) => {
+    expect(kindOf(buttonSaying(fragment))).toBe(kind)
+  })
+
+  it('donne à BigButton les deux fonds pleins, et une encre qui tient dessus', () => {
+    expect(bigButton).toContain('background: var(--action)')
+    expect(bigButton).toContain('background: var(--danger)')
+    // L'explication passe en encre claire : --ink-muted disparaîtrait dans le fond plein.
+    expect(bigButton).toMatch(/\.destructive \.hint[\s\S]*?color:\s*var\(--surface\)/u)
+  })
+
+  it('met le rouge sur la zone de dépôt sans en faire un bouton', () => {
+    // C'est un `<label>` habillant un `<input type="file">` : en faire un bouton casserait
+    // le sélecteur de fichier. Il prend le jeton, pas le composant.
+    expect(page).toMatch(/\.choose\s*\{[^}]*background:\s*var\(--danger\)/u)
   })
 })

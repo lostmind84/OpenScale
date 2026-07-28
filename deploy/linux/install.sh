@@ -211,9 +211,11 @@ cat <<FINAL
  2. REDÉMARREZ LA MACHINE et vérifiez que le poste revient SEUL sur
     l'écran client. Cette recette est OBLIGATOIRE : c'est la seule preuve
     que le poste se relèvera d'une coupure de courant.
- 3. Appui long de 3 secondes dans le coin bas-droit de l'écran client :
-    l'assistant impose un mot de passe d'administration, puis réglez la
-    balance, l'imprimante et le catalogue. Voir INSTALLATION.md.
+ 3. Bouton « Réglages » sur l'écran client — l'engrenage, tout à droite de la
+    barre du bas —, page « Matériel », « Détecter automatiquement » : le poste
+    demande alors le code de secours de la fiche et le mot de passe
+    d'administration à poser. Réglez ensuite la balance, l'imprimante et le
+    catalogue. Voir INSTALLATION.md.
 
  Journal du service :  journalctl -u openscale -f
 FINAL

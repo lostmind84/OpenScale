@@ -412,7 +412,7 @@ describe('ce que la page écrit dans le document', () => {
   })
 })
 
-describe('les refus des 45 contrôles, sur les clés que cette page édite', () => {
+describe('les refus des 47 contrôles, sur les clés que cette page édite', () => {
   it('montre le refus de chaque clé À CÔTÉ d’elle, décalages compris', async () => {
     await open()
 
@@ -464,8 +464,8 @@ describe('les deux auto-tests d’impression', () => {
     await settle(1)
 
     // Une impression prend des secondes : sans état « en cours », le deuxième appui sort
-    // une deuxième étiquette.
-    expect(text()).toContain('Impression en cours…')
+    // une deuxième étiquette. La phrase est celle d'`Act`, la même sur les six pages.
+    expect(text()).toContain('En cours…')
     expect(button('Imprimer la réglette').disabled).toBe(true)
 
     release()
@@ -481,8 +481,9 @@ describe('le bandeau chiffré de Diagnose(), que §14.4 demande', () => {
     await open()
 
     // Aucune route ne les porte et aucun DTO n'a de champ pour eux : la troncature reste
-    // annoncée (ADR-003), les chiffres sont annoncés ABSENTS.
+    // annoncée (ADR-003), les chiffres sont annoncés ABSENTS. Le renvoi, lui, vit dans ce
+    // commentaire-ci et plus dans la phrase : l'écran dit le fait, pas où il est décidé.
     expect(host.querySelector('[data-diagnose-absent]')).not.toBeNull()
-    expect(text()).toContain('volontairement tronqué (ADR-003)')
+    expect(text()).toContain('volontairement tronqué')
   })
 })

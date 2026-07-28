@@ -182,13 +182,20 @@
     />
     <BigButton
       label="Recharger le catalogue"
+      kind="write"
       hint="La veille refait tout de suite le contrôle qu’elle fait toutes les cinq secondes."
       busy={working === 'reload'}
       disabled={busy}
       onrun={() => void run('reload', api.reloadCatalog)}
     />
+    <!--
+      Red in both directions: cutting the scale out AND putting it back both change the way
+      the station weighs, and the volunteer coming back has to read it as plainly as the
+      one switching over.
+    -->
     <BigButton
       label={manual ? 'Revenir à la balance' : 'Basculer en saisie manuelle'}
+      kind="destructive"
       hint={manual
         ? 'Le poids sera de nouveau lu sur la balance.'
         : 'Le poids se tape à la main : le poste continue de servir sans balance.'}
@@ -200,6 +207,7 @@
     />
     <BigButton
       label="J’ai changé le rouleau"
+      kind="write"
       hint="Le compteur d’étiquettes repart à zéro. C’est le seul geste qui dise quelque chose de vrai du papier."
       busy={working === 'roll'}
       disabled={busy}
@@ -208,6 +216,7 @@
     {#if routing !== null && routing.fallback_available}
       <BigButton
         label={onFallback ? 'Revenir à l’imprimante du poste' : 'Imprimer sur l’imprimante du poste voisin'}
+        kind="write"
         hint={onFallback
           ? 'Les étiquettes repartiront sur l’imprimante de ce poste.'
           : 'Les étiquettes sortiront sur l’imprimante voisine, pour cette session seulement.'}
@@ -242,7 +251,10 @@
         void importFile(event.dataTransfer?.files.item(0))
       }}
     >
-      <p>Déposez ici le fichier <code>flv_{health.station}.csv</code></p>
+      <p>
+        Déposez ici le fichier <code>flv_{health.station}.csv</code>
+        <span class="key" title="Demande le mot de passe">clé</span>
+      </p>
       <label class="choose touch-target">
         Choisir un fichier
         <input
@@ -337,15 +349,44 @@
     font-size: 1.125rem;
   }
 
+  /* A key, not a red padlock: the act is possible, it only asks who you are. The word is
+     written out — an icon alone teaches nothing to whoever does not know it. The badge is
+     the same one the Catalogue page puts on the SAME drop zone: `POST
+     /admin/api/catalog/import` is a guarded route, and an act cannot announce itself
+     differently depending on the screen it is reached from. */
+  .key {
+    padding: 0.0625rem 0.375rem;
+    border-radius: var(--radius-pill);
+    background: var(--bg);
+    color: var(--ink-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* The IRREVERSIBLE red of `Act`, without being one: a drop replaces the WHOLE grid by
+     the file brought in. It stays a `<label>` — turning it into a button would break the
+     file picker it wraps. */
   .choose {
     display: inline-flex;
     align-items: center;
     padding: 0 1rem;
     font-size: 1.125rem;
     font-weight: 700;
-    border: 1px solid var(--border);
+    color: var(--surface);
+    background: var(--danger);
+    border: 1px solid var(--danger);
     border-radius: var(--radius);
     cursor: pointer;
+  }
+
+  /* A solid fill DARKENS on hover: lightening it would drop the white ink below the 7:1
+     the hue was chosen for. */
+  @media (hover: hover) {
+    .choose:hover {
+      filter: brightness(0.92);
+    }
   }
 
   .choose input {
