@@ -8,12 +8,13 @@ import (
 
 // A MINIMAL PDF, WRITTEN BY HAND — AND WHY THERE IS NO DEPENDENCY HERE.
 //
-// §17.1 budgets github.com/go-pdf/fpdf for "le PDF d'aperçu". What this package has
-// to produce is ONE page carrying ONE bitmap: five objects, a table of byte offsets
-// and a trailer. A dependency costs a licence line, a supply chain and ten years of
-// maintenance, and the single property that makes this file worth writing — a page
-// declared in points derived from the micrometres of the template — is arithmetic,
-// not a feature a library provides more reliably than a division does.
+// §17.1 budgeted github.com/go-pdf/fpdf for "le PDF d'aperçu" and did not take it.
+// What this package has to produce is ONE page carrying ONE bitmap: five objects, a
+// table of byte offsets and a trailer. A dependency costs a licence line, a supply
+// chain and ten years of maintenance, and the single property that makes this file
+// worth writing — a page declared in points derived from the micrometres of the
+// template — is arithmetic, not a feature a library provides more reliably than a
+// division does.
 //
 // The five objects, and there are never more:
 //

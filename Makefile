@@ -64,6 +64,7 @@ test: vet
 	CGO_ENABLED=1 go test ./... -race -count=1
 	CGO_ENABLED=0 go test ./... -count=1
 	$(MAKE) boundary
+	$(MAKE) deps
 
 # Couverture par paquet, avec les seuils de §16.4 : domain 95 %, scale 90 %,
 # printing 80 %, catalog 85 %.

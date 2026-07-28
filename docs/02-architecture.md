@@ -4195,11 +4195,15 @@ front:
 boundary:
 	@./tools/boundary/check.sh          # imports forbidden from internal/domain
 
+deps:
+	@go run ./tools/deps                # go.mod vs §17.1 and THIRD-PARTY.md (ADR-037)
+
 test: front
 	go vet ./...
 	CGO_ENABLED=1 go test ./... -race -count=1   # needs mingw-w64 on Windows (README)
 	CGO_ENABLED=0 go test ./... -count=1         # ★ proves the SHIPPED config builds without cgo
 	$(MAKE) boundary
+	$(MAKE) deps
 
 build: front
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/balance ./cmd/openscale
@@ -4214,7 +4218,7 @@ dist: test
 
 Le second passage `CGO_ENABLED=0 go test` est **ce qui protège la contrainte 2** : il prouve que la configuration réellement livrée compile et passe. En CI, le job `-race` est restreint à `linux/amd64` ; `mingw-w64` est documenté comme prérequis de développement sous Windows dans le README.
 
-Pipeline : `npm ci && npm run build` **avant** `go` (`//go:embed all:dist`) · `vitest` · `go vet` · `staticcheck` · `make boundary` · `go test -race` · couverture (`domain` 95 %, `scale` 90 %, `printing` 80 %, `catalog` 85 %) · **3 cibles en `CGO_ENABLED=0`** · Playwright contre le binaire réel.
+Pipeline : `npm ci && npm run build` **avant** `go` (`//go:embed all:dist`) · `vitest` · `go vet` · `staticcheck` · `make boundary` · `make deps` · `go test -race` · couverture (`domain` 95 %, `scale` 90 %, `printing` 80 %, `catalog` 85 %) · **3 cibles en `CGO_ENABLED=0`** · Playwright contre le binaire réel.
 
 - **`go test ./... -race -count=1` doit passer en < 10 s.** Si un test a besoin d'un `time.Sleep`, c'est que la dépendance temporelle n'a pas été extraite — critère de conception, pas consigne.
 - **Aucun diff byte-exact sur `web/dist`** : les sorties Vite ne sont pas reproductibles entre versions de Node ; le garde-fou est le Playwright contre le dist fraîchement rebâti.
@@ -4623,7 +4627,7 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 
 ### ADR-037 — Une dépendance se justifie par la surface appelée, pas par la réputation du module
 
-**Statut** : accepté · **Date** : 28/07/2026 · **Portée** : §17.1, `THIRD-PARTY.md`, `tools/deps` · **Complète** : ADR-001
+**Statut** : accepté · **Date** : 28/07/2026 · **Portée** : §8.4, §17.1, `THIRD-PARTY.md`, `tools/deps`, `Makefile`, `make.ps1`, `.github/workflows/ci.yml` · **Complète** : ADR-001
 
 **Contexte.** La question a été posée dans les termes où elle se pose toujours : pourquoi ne pas prendre un framework HTTP, un ORM, un framework d'injection, tous éprouvés, plutôt que d'écrire à la main ? En allant vérifier l'état du dépôt avant d'y répondre, trois choses sont apparues. Le code avait déjà **refusé quatre des dix dépendances** que §17.1 budgétait, chaque fois avec une raison écrite dans le fichier qui les remplace — mais la règle commune n'était formulée nulle part. Le fichier de justification annoncé, `docs/adr/0018-dependencies.md`, **n'existait pas**. Et le garde-fou promis par la même ligne — « la CI échoue si une nouvelle apparaît » — **n'existait pas non plus** : rien n'empêchait d'ajouter un framework sans que personne ne le voie.
 

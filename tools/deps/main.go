@@ -53,8 +53,14 @@ func directRequires(gomod string) map[string]bool {
 			continue
 		}
 
+		// The marker is EXACTLY the one `go mod tidy` writes, and the test is exact
+		// for that reason. A direct require whose comment merely holds the word --
+		// « golang.org/x/sys v0.46.0 // needed for indirect syscalls » -- would
+		// otherwise drop out of this set, and the tool would then blame the
+		// documentation, loudly and twice, for a module the documentation lists
+		// correctly. A checker that misleads is worse than no checker.
 		if comment := strings.Index(declaration, "//"); comment >= 0 {
-			if strings.Contains(declaration[comment:], "indirect") {
+			if strings.TrimSpace(declaration[comment+len("//"):]) == "indirect" {
 				continue
 			}
 			declaration = declaration[:comment]
@@ -71,9 +77,9 @@ func directRequires(gomod string) map[string]bool {
 	return modules
 }
 
-// tableModules lists the modules declared by the first inventory table of a
-// document. `after` anchors the search to a heading -- "### 17.1" -- or is empty
-// to search from the top.
+// tableModules lists the modules declared by THE inventory table of a document.
+// `after` anchors the search to a heading -- "### 17.1" -- or is empty to search
+// the whole document.
 //
 // TWO INDEPENDENT GUARDS, and both are needed. docs/02-architecture.md carries
 // three lines beginning with "| Module |": the inventory of §17.1, and TWO DATA
@@ -85,13 +91,25 @@ func directRequires(gomod string) map[string]bool {
 //  2. a header row is followed by a separator row. That is the grammar of the
 //     format, and the two decoy rows are followed by another data row.
 //
+// THE ANCHOR IS A SECTION AND NOT A STARTING POINT. The scan stops at the next
+// heading of the same level or higher, because an unbounded one would let ANY
+// later section of a four-thousand-line document offer itself as the inventory
+// of §17.1 -- it would only have to spell one header cell the right way.
+//
+// AND THE SECTION CARRIES EXACTLY ONE. Reading « the first » table would let a
+// second one live in the same section unread: renaming the annex header of §17.1
+// from « | Module budgété | » to « | Module | » is a plausible tidy-up, and it
+// must break this check rather than pass in silence while §17.1 visibly lists
+// four modules the binary does not carry. A checker whose whole thesis is that an
+// untooled rule erodes cannot itself hang on a column being spelled one way.
+//
 // An absent table is an ERROR and never an empty inventory: a renamed or moved
 // table must break this check, never disable it in silence. Silence is exactly
 // how the promise of §17.1 was lost for the length of the project.
 func tableModules(markdown, after string) (map[string]bool, error) {
 	lines := strings.Split(markdown, "\n")
 
-	first := 0
+	first, end := 0, len(lines)
 	if after != "" {
 		first = -1
 		for i, line := range lines {
@@ -103,21 +121,24 @@ func tableModules(markdown, after string) (map[string]bool, error) {
 		if first < 0 {
 			return nil, fmt.Errorf("le titre %q est introuvable", after)
 		}
+		end = sectionEnd(lines, first, headingLevel(after))
 	}
 
-	header := -1
-	for i := first; i < len(lines)-1; i++ {
+	var headers []int
+	for i := first; i < end-1; i++ {
 		if strings.HasPrefix(strings.TrimSpace(lines[i]), "| Module |") && isSeparatorRow(lines[i+1]) {
-			header = i
-			break
+			headers = append(headers, i)
 		}
 	}
-	if header < 0 {
+	switch {
+	case len(headers) == 0:
 		return nil, fmt.Errorf("aucune table dont l'en-tête est « | Module | » suivie d'une ligne de séparation")
+	case len(headers) > 1:
+		return nil, fmt.Errorf("deux tables d'inventaire dans la même portée, lignes %d et %d : une seule table peut être l'inventaire", headers[0]+1, headers[1]+1)
 	}
 
 	modules := make(map[string]bool)
-	for _, line := range lines[header+2:] {
+	for _, line := range lines[headers[0]+2 : end] {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "|") {
 			break
@@ -130,6 +151,29 @@ func tableModules(markdown, after string) (map[string]bool, error) {
 		modules[name] = true
 	}
 	return modules, nil
+}
+
+// headingLevel counts the leading '#' of a Markdown heading, which is what tells
+// « ### 17.1 » from « ## 17. » and therefore how far a section reaches.
+func headingLevel(heading string) int {
+	return len(heading) - len(strings.TrimLeft(heading, "#"))
+}
+
+// sectionEnd gives the line at which the section opened on `start` stops: the next
+// heading of the same level or higher, or the end of the document.
+//
+// A DEEPER heading does NOT close a section -- « #### 17.1.1 » is inside §17.1 --
+// which is why the level is compared and not merely detected. The space after the
+// hashes is required by the format and it is what separates a heading from a « #! »
+// or from a colour written in a table cell.
+func sectionEnd(lines []string, start, level int) int {
+	for i := start + 1; i < len(lines); i++ {
+		depth := headingLevel(lines[i])
+		if depth > 0 && depth <= level && strings.HasPrefix(lines[i][depth:], " ") {
+			return i
+		}
+	}
+	return len(lines)
 }
 
 // isSeparatorRow reports whether a line is the |---|---| row that Markdown puts

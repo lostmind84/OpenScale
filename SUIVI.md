@@ -341,7 +341,9 @@ démarrage, inatteignables sans tuer le processus — c'est leur raison d'être.
 | ~~`BALANCE_` contre `OPENSCALE_` dans le glossaire~~ | **Corrigé en L4** : le préfixe réel est `OPENSCALE_`, et c'est le code qui a tranché |
 
 **Licence retenue : AGPL-3.0-or-later** (`LICENSE`, `THIRD-PARTY.md`). Le point qui a
-tranché : Apache-2.0, portée par `oklog/ulid`, n'est compatible qu'avec la GPL **version 3**.
+tranché : Apache-2.0, portée par `typescript` — une dépendance de développement du front,
+jamais livrée —, n'est compatible qu'avec la GPL **version 3**. Les six dépendances Go du
+binaire sont toutes BSD-3-Clause.
 
 ---
 

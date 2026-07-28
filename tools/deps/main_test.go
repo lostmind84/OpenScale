@@ -109,6 +109,108 @@ func TestTableModulesReadsTheInventoryOfSection171(t *testing.T) {
 	}
 }
 
+func TestDirectRequiresKeepsARequireWhoseCommentMerelyHoldsTheWord(t *testing.T) {
+	// The adversarial case: a direct require documented with a sentence in which
+	// « indirect » is an adjective. A loose test drops it, and the tool then
+	// reports TWO écarts blaming §17.1 and THIRD-PARTY.md, which are both right.
+	const gomod = `module openscale
+
+require (
+	golang.org/x/sys v0.46.0 // needed for indirect syscalls
+	modernc.org/libc v1.74.1 // indirect
+)
+`
+
+	got := directRequires(gomod)
+
+	if !got["golang.org/x/sys"] {
+		t.Error("directRequires : un require direct dont le commentaire contient le mot reste direct")
+	}
+	if got["modernc.org/libc"] {
+		t.Error("directRequires : le marqueur exact « // indirect » doit toujours écarter")
+	}
+	if len(got) != 1 {
+		t.Errorf("directRequires : %d modules, attendu 1 — %v", len(got), got)
+	}
+}
+
+func TestTableModulesRefusesTwoInventoriesInTheSameSection(t *testing.T) {
+	// The annex header renamed from « | Module budgété | » to « | Module | » --
+	// a plausible tidy-up. It must break the check, not silently pass while §17.1
+	// lists four modules the binary does not carry.
+	const architecture = "" +
+		"### 17.1 Dépendances\n" +
+		"\n" +
+		"| Module | Rôle | Licence | cgo |\n" +
+		"|---|---|---|---|\n" +
+		"| `modernc.org/sqlite` | base | BSD-3 | non |\n" +
+		"\n" +
+		"**Quatre budgétées, non prises.**\n" +
+		"\n" +
+		"| Module | Ce qui s'est passé | Forme |\n" +
+		"|---|---|---|\n" +
+		"| `github.com/oklog/ulid/v2` | le front frappe la clé | sans objet |\n"
+
+	_, err := tableModules(architecture, "### 17.1")
+	if err == nil {
+		t.Fatal("tableModules : deux tables « | Module | » dans la portée doivent être une erreur")
+	}
+	// BOTH line numbers, because the repair is to look at the two tables and decide
+	// which one is the inventory. One number alone sends a reader to the wrong table
+	// half the time.
+	if !strings.Contains(err.Error(), "lignes 3 et 9") {
+		t.Errorf("tableModules : l'erreur doit nommer les DEUX lignes 3 et 9 — %v", err)
+	}
+	// Distinguishable from « aucune table » : the two failures call for opposite
+	// repairs, and a CI log is read once.
+	if strings.Contains(err.Error(), "aucune table") {
+		t.Errorf("tableModules : deux tables ne se signalent pas comme une table absente — %v", err)
+	}
+}
+
+func TestTableModulesIgnoresATableBeyondTheAnchoredSection(t *testing.T) {
+	// The inventory is GONE from §17.1 and the only « | Module | » table of the
+	// document sits in the section that follows. Reading it would mean checking
+	// go.mod against a table nobody meant as the inventory.
+	const architecture = "" +
+		"### 17.1 Dépendances\n" +
+		"\n" +
+		"L'inventaire a été déplacé.\n" +
+		"\n" +
+		"### 17.2 Le livrable\n" +
+		"\n" +
+		"| Module | Rôle | Licence | cgo |\n" +
+		"|---|---|---|---|\n" +
+		"| `modernc.org/sqlite` | base | BSD-3 | non |\n"
+
+	if _, err := tableModules(architecture, "### 17.1"); err == nil {
+		t.Fatal("tableModules : une table de la section SUIVANTE ne doit pas servir d'inventaire")
+	}
+}
+
+func TestTableModulesStaysInsideDeeperHeadings(t *testing.T) {
+	// A deeper heading does not close the section: « #### » is INSIDE §17.1, and
+	// the bound must not become a second way of losing the inventory.
+	const architecture = "" +
+		"### 17.1 Dépendances\n" +
+		"\n" +
+		"#### Les six retenues\n" +
+		"\n" +
+		"| Module | Rôle | Licence | cgo |\n" +
+		"|---|---|---|---|\n" +
+		"| `modernc.org/sqlite` | base | BSD-3 | non |\n" +
+		"\n" +
+		"### 17.2 Le livrable\n"
+
+	got, err := tableModules(architecture, "### 17.1")
+	if err != nil {
+		t.Fatalf("tableModules : %v", err)
+	}
+	if len(got) != 1 || !got["modernc.org/sqlite"] {
+		t.Errorf("tableModules : %v", got)
+	}
+}
+
 func TestTableModulesRefusesADataRowAsHeader(t *testing.T) {
 	// Without the separator-row requirement, this reads « 293 » as a module.
 	const decoyOnly = "" +

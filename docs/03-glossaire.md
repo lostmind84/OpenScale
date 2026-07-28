@@ -82,6 +82,8 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `testdata/` · `deploy/{windows,linux}/` · `migrations/` | identiques | Déjà anglais. |
 | `tools/frontiere/verifier.sh` | `tools/boundary/check.sh` | « les cinq coupes » = frontières architecturales = boundaries. |
 | cible Makefile `frontiere` | cible Makefile `boundary` | `make boundary` ; cohérent avec `tools/boundary/`. |
+| `tools/dependances/` | `tools/deps/` | Compare `go.mod` aux deux tables d'inventaire (§17.1, `THIRD-PARTY.md`), dans les deux sens. `deps` est l'abréviation qu'emploie déjà `go mod`, et elle nomme le répertoire comme la cible. |
+| cible Makefile `dependances` | cible Makefile `deps` | `make deps` ; cohérent avec `tools/deps/`, comme `make boundary` l'est avec `tools/boundary/` (ADR-037). |
 | `<donnees>/` | `<data>/` | Répertoire de données ; flag `--data`, variable `OPENSCALE_DATA`. |
 | `<donnees>/catalogue/entrant/` | `<data>/catalog/incoming/` | Répertoire surveillé du dépôt local. |
 | `<donnees>/catalogue/{archives,rejets}/` | `<data>/catalog/{archives,rejected}/` | « rejets » = fichiers rejetés. |

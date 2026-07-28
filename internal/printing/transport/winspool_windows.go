@@ -15,13 +15,15 @@ import (
 // write, end, close. Everything that can be decided without a spooler lives above the
 // QueueOpener seam and is tested there.
 //
-// WHY syscall AND NOT github.com/alexbrainman/printer, which §8.4 names. That module is
-// the documented choice and it is the right one — it is these very seven calls, wrapped
-// — but pulling it in means editing go.mod, go.sum and THIRD-PARTY.md, and this lot is
-// scoped to internal/printing/transport. The standard library reaches winspool.drv
+// WHY syscall AND NOT github.com/alexbrainman/printer. That module was budgeted and it
+// was REFUSED, and ADR-037 gives the form of the refusal: a surface too small. What this
+// package would call of it is the seven lazily-bound entry points of winspool.drv listed
+// just below — and seven calls do not buy a licence line, a supply-chain link and ten
+// years of upgrades nobody will do on site. The standard library reaches winspool.drv
 // through syscall.NewLazyDLL with no cgo and no dependency, which is what the project
-// rule « préfère la bibliothèque standard » asks for. The call sequence is identical, so
-// swapping in the module later changes this file and nothing else.
+// rule « préfère la bibliothèque standard » asks for. Reopening the question stays
+// possible, at the price ADR-037 sets: an ADR that amends it, plus a row in §17.1 and a
+// row in THIRD-PARTY.md — without the three, `make deps` fails.
 
 // The spooler entry points, bound LAZILY: a binary must still start on a machine where
 // something is wrong with the spooler. The failure then belongs to the one job that

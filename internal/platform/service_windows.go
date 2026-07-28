@@ -19,11 +19,12 @@ import (
 // in a session.
 //
 // It uses golang.org/x/sys/windows/svc, already a dependency of this module and
-// already listed in THIRD-PARTY.md. §17.1 and THIRD-PARTY.md also name
-// github.com/kardianos/service for this job; it is NOT used, for the same reason
-// internal/printing/transport writes to the spooler with syscall rather than pulling
-// github.com/alexbrainman/printer — the wrapper adds a module to maintain for ten
-// years around an API we call four times.
+// already listed in THIRD-PARTY.md. github.com/kardianos/service was budgeted for this
+// job and NOT taken; §17.1 keeps it in the annex of the four budgeted-and-not-taken,
+// and ADR-037 gives the form of that refusal: REDUNDANT. The wrapper would add a module
+// to maintain for ten years over an SCM API this module already had — which is the same
+// criterion, in its other form, that kept github.com/alexbrainman/printer out of
+// internal/printing/transport, there for a surface too small.
 
 // InstallService registers the service, or brings an already registered one back in
 // line with this specification.

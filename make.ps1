@@ -129,6 +129,7 @@ function Invoke-Test {
   Assert-Success 'go test (CGO_ENABLED=0)'
 
   Invoke-Boundary
+  Invoke-Deps
 }
 
 function Invoke-Cover {

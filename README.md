@@ -282,8 +282,10 @@ le développement. Quiconque distribue OpenScale, modifié ou non, distribue ses
 
 Les composants tiers gardent leur propre licence, toutes compatibles : voir
 [`THIRD-PARTY.md`](THIRD-PARTY.md). C'est aussi ce qui a écarté les licences de la
-génération GPLv2 — Apache-2.0, portée par une des dépendances, n'est compatible qu'avec la
-version 3.
+génération GPLv2 — Apache-2.0, portée par TypeScript, n'est compatible qu'avec la
+version 3. TypeScript est le seul composant Apache-2.0 du projet, et c'est un outil de
+construction du front qui n'est jamais livré : les six dépendances Go du binaire sont
+toutes BSD-3-Clause.
 
 ## Développement
 
@@ -292,12 +294,13 @@ front. Rien d'autre — pas de chaîne C, pas de Docker.
 
 | Cible | Ce qu'elle fait |
 |---|---|
-| `make test` | `go vet`, les deux passes de `go test`, et `make boundary` |
+| `make test` | `go vet`, les deux passes de `go test`, puis `make boundary` et `make deps` |
 | `make build` | `bin/openscale` pour la machine courante |
 | `make front` | Construit l'écran client vers `internal/web/dist` |
 | `make front-check` | En plus : types, tests du front, et le **budget de poids** mesuré |
 | `make cover` | La couverture, avec les planchers par paquet de §16.4 |
 | `make boundary` | Les coupes architecturales de §5.2 |
+| `make deps` | Les dépendances déclarées contre celles de `go.mod` (§17.1, ADR-037) |
 | `make dist` | Les trois binaires + `SHA256SUMS` |
 | `make release` | **Les archives d'installation** — voir « Déployer » |
 | `make clean` | Efface `bin/`, `dist/` et `coverage.out` |
