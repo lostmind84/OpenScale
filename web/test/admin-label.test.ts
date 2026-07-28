@@ -412,7 +412,7 @@ describe('ce que la page écrit dans le document', () => {
   })
 })
 
-describe('les refus des 45 contrôles, sur les clés que cette page édite', () => {
+describe('les refus des 47 contrôles, sur les clés que cette page édite', () => {
   it('montre le refus de chaque clé À CÔTÉ d’elle, décalages compris', async () => {
     await open()
 

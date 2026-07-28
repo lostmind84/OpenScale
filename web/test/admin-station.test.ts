@@ -72,7 +72,7 @@ let calls: Call[] = []
 let servedConfig: Record<string, unknown> = {}
 /** Le document que `POST /admin/api/config/import` dit avoir lu dans le fichier. */
 let importedConfig: Record<string, unknown> = {}
-/** Ce que les 45 contrôles de §11.3 disent du fichier importé. */
+/** Ce que les 47 contrôles de §11.3 disent du fichier importé. */
 let importFaults: FaultDTO[] = []
 /** Les versions restaurables que le poste publie. */
 let versions: ConfigVersionDTO[] = []
@@ -602,7 +602,7 @@ describe('un export remis au navigateur n’est pas un export enregistré', () =
 })
 
 describe('les trois champs éditables portent leur refus', () => {
-  it('allume la clé que les 45 contrôles ont nommée, pas seulement la bannière', async () => {
+  it('allume la clé que les 47 contrôles ont nommée, pas seulement la bannière', async () => {
     const { draft } = await open()
 
     // Ce que §11.3 renvoie sur un enregistrement refusé, tel que `draft.save` le range.

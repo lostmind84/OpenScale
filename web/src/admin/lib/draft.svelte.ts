@@ -12,7 +12,7 @@ import type { Admin } from './session.svelte'
  *
  * Ce que cette classe rend visible, et qui n'existe nulle part ailleurs :
  *
- *  - les 45 contrôles refusent TOUS D'UN COUP (§11.3) — un écran qui corrige une faute,
+ *  - les 47 contrôles refusent TOUS D'UN COUP (§11.3) — un écran qui corrige une faute,
  *    enregistre, et découvre la deuxième est un écran qu'on abandonne ;
  *  - le compte à rebours de 60 s : le poste revient tout seul à la version précédente si
  *    personne ne confirme, et l'écran doit le dire pendant qu'il court ;
@@ -27,7 +27,7 @@ export class Draft {
   retired = $state<string[]>([])
   /** La confirmation attendue, quand il y en a une. */
   pending = $state<ConfirmationDTO | null>(null)
-  /** Ce que les 45 contrôles ont dit du dernier enregistrement refusé. */
+  /** Ce que les 47 contrôles ont dit du dernier enregistrement refusé. */
   faults = $state<FaultDTO[]>([])
   /** Vrai dès qu'un champ a bougé : le bouton « Enregistrer » s'arme. */
   dirty = $state(false)
@@ -212,7 +212,7 @@ export class Draft {
 /**
  * Les fautes du dernier refus.
  *
- * `Admin.load` a déjà mis la phrase du refus dans `error` ; les 45 contrôles voyagent
+ * `Admin.load` a déjà mis la phrase du refus dans `error` ; les 47 contrôles voyagent
  * dans le même corps, et {@link api.AdminError} ne les porte pas. Elles sont donc lues
  * ici sur l'erreur elle-même, faute de quoi l'écran dirait « cette configuration ne peut
  * pas être appliquée » sans dire QUEL champ.

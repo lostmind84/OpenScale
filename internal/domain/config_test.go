@@ -296,7 +296,7 @@ func TestDeliveredConfigurationCarriesNoRealURL(t *testing.T) {
 	}
 }
 
-// --- The 45 controls, one broken configuration at a time ------------------------
+// --- The 47 controls, one broken configuration at a time ------------------------
 
 // brokenConfiguration is one wrong configuration and the field the volunteer must
 // see named.

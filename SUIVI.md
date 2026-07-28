@@ -3,6 +3,68 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**L'administration cesse de parler comme le dossier de conception (28/07/2026).** Trois
+demandes du commanditaire après avoir conduit l'écran livré en L8 : les textes sont
+« beaucoup trop verbeux et incompréhensibles pour un utilisateur qui n'est pas
+développeur », les boutons sont en noir et blanc, et le répertoire où se dépose le CSV
+n'est modifiable nulle part. Les trois ont été traitées ensemble, et chacune a fait
+tomber un défaut que personne ne cherchait.
+
+**Les textes.** Vingt-six renvois `§X.Y` et `ADR-0XX` ont disparu du texte visible de sept
+pages, en restant dans les commentaires du code — c'est là qu'ils rattachent une décision à
+sa justification. Le test qui les interdit **avait un trou** : il ne lisait que le markup,
+alors que plusieurs phrases montrées au bénévole sont des chaînes composées dans un
+`<script>` ou dans `lib/lights.ts`, dont les six consignes des feux du tableau de bord —
+« pas une panne (ADR-007) » y était lisible sans qu'aucun test ne le voie. Un second
+contrôle, qui trie sur les commentaires et non sur la balise, ferme ce trou et désigne
+exactement les trois fichiers fautifs. **Deux des trois réécritures imposées par la
+conception étaient fausses** et ont dû être corrigées : l'une affirmait qu'un message de
+garde-fou est modifiable — il ne l'est pas, et deux assertions existantes l'interdisaient —,
+l'autre raccourcissait l'énumération de l'export de configuration à quatre éléments sur
+six, ce qu'un test écrit contre ce défaut précis verrouillait déjà.
+
+**Les clés techniques passent derrière un interrupteur**, décoché par défaut, mémorisé dans
+le navigateur et non dans la configuration du poste. Masquer la clé obligeait à mettre
+autre chose à sa place : un refus de `Validate` **n'est pas auto-porteur** — le service
+répond un couple clé + message, et « attendu : nombre entier » ne nomme rien tout seul.
+Un index de 114 chemins nomme désormais chaque champ en français, avec repli sur le chemin
+lui-même pour qu'un refus venu d'un contrôle qu'aucune page n'édite reste lisible par
+quelqu'un au téléphone.
+
+**Les boutons disent la nature de l'acte** (ADR-037) : neutre pour lire, bleu plein pour
+écrire, rouge plein pour ce qui ne se défait pas. Deux jetons nouveaux, parce que `--focus`
+et `--fault` plafonnent — **mesurés à 6,45:1 et 6,54:1** sur blanc, sous le 7:1 de §14.2.
+La conception annonçait 7,58:1 pour `--action` : la mesure dit **8,05:1**, et c'est le
+chiffre écrit. Deux défauts du CSS proposé ont été trouvés à la mesure et corrigés : la
+cible de 72 px des actes irréversibles, que la spécificité de Svelte faisait perdre en
+silence — le bouton aurait fait 44 px sans qu'aucun test ne s'en aperçoive, puisqu'ils
+n'interrogeaient que la classe —, et un survol qui **éclaircissait** les fonds pleins
+jusqu'à 6,89:1, défaisant la seule raison d'être des deux jetons.
+
+**Le répertoire de dépôt devient un réglage** (ADR-038), et le chantier a mis au jour que
+`PathChecker` **n'avait aucune implémentation de production** : le contrôle 44 ne s'était
+jamais exécuté sur un poste réel. L'interface reçoit `Droppable` à côté de `Readable` — un
+répertoire de dépôt doit être *inscriptible*, parce que l'acquittement d'un import **est**
+une suppression —, l'implémentation qui manquait, et les contrôles 44 et 46 se mettent au
+travail du même coup. Deux pièges nommés au passage : la sonde ne tourne que si le bloc
+`catalog` a bougé, sans quoi un enregistrement portant sur les tarifs échouerait parce
+qu'un partage est momentanément indisponible ; et **le mot de passe WebDAV partait en clair
+vers le navigateur** — il est désormais expurgé, et repris à l'écriture **depuis le fichier
+et non depuis ce qui tourne**, parce qu'un poste démarré hors service tourne le profil
+neutre et que la reprise aurait effacé le compte de la coopérative en silence. Changer de
+source fait le ménage des réglages de l'autre : sans cela, les contrôles 39 et 47
+refusaient le seul geste que le panneau existe pour offrir.
+
+**Ce qui reste ouvert.** Deux renvois morts vers les « réglages avancés » supprimés le
+27/07 survivent hors du périmètre traité — `lib/lights.ts` (deux consignes de feux) et
+`cmd/openscale/admin.go` (le refus d'impression) ; la page qui porte ces réglages s'appelle
+« Matériel ». La page Règles montre encore deux clés de configuration en clair dans des
+notes de garde-fou, hors interrupteur. Et §2.3 de la conception veut que l'interrupteur
+rende **quatre** choses : la clé sous un champ et la clé brute du refus sont faites, le nom
+d'un bloc dans le bandeau de confirmation et le code technique d'un événement ne le sont
+pas — le premier demanderait un index nouveau, les noms de blocs étant des jetons anglais
+du service.
+
 **Le contrôle 20 a mordu ses propres livrables (28/07/2026).** La refonte de l'écran
 client en « Grand Format » (ADR-035) retire `ui.tile_size` du schéma et fait refuser
 toute configuration qui le porte encore. Or `testdata/config-lacagette.json` et

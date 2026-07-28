@@ -31,7 +31,7 @@ export class AdminError extends Error {
     readonly status: number,
     message: string,
     readonly code = '',
-    /** Les 45 contrôles de §11.3 quand le refus en porte : TOUS, jamais le premier. */
+    /** Les 47 contrôles de §11.3 quand le refus en porte : TOUS, jamais le premier. */
     readonly faults: FaultDTO[] = [],
   ) {
     super(message)

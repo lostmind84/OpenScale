@@ -488,7 +488,7 @@ func retiredFaultsOf(cfg domain.Config, reg domain.Registries) []faultDTO {
 	return out
 }
 
-// faultsOf converts what the 45 controls said.
+// faultsOf converts what the 47 controls said.
 func faultsOf(faults []domain.Fault) []faultDTO {
 	out := make([]faultDTO, 0, len(faults))
 	for _, f := range faults {

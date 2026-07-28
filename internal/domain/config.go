@@ -736,7 +736,7 @@ type Registries struct {
 	// Templates is the label layouts this binary can load. Nil means "the templates
 	// compiled into the binary", which is where they live until L4.
 	Templates map[string]Template
-	// Paths probes the filesystem for control 44. Nil means "we cannot know".
+	// Paths probes the filesystem for controls 44 and 46. Nil means "we cannot know".
 	Paths PathChecker
 }
 

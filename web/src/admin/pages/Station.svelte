@@ -131,7 +131,7 @@
   let candidate = $state<Record<string, unknown> | null>(null)
   /** The name of that file, so the panel can say which one it is talking about. */
   let candidateName = $state('')
-  /** What the 45 controls of §11.3 said of that file. */
+  /** What the 47 controls of §11.3 said of that file. */
   let candidateFaults = $state<FaultDTO[]>([])
   /** Which protected act is in flight, or an empty string. */
   let working = $state('')
@@ -442,7 +442,7 @@
    *
    * The file goes to the station rather than being compared in the browser, and that is a
    * PROTECTED act (ADR-033). The station strips what must not travel — the two secrets and
-   * the station number (§11.5) — and passes the 45 controls of §11.3 over it, so the diff
+   * the station number (§11.5) — and passes the 47 controls of §11.3 over it, so the diff
    * shows what would REALLY be applied and the refusals are known before anybody copies
    * anything.
    *
@@ -601,7 +601,7 @@
 <div class="pages">
   <Panel title="Identité du poste">
     <!--
-      The three fields carry their own refusal: the 45 controls of §11.3 name a KEY, and a
+      The three fields carry their own refusal: the 47 controls of §11.3 name a KEY, and a
       page that shows only the global banner leaves somebody hunting for which one.
     -->
     <Field
