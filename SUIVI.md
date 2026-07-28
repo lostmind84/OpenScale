@@ -13,6 +13,33 @@ en commit `80f278e`. C'est le même mode de défaillance qu'ADR-034 décrivait p
 `coef_num` — un fichier qui ne se relit plus en silence —, pris ici par les tests
 plutôt que par un bénévole devant un poste mort.
 
+**Le Grand Format, calibré sur le vrai catalogue (28/07/2026).** Les jetons `clamp()`
+posés en tâches 3/7/8 (ADR-035) n'avaient encore été vérifiés que sous `jsdom`, qui ne
+calcule aucune mise en page. Un banc d'observation — `openscale serve` réellement lancé,
+le vrai `flv.csv` (331 tuiles pesables, 177 photos) déposé dans `<data>/catalog/incoming/`,
+servi à un Chrome piloté — a mesuré les trois largeurs de référence de §14.3 :
+
+- **aucune tuile ne déborde de sa rangée**, aux trois largeurs et sur les 331 tuiles (pas
+  seulement la première rangée) : débordement mesuré ≤ 0,01 px (arrondi de sous-pixel) —
+  5 colonnes de 261 px à 1366 px, 5 colonnes de 371 px à 1920 px, 7 colonnes de 354 px à
+  2560 px ;
+- le nom de 69 caractères (`♥AA-LA TOMME DES CROQUANTS AFFINE A LA LIQUEUR DE NOIX DU
+  PERIGORD-MV`) s'affiche en entier aux trois largeurs, sans point de suspension, à un
+  corps de 18 px (le plancher) à 1366 px et 20,5 px à 1920/2560 px — la sonde `.name-box`
+  ne le fait jamais déborder de son bloc ;
+- les deux tarifs (badge plein Adhérent, anneau creux Solidaire) ne se chevauchent
+  jamais — au moins 4 px d'écart entre les deux lignes sur la tuile la plus étroite
+  (261 px) —, et la ligne de prix la plus longue mesurée sur le catalogue réel
+  (`S 34,34 €/kg`) garde encore 14,7 px de marge dans la tuile ;
+- les deux barres du bas restent visibles aux trois hauteurs (768/1080/1440 px), et le
+  bouton Réglages (icône seule) mesure 72 px de côté, exactement `--touch-min` ;
+- taper au clavier physique (`a`, `i`, `l`) fait apparaître le champ sous le bandeau et
+  réduit la grille de 331 à 17 tuiles (recherche normalisée : `CORAIL`, `THAÏLANDE`
+  comptent) ; Échap referme le champ et ramène la grille à 331.
+
+**Aucune borne de `app.css` n'a eu besoin d'être resserrée** : les valeurs posées en
+tâches 3/7/8 tiennent telles quelles sur le vrai catalogue, à 1366, 1920 et 2560 px.
+
 **État au 27/07/2026** : **L1 à L8 livrés.** Il ne reste que L0 (le banc) et L9 (la recette sur site). `openscale serve` démarre un
 poste complet : noyau métier, balance, étiquette, impression, Hub à horloge injectée,
 écran client Svelte, catalogue, écrans d'administration, `openscale doctor` et ses quinze
