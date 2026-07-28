@@ -18,6 +18,7 @@ import (
 
 	"openscale/internal/domain"
 	"openscale/internal/fake"
+	"openscale/internal/platform"
 	"openscale/internal/station"
 )
 
@@ -355,6 +356,30 @@ func (b *bench) setPassword(password, recovery string) {
 		b.t.Fatalf("Reload : %v", err)
 	}
 }
+
+// realConfigStore adapts *platform.ConfigStore to the ConfigStore interface this
+// package declares (cut 3, §5.2). It exists for the handful of tests that need the
+// GUARD platform.ConfigStore.Save runs — a retired key never surviving onto disk —
+// which the in-memory savedConfig double below does not enforce and has no reason to:
+// the two disagree only on Versions, whose element type belongs to each side of that
+// boundary, so that is the only method this translates.
+type realConfigStore struct{ *platform.ConfigStore }
+
+func (r realConfigStore) Versions(ctx context.Context) ([]ConfigVersion, error) {
+	versions, err := r.ConfigStore.Versions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ConfigVersion, 0, len(versions))
+	for _, v := range versions {
+		out = append(out, ConfigVersion{
+			Version: v.Version, ModifiedAt: v.ModifiedAt, Fingerprint: v.Fingerprint,
+		})
+	}
+	return out, nil
+}
+
+var _ ConfigStore = realConfigStore{}
 
 // --- Doubles ----------------------------------------------------------------
 

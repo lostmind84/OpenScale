@@ -4,25 +4,128 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 )
 
-// ErrInconsistentTiers reports a price grid that cannot be applied: a
-// non-positive denominator, a negative numerator, or a primary or reference code
-// that names no tier.
+// ErrInconsistentTiers reports a price grid that cannot be applied: a discount
+// outside [0, 100 %], or a primary or reference code that names no tier.
 var ErrInconsistentTiers = errors.New("domain: inconsistent price grid")
+
+// Discount is a price reduction in TENTHS OF A PERCENT: 102 is 10,2 %.
+//
+// An integer and not a float. 10,2 has no exact binary representation, and the
+// price runs on exact integer arithmetic from the catalog price to the printed
+// cent; a float64 in the middle would put between the file and the till a
+// rounding that nobody declared (ADR-034).
+type Discount int64
+
+// FullDiscount is a discount of 100 %, and it is also the SCALE of the type: a
+// tier at discount d costs (FullDiscount - d) / FullDiscount of the catalog
+// price. One constant, because "the whole" and "100 %" are the same quantity.
+const FullDiscount = Discount(1000)
+
+// parts splits the discount into the three pieces both spellings need: the sign,
+// the whole percent, and the tenth.
+//
+// The two spellings must never drift: they are one value written for JSON and for
+// a screen, so the arithmetic that produces them lives in ONE place and only the
+// separator differs at the call site.
+func (d Discount) parts() (sign string, whole, frac int64) {
+	tenths := int64(d)
+	if tenths < 0 {
+		sign, tenths = "-", -tenths
+	}
+	return sign, tenths / 10, tenths % 10
+}
+
+// String writes the discount the way a volunteer reads it: a French comma, and
+// no trailing zero. MarshalJSON writes a dot because JSON does -- two spellings
+// of one value, and neither is the other's job.
+func (d Discount) String() string {
+	sign, whole, frac := d.parts()
+	if frac == 0 {
+		return fmt.Sprintf("%s%d", sign, whole)
+	}
+	return fmt.Sprintf("%s%d,%d", sign, whole, frac)
+}
+
+// MarshalJSON writes the shortest exact decimal: 102 is "10.2", 100 is "10".
+//
+// Deterministic on purpose: the SHA-256 fingerprint of the canonical JSON
+// (ADR-012) is what four stations compare by eye, and two spellings of the same
+// discount would make them differ over nothing.
+func (d Discount) MarshalJSON() ([]byte, error) {
+	sign, whole, frac := d.parts()
+	if frac == 0 {
+		return fmt.Appendf(nil, "%s%d", sign, whole), nil
+	}
+	return fmt.Appendf(nil, "%s%d.%d", sign, whole, frac), nil
+}
+
+// UnmarshalJSON reads a percentage written with AT MOST ONE decimal digit.
+//
+// A second decimal digit is an ERROR and not a fault, for the same reason an
+// unknown rounding word is one: there is no value to hold, and holding it
+// rounded would hold a price nobody declared. A discount that is merely OUT OF
+// BOUNDS is read, so that control 13 names it together with every other fault
+// (§11.3) instead of aborting the whole document on the first one.
+//
+// A JSON `null` is refused here too, which departs from the usual Go convention
+// that UnmarshalJSON treats `null` as a no-op leaving the receiver untouched.
+// The departure is deliberate: this type's whole rule is "there is no value to
+// hold", so `null` gets exactly the same refusal as any other unparsable text
+// instead of a silent no-op that would hide which value survived.
+func (d *Discount) UnmarshalJSON(raw []byte) error {
+	tenths, err := parseTenths(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return err
+	}
+	*d = Discount(tenths)
+	return nil
+}
+
+// parseTenths converts the TEXT of a JSON number into tenths of a percent.
+//
+// Hand-written rather than strconv.ParseFloat: the whole point is that no float
+// ever carries the value. "10.2" is 102 tenths because the text says so, not
+// because a binary approximation happened to round back to it.
+func parseTenths(text string) (int64, error) {
+	negative := strings.HasPrefix(text, "-")
+	digits := strings.TrimPrefix(text, "-")
+	whole, fraction, hasFraction := strings.Cut(digits, ".")
+	if whole == "" || !isDigits(whole) {
+		return 0, fmt.Errorf("domain: %q n'est pas une remise en pourcentage", text)
+	}
+	if hasFraction && (len(fraction) != 1 || !isDigits(fraction)) {
+		return 0, fmt.Errorf(
+			"domain: la remise %q s'écrit au dixième de point, un seul chiffre après la virgule", text)
+	}
+	percent, err := strconv.ParseInt(whole, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("domain: remise %q illisible : %w", text, err)
+	}
+	tenths := percent * 10
+	if hasFraction {
+		tenths += int64(fraction[0] - '0')
+	}
+	if negative {
+		tenths = -tenths
+	}
+	return tenths, nil
+}
 
 // PriceTier is one configured price level, such as member or solidarity.
 //
-// The coefficient is RATIONAL and not a float: 0.9 becomes 9/10, and a third off
-// becomes 1/3 exactly. The hard-coded 0.9 of the legacy application disappears
-// with it.
+// The tier that `reference_code` names carries NO discount: it is the catalog
+// price, the one the till charges, and zero is not a setting there but its
+// definition. The absence of the key IS that statement (ADR-034).
 type PriceTier struct {
-	Code    string `json:"code"`   // "MEMBER", "SOLIDARITY" -- stable, used as a key
-	Label   string `json:"label"`  // "Adhérent" -- customer facing, stays French
-	Abbrev  string `json:"abbrev"` // "A" -- prefix printed on the label
-	CoefNum int64  `json:"coef_num"`
-	CoefDen int64  `json:"coef_den"`
-	Rank    int    `json:"rank"`
+	Code     string   `json:"code"`   // "MEMBER", "SOLIDARITY" -- stable, used as a key
+	Label    string   `json:"label"`  // "Adhérent" -- customer facing, stays French
+	Abbrev   string   `json:"abbrev"` // "A" -- prefix printed on the label
+	Discount Discount `json:"discount_percent,omitempty"`
+	Rank     int      `json:"rank"`
 }
 
 // PricingRules is the whole price policy of a station.
@@ -94,10 +197,10 @@ func (l *Label) Find(code string) *PriceLine {
 // ORDER OF OPERATIONS -- not negotiable, it reproduces the legacy application
 // (FormulaireCalcul.cls:3478) and arbitration A7:
 //
-//  1. derived unit price = unitPriceRounding(base x num / den)
+//  1. derived unit price = unitPriceRounding(base x (FullDiscount - discount) / FullDiscount)
 //  2. amount             = amountRounding(derivedUnitPrice x netWeight / 1000)
 //
-// and NOT amountRounding(base x weight / 1000) x num / den.
+// and NOT amountRounding(base x weight / 1000) x (FullDiscount - discount) / FullDiscount.
 //
 // WHY: the derived unit price is the one PRINTED on the label ("A: 4,79 €/kg")
 // and the one recorded in Odoo. Applying the coefficient to the amount would
@@ -121,12 +224,16 @@ func Price(p Product, m Measurement, rules PricingRules) (Label, error) {
 	}
 	seen := make(map[string]bool, len(rules.Tiers))
 	for _, tier := range rules.SortedTiers() {
-		// Last-resort guard: a grid whose denominator is zero or negative is
-		// REFUSED here, never propagated to Divide (which would panic in the Hub
-		// goroutine and kill the process).
-		if tier.CoefDen <= 0 || tier.CoefNum < 0 {
-			return Label{}, fmt.Errorf("%w: tier %s, coefficient %d/%d",
-				ErrInconsistentTiers, tier.Code, tier.CoefNum, tier.CoefDen)
+		// Last-resort guard, and it no longer guards the same thing. The
+		// denominator is a CONSTANT now, so no grid can reach Divide's
+		// precondition and kill the Hub goroutine -- that failure mode is gone by
+		// construction (ADR-034). What remains is the SIGN of the price: a
+		// discount outside [0, 100 %] would print a negative price, or one above
+		// the catalog's. Control 13 makes it unreachable from a file; this keeps it
+		// unreachable from a grid built in code.
+		if tier.Discount < 0 || tier.Discount > FullDiscount {
+			return Label{}, fmt.Errorf("%w: tier %s, discount %s %%",
+				ErrInconsistentTiers, tier.Code, tier.Discount)
 		}
 		if seen[tier.Code] {
 			return Label{}, fmt.Errorf("%w: tier code %s appears twice", ErrInconsistentTiers, tier.Code)
@@ -134,7 +241,7 @@ func Price(p Product, m Measurement, rules PricingRules) (Label, error) {
 		seen[tier.Code] = true
 
 		unitPrice := Cents(rules.UnitPriceRounding.Divide(
-			int64(p.UnitPrice)*tier.CoefNum, tier.CoefDen))
+			int64(p.UnitPrice)*int64(FullDiscount-tier.Discount), int64(FullDiscount)))
 
 		var amount Cents
 		switch p.Mode {
@@ -174,13 +281,13 @@ func Price(p Product, m Measurement, rules PricingRules) (Label, error) {
 // the demonstration commands and the tests.
 //
 // In production this grid lives in config-lacagette.json -- a delivered,
-// versioned file, NOT a compiled profile (ADR-026): changing a coefficient must
-// not be a recompilation followed by a redeployment on four stations.
+// versioned file, NOT a compiled profile (ADR-026): changing a discount must not
+// be a recompilation followed by a redeployment on four stations.
 func LaCagetteRules() PricingRules {
 	return PricingRules{
 		Tiers: []PriceTier{
-			{Code: "MEMBER", Label: "Adhérent", Abbrev: "A", CoefNum: 9, CoefDen: 10, Rank: 1},
-			{Code: "SOLIDARITY", Label: "Solidaire", Abbrev: "S", CoefNum: 1, CoefDen: 1, Rank: 2},
+			{Code: "MEMBER", Label: "Adhérent", Abbrev: "A", Discount: 100, Rank: 1},
+			{Code: "SOLIDARITY", Label: "Solidaire", Abbrev: "S", Rank: 2},
 		},
 		PrimaryCode:       "MEMBER",               // the BIG one, 11 pt bold, right aligned
 		SecondaryCodes:    []string{"SOLIDARITY"}, // the SMALL one, 7 pt
@@ -194,7 +301,7 @@ func LaCagetteRules() PricingRules {
 // the label prints one price.
 func SingleTierRules() PricingRules {
 	return PricingRules{
-		Tiers:             []PriceTier{{Code: "STANDARD", Label: "Prix", Abbrev: "", CoefNum: 1, CoefDen: 1, Rank: 1}},
+		Tiers:             []PriceTier{{Code: "STANDARD", Label: "Prix", Abbrev: "", Rank: 1}},
 		PrimaryCode:       "STANDARD",
 		ReferenceCode:     "STANDARD",
 		AmountRounding:    RoundHalfUp,

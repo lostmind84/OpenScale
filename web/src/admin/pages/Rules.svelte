@@ -73,8 +73,10 @@
     code: string
     label: string
     abbrev: string
-    coefNum: number
-    coefDen: number
+    /** The raw value of `discount_percent` as the document carries it, or null when the tier declares none. */
+    written: string | null
+    /** The discount in percent when this field can show it exactly, null otherwise. */
+    discount: number | null
     rank: number
   }
 
@@ -90,24 +92,62 @@
     if (!Array.isArray(value)) return []
     return value.map((raw) => {
       const row = (raw ?? {}) as Record<string, unknown>
+      const discountValue = row.discount_percent
       return {
         code: String(row.code ?? ''),
         label: String(row.label ?? ''),
         abbrev: String(row.abbrev ?? ''),
-        coefNum: Number(row.coef_num ?? 0),
-        coefDen: Number(row.coef_den ?? 1),
+        written: discountValue === undefined ? null : String(discountValue),
+        discount: showable(discountValue) ? (discountValue as number) : null,
         rank: Number(row.rank ?? 0),
       }
     })
   }
 
   /**
+   * Whether a value read from the document is a discount this field can show.
+   *
+   * The draft holds whatever a file carries, including what a hand edit put there.
+   * Showing 33.333 as « 33,3 » would display a figure nobody declared, and one arrow
+   * key would then save it -- so the line falls back to read-only instead.
+   *
+   * The tenth is tested with a tolerance and not with `Number.isInteger(value * 10)`,
+   * because `10.2 * 10` is 101.99999999999999 in binary floating point. That is the
+   * very reason the kernel stores tenths as an integer.
+   */
+  function showable(value: unknown): boolean {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return false
+    if (value < 0 || value > 100) return false
+    return Math.abs(value * 10 - Math.round(value * 10)) < 1e-9
+  }
+
+  /** The code of the tier that IS the catalog price, and carries no discount. */
+  const referenceCode = $derived(String(draft.value('pricing.reference_code') ?? ''))
+
+  /** A discount as a volunteer writes it: a French comma, no trailing zero. */
+  function discountText(discount: number | null): string {
+    return discount === null ? '' : String(discount).replace('.', ',')
+  }
+
+  /**
+   * What the discount does to a price, on a round ten euros.
+   *
+   * Ten euros is not decoration: `1000 c x (100 - d) / 100` falls exactly on a cent
+   * for every discount at a tenth of a point, so this preview needs NO rounding and
+   * cannot contradict the label coming out of the printer. It reads no product and
+   * calls no route.
+   */
+  function previewOf(discount: number): string {
+    const cents = 1000 - Math.round(discount * 10)
+    return `${String(Math.trunc(cents / 100))},${String(cents % 100).padStart(2, '0')}`
+  }
+
+  /**
    * Writes a number the operator typed, and writes NOTHING when the field is empty.
    *
-   * `Number('')` is 0. Clearing "Dénominateur" therefore used to write `coef_den: 0` --
-   * a division by zero in the price of every product, saved by a keystroke that looked
-   * like an erasure rather than an edit. An emptied field keeps what the file holds; the
-   * way to change a threshold is to type another one.
+   * `Number('')` is 0. Clearing a threshold used to write `0` -- saved by a keystroke
+   * that looked like an erasure rather than an edit. An emptied field keeps what the
+   * file holds; the way to change a threshold is to type another one.
    */
   function writeNumber(path: string, raw: string): void {
     const value = Number(raw)
@@ -116,17 +156,32 @@
   }
 
   /**
-   * Puts the value of the file back in a box the operator left empty.
+   * Writes a discount typed with a comma or a dot, and writes nothing otherwise.
    *
-   * {@link writeNumber} writes nothing when a box is emptied, so the draft keeps what the
-   * file holds -- but every box here is driven by `value=`, and an edit that changes no
-   * state renders nothing: the box STAYED empty on screen while the configuration held
-   * 9999. The screen then showed a threshold nobody had ever set, until some other change
-   * happened to redraw it. Restoring on the way OUT rather than on each keystroke is what
+   * The second decimal is refused AT THE KEYSTROKE and not at the save: the kernel
+   * rejects `10,25` when it decodes, and this screen must not build a file the station
+   * will throw back. Same silence as {@link writeNumber} on an empty box, and for the
+   * same reason -- erasing « Remise » would drop the member discount on every product.
+   */
+  function writeDiscount(path: string, raw: string): void {
+    const text = raw.trim().replace(',', '.')
+    if (!/^\d{1,3}(\.\d)?$/u.test(text)) return
+    const value = Number(text)
+    if (value > 100) return
+    draft.set(path, value)
+  }
+
+  /**
+   * Puts back in a box the value the draft actually holds.
+   *
+   * The writers above stay silent on an empty or malformed box, so the draft keeps what
+   * the file holds -- but every box here is driven by `value=`, and an edit that changes
+   * no state renders nothing: the box STAYED wrong on screen while the configuration
+   * held something else. Restoring on the way OUT rather than on each keystroke is what
    * lets « effacer puis retaper » still work.
    */
-  function restoreEmptyBox(target: EventTarget | null, stored: string): void {
-    if (!(target instanceof HTMLInputElement) || target.value.trim() !== '') return
+  function restoreBox(target: EventTarget | null, stored: string): void {
+    if (!(target instanceof HTMLInputElement) || target.value === stored) return
     target.value = stored
   }
 
@@ -561,8 +616,7 @@
               <th>Code</th>
               <th>Libellé</th>
               <th>Abrégé</th>
-              <th>Numérateur</th>
-              <th>Dénominateur</th>
+              <th>Remise</th>
               <th>Ordre</th>
             </tr>
           </thead>
@@ -594,32 +648,54 @@
                   />
                 </td>
                 <td>
-                  <input
-                    type="number"
-                    aria-label="Numérateur du tarif {index + 1}"
-                    value={tier.coefNum}
-                    oninput={(event) =>
-                      writeNumber(
-                        `pricing.tiers.${String(index)}.coef_num`,
-                        event.currentTarget.value,
-                      )}
-                    onfocusout={(event) =>
-                      restoreEmptyBox(event.currentTarget, String(tier.coefNum))}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    aria-label="Dénominateur du tarif {index + 1}"
-                    value={tier.coefDen}
-                    oninput={(event) =>
-                      writeNumber(
-                        `pricing.tiers.${String(index)}.coef_den`,
-                        event.currentTarget.value,
-                      )}
-                    onfocusout={(event) =>
-                      restoreEmptyBox(event.currentTarget, String(tier.coefDen))}
-                  />
+                  <!--
+                    The reference tier is split in two by PRESENCE, not by legality. An
+                    operator can retarget `pricing.reference_code` onto a tier that already
+                    carries an ordinary, legal discount (the field just below does exactly
+                    that, mid-session, with no file edit involved) -- and a screen that then
+                    printed « pas de remise » over a document that says 20 % would be
+                    hiding a declared value, which is as dishonest as inventing one. So the
+                    reference tier with NO key gets the reassuring sentence, and the
+                    reference tier WITH one gets told what saving will do to it.
+                  -->
+                  {#if tier.code === referenceCode && tier.written === null}
+                    <span class="locked">Prix du catalogue Odoo — pas de remise</span>
+                  {:else if tier.code === referenceCode}
+                    <span class="locked">
+                      {tier.written} — le tarif de référence est le prix du catalogue : il
+                      ne peut pas porter de remise, et l’enregistrement la refusera.
+                    </span>
+                  {:else if tier.written !== null && tier.discount === null}
+                    <span class="locked">
+                      {tier.written} — une remise s’écrit au dixième de point ; celle-ci se
+                      change dans le fichier de configuration.
+                    </span>
+                  {:else}
+                    <!--
+                      Catches BOTH the ordinary case (tier.discount holds a value) and a
+                      non-reference tier that carries no `discount_percent` key at all
+                      (tier.written === null): for a tier that is not the reference, an
+                      absent key means exactly 0 % (the kernel's own rule), and an editable
+                      field showing 0 is honest, not invented -- unlike the reference row
+                      above, which has nothing to show because it has no discount to hold.
+                    -->
+                    <input
+                      type="text"
+                      inputmode="decimal"
+                      aria-label="Remise du tarif {index + 1}"
+                      value={discountText(tier.discount ?? 0)}
+                      oninput={(event) =>
+                        writeDiscount(
+                          `pricing.tiers.${String(index)}.discount_percent`,
+                          event.currentTarget.value,
+                        )}
+                      onfocusout={(event) =>
+                        restoreBox(event.currentTarget, discountText(tier.discount ?? 0))}
+                    /> %
+                    <span class="hint">
+                      un produit à 10,00 €/kg s’affiche {previewOf(tier.discount ?? 0)} €/kg
+                    </span>
+                  {/if}
                 </td>
                 <td>{tier.rank}</td>
               </tr>
@@ -629,8 +705,8 @@
       </div>
       <p class="fact muted">
         Un champ vidé garde la valeur du fichier : il n’écrit pas zéro, et la case la
-        retrouve dès qu’on quitte le champ. Un dénominateur à zéro serait une division par
-        zéro dans le prix de tous les produits.
+        retrouve dès qu’on quitte le champ. Une remise effacée serait le plein tarif pour
+        tous les adhérents.
       </p>
     {/if}
     <Field
@@ -641,10 +717,10 @@
       onchange={(value) => draft.set('pricing.primary_code', value)}
     />
     <Field
-      label="Tarif encodé dans le code-barres"
+      label="Tarif qui serait encodé si le code-barres portait un prix"
       path="pricing.reference_code"
       value={draft.text('pricing.reference_code')}
-      hint="Celui que la caisse lit. La caisse ne doit jamais sous-facturer."
+      hint="Le plan livré ne porte pas de prix, mais un poids ou un nombre d’unités : la caisse retrouve le prix par la référence, dans Odoo, et ne doit jamais sous-facturer."
       onchange={(value) => draft.set('pricing.reference_code', value)}
     />
   </Panel>
@@ -654,7 +730,7 @@
       label="Arrondi du prix unitaire dérivé"
       path="pricing.unit_price_rounding"
       value={draft.text('pricing.unit_price_rounding')}
-      hint="Il s’applique au prix au kilo calculé par un coefficient."
+      hint="Il s’applique au prix au kilo calculé par la remise."
       onchange={(value) => draft.set('pricing.unit_price_rounding', value)}
     />
     <Field
@@ -713,7 +789,7 @@
             -->
             <div
               class="box"
-              onfocusout={(event) => restoreEmptyBox(event.target, draft.text(threshold.path))}
+              onfocusout={(event) => restoreBox(event.target, draft.text(threshold.path))}
             >
               <Field
                 label={threshold.label}
@@ -852,6 +928,14 @@
   }
 
   .muted {
+    color: var(--ink-muted);
+    font-size: 1rem;
+  }
+
+  /* A cell this screen must not let the operator edit: the catalog price, or a discount
+     it cannot show without inventing a figure nobody declared. Text only, no field
+     border -- there is nothing here to click into. */
+  .locked {
     color: var(--ink-muted);
     font-size: 1rem;
   }

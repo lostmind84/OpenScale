@@ -3,12 +3,35 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
-**État au 26/07/2026** : **L1 à L8 livrés.** Il ne reste que L0 (le banc) et L9 (la recette sur site). `openscale serve` démarre un
+**État au 27/07/2026** : **L1 à L8 livrés.** Il ne reste que L0 (le banc) et L9 (la recette sur site). `openscale serve` démarre un
 poste complet : noyau métier, balance, étiquette, impression, Hub à horloge injectée,
 écran client Svelte, catalogue, écrans d'administration, `openscale doctor` et ses quinze
 contrôles, `diagnostic.zip`, installeurs Windows et Linux, `INSTALLATION.md` et
-`TROUBLESHOOTING.md`. **2 564 tests** verts (2 319 Go comptés en `--- PASS`, 245 front), suite passée sur ce
-poste Windows — `-race` sautée faute de gcc, la CI Linux la couvre.
+`TROUBLESHOOTING.md`. **2 785 tests** verts (2 352 Go comptés en `--- PASS`, 433 front — le
+bandeau restait sur 245, figé depuis plusieurs sessions : le journal plus bas en comptait
+déjà 418 avant ce chantier, qui en ajoute une quinzaine), suite passée sur ce poste Windows
+— `-race` sautée faute de gcc, la CI Linux la couvre.
+
+**La remise change de forme, sur demande du commanditaire (27/07/2026).** Sur la page
+Règles, il n'a pas su lire les colonnes « Numérateur » et « Dénominateur » : une remise
+de 10,2 % s'y écrivait 449/500. La question ouverte était de savoir pourquoi la demande
+porte sur le **format du fichier** et pas seulement sur l'écran. Réponse : l'écran ne fait
+qu'afficher ce que porte le fichier — repeindre les deux colonnes en une seule case
+« remise » sans toucher au fichier aurait laissé `coef_num`/`coef_den` dans chaque export,
+chaque copie de secours et chaque empreinte SHA-256 que quatre postes comparent à l'œil ;
+la lisibilité qui manquait à l'écran aurait continué de manquer au fichier. `discount_percent`
+se déclare donc au dixième de point et se stocke en dixièmes **entiers**, pour que
+l'arithmétique reste exacte de bout en bout (ADR-034) ; le tarif de référence — le prix
+Odoo, celui que la caisse encaisse — ne porte plus aucune clé de remise, l'absence étant
+elle-même l'affirmation que c'est le prix du catalogue.
+
+Le contrôle 20 refuse désormais aussi `coef_num` et `coef_den`. Sans lui, un ancien fichier
+se relirait **en silence** : `encoding/json` ignore une clé que plus aucun champ ne
+réclame, donc chaque tarif retomberait à une remise nulle sans qu'aucun message ne le
+dise — un adhérent paierait plein tarif sans que personne ne sache pourquoi, jusqu'à ce
+qu'un bénévole compare une caisse et une étiquette. **Contrepartie assumée** : les
+majorations et les remises non décimales — dont le tiers exact qu'ADR-009 invoquait à
+l'origine — deviennent inexprimables ; un tiers se saisit 33,3 %.
 
 **Deux aperçus à la fois plantaient le poste (27/07/2026).** Le commanditaire a rapporté
 « des exceptions dans la console en cliquant un peu partout », sans savoir lesquelles :

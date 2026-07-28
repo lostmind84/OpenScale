@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -226,14 +227,15 @@ func TestDeliveredConfigurationCarriesTheProductionValues(t *testing.T) {
 		t.Fatalf("grille à %d tarif(s), attendu 2 (adhérent 9/10 + solidaire)", got)
 	}
 	member := config.Pricing.Tiers[0]
-	if member.Code != "MEMBER" || member.CoefNum != 9 || member.CoefDen != 10 {
-		t.Errorf("tarif adhérent = %s %d/%d, attendu MEMBER 9/10", member.Code, member.CoefNum, member.CoefDen)
+	if member.Code != "MEMBER" || member.Discount != 100 {
+		t.Errorf("tarif adhérent = %s remise %s %%, attendu MEMBER 10 %%", member.Code, member.Discount)
 	}
 	solidarity := config.Pricing.Tiers[1]
-	if solidarity.Code != "SOLIDARITY" || solidarity.CoefNum != 1 || solidarity.CoefDen != 1 {
-		t.Errorf("tarif solidaire = %s %d/%d, attendu SOLIDARITY 1/1", solidarity.Code, solidarity.CoefNum, solidarity.CoefDen)
+	if solidarity.Code != "SOLIDARITY" || solidarity.Discount != 0 {
+		t.Errorf("tarif solidaire = %s remise %s %%, attendu SOLIDARITY sans remise",
+			solidarity.Code, solidarity.Discount)
 	}
-	// The till never under-charges: the encoded price is the solidarity one (A7).
+	// The till never under-charges: the solidarity tier is the one it charges (A7).
 	if config.Pricing.ReferenceCode != "SOLIDARITY" {
 		t.Errorf("reference_code = %q, attendu SOLIDARITY", config.Pricing.ReferenceCode)
 	}
@@ -247,6 +249,25 @@ func TestDeliveredConfigurationCarriesTheProductionValues(t *testing.T) {
 	if config.Stability.Mode != ModeAdvisory {
 		t.Errorf("stability.mode = %q, attendu %q : l'impression n'est jamais bloquée par défaut (A3)",
 			config.Stability.Mode, ModeAdvisory)
+	}
+}
+
+// TestReferenceTierLosesAnExplicitZeroOnSave: check 11 refuses a discount, not a
+// key at zero -- after decoding the two are the same value. What makes the file
+// converge on its canonical form anyway is `omitempty` on the way out.
+func TestReferenceTierLosesAnExplicitZeroOnSave(t *testing.T) {
+	config := loadDelivered(t)
+	config.Pricing.Tiers[1].Discount = 0
+
+	raw, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if strings.Contains(string(raw), `"discount_percent":0`) {
+		t.Error("le tarif de référence réécrit une remise à zéro ; omitempty doit l'effacer")
+	}
+	if !strings.Contains(string(raw), `"discount_percent":10`) {
+		t.Error("la remise adhérent a disparu de la réécriture")
 	}
 }
 
@@ -349,21 +370,21 @@ func brokenConfigurations() []brokenConfiguration {
 			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers = nil },
 			field:  "pricing.tiers",
 		}, {
-			control: "11", name: "dénominateur négatif — il tuerait la goroutine du Hub",
-			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[0].CoefDen = -10 },
-			field:  "pricing.tiers[0].coef_den",
-		}, {
-			control: "11", name: "dénominateur nul",
-			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[0].CoefDen = 0 },
-			field:  "pricing.tiers[0].coef_den",
+			control: "11", name: "une remise sur le tarif de référence",
+			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[1].Discount = 200 },
+			field:  "pricing.tiers[1].discount_percent",
 		}, {
 			control: "12", name: "code de tarif déclaré deux fois",
 			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[1].Code = c.Pricing.Tiers[0].Code },
 			field:  "pricing.tiers[1].code",
 		}, {
-			control: "13", name: "numérateur négatif",
-			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[0].CoefNum = -9 },
-			field:  "pricing.tiers[0].coef_num",
+			control: "13", name: "remise négative",
+			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[0].Discount = -1 },
+			field:  "pricing.tiers[0].discount_percent",
+		}, {
+			control: "13", name: "remise au-dessus de 100 %",
+			mutate: func(_ *testing.T, c *Config) { c.Pricing.Tiers[0].Discount = FullDiscount + 1 },
+			field:  "pricing.tiers[0].discount_percent",
 		}, {
 			control: "14", name: "primary_code hors grille",
 			mutate: func(_ *testing.T, c *Config) { c.Pricing.PrimaryCode = "GHOST" },
@@ -574,6 +595,20 @@ func brokenConfigurations() []brokenConfiguration {
 	}
 }
 
+// TestValidateAcceptsAFreeTier is the other edge of check 13 (config.go:914): a
+// hundred percent off is a discount a cooperative may legitimately declare, not
+// merely the value the "remise au-dessus de 100 %" case in brokenConfigurations
+// stops just short of. The zero edge is already pinned by
+// TestDeliveredConfigurationValidatesWithoutAFault, whose SOLIDARITY tier carries
+// no discount at all.
+func TestValidateAcceptsAFreeTier(t *testing.T) {
+	config := loadDelivered(t)
+	config.Pricing.Tiers[0].Discount = FullDiscount
+	if fault := findFault(config.Validate(testRegistries()), "pricing.tiers[0].discount_percent"); fault != nil {
+		t.Errorf("une remise de 100 %% est refusée : %s", fault.Message)
+	}
+}
+
 func TestValidateNamesTheRightField(t *testing.T) {
 	for _, testCase := range brokenConfigurations() {
 		t.Run("contrôle "+testCase.control+" — "+testCase.name, func(t *testing.T) {
@@ -676,6 +711,77 @@ func TestControl20IgnoresARetiredKeyOutsideTheFile(t *testing.T) {
 	}
 }
 
+// TestOldCoefficientKeysAreRefused is the safety net of ADR-034. encoding/json
+// drops what no field claims, so a file of the old format would decode WITHOUT A
+// WORD, with every discount at zero: every member would pay the full price, and
+// nothing on any screen would say why. Check 20 refuses the file instead.
+func TestOldCoefficientKeysAreRefused(t *testing.T) {
+	for _, key := range []string{"coef_num", "coef_den"} {
+		raw := []byte(`{"pricing":{"tiers":[{"code":"MEMBER","` + key + `":9}]}}`)
+		var config Config
+		if err := json.Unmarshal(raw, &config); err != nil {
+			t.Fatalf("%s : %v", key, err)
+		}
+		retired := config.Retired()
+		if len(retired) == 0 {
+			t.Errorf("%s : aucune clé retirée signalée", key)
+			continue
+		}
+		if !strings.Contains(retired[0], key) {
+			t.Errorf("%s : clé retirée %q, elle doit nommer la clé", key, retired[0])
+		}
+	}
+}
+
+// TestRetiredCoefficientMessagesPointAtTheNewKey: refusing is only half of it --
+// the message has to say what to write instead, or a volunteer is stuck.
+func TestRetiredCoefficientMessagesPointAtTheNewKey(t *testing.T) {
+	for _, key := range []string{"coef_num", "coef_den"} {
+		reason, known := retiredKeys[key]
+		if !known {
+			t.Errorf("%s absente de la table des clés retirées", key)
+			continue
+		}
+		if !strings.Contains(reason, "discount_percent") {
+			t.Errorf("%s : message %q, il doit nommer discount_percent", key, reason)
+		}
+	}
+}
+
+// TestRefuseIfRetiredNamesTheKeys is the guard ConfigStore.Save calls before writing a
+// single byte (ADR-034). It exists because control 20 alone is not enough: Validate
+// only runs where a caller remembers to call it, and the recovery route -- the one
+// that matters most, because it is a station's only way back in -- never did.
+func TestRefuseIfRetiredNamesTheKeys(t *testing.T) {
+	raw := []byte(`{"pricing":{"tiers":[{"code":"MEMBER","coef_num":9}]}}`)
+	var config Config
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatalf("décodage : %v", err)
+	}
+
+	err := config.RefuseIfRetired()
+	if err == nil {
+		t.Fatal("une configuration carrying coef_num n'a pas été refusée")
+	}
+	var retired *RetiredKeysError
+	if !errors.As(err, &retired) {
+		t.Fatalf("l'erreur n'est pas un *RetiredKeysError : %v", err)
+	}
+	if len(retired.Keys) != 1 || !strings.Contains(retired.Keys[0], "coef_num") {
+		t.Fatalf("clés = %v, coef_num attendu", retired.Keys)
+	}
+}
+
+// TestRefuseIfRetiredAcceptsAConfigBuiltInGo: Retired is filled by UnmarshalJSON
+// alone, so a configuration assembled in code -- the neutral profile, or one a test
+// builds by hand -- carries none, and nothing legitimate is blocked.
+func TestRefuseIfRetiredAcceptsAConfigBuiltInGo(t *testing.T) {
+	profile := NeutralProfile()
+	if err := profile.RefuseIfRetired(); err != nil {
+		t.Fatalf("un profil compilé est refusé : %v", err)
+	}
+}
+
 // --- Controls 17 to 19: the compiled numbering plan -----------------------------
 
 func TestControls17To19OnTheCompiledPlan(t *testing.T) {
@@ -713,7 +819,7 @@ func TestValidateReportsEveryFaultAtOnce(t *testing.T) {
 	config := loadDelivered(t)
 	config.Station.Number = 0                 // 1
 	config.Network.Listen = "pas une adresse" // 2
-	config.Pricing.Tiers[0].CoefDen = 0       // 11
+	config.Pricing.Tiers[1].Discount = 200    // 11
 	config.Pricing.PrimaryCode = "GHOST"      // 14
 	config.Limits.MaxUnits = 500              // 24
 	config.Stability.Mode = "bloquant"        // 28
@@ -727,7 +833,7 @@ func TestValidateReportsEveryFaultAtOnce(t *testing.T) {
 
 	faults := config.Validate(testRegistries())
 	wanted := []string{
-		"station.number", "network.listen", "pricing.tiers[0].coef_den",
+		"station.number", "network.listen", "pricing.tiers[1].discount_percent",
 		"pricing.primary_code", "limits.max_units", "stability.mode",
 		"journal.max_rows", "admin.password_hash", "catalog.fallback_category",
 		"catalog.categories[0].color", "printer.options.copies", "printer.options.offset_y",
@@ -856,7 +962,7 @@ func TestFingerprintIgnoresWhatDiffersFromStationToStation(t *testing.T) {
 func TestFingerprintChangesWhenASharedValueChanges(t *testing.T) {
 	reference := loadDelivered(t)
 	for name, mutate := range map[string]func(*Config){
-		"un coefficient de tarif": func(c *Config) { c.Pricing.Tiers[0].CoefNum = 8 },
+		"une remise de tarif":     func(c *Config) { c.Pricing.Tiers[0].Discount = 200 },
 		"un seuil de panier":      func(c *Config) { c.Limits.BasketMin = -300 },
 		"le gabarit":              func(c *Config) { c.Printer.Template = "weighing_integer_module" },
 		"une catégorie":           func(c *Config) { c.Catalog.Categories[0].Visible = false },

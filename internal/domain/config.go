@@ -75,22 +75,27 @@ const (
 // application never allowed.
 const fingerprintLength = 8
 
-// retiredPlanKeys are the six keys control 20 REFUSES outright, each with the
-// reason §11.2 gives for its removal.
+// retiredKeys are the keys control 20 REFUSES outright, each with the reason §11.2
+// gives for its removal.
 //
-// Every one of them used to declare a piece of the numbering plan from a file. The
+// Two families, and refusing rather than ignoring is the whole point of both.
+// The first six used to declare a piece of the numbering plan from a file; the
 // plan is now a CONSTANT OF THE BINARY indexed by prefix and self-checked at
-// start-up (ADR-028): a field that changes the MEANING of the code the till reads
-// is not a setting, it is an external contract. Refusing rather than ignoring is
-// the whole point -- after an update, a station must not be left believing that
-// its old field-width setting still applies.
-var retiredPlanKeys = map[string]string{
+// start-up (ADR-028), because a field that changes the MEANING of the code the
+// till reads is not a setting, it is an external contract. The last two are the
+// rational coefficient ADR-034 replaced by a percentage: encoding/json drops
+// what no field claims, so an old file would decode in silence with every
+// discount at zero -- and every member would pay the full price with nothing to
+// say why.
+var retiredKeys = map[string]string{
 	"weight_decimals":   "les décimales du poids sont déclarées par le plan compilé, indexé par préfixe (ADR-028)",
 	"units_field_width": "la largeur du champ des unités est déclarée par le plan compilé, indexé par préfixe (ADR-028)",
 	"weight_prefix":     "les préfixes au poids sont déclarés par le plan compilé (0493 à 0498), jamais par un fichier",
 	"unit_prefix":       "le préfixe à l'unité est déclaré par le plan compilé (0499), jamais par un fichier",
 	"content":           "ce que transporte la charge utile est déclaré par le plan compilé, jamais par un fichier",
 	"rules_by_prefix":   "la table de règles par préfixe est remplacée par le plan compilé, auto-contrôlé au démarrage",
+	"coef_num":          "la remise d'un tarif se déclare en pourcentage : discount_percent, au dixième de point (ADR-034)",
+	"coef_den":          "la remise d'un tarif se déclare en pourcentage : discount_percent, il n'y a plus de dénominateur (ADR-034)",
 }
 
 // retiredScaleTypes are the two values that LEFT the scale enumeration (§9.3),
@@ -490,7 +495,7 @@ func scanRetired(prefix string, value any, out *[]string) {
 			if prefix != "" {
 				path = prefix + "." + key
 			}
-			if _, retired := retiredPlanKeys[key]; retired {
+			if _, retired := retiredKeys[key]; retired {
 				*out = append(*out, path)
 			}
 			scanRetired(path, typed[key], out)
@@ -896,12 +901,13 @@ func (c *Config) Validate(reg Registries) []Fault {
 	}
 	codes := make(map[string]bool, len(c.Pricing.Tiers))
 	for i, tier := range c.Pricing.Tiers {
-		// 11. coef_den > 0, and NOT "!= 0". A negative denominator would pass, reach
-		//     RoundingPolicy.Divide whose precondition is den > 0, and kill the
-		//     goroutine of the Hub (§6.1, §6.3).
-		if tier.CoefDen <= 0 {
-			fail(fmt.Sprintf("pricing.tiers[%d].coef_den", i),
-				"%d doit être strictement positif", tier.CoefDen)
+		// 11. The tier reference_code names is the catalog price -- the one the
+		//     till charges. Its discount is not a setting, it is zero by
+		//     definition, so a file that gives it one is REFUSED rather than
+		//     quietly obeyed (ADR-034).
+		if tier.Code == c.Pricing.ReferenceCode && tier.Discount != 0 {
+			fail(fmt.Sprintf("pricing.tiers[%d].discount_percent", i),
+				"le tarif de référence est le prix du catalogue : il ne porte pas de remise")
 		}
 		// 12. Codes unique: the code is the key of a tier, in the file, on the label
 		//     and in the journal.
@@ -909,10 +915,11 @@ func (c *Config) Validate(reg Registries) []Fault {
 			fail(fmt.Sprintf("pricing.tiers[%d].code", i), "le code %q est déclaré deux fois", tier.Code)
 		}
 		codes[tier.Code] = true
-		// 13. coef_num ≥ 0: a negative coefficient would print a negative price.
-		if tier.CoefNum < 0 {
-			fail(fmt.Sprintf("pricing.tiers[%d].coef_num", i),
-				"%d ne peut pas être négatif", tier.CoefNum)
+		// 13. A discount is a percentage between 0 and 100. A hundred is free, and
+		//     that is a grid a cooperative may legitimately declare.
+		if tier.Discount < 0 || tier.Discount > FullDiscount {
+			fail(fmt.Sprintf("pricing.tiers[%d].discount_percent", i),
+				"%s %% n'est pas une remise entre 0 et 100 %%", tier.Discount)
 		}
 	}
 	tierCodes := make([]string, 0, len(c.Pricing.Tiers))
@@ -945,10 +952,11 @@ func (c *Config) Validate(reg Registries) []Fault {
 	//        inconsistent plan must stop the process AT START-UP, never at print time.
 	faults = append(faults, validateNumberingPlan(internalPlan)...)
 
-	// 20. A configuration still carrying a retired plan key is REFUSED.
+	// 20. A configuration still carrying a retired key -- numbering plan or pricing
+	//     coefficient -- is REFUSED.
 	for _, path := range c.retired {
 		key := path[strings.LastIndexByte(path, '.')+1:]
-		fail(path, "clé supprimée : %s", retiredPlanKeys[key])
+		fail(path, "clé supprimée : %s", retiredKeys[key])
 	}
 
 	// 21. template.media.dots_per_mm is the SINGLE source of resolution (mineur-3):
@@ -1710,4 +1718,39 @@ func (c *Config) Export(includeHardware bool) Config {
 // on a structure in which a retired key cannot exist.
 func (c *Config) Retired() []string {
 	return append([]string(nil), c.retired...)
+}
+
+// RetiredKeysError reports that a Config still carries a key control 20 refuses.
+//
+// It is what ConfigStore.Save returns instead of writing: the struct is about to be
+// marshalled, and marshalling is what LAUNDERS the key -- encoding/json already
+// dropped it once, at decode, and the field it stood for (a member's discount, for
+// coef_num) goes with it. A caller that reaches Save without having checked first
+// gets this instead of a file that decodes clean on the very next read.
+type RetiredKeysError struct {
+	// Keys are the dotted paths Config.Retired returned.
+	Keys []string
+}
+
+// Error names the retired keys.
+func (e *RetiredKeysError) Error() string {
+	return fmt.Sprintf("domain: config still carries retired key(s): %s", strings.Join(e.Keys, ", "))
+}
+
+// RefuseIfRetired reports a *RetiredKeysError when the configuration still carries a
+// key control 20 refuses, and nil otherwise.
+//
+// It is deliberately narrower than Validate: Validate needs Registries and can fail
+// on a print queue this station does not have, which is not a reason to refuse
+// WRITING a configuration that was already sitting on disk. This checks the one
+// thing that must never reach a file regardless of everything else about it -- and
+// it is cheap enough to run on every save, by every caller, including the ones that
+// will never think to call Validate first (the recovery route does not: a rescue
+// cannot be made to depend on the very validation that put the station out of
+// service to begin with).
+func (c *Config) RefuseIfRetired() error {
+	if keys := c.Retired(); len(keys) > 0 {
+		return &RetiredKeysError{Keys: keys}
+	}
+	return nil
 }

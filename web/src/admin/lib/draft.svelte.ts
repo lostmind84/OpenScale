@@ -154,8 +154,29 @@ export class Draft {
     await this.admin.refresh()
   }
 
-  /** Laisse tomber une clé que ce binaire refuse (§11.3, contrôle 20). */
+  /**
+   * Laisse tomber une clé que ce binaire refuse (§11.3, contrôle 20).
+   *
+   * Un chemin qui traverse un tableau -- `pricing.tiers[0].coef_num` -- n'est PAS
+   * marchable ici : `key.split('.')` en ferait un segment `tiers[0]` littéral, que
+   * `this.config` ne porte pas, et l'écriture retombait en silence sans rien avoir
+   * fait ni le dire. C'était sans conséquence pour les six clés du plan de
+   * numérotation, qui ne logent dans aucun tableau et ne portent aucune valeur à
+   * perdre (§11.2) ; ce ne l'est plus pour `coef_num`/`coef_den`, qui portaient une
+   * remise. Et de toute façon {@link save} refuse désormais tant que le FICHIER EN
+   * SERVICE porte une clé retirée, quel que soit ce que ce brouillon contient
+   * (contrôle 20 côté écriture) : ce bouton ne peut plus rien réparer pour une clé
+   * logée dans un tableau, alors il le dit plutôt que de prétendre avoir agi.
+   *
+   * @param key - le chemin pointé de la clé, tel que le service le nomme.
+   */
   dropRetired(key: string): void {
+    if (key.includes('[')) {
+      this.admin.actionError =
+        `« ${key} » est logée dans un tableau : cet écran ne sait pas la retirer ` +
+        'de là. Modifiez le fichier de configuration lui-même.'
+      return
+    }
     const keys = key.split('.')
     const last = keys.pop()
     if (last === undefined || this.config === null) return

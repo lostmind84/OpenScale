@@ -205,9 +205,12 @@ export class Admin {
   async recover(code: string, password: string): Promise<boolean> {
     this.#beginAction()
     try {
-      await api.recoverSession(code, password)
+      const session = await api.recoverSession(code, password)
       this.expert = true
-      this.notice = 'Le mot de passe est remplacé et la session est ouverte.'
+      // `warning` REMPLACE la phrase de succès plutôt que de s'y ajouter : quand elle
+      // est posée, le mot de passe n'est PAS enregistré, et la bonne nouvelle
+      // habituelle serait fausse à côté de celle qui compte.
+      this.notice = session.warning ?? 'Le mot de passe est remplacé et la session est ouverte.'
       return true
     } catch (failure) {
       this.#failAction(failure)

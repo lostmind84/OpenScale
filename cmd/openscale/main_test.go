@@ -235,3 +235,20 @@ func TestExplainCarriesBothTheSentenceAndTheDetail(t *testing.T) {
 		t.Errorf("explain lost the technical detail: %q", got)
 	}
 }
+
+// TestFrenchMessageForRetiredKeys: `openscale config password` writes through the
+// SAME ConfigStore.Save the administration route does, so a file still carrying
+// coef_num refuses there too (ADR-034) -- and the refusal is a *RetiredKeysError, not
+// a sentinel value, so TestFrenchMessagesCoverEverySentinelOfTheDomain cannot iterate
+// it. Checked here instead, for the exact same reason that test exists: an English
+// struct on a French terminal is a dead end for the volunteer reading it.
+func TestFrenchMessageForRetiredKeys(t *testing.T) {
+	err := &domain.RetiredKeysError{Keys: []string{"pricing.tiers[0].coef_num"}}
+	message := frenchMessage(err)
+	if message == "" {
+		t.Fatal("RetiredKeysError n'a pas de message français")
+	}
+	if !strings.Contains(message, "coef_num") {
+		t.Errorf("message %q ne nomme pas la clé refusée", message)
+	}
+}

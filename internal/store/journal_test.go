@@ -10,8 +10,8 @@ import (
 	"openscale/internal/domain"
 )
 
-// weighingOf is the garlic vector of §16.3: 1,236 kg at 5,32 €/kg, member coefficient
-// 9/10, half-up rounding -- 6,58 € solidarity and 5,92 € member.
+// weighingOf is the garlic vector of §16.3: 1,236 kg at 5,32 €/kg, member discount of
+// 10 %, half-up rounding -- 6,58 € solidarity and 5,92 € member.
 func weighingOf(productID, name, jobID string) domain.Weighing {
 	return domain.Weighing{
 		OccurredAt: TestEpoch, Station: 1, JobID: jobID, IdempotencyKey: "01J9F2ABC",

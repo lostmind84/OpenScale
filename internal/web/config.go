@@ -141,6 +141,29 @@ func (s *Server) writeConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The document GET serves is the DECODED Go structure, re-marshalled: a retired key
+	// never survives that round trip, because encoding/json drops what no field claims
+	// (§11.3, `configPayload`). A PUT of exactly what GET served can therefore never
+	// re-declare `coef_num` or `coef_den`, and control 20 on the SUBMITTED document --
+	// `next`, below -- finds nothing to refuse: the save would silently rewrite the file
+	// with MEMBER at 0 %. What is asked here is the FILE itself, read the same way
+	// `readConfig` reads it, which still carries whatever nobody repaired. Refusing the
+	// write is the same reasoning control 20 already applies to an upload that names a
+	// retired key outright, extended to a key already sitting on disk (ADR-034):
+	// repairing the file is done IN the file, not by laundering it through this screen.
+	if onDisk, err := s.configStore.Read(r.Context()); err == nil {
+		if faults := retiredFaultsOf(onDisk, s.registries); len(faults) > 0 {
+			writeJSON(w, http.StatusUnprocessableEntity, problem{
+				Code: "ERR-CFG-01",
+				Message: "Le fichier de configuration en service porte encore une clé que ce " +
+					"binaire refuse. L'administration ne peut pas la corriger : changez-la " +
+					"dans le fichier de configuration lui-même.",
+				Faults: faults,
+			})
+			return
+		}
+	}
+
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
 	if err != nil {
 		writeProblem(w, http.StatusBadRequest, "", "Requête illisible : "+err.Error())
@@ -348,6 +371,31 @@ func (s *Server) restoreConfig(w http.ResponseWriter, r *http.Request) {
 	s.moveListener(current, restored, outcome.ConfirmBefore)
 	writeJSON(w, http.StatusOK, s.configPayload(restored,
 		s.confirmationOf(outcome.Changed, outcome.ConfirmBefore)))
+}
+
+// retiredFaultsOf reports what control 20 says about each retired key a configuration
+// still carries, or nothing when it carries none.
+//
+// It runs the FULL Validate and keeps only the faults named by Retired(), rather than
+// duplicating the wording of retiredKeys here: a volunteer then reads the exact same
+// sentence whether the key arrived on an upload or was already sitting in the file
+// (§11.3, control 20).
+func retiredFaultsOf(cfg domain.Config, reg domain.Registries) []faultDTO {
+	paths := cfg.Retired()
+	if len(paths) == 0 {
+		return nil
+	}
+	named := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		named[path] = true
+	}
+	var out []faultDTO
+	for _, fault := range (&cfg).Validate(reg) {
+		if named[fault.Field] {
+			out = append(out, faultDTO{Field: fault.Field, Message: fault.Message})
+		}
+	}
+	return out
 }
 
 // faultsOf converts what the 45 controls said.

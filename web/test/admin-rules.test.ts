@@ -83,8 +83,8 @@ function laCagetteConfig(): Record<string, unknown> {
   return {
     pricing: {
       tiers: [
-        { code: 'MEMBER', label: 'Adhérent', abbrev: 'A', coef_num: 9, coef_den: 10, rank: 1 },
-        { code: 'SOLIDARITY', label: 'Solidaire', abbrev: 'S', coef_num: 1, coef_den: 1, rank: 2 },
+        { code: 'MEMBER', label: 'Adhérent', abbrev: 'A', discount_percent: 10, rank: 1 },
+        { code: 'SOLIDARITY', label: 'Solidaire', abbrev: 'S', rank: 2 },
       ],
       primary_code: 'MEMBER',
       reference_code: 'SOLIDARITY',
@@ -299,15 +299,15 @@ describe('les quatorze garde-fous de §6.4', () => {
 })
 
 describe('un champ vidé n’écrit pas zéro', () => {
-  it('garde le dénominateur du fichier quand l’exploitant efface la case', () => {
+  it('garde la remise du fichier quand l’exploitant efface la case', () => {
     const draft = open()
-    expect(draft.value('pricing.tiers.0.coef_den')).toBe(10)
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10)
 
-    type(tierField('Dénominateur du tarif 1'), '')
+    type(tierField('Remise du tarif 1'), '')
 
-    // `Number('')` vaut 0 : sans garde, cette frappe écrivait `coef_den: 0`, c'est-à-dire
-    // une division par zéro dans le prix de TOUS les produits, enregistrée sans un mot.
-    expect(draft.value('pricing.tiers.0.coef_den')).toBe(10)
+    // `Number('')` vaut 0 : sans garde, cette frappe écrivait `discount_percent: 0`,
+    // c'est-à-dire le plein tarif pour tous les adhérents, enregistré sans un mot.
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10)
     expect(draft.dirty).toBe(false)
   })
 
@@ -323,10 +323,10 @@ describe('un champ vidé n’écrit pas zéro', () => {
   it('écrit bien la valeur quand il y en a une : le garde ne bloque pas la saisie', () => {
     const draft = open()
 
-    type(tierField('Dénominateur du tarif 1'), '4')
+    type(tierField('Remise du tarif 1'), '4')
     type(fieldOf('limits.max_tare_g'), '5000')
 
-    expect(draft.value('pricing.tiers.0.coef_den')).toBe(4)
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(4)
     expect(draft.value('limits.max_tare_g')).toBe(5000)
     expect(draft.dirty).toBe(true)
   })
@@ -347,13 +347,13 @@ describe('un champ vidé n’écrit pas zéro', () => {
 
   it('remet aussi la valeur du fichier dans une case vidée de la grille de tarifs', () => {
     const draft = open()
-    const field = tierField('Dénominateur du tarif 1')
+    const field = tierField('Remise du tarif 1')
 
     type(field, '')
     leave(field)
 
     expect(field.value).toBe('10')
-    expect(draft.value('pricing.tiers.0.coef_den')).toBe(10)
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10)
   })
 
   it('le dit à l’écran, à côté des SEUILS comme à côté des tarifs', () => {
@@ -375,8 +375,8 @@ describe('la grille de tarifs', () => {
     open({
       pricing: {
         tiers: [
-          { label: 'Adhérent', abbrev: 'A', coef_num: 9, coef_den: 10, rank: 1 },
-          { label: 'Solidaire', abbrev: 'S', coef_num: 1, coef_den: 1, rank: 2 },
+          { label: 'Adhérent', abbrev: 'A', discount_percent: 10, rank: 1 },
+          { label: 'Solidaire', abbrev: 'S', rank: 2 },
         ],
       },
     })
@@ -557,5 +557,208 @@ describe('les dérogations de poids minimum', () => {
     const total = collapse(host.querySelector('[data-waiver-total]')?.textContent ?? '')
     expect(total).not.toContain('2 dérogations en vigueur')
     expect(total).toContain('1 sur un produit retiré')
+  })
+})
+
+describe('la remise se saisit en pourcentage', () => {
+  it('verrouille le tarif de référence : pas de remise, mais des mots modifiables', () => {
+    open()
+
+    // Le prix Odoo n'est pas un réglage. Les mots, si : l'abrégé est IMPRIMÉ sur
+    // l'étiquette et le libellé est vu par le client.
+    expect(() => tierField('Remise du tarif 2')).toThrow()
+    expect(tierField('Libellé du tarif 2').value).toBe('Solidaire')
+    expect(tierField('Abrégé du tarif 2').value).toBe('S')
+    expect(panelAbout('Grille de tarifs')).toContain('Prix du catalogue Odoo')
+  })
+
+  it('sans remise déclarée, le tarif de référence garde son message rassurant et aucune valeur', () => {
+    // Garde de non-régression pour la branche « written === null » : c'est le cas
+    // normal que le noyau garantit (aucune clé `discount_percent` sur le tarif de
+    // référence), et il ne doit pas glisser vers le message de refus ci-dessous.
+    open()
+
+    const text = panelAbout('Grille de tarifs')
+    expect(text).toContain('Prix du catalogue Odoo — pas de remise')
+    expect(text).not.toContain('ne peut pas porter de remise')
+  })
+
+  it('sans clé déclarée, un tarif qui N’EST PAS la référence est éditable et vaut 0', () => {
+    // L'absence de `discount_percent` sur un tarif qui n'est PAS la référence signifie
+    // exactement 0 % (la règle du noyau, tenue par le contrôle 13 et par `Price`) :
+    // c'est le cas d'un fichier tout juste migré depuis l'ancien format, ou d'un tarif
+    // déjà enregistré une fois à 0 % — `omitempty` a fait disparaître la clé pour de
+    // bon. Un champ éditable qui affiche 0 est honnête, pas inventé : avant ce
+    // correctif, la ligne tombait dans la branche « lecture seule » du tarif de
+    // référence par erreur, et personne ne pouvait plus jamais reposer de remise.
+    const draft = open({
+      pricing: {
+        tiers: [{ code: 'MEMBER', label: 'Adhérent', abbrev: 'A', rank: 1 }],
+        reference_code: 'SOLIDARITY',
+      },
+    })
+
+    const field = tierField('Remise du tarif 1')
+    expect(field.value).toBe('0')
+
+    type(field, '12,5')
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(12.5)
+  })
+
+  it('retargeter la référence sur un tarif remisé dit que la remise sera refusée, sans jamais prétendre qu’elle est absente', () => {
+    // Le champ « Tarif qui serait encodé si le code-barres portait un prix », juste
+    // sous ce tableau, écrit `pricing.reference_code` exactement comme ceci — sans
+    // toucher au fichier, en cours de session. Il expose un tarif de référence qui
+    // porte pourtant une remise ORDINAIRE et légale (10 %, celle du tarif MEMBER) :
+    // la ligne ne doit pas se taire dessus.
+    const draft = open()
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10)
+
+    draft.set('pricing.reference_code', 'MEMBER')
+    flushSync()
+
+    expect(() => tierField('Remise du tarif 1')).toThrow()
+    const text = panelAbout('Grille de tarifs')
+    expect(text).toContain('10')
+    expect(text).not.toContain('Prix du catalogue Odoo — pas de remise')
+    expect(text).toContain('ne peut pas porter de remise')
+    // Rien n'a été écrasé par ce constat : la remise déclarée reste 10 dans le brouillon.
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10)
+  })
+
+  it('accepte la virgule du clavier français comme le point', () => {
+    const draft = open()
+
+    type(tierField('Remise du tarif 1'), '10,2')
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10.2)
+
+    type(tierField('Remise du tarif 1'), '12.5')
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(12.5)
+  })
+
+  it('garde à l’écran une remise valide tapée, une fois le champ quitté', () => {
+    // `restoreBox` restaure dès que la case affichée diffère du brouillon, et plus
+    // seulement quand elle est vide (elle a été généralisée à partir de
+    // `restoreEmptyBox`) : ce test épingle qu'une saisie valide n'est pas écrasée par
+    // sa propre restauration.
+    const draft = open()
+    const field = tierField('Remise du tarif 1')
+
+    type(field, '15,5')
+    leave(field)
+
+    expect(field.value).toBe('15,5')
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(15.5)
+  })
+
+  it('n’écrit pas une deuxième décimale, et la case retrouve ce que le brouillon porte', () => {
+    const draft = open()
+    const field = tierField('Remise du tarif 1')
+
+    type(field, '10,25')
+
+    // Rien n'est écrit : le noyau REFUSE 10,25 au décodage, et cet écran ne doit pas
+    // fabriquer un fichier que le poste rejettera à l'enregistrement.
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10)
+    leave(field)
+    expect(field.value).toBe('10')
+  })
+
+  it('n’écrit pas zéro quand la case est vidée', () => {
+    const draft = open()
+    const field = tierField('Remise du tarif 1')
+
+    // `Number('')` vaut 0 : sans garde, cette frappe supprimait la remise adhérent sur
+    // TOUS les produits, enregistrée sans un mot.
+    type(field, '')
+
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10)
+    expect(draft.dirty).toBe(false)
+    leave(field)
+    expect(field.value).toBe('10')
+  })
+
+  it('refuse une remise hors bornes sans rien écrire', () => {
+    const draft = open()
+
+    type(tierField('Remise du tarif 1'), '120')
+
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10)
+  })
+
+  it('montre ce que la remise fait à un prix, sans lire aucun produit', () => {
+    const draft = open()
+
+    // 10,00 €/kg est choisi pour que l'aperçu soit EXACT : 1000 c x (100 - d) / 100
+    // tombe juste pour toute remise au dixième, donc aucun arrondi ne peut contredire
+    // l'étiquette qui sort de l'imprimante.
+    expect(panelAbout('Grille de tarifs')).toContain('9,00')
+
+    type(tierField('Remise du tarif 1'), '10,2')
+
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBe(10.2)
+    expect(panelAbout('Grille de tarifs')).toContain('8,98')
+  })
+
+  it('met la ligne en lecture seule devant une valeur qu’elle ne sait pas montrer', () => {
+    // Le tarif n'est PAS le tarif de référence ici : c'est ce qui isole le cas « valeur
+    // illisible » du cas « c'est le prix Odoo », que deux tests dédiés couvrent plus bas.
+    open({
+      pricing: {
+        tiers: [{ code: 'MEMBER', label: 'Adhérent', abbrev: 'A', discount_percent: 33.333, rank: 1 }],
+        reference_code: 'SOLIDARITY',
+      },
+    })
+
+    expect(() => tierField('Remise du tarif 1')).toThrow()
+    const text = panelAbout('Grille de tarifs')
+    expect(text).toContain('33.333')
+    expect(text).toContain('dixième')
+  })
+
+  it('n’affiche plus ni numérateur ni dénominateur', () => {
+    open()
+
+    const text = panelAbout('Grille de tarifs')
+    expect(text).not.toContain('Numérateur')
+    expect(text).not.toContain('Dénominateur')
+  })
+})
+
+describe('dropRetired ne ment jamais sur ce qu’il a fait', () => {
+  // `Draft.dropRetired` est testée directement, sans monter `Rules` : c'est
+  // `App.svelte` qui l'appelle, depuis le bandeau des clés retirées, quel que soit
+  // l'onglet ouvert.
+
+  it('refuse une clé logée dans un tableau au lieu de faire semblant de l’avoir retirée', () => {
+    // `pricing.tiers[0].coef_num` est le chemin que le service nomme pour ce cas
+    // précis (`scanRetired`, internal/domain/config.go) : le segment `tiers[0]` n'est
+    // pas une clé de `this.config`, et l'ancien code retombait en silence sans avoir
+    // rien fait ni le dire — un bouton qui ment sur ce qu'il vient de faire.
+    const admin = new Admin()
+    const draft = new Draft(admin)
+    draft.config = { pricing: { tiers: [{ code: 'MEMBER' }] } }
+    draft.retired = ['pricing.tiers[0].coef_num']
+
+    draft.dropRetired('pricing.tiers[0].coef_num')
+
+    expect(draft.retired).toEqual(['pricing.tiers[0].coef_num'])
+    expect(draft.dirty).toBe(false)
+    expect(admin.actionError).toContain('tableau')
+  })
+
+  it('retire bien une clé qui ne loge pas dans un tableau', () => {
+    const admin = new Admin()
+    const draft = new Draft(admin)
+    draft.config = { barcode: { weight_decimals: 3, verify_reference_check_digit: true } }
+    draft.retired = ['barcode.weight_decimals']
+
+    draft.dropRetired('barcode.weight_decimals')
+
+    expect(draft.retired).toEqual([])
+    expect(draft.dirty).toBe(true)
+    expect(draft.value('barcode.weight_decimals')).toBeUndefined()
+    // Le reste du bloc n'est pas touché.
+    expect(draft.value('barcode.verify_reference_check_digit')).toBe(true)
   })
 })

@@ -62,16 +62,13 @@
         "code": "MEMBER",
         "label": "Adhérent",
         "abbrev": "A",
-        "coef_num": 9,
-        "coef_den": 10,
+        "discount_percent": 10,
         "rank": 1
       },
       {
         "code": "SOLIDARITY",
         "label": "Solidaire",
         "abbrev": "S",
-        "coef_num": 1,
-        "coef_den": 1,
         "rank": 2
       }
     ],

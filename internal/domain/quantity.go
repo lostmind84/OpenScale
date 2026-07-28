@@ -56,12 +56,15 @@ func (p RoundingPolicy) String() string {
 // It is symmetric around zero: negative weights do exist (the "basket missing"
 // safeguard), and an asymmetric rounding would surprise there.
 //
-// PRECONDITION: den > 0. It is guaranteed UPSTREAM, not merely hoped for:
-// configuration checks 10-13 require coef_den > 0 (and not "!= 0"), and Price
-// runs the check again and returns ErrInconsistentTiers -- never a panic --
-// should a programmatically built tier grid escape them. That is what makes the
-// invariant "Transition never panics" true for configuration values as well, and
-// not only for state x event pairs.
+// PRECONDITION: den > 0. Price's two call sites pass positive CONSTANTS --
+// FullDiscount for the tier coefficient, 1000 for the gram-to-kilogram
+// conversion -- so no tier grid can reach this precondition any more. It used
+// to be reachable: coef_den came from the file, control 11 was what kept it
+// positive, and a negative denominator would have panicked in the Hub
+// goroutine and killed the process (ADR-034). The third caller, Quantize,
+// derives its denominator from the plan's Decimals, which the plan check keeps
+// non-negative (ean13.go:99) -- there the guarantee is still UPSTREAM, not
+// structural.
 func (p RoundingPolicy) Divide(num, den int64) int64 {
 	if den <= 0 {
 		panic("domain: zero or negative denominator") // programming defect, never data

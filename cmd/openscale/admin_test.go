@@ -176,7 +176,7 @@ func TestAnInvalidConfigurationComesBackWithEveryFaultAtOnce(t *testing.T) {
 	broken := bench.readConfig(t)
 	broken.Scale.Type = "balance-de-cuisine"
 	broken.Printer.Template = "gabarit-qui-n-existe-pas"
-	broken.Pricing.Tiers[0].CoefDen = 0
+	broken.Pricing.Tiers[0].Discount = -1
 
 	response := bench.put(t, "/admin/api/config", mustJSON(t, broken))
 	defer response.Body.Close()

@@ -1,8 +1,10 @@
 package domain
 
 import (
+	"encoding/json"
 	"errors"
 	"math/rand/v2"
+	"strings"
 	"testing"
 )
 
@@ -68,10 +70,10 @@ func TestPriceReferenceVector(t *testing.T) {
 	}
 }
 
-// TestPriceAppliesTheCoefficientToTheUnitPriceNotToTheAmount is the ORDER of
+// TestPriceAppliesTheDiscountToTheUnitPriceNotToTheAmount is the ORDER of
 // operations of A7, and the reason for it: the printed price per kilo, multiplied
 // by the printed weight, must give back the printed amount.
-func TestPriceAppliesTheCoefficientToTheUnitPriceNotToTheAmount(t *testing.T) {
+func TestPriceAppliesTheDiscountToTheUnitPriceNotToTheAmount(t *testing.T) {
 	rules := LaCagetteRules()
 	label, err := Price(garlic(), Measurement{Gross: 1236}, rules)
 	if err != nil {
@@ -109,9 +111,9 @@ func TestPriceAppliesTheCoefficientToTheUnitPriceNotToTheAmount(t *testing.T) {
 	}
 }
 
-// TestPriceIsMonotonicInTheCoefficient is the property of invariant §6.7-6, over
+// TestPriceIsMonotonicInTheDiscount is the property of invariant §6.7-6, over
 // 10 000 draws. A cheaper tier can never cost more.
-func TestPriceIsMonotonicInTheCoefficient(t *testing.T) {
+func TestPriceIsMonotonicInTheDiscount(t *testing.T) {
 	// Fixed seed: a property test that cannot be replayed is a flake.
 	r := rand.New(rand.NewPCG(20260725, 1236))
 	for i := 0; i < 10_000; i++ {
@@ -119,18 +121,19 @@ func TestPriceIsMonotonicInTheCoefficient(t *testing.T) {
 		product.UnitPrice = Cents(r.Int64N(int64(MaxUnitPrice)) + 1)
 		weight := Grams(r.Int64N(int64(MaxWeight)) + 1)
 
-		// Two tiers whose coefficients are ordered by construction.
-		lowNum, lowDen := r.Int64N(100)+1, r.Int64N(100)+1
-		highNum, highDen := r.Int64N(100)+1, r.Int64N(100)+1
-		// Order them: low/lowDen <= high/highDen.
-		if lowNum*highDen > highNum*lowDen {
-			lowNum, lowDen, highNum, highDen = highNum, highDen, lowNum, lowDen
+		// Two tiers whose discounts are ordered by construction: the BIGGER
+		// discount is the cheaper tier.
+		first := Discount(r.Int64N(int64(FullDiscount) + 1))
+		second := Discount(r.Int64N(int64(FullDiscount) + 1))
+		cheapest, dearest := first, second
+		if cheapest < dearest {
+			cheapest, dearest = dearest, cheapest
 		}
 
 		rules := PricingRules{
 			Tiers: []PriceTier{
-				{Code: "LOW", Abbrev: "L", CoefNum: lowNum, CoefDen: lowDen, Rank: 1},
-				{Code: "HIGH", Abbrev: "H", CoefNum: highNum, CoefDen: highDen, Rank: 2},
+				{Code: "LOW", Abbrev: "L", Discount: cheapest, Rank: 1},
+				{Code: "HIGH", Abbrev: "H", Discount: dearest, Rank: 2},
 			},
 			PrimaryCode: "LOW", ReferenceCode: "HIGH",
 			AmountRounding: RoundHalfUp, UnitPriceRounding: RoundHalfUp,
@@ -141,12 +144,12 @@ func TestPriceIsMonotonicInTheCoefficient(t *testing.T) {
 		}
 		low, high := label.Find("LOW"), label.Find("HIGH")
 		if low.UnitPrice > high.UnitPrice {
-			t.Fatalf("draw %d: unit price %d/%d -> %d exceeds %d/%d -> %d",
-				i, lowNum, lowDen, low.UnitPrice, highNum, highDen, high.UnitPrice)
+			t.Fatalf("draw %d: unit price at discount %s -> %d exceeds discount %s -> %d",
+				i, cheapest, low.UnitPrice, dearest, high.UnitPrice)
 		}
 		if low.Amount > high.Amount {
-			t.Fatalf("draw %d: amount %d exceeds %d (coefficients %d/%d and %d/%d)",
-				i, low.Amount, high.Amount, lowNum, lowDen, highNum, highDen)
+			t.Fatalf("draw %d: amount %d exceeds %d (discounts %s and %s)",
+				i, low.Amount, high.Amount, cheapest, dearest)
 		}
 	}
 }
@@ -209,24 +212,22 @@ func TestSingleTierPrintsOnePrice(t *testing.T) {
 	}
 }
 
-// TestPriceRefusesAnInconsistentGrid: a bad grid must return an error and NEVER
-// reach Divide, whose precondition would panic in the Hub goroutine and kill the
-// process. This is what makes invariant §6.7-5 true for configuration values too.
+// TestPriceRefusesAnInconsistentGrid: a bad grid must return an error, never a
+// panic. This is what makes invariant §6.7-5 true for configuration values too.
 func TestPriceRefusesAnInconsistentGrid(t *testing.T) {
 	base := LaCagetteRules()
 	cases := []struct {
 		name   string
 		mutate func(*PricingRules)
 	}{
-		{"zero denominator", func(r *PricingRules) { r.Tiers[0].CoefDen = 0 }},
-		{"negative denominator", func(r *PricingRules) { r.Tiers[0].CoefDen = -10 }},
-		{"negative numerator", func(r *PricingRules) { r.Tiers[0].CoefNum = -9 }},
+		{"negative discount", func(r *PricingRules) { r.Tiers[0].Discount = -1 }},
+		{"discount above a hundred percent", func(r *PricingRules) { r.Tiers[0].Discount = FullDiscount + 1 }},
 		{"no tier at all", func(r *PricingRules) { r.Tiers = nil }},
 		{"primary code names nothing", func(r *PricingRules) { r.PrimaryCode = "GHOST" }},
 		{"reference code names nothing", func(r *PricingRules) { r.ReferenceCode = "GHOST" }},
 		{"secondary code names nothing", func(r *PricingRules) { r.SecondaryCodes = []string{"GHOST"} }},
 		{"duplicate tier code", func(r *PricingRules) {
-			r.Tiers = append(r.Tiers, PriceTier{Code: "MEMBER", CoefNum: 1, CoefDen: 1, Rank: 3})
+			r.Tiers = append(r.Tiers, PriceTier{Code: "MEMBER", Rank: 3})
 		}},
 	}
 	for _, c := range cases {
@@ -253,9 +254,9 @@ func TestPriceRefusesAnInconsistentGrid(t *testing.T) {
 // order-dependent test here.
 func TestSortedTiersDoesNotMutateTheRules(t *testing.T) {
 	rules := PricingRules{Tiers: []PriceTier{
-		{Code: "C", Rank: 3, CoefNum: 1, CoefDen: 1},
-		{Code: "A", Rank: 1, CoefNum: 1, CoefDen: 1},
-		{Code: "B", Rank: 2, CoefNum: 1, CoefDen: 1},
+		{Code: "C", Rank: 3},
+		{Code: "A", Rank: 1},
+		{Code: "B", Rank: 2},
 	}}
 	sorted := rules.SortedTiers()
 	if got := []string{sorted[0].Code, sorted[1].Code, sorted[2].Code}; got[0] != "A" || got[1] != "B" || got[2] != "C" {
@@ -287,6 +288,123 @@ func TestNegativeNetWeightStaysSymmetric(t *testing.T) {
 		if got, want := negative.Lines[i].Amount, -positive.Lines[i].Amount; got != want {
 			t.Errorf("tier %s: amount at -282 g = %d, want %d",
 				positive.Lines[i].Tier.Code, got, want)
+		}
+	}
+}
+
+// TestTranslationMovesNoCent is the test that carries the whole change: 9/10
+// became 10 %, and not one printed price moved. Values taken from the tests that
+// existed before ADR-034, on the delivered La Cagette grid.
+func TestTranslationMovesNoCent(t *testing.T) {
+	label, err := Price(garlic(), Measurement{Gross: 1236}, LaCagetteRules())
+	if err != nil {
+		t.Fatalf("Price: %v", err)
+	}
+	member := label.Find("MEMBER")
+	// 532 c/kg x 900 / 1000 = 478,8 -> 479, then 479 x 1236 / 1000 = 592,044 -> 592.
+	if member.UnitPrice != 479 || member.Amount != 592 {
+		t.Errorf("adhérent = %d c/kg et %d c, attendu 479 et 592", member.UnitPrice, member.Amount)
+	}
+	solidarity := label.Find("SOLIDARITY")
+	if solidarity.UnitPrice != 532 || solidarity.Amount != 658 {
+		t.Errorf("solidaire = %d c/kg et %d c, attendu 532 et 658", solidarity.UnitPrice, solidarity.Amount)
+	}
+}
+
+// --- La remise -----------------------------------------------------------------
+
+// TestDiscountReadsTheTextOfTheNumber: the value that reaches the till is the one
+// the file carries. 10.2 has no exact binary representation, so a float64 in the
+// middle would be a rounding nobody declared (ADR-034).
+func TestDiscountReadsTheTextOfTheNumber(t *testing.T) {
+	for text, want := range map[string]Discount{
+		"0":    0,
+		"10":   100,
+		"10.2": 102,
+		"0.5":  5,
+		"100":  1000,
+		"33.3": 333,
+		"-5":   -50,  // out of bounds is READ: check 13 names it with the others
+		"120":  1200, // idem
+	} {
+		var got Discount
+		if err := json.Unmarshal([]byte(text), &got); err != nil {
+			t.Errorf("%s : %v", text, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s lu %d dixièmes, attendu %d", text, got, want)
+		}
+	}
+}
+
+// TestDiscountRefusesWhatItCannotHold: a second decimal digit is an ERROR and not
+// a fault, for the reason RoundingPolicy gives (config.go): there is no value to
+// hold. Holding it rounded would be holding a price nobody declared.
+func TestDiscountRefusesWhatItCannotHold(t *testing.T) {
+	for _, text := range []string{"33.333", "10.25", `"10"`, "1e2", "10.", ".5", "abc", "true", "null"} {
+		var got Discount
+		if err := json.Unmarshal([]byte(text), &got); err == nil {
+			t.Errorf("%s accepté (%d dixièmes), refus attendu", text, got)
+		}
+	}
+}
+
+// TestDiscountRefusalNamesTheRule: the message has to tell a volunteer what to
+// type, not merely that the file is wrong.
+func TestDiscountRefusalNamesTheRule(t *testing.T) {
+	var got Discount
+	err := json.Unmarshal([]byte("33.333"), &got)
+	if err == nil {
+		t.Fatal("33.333 accepté, refus attendu")
+	}
+	if !strings.Contains(err.Error(), "dixième") {
+		t.Errorf("message %q : il doit nommer le dixième de point", err)
+	}
+}
+
+// TestDiscountWritesTheShortestExactDecimal: the SHA-256 fingerprint of the
+// canonical JSON (ADR-012) is what four stations compare by eye, so the writing
+// has to be deterministic -- and short enough to be read.
+func TestDiscountWritesTheShortestExactDecimal(t *testing.T) {
+	for want, discount := range map[string]Discount{
+		"0": 0, "10": 100, "10.2": 102, "100": 1000, "-0.5": -5,
+	} {
+		raw, err := json.Marshal(discount)
+		if err != nil {
+			t.Errorf("%d dixièmes : %v", discount, err)
+			continue
+		}
+		if string(raw) != want {
+			t.Errorf("%d dixièmes écrit %s, attendu %s", discount, raw, want)
+		}
+	}
+}
+
+// TestDiscountRoundTripsOnEveryTenth walks all 1001 admissible values: the file
+// says exactly what the type holds, and back.
+func TestDiscountRoundTripsOnEveryTenth(t *testing.T) {
+	for tenths := Discount(0); tenths <= FullDiscount; tenths++ {
+		raw, err := json.Marshal(tenths)
+		if err != nil {
+			t.Fatalf("%d dixièmes : %v", tenths, err)
+		}
+		var back Discount
+		if err := json.Unmarshal(raw, &back); err != nil {
+			t.Fatalf("%s relu : %v", raw, err)
+		}
+		if back != tenths {
+			t.Fatalf("%d dixièmes écrit %s puis relu %d", tenths, raw, back)
+		}
+	}
+}
+
+// TestDiscountSpeaksFrenchOnScreen: MarshalJSON writes a dot because JSON does;
+// String writes a comma because a volunteer reads it. Two spellings, one value.
+func TestDiscountSpeaksFrenchOnScreen(t *testing.T) {
+	for want, discount := range map[string]Discount{"10,2": 102, "10": 100, "0": 0, "-0,5": -5} {
+		if got := discount.String(); got != want {
+			t.Errorf("%d dixièmes affiché %q, attendu %q", discount, got, want)
 		}
 	}
 }

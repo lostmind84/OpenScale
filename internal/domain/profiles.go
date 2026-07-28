@@ -83,7 +83,7 @@ func NeutralProfile() Config {
 			Template: "weighing_neutral_single",
 		},
 
-		// Mono-tarif: one tier, coefficient 1/1, and the label prints one price. The
+		// Mono-tarif: one tier, no discount, and the label prints one price. The
 		// secondary field disappears through its own condition, with no `if` in the
 		// renderer.
 		Pricing: SingleTierRules(),

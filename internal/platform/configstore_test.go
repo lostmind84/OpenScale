@@ -69,6 +69,51 @@ func TestAnInterruptedWriteLeavesTheConfigurationInForce(t *testing.T) {
 	}
 }
 
+// TestSaveRefusesAConfigurationCarryingARetiredKey is the choke point of ADR-034.
+//
+// Marshalling a Config back to JSON DROPS what UnmarshalJSON could not claim, so
+// writing coef_num here is how a station serialises the discount it stood for away
+// -- decoding clean on the very next read, with control 20 finding nothing left to
+// refuse. The configuration is seeded with os.WriteFile and not through Save: seeding
+// through the very call under test would prove nothing.
+func TestSaveRefusesAConfigurationCarryingARetiredKey(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "config.json")
+	store := newStore(t, path)
+
+	var legacy domain.Config
+	raw := []byte(`{"pricing":{"tiers":[{"code":"MEMBER","coef_num":9}]}}`)
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		t.Fatalf("décodage : %v", err)
+	}
+
+	if err := store.Save(context.Background(), legacy); err == nil {
+		t.Fatal("une configuration portant coef_num a été écrite : la remise que " +
+			"cette clé portait vient de disparaître du fichier")
+	} else if !strings.Contains(err.Error(), "coef_num") {
+		t.Fatalf("le refus ne nomme pas coef_num : %v", err)
+	}
+	if fileExists(path) {
+		t.Fatal("un fichier a été créé alors que le contrôle 20 refuse la configuration")
+	}
+}
+
+// TestSaveWritesAConfigurationCarryingNoRetiredKey is the happy path through the SAME
+// guard: nothing legitimate is blocked, because Retired is only ever filled by
+// UnmarshalJSON and a configuration built in Go — the neutral profile, here — carries
+// none.
+func TestSaveWritesAConfigurationCarryingNoRetiredKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	store := newStore(t, path)
+
+	if err := store.Save(context.Background(), domain.NeutralProfile()); err != nil {
+		t.Fatalf("une configuration légitime a été refusée : %v", err)
+	}
+	if !fileExists(path) {
+		t.Fatal("l'enregistrement n'a rien écrit")
+	}
+}
+
 // TestTheVersionsRotateAndTheSixthIsDropped is §11.1: config.json.1 … .5, and no sixth.
 //
 // The rotation is checked by CONTENT and not by counting files: what an operator restores

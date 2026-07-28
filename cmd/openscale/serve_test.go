@@ -242,14 +242,14 @@ func TestAnAddressThisStationCannotHaveIsNotAnotherInstance(t *testing.T) {
 // TestAnInvalidConfigurationStillServes is the guiding principle 7 of §11.3: « le poste
 // démarre toujours ».
 //
-// A price coefficient of zero would kill the Hub's goroutine on the first division, so
-// control 11 refuses it. The station starts anyway, on the neutral profile loaded IN
-// MEMORY AND NEVER WRITTEN, in the one terminal state, and it serves — because a broken
-// configuration must never produce a black screen, and because the screen that fixes it
-// is served by the very process the configuration broke.
+// A negative discount would print a negative price, so control 13 refuses it. The
+// station starts anyway, on the neutral profile loaded IN MEMORY AND NEVER WRITTEN,
+// in the one terminal state, and it serves — because a broken configuration must
+// never produce a black screen, and because the screen that fixes it is served by
+// the very process the configuration broke.
 func TestAnInvalidConfigurationStillServes(t *testing.T) {
 	bench := newServeBench(t, func(cfg *domain.Config) {
-		cfg.Pricing.Tiers[0].CoefDen = 0
+		cfg.Pricing.Tiers[0].Discount = -10
 	})
 	bench.start()
 
@@ -262,7 +262,7 @@ func TestAnInvalidConfigurationStillServes(t *testing.T) {
 	if got := bench.output(); !strings.Contains(got, "ERR-CFG-01") {
 		t.Fatalf("la sortie ne nomme pas ERR-CFG-01 :\n%s", got)
 	}
-	if got := bench.output(); !strings.Contains(got, "coef_den") {
+	if got := bench.output(); !strings.Contains(got, "discount_percent") {
 		t.Fatalf("la liste des fautes ne nomme pas le champ fautif :\n%s", got)
 	}
 	// The file on disk is UNTOUCHED: the neutral profile is loaded in memory and
@@ -271,7 +271,7 @@ func TestAnInvalidConfigurationStillServes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("relecture de la configuration : %v", err)
 	}
-	if !bytes.Contains(raw, []byte(`"coef_den": 0`)) {
+	if !bytes.Contains(raw, []byte(`"discount_percent": -1`)) {
 		t.Fatalf("le fichier fautif a été réécrit par le poste :\n%s", raw)
 	}
 

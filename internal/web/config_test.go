@@ -1,11 +1,16 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"openscale/internal/domain"
 )
 
 // TestNoListOfTheAdminPayloadIsEverNull.
@@ -71,5 +76,83 @@ func TestTheEditedDocumentIsServedAsItIsOnDisk(t *testing.T) {
 	if payload.Config.Scale.Options != nil && len(payload.Config.Scale.Options) == 0 {
 		t.Error("une carte d'options vide a été inventée : le premier enregistrement " +
 			"déclarera un bloc « scale » modifié que personne n'a touché")
+	}
+}
+
+// legacyLaCagette rebuilds the shipped configuration with `coef_num`/`coef_den` in
+// place of `discount_percent` on MEMBER, exactly as an upgraded site's file would
+// read until somebody edits it by hand: otherwise byte-identical to
+// testdata/config-lacagette.json, and equally valid.
+func legacyLaCagette(t *testing.T) domain.Config {
+	t.Helper()
+	var cfg domain.Config
+	if err := json.Unmarshal(legacyLaCagetteRaw(t), &cfg); err != nil {
+		t.Fatalf("configuration reconstruite illisible : %v", err)
+	}
+	return cfg
+}
+
+// legacyLaCagetteRaw is the BYTES legacyLaCagette decodes.
+//
+// A separate function because one test needs the bytes THEMSELVES, written straight
+// to a file: ConfigStore.Save now refuses to write a configuration carrying coef_num
+// (ADR-034), so seeding the on-disk fixture through Save would prove nothing about a
+// file that got there some other way — an upgrade, or a hand edit.
+func legacyLaCagetteRaw(t *testing.T) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "config-lacagette.json"))
+	if err != nil {
+		t.Fatalf("lecture de la configuration livrée : %v", err)
+	}
+	const (
+		before = `"discount_percent": 10, "rank": 1`
+		after  = `"coef_num": 9, "coef_den": 10, "rank": 1`
+	)
+	edited := strings.Replace(string(raw), before, after, 1)
+	if edited == string(raw) {
+		t.Fatal("le remplacement de discount_percent n'a rien trouvé : le test ne prouve rien")
+	}
+	return []byte(edited)
+}
+
+// TestASaveIsRefusedWhileTheFileOnDiskStillCarriesARetiredKey (C1).
+//
+// The admin round trip LAUNDERS a retired key otherwise: GET marshals the DECODED Go
+// structure, which has no field for coef_num or coef_den (§11.2), so the document the
+// screen edits and saves back never carries them again -- only `retired_keys` names
+// them, and NOTHING in the edited document points control 20 at anything. A PUT of
+// EXACTLY what GET served would then silently write a canonical file with MEMBER at
+// 0 % discount, and every member would pay full price with nothing on any screen to
+// say why. This is the round-trip test that was missing for any retired key.
+func TestASaveIsRefusedWhileTheFileOnDiskStillCarriesARetiredKey(t *testing.T) {
+	onDisk := legacyLaCagette(t)
+	saved := &savedConfig{}
+	if err := saved.Save(context.Background(), onDisk); err != nil {
+		t.Fatalf("préparation du fichier : %v", err)
+	}
+
+	b := newBench(t, func(o *benchOptions) { o.configStore = saved })
+	b.setPassword("openscale", "ABCDEFGH")
+	b.login("openscale")
+
+	get := b.get("/admin/api/config")
+	payload := decode[configDTO](t, get)
+	if len(payload.Retired) == 0 {
+		t.Fatal("la lecture ne signale aucune clé retirée : le banc de test est mal construit")
+	}
+
+	put := b.do(http.MethodPut, "/admin/api/config", string(payload.Config), nil)
+	refusal := body(t, put)
+	if put.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("PUT de ce que GET a servi = %d, attendu 422 : %s", put.StatusCode, refusal)
+	}
+	if !strings.Contains(refusal, "coef_num") {
+		t.Errorf("le refus ne nomme pas coef_num : %s", refusal)
+	}
+
+	stillOnDisk := saved.saved()
+	if written, want := stillOnDisk.Fingerprint(), onDisk.Fingerprint(); written != want {
+		t.Fatalf("le fichier a été réécrit (empreinte %s, attendu %s inchangée) : "+
+			"la clé retirée a été blanchie par le brouillon", written, want)
 	}
 }

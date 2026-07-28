@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +14,7 @@ import (
 
 	"openscale/internal/domain"
 	"openscale/internal/fake"
+	"openscale/internal/platform"
 )
 
 // TestThePasswordOpensASessionAndTheCookieCarriesIt.
@@ -222,6 +225,92 @@ func TestARescueDoesNotReplaceTheShopsConfigurationWithTheFactoryOne(t *testing.
 	// hand a station a configuration nobody validated.
 	if b.hub.Config().Station.Coop == shop.Station.Coop {
 		t.Fatal("le poste s'est mis à faire tourner le fichier au lieu de son profil neutre")
+	}
+}
+
+// TestARecoveryOnALegacyFileDoesNotLaunderTheDiscount (the defect this fix closes).
+//
+// This is the station the guard exists for: an upgraded site whose file control 20
+// refuses runs the neutral profile, the volunteer cannot log in, and reaches for the
+// recovery code on the installation sheet. Before this fix, that single gesture read
+// the on-disk file, set the new password hash, and wrote the WHOLE struct back —
+// which drops coef_num, because encoding/json only ever kept what a field claims. The
+// member discount coef_num stood for would be gone from the file, silently, and
+// control 20 would find nothing on the station's next start. The real ConfigStore is
+// used here, and not the in-memory double: the guard lives in Save, and a double that
+// never calls it would prove nothing about the file on disk.
+func TestARecoveryOnALegacyFileDoesNotLaunderTheDiscount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	before := legacyLaCagetteRaw(t)
+	if err := os.WriteFile(path, before, 0o644); err != nil {
+		t.Fatalf("préparation du fichier : %v", err)
+	}
+	store, err := platform.NewConfigStore(path)
+	if err != nil {
+		t.Fatalf("NewConfigStore : %v", err)
+	}
+
+	b := newBench(t, func(o *benchOptions) { o.configStore = realConfigStore{store} })
+	b.setPassword("oublie", "ABCD2345")
+
+	response := b.post("/admin/api/session/recovery",
+		`{"code":"ABCD2345","password":"nouveau-mot"}`)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("code de secours sur fichier legacy = %d : %s",
+			response.StatusCode, body(t, response))
+	}
+	response.Body.Close()
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("relecture : %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("le fichier a été réécrit : la clé retirée -- et la remise qu'elle "+
+			"portait -- a disparu.\navant :\n%s\naprès :\n%s", before, after)
+	}
+	if !strings.Contains(string(after), "coef_num") {
+		t.Fatal("coef_num n'est plus dans le fichier : la remise a été blanchie")
+	}
+}
+
+// TestARecoveryStillOpensASessionWhenTheFileCannotBeSaved is the corner this fix must
+// not get wrong: refusing to persist the new password must not lock the volunteer out
+// of their own station. The volunteer reaching for the recovery code is very often
+// standing in front of the ONE station whose file control 20 refuses — that is what
+// put it out of service in the first place, and the screen that explains it is behind
+// the very door this request opens. Failing loudly here would trade a silent
+// overcharge for a station nobody can administer.
+func TestARecoveryStillOpensASessionWhenTheFileCannotBeSaved(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, legacyLaCagetteRaw(t), 0o644); err != nil {
+		t.Fatalf("préparation du fichier : %v", err)
+	}
+	store, err := platform.NewConfigStore(path)
+	if err != nil {
+		t.Fatalf("NewConfigStore : %v", err)
+	}
+
+	b := newBench(t, func(o *benchOptions) { o.configStore = realConfigStore{store} })
+	b.setPassword("oublie", "ABCD2345")
+
+	response := b.post("/admin/api/session/recovery",
+		`{"code":"ABCD2345","password":"nouveau-mot"}`)
+	got := decodeStatus[sessionDTO](t, response, http.StatusOK)
+	if got.Warning == "" || !strings.Contains(got.Warning, "coef_num") {
+		t.Fatalf("l'avertissement ne nomme pas coef_num : %q", got.Warning)
+	}
+
+	// The volunteer really is in: the new password is in force, and a session was
+	// issued and is usable.
+	if !VerifySecret(b.hub.Config().Admin.PasswordHash, "nouveau-mot") {
+		t.Fatal("le nouveau mot de passe n'est pas en service")
+	}
+	if got := b.get("/admin/api/config"); got.StatusCode != http.StatusOK {
+		t.Fatalf("la session délivrée par le code de secours ne vaut rien : %d", got.StatusCode)
+	}
+	if !b.technical.has("ERR-CFG-01") {
+		t.Fatal("l'incapacité à écrire le mot de passe n'est pas journalisée")
 	}
 }
 

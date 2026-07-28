@@ -677,7 +677,7 @@ func TestPrepareEncodesTheHeaviestAdmissibleWeight(t *testing.T) {
 
 // TestPrepareZeroPrice is rule 12, and it is a backstop rather than a filter: the
 // import already refuses a product priced at zero. It stays evaluated because the
-// price can also become zero AFTER the catalog -- a tier configured at 0/1 is
+// price can also become zero AFTER the catalog -- a tier configured at 100 % is
 // accepted by the configuration checks and would turn every article free.
 func TestPrepareZeroPrice(t *testing.T) {
 	cases := []struct {
@@ -685,9 +685,9 @@ func TestPrepareZeroPrice(t *testing.T) {
 		mutil func(*PrepareInput)
 	}{
 		{"the catalog price is zero", func(in *PrepareInput) { in.Product.UnitPrice = 0 }},
-		{"the primary tier coefficient is zero", func(in *PrepareInput) {
+		{"the primary tier is free", func(in *PrepareInput) {
 			rules := LaCagetteRules()
-			rules.Tiers[0].CoefNum = 0
+			rules.Tiers[0].Discount = FullDiscount
 			in.Rules = rules
 		}},
 	}
