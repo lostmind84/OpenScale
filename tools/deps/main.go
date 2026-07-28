@@ -10,6 +10,9 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -157,4 +160,119 @@ func firstBacktickSpan(cell string) (string, bool) {
 	return rest[:end], true
 }
 
-func main() {}
+// documentedInventory is one of the two places where the dependency list is
+// written down, with the name a human needs to find it from a CI log.
+type documentedInventory struct {
+	name  string
+	path  string
+	after string
+}
+
+// documentedInventories are the THREE-WAY check, and the third way is on
+// purpose. The inventory is written twice -- §17.1 is the reference a reader
+// opens, THIRD-PARTY.md is the licence notice that ships with the binary -- and
+// it is that duplication which lets them drift. Checking BOTH against go.mod
+// removes the class of defect instead of the defect of the day.
+var documentedInventories = []documentedInventory{
+	{name: "docs/02-architecture.md §17.1", path: "docs/02-architecture.md", after: "### 17.1"},
+	{name: "THIRD-PARTY.md", path: "THIRD-PARTY.md"},
+}
+
+func main() {
+	failures := 0
+	report := func(format string, args ...any) {
+		failures++
+		fmt.Fprintf(os.Stderr, "deps: "+format+"\n", args...)
+	}
+
+	root, err := repositoryRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "deps: %v\n", err)
+		os.Exit(2)
+	}
+
+	gomod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "deps: %v\n", err)
+		os.Exit(2)
+	}
+	required := directRequires(string(gomod))
+
+	for _, inventory := range documentedInventories {
+		text, err := os.ReadFile(filepath.Join(root, inventory.path))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "deps: %v\n", err)
+			os.Exit(2)
+		}
+		declared, err := tableModules(string(text), inventory.after)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "deps: %s : %v\n", inventory.name, err)
+			os.Exit(2)
+		}
+		compare(required, inventory.name, declared, report)
+	}
+
+	if failures > 0 {
+		fmt.Fprintf(os.Stderr, "\ndeps: %d écart(s) — voir docs/02-architecture.md §17.1 et ADR-037\n", failures)
+		os.Exit(1)
+	}
+	fmt.Printf("deps: %d dépendances directes, déclarées à l'identique dans §17.1 et THIRD-PARTY.md\n", len(required))
+}
+
+// compare reports every divergence between what the binary carries and what one
+// document declares, IN BOTH DIRECTIONS, because the two directions are two
+// different accidents.
+//
+// A module in go.mod and absent from the table is a dependency that entered
+// without an ADR -- the case §17.1 promised to catch. A module in the table and
+// absent from go.mod is documentation promising something the binary does not
+// carry -- the case that actually happened, four times, for the length of the
+// project.
+//
+// Sorted, so that a CI log reads the same twice.
+func compare(required map[string]bool, source string, declared map[string]bool, report func(string, ...any)) {
+	for _, module := range sortedModules(required) {
+		if !declared[module] {
+			report("%s est dans go.mod et absent de %s — une dépendance entre par un ADR (ADR-037), jamais en silence", module, source)
+		}
+	}
+	for _, module := range sortedModules(declared) {
+		if !required[module] {
+			report("%s est déclaré dans %s et absent de go.mod — la documentation annonce une dépendance que le binaire n'a pas", module, source)
+		}
+	}
+}
+
+// sortedModules gives a stable reading order to a set.
+func sortedModules(modules map[string]bool) []string {
+	names := make([]string, 0, len(modules))
+	for name := range modules {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// repositoryRoot walks up from the working directory until it finds go.mod, so
+// that the tool behaves the same whether it is run by make, by the CI or by hand
+// from a subdirectory.
+//
+// It is COPIED from tools/boundary, and that is a choice: sharing fifteen lines
+// would cost a third directory and a coupling between two standalone programs
+// that have nothing to say to each other.
+func repositoryRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("go.mod introuvable depuis le répertoire courant")
+		}
+		dir = parent
+	}
+}

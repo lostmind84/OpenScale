@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 func TestDirectRequiresIgnoresIndirectAndNonRequireLines(t *testing.T) {
 	const gomod = `module openscale
@@ -159,5 +163,43 @@ func TestTableModulesRejectsARowWithoutAModuleName(t *testing.T) {
 
 	if _, err := tableModules(malformed, ""); err == nil {
 		t.Error("tableModules : un nom de module sans accents graves doit être signalé")
+	}
+}
+
+func TestCompareReportsBothDirections(t *testing.T) {
+	required := map[string]bool{"modernc.org/sqlite": true, "github.com/gin-gonic/gin": true}
+	declared := map[string]bool{"modernc.org/sqlite": true, "github.com/oklog/ulid/v2": true}
+
+	var messages []string
+	report := func(format string, args ...any) {
+		messages = append(messages, fmt.Sprintf(format, args...))
+	}
+
+	compare(required, "THIRD-PARTY.md", declared, report)
+
+	if len(messages) != 2 {
+		t.Fatalf("compare : %d écarts, attendu 2 — %v", len(messages), messages)
+	}
+	if !strings.Contains(messages[0], "github.com/gin-gonic/gin") {
+		t.Errorf("compare : le module non documenté doit être signalé en premier — %q", messages[0])
+	}
+	if !strings.Contains(messages[1], "github.com/oklog/ulid/v2") {
+		t.Errorf("compare : le module documenté et absent doit être signalé — %q", messages[1])
+	}
+	for _, message := range messages {
+		if !strings.Contains(message, "THIRD-PARTY.md") {
+			t.Errorf("compare : le message doit nommer la source — %q", message)
+		}
+	}
+}
+
+func TestCompareIsSilentWhenTheTwoAgree(t *testing.T) {
+	modules := map[string]bool{"modernc.org/sqlite": true, "golang.org/x/sys": true}
+
+	called := false
+	compare(modules, "THIRD-PARTY.md", modules, func(string, ...any) { called = true })
+
+	if called {
+		t.Error("compare : deux inventaires identiques ne produisent aucun écart")
 	}
 }
