@@ -229,23 +229,51 @@ déclarée est une faute, pas une valeur ignorée en silence.
 ### 4.2 La sonde, et où elle vit
 
 `domain.Config.Validate` est **pur** : il ne touche pas au disque et ne peut donc pas
-répondre « ce répertoire existe ». Le descripteur de source
-(`internal/catalog/registry.go`) gagne une sonde :
+répondre « ce répertoire existe ». Le point d'entrée pour cette question existe déjà et
+n'a pas à être inventé — `domain.Registries` porte un `PathChecker` :
 
 ```go
-// Probe reports whether this configuration can really be served, by touching what
-// Validate cannot: the filesystem, the network, the rights of the account the service
-// runs under. It is called by the write route, and ONLY when the options changed.
-Probe func(SourceConfig) error
+// PathChecker answers the one question a pure validation cannot: is this path
+// readable FROM THE CONTEXT OF THE SERVICE?
 ```
 
-`writeConfig` l'appelle **uniquement quand le bloc `catalog` du document soumis diffère de
-celui en service** — un
-enregistrement portant sur les tarifs ne doit pas échouer parce qu'un partage est
-momentanément indisponible. L'échec ressort comme une faute ordinaire, dans le même 422
-que les autres, sur le champ `catalog.options.directory`.
+Le contrôle 44 s'en sert exactement pour le cas jumeau : `catalog.images.path`, vide =
+répertoire du service, renseigné = vérifié. Le répertoire de dépôt suit la même route.
 
-Ce que la sonde de `local_drop` vérifie, dans cet ordre :
+**Constat à traiter au passage.** `PathChecker` n'a **aucune implémentation de
+production** : il n'est câblé que dans `config_test.go`, et le contrôle 44 ne s'exécute
+donc jamais sur un poste. Le chantier fournit l'implémentation qui manque, et le contrôle
+44 se met à travailler du même coup.
+
+L'interface gagne une seconde question — un répertoire de dépôt doit être *inscriptible*,
+pas seulement lisible :
+
+```go
+type PathChecker interface {
+    // Readable reports nil when the service could read that path.
+    Readable(path string) error
+    // Droppable reports nil when the service could create AND delete a file there.
+    // A catalog is acknowledged by deleting it: a directory it may only read would
+    // make the same import loop for ever.
+    Droppable(path string) error
+}
+```
+
+Nouveau **contrôle 46** : sur `local_drop`, un `directory` non vide passe par
+`Droppable`. Comme le 44, il ne s'exécute que si un `PathChecker` est fourni — `openscale
+config validate` sur un portable valide la forme, pas l'existence.
+
+**Le refus ne se déclenche que si le bloc a changé.** Un enregistrement portant sur les
+tarifs ne doit pas échouer parce qu'un partage est momentanément indisponible. `writeConfig`
+lit déjà la configuration sur disque (`internal/web/config.go:154`) : quand le bloc
+`catalog` du document soumis est identique à celui en service, il fournit un `PathChecker`
+dont le `Droppable` répond nil sans toucher au disque. La décision « faut-il sonder ? »
+appartient à la couche qui connaît les deux versions ; l'exécution reste dans le domaine.
+
+L'échec ressort comme une faute ordinaire, dans le même 422 que les autres, sur le champ
+`catalog.options.directory`.
+
+Ce que l'implémentation de `Droppable` vérifie, dans cet ordre :
 
 1. **le répertoire existe.** Un chemin explicite n'est jamais créé par le service : une
    faute de frappe fabriquerait une arborescence fantôme que personne ne surveillerait, et
@@ -388,10 +416,14 @@ avancés » supprimés à la refonte du 27/07 : il pourra enfin nommer la page C
 - `internal/catalog/localdrop/localdrop_test.go` — option absente = `<data>/catalog/incoming` ;
   option renseignée = ce répertoire ; un répertoire explicite absent n'est **pas** créé ;
   la sonde refuse l'inexistant, le non-inscriptible et le répertoire d'archives.
-- `internal/domain/config_test.go` — `directory` refusé sur `webdav`.
+- `internal/domain/config_test.go` — `directory` refusé sur `webdav` ; le contrôle 46 ne
+  s'exécute pas quand aucun `PathChecker` n'est fourni.
+- `internal/platform/pathchecker_test.go` — `Droppable` refuse l'inexistant, le fichier,
+  le non-inscriptible ; accepte un répertoire temporaire et n'y laisse rien.
 - `internal/web/config_test.go` — `catalog.options.password` absent de la charge utile
   lue ; un `PUT` portant une chaîne vide **conserve** le mot de passe en service ; la sonde
-  n'est appelée que si les options ont changé, et son échec sort en 422 sur le bon champ.
+  n'est appelée que si le bloc `catalog` a changé, et son échec sort en 422 sur le bon
+  champ.
 
 Les règles nouvelles sont toutes testables **sans matériel** : un répertoire temporaire
 suffit.
