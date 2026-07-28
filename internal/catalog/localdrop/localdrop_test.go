@@ -987,3 +987,25 @@ func TestTheDescriptorDeclaresTheDropDirectory(t *testing.T) {
 	}
 	t.Errorf("le descripteur ne déclare pas %q", DirectoryOption)
 }
+
+// TestTheDomainAndThisPackageSpellTheOptionTheSameWay: the domain may not import this
+// package — the boundary is checked by tools/boundary — so the key is written twice.
+// This is what makes the second spelling a duplicate rather than a divergence.
+//
+// The registries are empty on purpose: control 9 would refuse an undeclared key by
+// itself, and only a bare validation lets control 47 be heard alone.
+func TestTheDomainAndThisPackageSpellTheOptionTheSameWay(t *testing.T) {
+	config := domain.Config{Catalog: domain.CatalogConfig{
+		Type: domain.CatalogSourceWebDAV,
+		Options: driverOptions(t,
+			`{"url":"https://dav.example.org/","`+DirectoryOption+`":`+
+				strconv.Quote(`D:\catalogue`)+`}`),
+	}}
+
+	for _, fault := range config.Validate(domain.Registries{}) {
+		if fault.Field == "catalog.options."+DirectoryOption {
+			return
+		}
+	}
+	t.Fatalf("le contrôle 47 ne nomme pas la clé %q que ce paquet déclare", DirectoryOption)
+}

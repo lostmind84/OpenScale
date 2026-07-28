@@ -68,6 +68,13 @@ const (
 	ImageSourceNone = "none"
 )
 
+// catalogDirectoryOption is the key control 46 and control 47 both name.
+//
+// It is spelled here rather than imported from internal/catalog/localdrop: the domain
+// depends on NOTHING, and tools/boundary is what keeps that true. The two spellings are
+// tied together by a test in the localdrop package, which is the side that owns the name.
+const catalogDirectoryOption = "directory"
+
 // fingerprintLength is how many hexadecimal characters the dashboard shows.
 //
 // Eight is what makes "do the four stations display the same string?" a check
@@ -1200,6 +1207,30 @@ func (c *Config) Validate(reg Registries) []Fault {
 				"%d ko dépasse le plafond du fichier qui la contient (%d Mo) : une image ne peut pas être plus grosse que son catalogue",
 				imageKB, fileMB)
 		}
+	}
+
+	// 46. The NAMED drop directory must be one the SERVICE can really work in (§10.1).
+	//     Empty is the shipped case -- <data>/catalog/incoming, which the service owns
+	//     and creates -- so there is nothing to probe. A nil probe means "we cannot
+	//     know": `openscale config validate` on a laptop validates the form and not the
+	//     existence, exactly like control 44 on catalog.images.path.
+	if c.Catalog.Type == CatalogSourceLocalDrop && reg.Paths != nil {
+		if directory, ok := c.Catalog.Options.Text(catalogDirectoryOption); ok {
+			if named := strings.TrimSpace(directory); named != "" {
+				if err := reg.Paths.Droppable(named); err != nil {
+					fail("catalog.options."+catalogDirectoryOption, "%s", err)
+				}
+			}
+		}
+	}
+
+	// 47. The symmetry of 39: a drop directory means nothing to a WebDAV share, and a
+	//     key silently ignored is how a station ends up watching a directory nobody
+	//     believes it watches.
+	if c.Catalog.Type == CatalogSourceWebDAV && c.Catalog.Options.Has(catalogDirectoryOption) {
+		failWith("catalog.options."+catalogDirectoryOption, []string{CatalogSourceLocalDrop},
+			"%q ne surveille pas un répertoire de cette machine : c'est la source %q qui en surveille un",
+			CatalogSourceWebDAV, CatalogSourceLocalDrop)
 	}
 
 	return faults
