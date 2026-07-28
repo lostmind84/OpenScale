@@ -45,11 +45,12 @@ const TEXT_PAIRS = [
 ] as const
 
 /**
- * `--surface` sert de texte à trois endroits : l'initiale posée sur la couleur de
- * catégorie — dont le fond ne vient PAS des jetons mais de `catalog.categories[].color`,
- * donc de la configuration du poste, et s'y vérifie à la validation de la configuration —
- * et les deux fonds pleins de l'administration, `--action` et `--danger`, dont le
- * contraste est mesuré par le describe « les deux fonds pleins ».
+ * `--surface` sert de texte partout où il est posé SUR une couleur, et jamais sur du
+ * clair : l'initiale posée sur la couleur de catégorie — dont le fond ne vient PAS des
+ * jetons mais de `catalog.categories[].color`, donc de la configuration du poste, et s'y
+ * vérifie à la validation — et les deux fonds pleins de l'administration, `--action` et
+ * `--danger`, que portent `Act`, `BigButton` et les deux sélecteurs de fichier des zones
+ * de dépôt. Leur contraste est mesuré par le describe « les deux fonds pleins ».
  */
 const OUT_OF_TOKEN_SCOPE = new Set(['--surface'])
 

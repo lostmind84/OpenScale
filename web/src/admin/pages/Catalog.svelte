@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fetchCatalog } from '../../lib/api'
   import { ALL_CATEGORIES, filterProducts, type Product } from '../../lib/catalog'
+  import Act from '../components/Act.svelte'
   import Inventory from '../components/Inventory.svelte'
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
@@ -575,26 +576,24 @@
         : 'Source : ' + health.catalog_source.label}
     </p>
     <div class="actions">
-      <button
-        type="button"
-        class="act"
-        data-act="reload"
+      <Act
+        act="reload"
+        kind="write"
+        label="Recharger le catalogue"
+        protected
+        busy={working === 'reload'}
         disabled={busy}
-        onclick={() => void guarded('reload', api.reloadCatalogAsExpert)}
-      >
-        {working === 'reload' ? 'En cours…' : 'Recharger le catalogue'}
-        <span class="key" title="Demande le mot de passe">clé</span>
-      </button>
-      <button
-        type="button"
-        class="act danger touch-target"
-        data-act="quarantine"
+        onrun={() => void guarded('reload', api.reloadCatalogAsExpert)}
+      />
+      <Act
+        act="quarantine"
+        kind="destructive"
+        label="Oublier la quarantaine"
+        protected
+        busy={working === 'quarantine'}
         disabled={busy}
-        onclick={() => void guarded('quarantine', api.forgetQuarantine)}
-      >
-        {working === 'quarantine' ? 'En cours…' : 'Oublier la quarantaine'}
-        <span class="key" title="Demande le mot de passe">clé</span>
-      </button>
+        onrun={() => void guarded('quarantine', api.forgetQuarantine)}
+      />
     </div>
     <p class="fact muted">
       « Oublier la quarantaine » fait relire un fichier que le poste avait écarté : c’est le
@@ -774,27 +773,25 @@
           <p class="what">Ce produit est-il proposé dans la grille ?</p>
           <div class="actions">
             {#if offeredInForce}
-              <button
-                type="button"
-                class="act danger touch-target"
-                data-act="offered"
+              <Act
+                act="offered"
+                kind="destructive"
+                label="Ne plus proposer ce produit"
+                protected
+                busy={working === 'offered'}
                 disabled={busy || !canWithdraw}
-                onclick={() => void setOffered(false)}
-              >
-                {working === 'offered' ? 'En cours…' : 'Ne plus proposer ce produit'}
-                <span class="key" title="Demande le mot de passe">clé</span>
-              </button>
+                onrun={() => void setOffered(false)}
+              />
             {:else}
-              <button
-                type="button"
-                class="act"
-                data-act="offered"
+              <Act
+                act="offered"
+                kind="write"
+                label="Le proposer de nouveau"
+                protected
+                busy={working === 'offered'}
                 disabled={busy || !canOfferAgain}
-                onclick={() => void setOffered(true)}
-              >
-                {working === 'offered' ? 'En cours…' : 'Le proposer de nouveau'}
-                <span class="key" title="Demande le mot de passe">clé</span>
-              </button>
+                onrun={() => void setOffered(true)}
+              />
             {/if}
           </div>
         </div>
@@ -817,27 +814,25 @@
             oninput={(event) => (waiver = event.currentTarget.value)}
           />
           <div class="actions">
-            <button
-              type="button"
-              class="act"
-              data-act="waiver"
+            <Act
+              act="waiver"
+              kind="write"
+              label="Enregistrer la dérogation"
+              protected
+              busy={working === 'waiver'}
               disabled={busy || !canSaveWaiver}
-              onclick={() => void setWaiver(typedWaiver)}
-            >
-              {working === 'waiver' ? 'En cours…' : 'Enregistrer la dérogation'}
-              <span class="key" title="Demande le mot de passe">clé</span>
-            </button>
+              onrun={() => void setWaiver(typedWaiver)}
+            />
             {#if waiverInForce !== null}
-              <button
-                type="button"
-                class="act"
-                data-act="waiver-off"
+              <Act
+                act="waiver-off"
+                kind="write"
+                label="Retirer la dérogation"
+                protected
+                busy={working === 'waiver-off'}
                 disabled={busy || !canDropWaiver}
-                onclick={() => void setWaiver(null)}
-              >
-                {working === 'waiver-off' ? 'En cours…' : 'Retirer la dérogation'}
-                <span class="key" title="Demande le mot de passe">clé</span>
-              </button>
+                onrun={() => void setWaiver(null)}
+              />
             {/if}
           </div>
           <p class="fact muted">
@@ -947,53 +942,10 @@
     margin: 0.75rem 0 0;
   }
 
-  /*
-   * A form control of the administration is 44 px, and not the 72 px of the customer
-   * grid: this page is driven with a mouse (ADR-033). What keeps its 72 px is what
-   * cannot be undone in one click — forgetting the quarantine, taking a product out of
-   * the grid, and dropping a file that replaces the whole catalog.
-   */
-  .act {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    height: 2.75rem;
-    padding: 0 1rem;
-    font-size: 1.0625rem;
-    font-weight: 700;
-    color: var(--ink);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-1);
-    transition:
-      background-color var(--tap) var(--ease),
-      border-color var(--tap) var(--ease),
-      box-shadow var(--slide) var(--ease);
-  }
-
-  .act.danger {
-    /* Height comes from `.touch-target`, which imposes 72 px on this one alone. */
-    height: auto;
-    border-color: var(--fault);
-    background: var(--fault-wash);
-  }
-
-  @media (hover: hover) {
-    .act:hover:not(:disabled) {
-      border-color: var(--ink-muted);
-      box-shadow: var(--shadow-2);
-    }
-  }
-
-  .act:disabled {
-    opacity: 0.5;
-    box-shadow: none;
-    cursor: default;
-  }
-
   /* A key, not a red padlock: the act is possible, it only asks who you are. The word is
-     written out — an icon alone teaches nothing to whoever does not know it (§14.4). */
+     written out — an icon alone teaches nothing to whoever does not know it (§14.4). The
+     acts of this page carry their own; this one belongs to the drop zone, which is a
+     LABEL and not a button. */
   .key {
     padding: 0.0625rem 0.375rem;
     border-radius: var(--radius-pill);
@@ -1150,6 +1102,12 @@
     font-size: 1.125rem;
   }
 
+  /*
+   * The chooser wears the IRREVERSIBLE red of `Act`, without being one: a drop replaces
+   * the whole grid by the file brought in, and that is the same nature of act as
+   * withdrawing a product. It cannot become an `<Act>` — turning the label into a button
+   * would break the file picker it wraps — so it takes the token and nothing else.
+   */
   .choose {
     display: inline-flex;
     align-items: center;
@@ -1157,8 +1115,9 @@
     padding: 0 1rem;
     font-size: 1.125rem;
     font-weight: 700;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    color: var(--surface);
+    background: var(--danger);
+    border: 1px solid var(--danger);
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-1);
     cursor: pointer;
@@ -1182,9 +1141,11 @@
     }
   }
 
+  /* Same reading as `Act`: a solid background DARKENS under the pointer. Lightening it
+     drops the white ink below the 7:1 the token was chosen for. */
   @media (hover: hover) {
     .choose:hover {
-      border-color: var(--ink-muted);
+      filter: brightness(0.92);
     }
   }
 

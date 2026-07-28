@@ -575,10 +575,11 @@ describe('les cinq versions ont trois états, pas deux', () => {
 describe('le retour tactile ne répond pas à un geste mort', () => {
   it('exclut le sélecteur de fichier désarmé de la compression sous le doigt', () => {
     // Un `<label>` n'a pas d'état désactivé : c'est l'`<input>` qu'il porte qui l'est, et
-    // c'est `.off` qui le grise. La règle globale d'app.css a `:not(:disabled)` ; celle-ci
-    // avait perdu les deux.
-    expect(STATION_SVELTE).toContain('.act:active:not(:disabled):not(.off)')
-    expect(STATION_SVELTE).not.toMatch(/^\s*\.act:active\s*\{/mu)
+    // c'est `.off` qui le grise. La règle avait perdu cette garde et répondait à un geste
+    // qui n'ouvrait rien. Depuis que les boutons de la page sont des `Act`, le sélecteur
+    // est le seul à porter la classe, et `:disabled` n'a donc plus personne à écarter.
+    expect(STATION_SVELTE).toContain('.choose:active:not(.off)')
+    expect(STATION_SVELTE).not.toMatch(/^\s*\.choose:active\s*\{/mu)
   })
 })
 

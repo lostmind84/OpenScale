@@ -71,4 +71,15 @@ describe('ce que le bouton dit de lui-même', () => {
       'touch-target',
     )
   })
+
+  /*
+   * Le libellé d'un bouton qui travaille devient « En cours… », donc il ne peut pas
+   * servir à le retrouver au moment précis où un test s'y intéresse. Le nom de l'acte,
+   * lui, ne bouge pas : c'est la prise que les pages posaient déjà à la main.
+   */
+  it('porte le nom de son acte, qui ne change pas avec son libellé', () => {
+    expect(render({ act: 'waiver-off', label: 'Retirer la dérogation', onrun: () => {} }).dataset.act).toBe(
+      'waiver-off',
+    )
+  })
 })

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Act from '../components/Act.svelte'
   import Field from '../components/Field.svelte'
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
@@ -655,20 +656,27 @@
     note="L’export sans le matériel est ce qui sert à cloner un poste (§11.5). Restent sur place : le mot de passe, le code de secours, le numéro et le nom du poste, les réglages de la balance, ceux de l’imprimante, la source du catalogue et le réseau. Voyage ce que les quatre postes doivent avoir en commun : tarifs, garde-fous, étiquette, catégories."
   >
     <div class="actions">
-      <button type="button" class="act" disabled={busy} onclick={() => void exportConfig(true)}>
-        {working === 'export-all' ? 'Export en cours…' : 'Exporter tout'}
-        <span class="key" title="Demande le mot de passe">clé</span>
-      </button>
-      <button type="button" class="act" disabled={busy} onclick={() => void exportConfig(false)}>
-        {working === 'export-clone' ? 'Export en cours…' : 'Exporter sans le matériel'}
-        <span class="key" title="Demande le mot de passe">clé</span>
-      </button>
+      <Act
+        label="Exporter tout"
+        protected
+        busy={working === 'export-all'}
+        disabled={busy}
+        onrun={() => void exportConfig(true)}
+      />
+      <Act
+        label="Exporter sans le matériel"
+        protected
+        busy={working === 'export-clone'}
+        disabled={busy}
+        onrun={() => void exportConfig(false)}
+      />
       <!--
-        A LABEL and not a button, and it gets the same press feedback all the same: a
-        command that answers nothing under the finger reads as a dead page, whatever
-        element it happens to be made of (§3.2).
+        A LABEL and not a button — turning it into one would break the file picker it
+        wraps — so it copies the irreversible family by hand. It gets the press feedback
+        of a command all the same: one that answers nothing under the finger reads as a
+        dead page, whatever element it happens to be made of (§3.2).
       -->
-      <label class="act" class:working={working === 'import'} class:off={busy}>
+      <label class="choose touch-target" class:working={working === 'import'} class:off={busy}>
         {working === 'import' ? 'Lecture du fichier…' : 'Importer un fichier'}
         <span class="key" title="Demande le mot de passe">clé</span>
         <input
@@ -777,9 +785,9 @@
           </p>
         {/if}
         <div class="actions">
-          <button type="button" class="act" disabled={busy} onclick={() => void adopt()}>
-            {adoptLabel}
-          </button>
+          <!-- Bleu et non rouge : ce qui est recopié entre dans le BROUILLON, et rien
+               n'est en service tant que « Enregistrer » n'a pas été touché. -->
+          <Act kind="write" label={adoptLabel} disabled={busy} onrun={() => void adopt()} />
         </div>
         <p class="fact muted">
           Recopier n’applique rien : les valeurs entrent dans le brouillon, et c’est
@@ -815,17 +823,14 @@
               <span class="what">version {frenchInteger(version.version)}</span>
               <span class="detail">{frenchDateTime(version.modified_at)}</span>
               <span class="detail">{version.config_fingerprint}</span>
-              <button
-                type="button"
-                class="act danger touch-target"
+              <Act
+                kind="destructive"
+                label="Remettre cette version en service"
+                protected
+                busy={working === `restore-${String(version.version)}`}
                 disabled={busy}
-                onclick={() => void restore(version.version)}
-              >
-                {working === `restore-${String(version.version)}`
-                  ? 'En cours…'
-                  : 'Remettre cette version en service'}
-                <span class="key" title="Demande le mot de passe">clé</span>
-              </button>
+                onrun={() => void restore(version.version)}
+              />
             </li>
           {/each}
         </ul>
@@ -889,21 +894,20 @@
   }
 
   /*
-   * A form control of the administration is 44 px and not the 72 px of the customer grid:
-   * this page is driven with a mouse (ADR-033). What keeps its 72 px is what cannot be
-   * undone in one click — putting a backup back in service.
+   * The file chooser, and the only control of this page that is not an `<Act>`: it is a
+   * `<label>` wrapping an `<input type="file">`, which a button cannot replace. It wears
+   * the irreversible red by hand, and keeps the 72 px that go with it.
    */
-  .act {
+  .choose {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    height: 2.75rem;
     padding: 0 1rem;
     font-size: 1.0625rem;
     font-weight: 700;
-    color: var(--ink);
-    background: var(--surface);
-    border: 1px solid var(--border);
+    color: var(--surface);
+    background: var(--danger);
+    border: 1px solid var(--danger);
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-1);
     cursor: pointer;
@@ -915,7 +919,7 @@
   }
 
   /*
-   * The file chooser is a label: `button:active` of app.css does not reach it.
+   * `button:active` of app.css does not reach a label.
    *
    * It repeats that rule's `:not(:disabled)` AND adds `.off`, because a `<label>` has no
    * disabled state of its own: what is disabled is the `<input>` inside it. Without the
@@ -923,47 +927,43 @@
    * nothing at all — an answer to a dead gesture, which is the exact opposite of what §3.2
    * asks this feedback for.
    */
-  .act:active:not(:disabled):not(.off) {
+  .choose:active:not(.off) {
     transform: scale(0.975);
   }
 
+  /* A solid background DARKENS under the pointer, like `Act`: lightening it drops the
+     white ink below the 7:1 the token was chosen for. */
   @media (hover: hover) {
-    .act:hover:not(:disabled) {
-      border-color: var(--ink-muted);
+    .choose:hover:not(.off) {
+      filter: brightness(0.92);
       box-shadow: var(--shadow-2);
     }
   }
 
-  .act:disabled,
-  .act.off {
+  .choose.off {
     opacity: 0.5;
     box-shadow: none;
     cursor: default;
   }
 
-  .act.working {
+  /* The chooser that is reading stays FULLY legible: it is the one being watched. */
+  .choose.working {
+    opacity: 1;
     border-color: var(--waiting);
-    background: var(--waiting-wash);
   }
 
-  .act.danger {
-    /* Height comes from `.touch-target`, which imposes 72 px on this one alone. */
-    height: auto;
-    border-color: var(--fault);
-    background: var(--fault-wash);
-  }
-
-  .act input {
+  .choose input {
     display: none;
   }
 
   /* A key, not a red padlock: the act is possible, it only asks who you are. The word is
-     written out — an icon alone teaches nothing to whoever does not know it (§14.4). */
+     written out — an icon alone teaches nothing to whoever does not know it (§14.4).
+     The acts carry their own; this one belongs to the chooser, which is a label. */
   .key {
     padding: 0.0625rem 0.375rem;
     border-radius: var(--radius-pill);
-    background: var(--bg);
-    color: var(--ink-muted);
+    background: var(--surface);
+    color: var(--ink);
     font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0.06em;

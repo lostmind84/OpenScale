@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Act from '../components/Act.svelte'
   import Field from '../components/Field.svelte'
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
@@ -379,22 +380,12 @@
           <strong data-offset-x>{dots(offsetX)}</strong>
         </p>
         <div class="pair">
-          <button
-            type="button"
-            class="nudge"
+          <Act
+            label="← 1 dot"
             disabled={!configRead || offsetX <= FLOOR_DOTS}
-            onclick={() => nudge(OFFSET_X, -1)}
-          >
-            ← 1 dot
-          </button>
-          <button
-            type="button"
-            class="nudge"
-            disabled={!configRead}
-            onclick={() => nudge(OFFSET_X, 1)}
-          >
-            1 dot →
-          </button>
+            onrun={() => nudge(OFFSET_X, -1)}
+          />
+          <Act label="1 dot →" disabled={!configRead} onrun={() => nudge(OFFSET_X, 1)} />
         </div>
         {#if faultX !== ''}
           <p class="fault" data-fault-offset-x>{faultX}</p>
@@ -405,22 +396,12 @@
           <strong data-offset-y>{dots(offsetY)}</strong>
         </p>
         <div class="pair">
-          <button
-            type="button"
-            class="nudge"
+          <Act
+            label="↑ 1 dot"
             disabled={!configRead || offsetY <= FLOOR_DOTS}
-            onclick={() => nudge(OFFSET_Y, -1)}
-          >
-            ↑ 1 dot
-          </button>
-          <button
-            type="button"
-            class="nudge"
-            disabled={!configRead}
-            onclick={() => nudge(OFFSET_Y, 1)}
-          >
-            1 dot ↓
-          </button>
+            onrun={() => nudge(OFFSET_Y, -1)}
+          />
+          <Act label="1 dot ↓" disabled={!configRead} onrun={() => nudge(OFFSET_Y, 1)} />
         </div>
         {#if faultY !== ''}
           <p class="fault" data-fault-offset-y>{faultY}</p>
@@ -508,17 +489,21 @@
       onchange={(value) => writeNumber('printer.options.copies', value)}
     />
     <div class="actions">
+      <!--
+        Neutres, comme les trois auto-tests de la page Matériel : un auto-test INTERROGE le
+        poste, il ne change ni ce qu'il vend ni la façon dont il pèse. Ce qu'il coûte — une
+        étiquette de la bobine — est dit par la phrase juste en dessous, et la densité de
+        44 px de cette page est ce qu'ADR-033 lui laisse.
+      -->
       {#each SELF_TESTS as test (test.what)}
-        <button
-          type="button"
-          class="action"
-          data-self-test={test.what}
+        <Act
+          act={test.what}
+          label={test.label}
+          protected
+          busy={printing === test.what}
           disabled={busy}
-          onclick={() => void selfTest(test.what)}
-        >
-          {printing === test.what ? 'Impression en cours…' : test.label}
-          <span class="guarded" title="Demande le mot de passe">clé</span>
-        </button>
+          onrun={() => void selfTest(test.what)}
+        />
       {/each}
     </div>
     <p class="cost">
@@ -621,50 +606,6 @@
     border-left: 0.25rem solid var(--fault);
     font-size: 1rem;
     color: var(--ink-muted);
-  }
-
-  .nudge,
-  .action {
-    /* 44 px: the density of the administration's form controls (ADR-033). */
-    height: 2.75rem;
-    padding: 0 1rem;
-    font-size: 1.0625rem;
-    font-weight: 700;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    transition:
-      background-color var(--tap) var(--ease),
-      border-color var(--tap) var(--ease);
-  }
-
-  .nudge:disabled,
-  .action:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
-  /* What a mouse expects, and a finger never asked for (app.css). */
-  @media (hover: hover) {
-    .nudge:hover:not(:disabled),
-    .action:hover:not(:disabled) {
-      background: var(--bg);
-    }
-  }
-
-  /* A key, not a red padlock: the act is possible, it only asks who you are. The word is
-     written out — an icon alone teaches nothing to whoever does not know it. */
-  .guarded {
-    margin-left: 0.5rem;
-    padding: 0.0625rem 0.375rem;
-    border-radius: var(--radius-pill);
-    background: var(--bg);
-    color: var(--ink-muted);
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    vertical-align: middle;
   }
 
   .check {

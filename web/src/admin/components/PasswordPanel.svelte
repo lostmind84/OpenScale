@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from '../../components/Icon.svelte'
   import type { Admin } from '../lib/session.svelte'
+  import Act from './Act.svelte'
 
   /**
    * Le mot de passe, demandé à l'ACTE et non à la porte (ADR-033).
@@ -103,10 +104,15 @@
     {/if}
 
     <footer>
-      <button type="button" class="ghost" onclick={() => admin.cancelPassword()}>Annuler</button>
-      <button type="button" class="confirm" disabled={!ready || admin.busy} onclick={() => void answer()}>
-        {first ? 'Poser ce mot de passe' : 'Continuer'}
-      </button>
+      <Act label="Annuler" onrun={() => admin.cancelPassword()} />
+      <!-- Bleu : répondre ici OUVRE la session et rejoue l'acte qui a amené ce panneau —
+           et, la première fois, POSE le mot de passe du poste. -->
+      <Act
+        kind="write"
+        label={first ? 'Poser ce mot de passe' : 'Continuer'}
+        disabled={!ready || admin.busy}
+        onrun={() => void answer()}
+      />
     </footer>
   </div>
 </div>
@@ -205,27 +211,5 @@
     justify-content: flex-end;
     gap: 0.5rem;
     margin-top: 0.25rem;
-  }
-
-  footer button {
-    height: 2.75rem;
-    padding: 0 1.25rem;
-    font-size: 1.0625rem;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    background: var(--surface);
-  }
-
-  .confirm {
-    font-weight: 700;
-    border-color: var(--ready);
-    background: var(--ready-wash);
-  }
-
-  .confirm:disabled {
-    opacity: 0.45;
-    border-color: var(--border);
-    background: var(--bg);
-    cursor: default;
   }
 </style>

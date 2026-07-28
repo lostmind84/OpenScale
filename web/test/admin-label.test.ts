@@ -464,8 +464,8 @@ describe('les deux auto-tests d’impression', () => {
     await settle(1)
 
     // Une impression prend des secondes : sans état « en cours », le deuxième appui sort
-    // une deuxième étiquette.
-    expect(text()).toContain('Impression en cours…')
+    // une deuxième étiquette. La phrase est celle d'`Act`, la même sur les six pages.
+    expect(text()).toContain('En cours…')
     expect(button('Imprimer la réglette').disabled).toBe(true)
 
     release()

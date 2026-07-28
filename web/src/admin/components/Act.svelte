@@ -25,6 +25,13 @@
      * la famille — un acte neutre peut être protégé.
      */
     protected?: boolean
+    /**
+     * Le nom de l'acte, pour les tests.
+     *
+     * Le libellé devient « En cours… » pendant le travail, donc il ne retrouve pas un
+     * bouton au moment précis où l'on veut l'interroger. Ce nom-là ne bouge pas.
+     */
+    act?: string
     onrun: () => void
   }
 
@@ -34,6 +41,7 @@
     busy = false,
     disabled = false,
     protected: guarded = false,
+    act = undefined,
     onrun,
   }: Props = $props()
 </script>
@@ -44,6 +52,7 @@
   class:touch-target={kind === 'destructive'}
   class:busy
   data-kind={kind}
+  data-act={act}
   disabled={disabled || busy}
   onclick={onrun}
 >

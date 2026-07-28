@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { Draft } from './lib/draft.svelte'
   import { Admin, needsPassword, type PageID } from './lib/session.svelte'
+  import Act from './components/Act.svelte'
   import PasswordPanel from './components/PasswordPanel.svelte'
   import Catalog from './pages/Catalog.svelte'
   import Dashboard from './pages/Dashboard.svelte'
@@ -163,9 +164,11 @@
           poste reviendra tout seul à la version précédente dans
           {draft.pending.seconds_left} secondes si personne ne confirme.
         </p>
-        <button type="button" class="act" onclick={() => void admin.protect(() => draft.confirm())}>
-          Tout fonctionne : confirmer
-        </button>
+        <Act
+          kind="write"
+          label="Tout fonctionne : confirmer"
+          onrun={() => void admin.protect(() => draft.confirm())}
+        />
       </div>
     {/if}
 
@@ -203,9 +206,7 @@
           <p class="retired">
             Ce fichier porte des clés que ce binaire refuse : {draft.retired.join(', ')}.
             {#each draft.retired as key (key)}
-              <button type="button" class="act" onclick={() => draft.dropRetired(key)}>
-                retirer {key}
-              </button>
+              <Act kind="write" label={`retirer ${key}`} onrun={() => draft.dropRetired(key)} />
             {/each}
           </p>
         {/if}
@@ -222,14 +223,12 @@
             {/each}
           </ul>
         {/if}
-        <button
-          type="button"
-          class="save"
+        <Act
+          kind="write"
+          label={draft.dirty ? 'Enregistrer la configuration' : 'Aucune modification à enregistrer'}
           disabled={!draft.dirty || admin.busy}
-          onclick={() => void save()}
-        >
-          {draft.dirty ? 'Enregistrer la configuration' : 'Aucune modification à enregistrer'}
-        </button>
+          onrun={() => void save()}
+        />
       </footer>
     {/if}
   </div>
@@ -437,28 +436,5 @@
     margin: 0 0 0.5rem;
     padding-left: 1.25rem;
     font-size: 1rem;
-  }
-
-  .act,
-  .save {
-    height: 2.75rem;
-    padding: 0 1.25rem;
-    font-size: 1.0625rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-  }
-
-  .save {
-    font-weight: 700;
-    border-color: var(--ready);
-    background: var(--ready-wash);
-  }
-
-  .save:disabled {
-    opacity: 0.5;
-    border-color: var(--border);
-    background: var(--bg);
-    cursor: default;
   }
 </style>

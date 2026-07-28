@@ -182,13 +182,20 @@
     />
     <BigButton
       label="Recharger le catalogue"
+      kind="write"
       hint="La veille refait tout de suite le contrôle qu’elle fait toutes les cinq secondes."
       busy={working === 'reload'}
       disabled={busy}
       onrun={() => void run('reload', api.reloadCatalog)}
     />
+    <!--
+      Rouge dans les deux sens : couper la balance ET la rebrancher changent la façon dont
+      le poste pèse, et le bénévole qui revient doit le lire aussi clairement que celui qui
+      bascule.
+    -->
     <BigButton
       label={manual ? 'Revenir à la balance' : 'Basculer en saisie manuelle'}
+      kind="destructive"
       hint={manual
         ? 'Le poids sera de nouveau lu sur la balance.'
         : 'Le poids se tape à la main : le poste continue de servir sans balance.'}
@@ -200,6 +207,7 @@
     />
     <BigButton
       label="J’ai changé le rouleau"
+      kind="write"
       hint="Le compteur d’étiquettes repart à zéro. C’est le seul geste qui dise quelque chose de vrai du papier."
       busy={working === 'roll'}
       disabled={busy}
@@ -208,6 +216,7 @@
     {#if routing !== null && routing.fallback_available}
       <BigButton
         label={onFallback ? 'Revenir à l’imprimante du poste' : 'Imprimer sur l’imprimante du poste voisin'}
+        kind="write"
         hint={onFallback
           ? 'Les étiquettes repartiront sur l’imprimante de ce poste.'
           : 'Les étiquettes sortiront sur l’imprimante voisine, pour cette session seulement.'}
@@ -337,15 +346,28 @@
     font-size: 1.125rem;
   }
 
+  /* Le rouge irréversible d'`Act`, sans en être un : le dépôt remplace TOUTE la grille par
+     le fichier apporté. Il reste un `<label>` — en faire un bouton casserait le sélecteur
+     de fichier qu'il habille. */
   .choose {
     display: inline-flex;
     align-items: center;
     padding: 0 1rem;
     font-size: 1.125rem;
     font-weight: 700;
-    border: 1px solid var(--border);
+    color: var(--surface);
+    background: var(--danger);
+    border: 1px solid var(--danger);
     border-radius: var(--radius);
     cursor: pointer;
+  }
+
+  /* Un fond plein FONCE au survol : l'éclaircir ferait passer l'encre blanche sous le
+     7:1 pour lequel la teinte a été choisie. */
+  @media (hover: hover) {
+    .choose:hover {
+      filter: brightness(0.92);
+    }
   }
 
   .choose input {

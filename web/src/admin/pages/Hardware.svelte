@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
+  import Act from '../components/Act.svelte'
   import Field from '../components/Field.svelte'
   import * as api from '../lib/api'
   import { AdminError } from '../lib/api'
@@ -73,8 +74,10 @@
    * il est exclusif, et deux gestes qui l'ouvrent ensemble s'excluent l'un l'autre.
    * Ensuite le mot de passe : `Admin.protect` n'a qu'une seule place pour l'acte qui
    * attend la réponse du panneau, et deux actes protégés lancés ensemble en perdraient un.
+   *
+   * Le nom porte son suffixe pour laisser `Act` au composant qui dessine les boutons.
    */
-  type Act = '' | 'ports' | 'printers' | 'discover' | 'detect' | 'listen' | SelfTest
+  type ActName = '' | 'ports' | 'printers' | 'discover' | 'detect' | 'listen' | SelfTest
 
   /** Ce qu'un port a répondu au balayage — y compris quand il a REFUSÉ de s'ouvrir. */
   interface Verdict {
@@ -106,7 +109,7 @@
   /** Vrai une fois que l'énumération des ports a répondu, même avec zéro port. */
   let listed = $state(false)
   /** L'acte en vol, ou une chaîne vide. Les commandes se désarment tant qu'il dure. */
-  let acting = $state<Act>('')
+  let acting = $state<ActName>('')
   /** Combien de ports le balayage a ouverts, et combien il doit en ouvrir. */
   let scanned = $state(0)
   let toScan = $state(0)
@@ -300,7 +303,7 @@
    * @param what - l'acte, tel que les libellés et les boutons le nomment.
    * @param action - ce qu'il faut faire une fois le port rendu.
    */
-  async function act(what: Act, action: () => Promise<void>): Promise<void> {
+  async function act(what: ActName, action: () => Promise<void>): Promise<void> {
     if (acting !== '') return
     acting = what
     try {
@@ -716,23 +719,23 @@
     {/if}
 
     <div class="actions">
-      <button
-        type="button"
-        class="action"
+      <Act
+        label="Lister les ports"
+        busy={acting === 'ports'}
         disabled={acting !== ''}
-        onclick={() => void act('ports', loadPorts)}
-      >
-        {acting === 'ports' ? 'Énumération des ports…' : 'Lister les ports'}
-      </button>
-      <button
-        type="button"
-        class="action strong"
-        data-detect
+        onrun={() => void act('ports', loadPorts)}
+      />
+      <!--
+        Le seul acte de cette page dont le libellé DIT OÙ IL EN EST : « port 2 sur 5 » sur
+        un balayage qui dure une minute vaut mieux que « En cours… », donc il porte son
+        avancement lui-même et laisse `busy` de côté.
+      -->
+      <Act
+        act="detect"
+        label={detectLabel()}
         disabled={acting !== ''}
-        onclick={() => void act('detect', detect)}
-      >
-        {detectLabel()}
-      </button>
+        onrun={() => void act('detect', detect)}
+      />
     </div>
 
     {#if listed}
@@ -818,15 +821,13 @@
         <p class="interrupted" data-interrupted>
           {halt}
           {#if askLabel !== ''}
-            <button
-              type="button"
-              class="action"
-              data-listen
+            <Act
+              act="listen"
+              label={askLabel}
+              busy={acting === 'listen'}
               disabled={acting !== ''}
-              onclick={() => void act('listen', listenOnce)}
-            >
-              {acting === 'listen' ? 'Écoute en cours…' : askLabel}
-            </button>
+              onrun={() => void act('listen', listenOnce)}
+            />
           {/if}
         </p>
       {/if}
@@ -854,32 +855,34 @@
     <p class="note">{printerObservation()}</p>
 
     <div class="actions">
-      <button
-        type="button"
-        class="action"
+      <!--
+        `disabled` porte « un acte tourne quelque part sur la page », `busy` porte
+        « c'est CELUI-CI » : le premier désarme, le second est le seul à rester
+        pleinement lisible.
+      -->
+      <Act
+        label="Lister les files"
+        busy={acting === 'printers'}
         disabled={acting !== ''}
-        onclick={() => void act('printers', loadPrinters)}
-      >
-        {acting === 'printers' ? 'Lecture des files…' : 'Lister les files'}
-      </button>
-      <button
-        type="button"
-        class="action"
+        onrun={() => void act('printers', loadPrinters)}
+      />
+      <Act
+        label="Rechercher l’imprimante"
+        busy={acting === 'discover'}
         disabled={acting !== ''}
-        onclick={() => void act('discover', discover)}
-      >
-        {acting === 'discover' ? 'Recherche en cours…' : 'Rechercher l’imprimante'}
-      </button>
+        onrun={() => void act('discover', discover)}
+      />
+      <!--
+        Trois auto-tests côte à côte : le libellé garde LEQUEL travaille. Réduits tous les
+        trois à « En cours… », rien à l'écran ne dirait plus lequel sort une étiquette.
+      -->
       {#each SELF_TESTS as test (test.what)}
-        <button
-          type="button"
-          class="action"
-          data-self-test={test.what}
+        <Act
+          act={test.what}
+          label={`Auto-test : ${test.name}${acting === test.what ? ' — en cours…' : ''}`}
           disabled={acting !== ''}
-          onclick={() => void act(test.what, () => selfTest(test.what))}
-        >
-          Auto-test : {test.name}{acting === test.what ? ' — en cours…' : ''}
-        </button>
+          onrun={() => void act(test.what, () => selfTest(test.what))}
+        />
       {/each}
     </div>
 
@@ -1078,32 +1081,8 @@
     margin: 0.75rem 0 0;
   }
 
-  .action {
-    height: 2.75rem;
-    padding: 0 1rem;
-    font-size: 1.0625rem;
-    font-weight: 700;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    transition:
-      background-color var(--tap) var(--ease),
-      border-color var(--tap) var(--ease);
-  }
-
-  .action.strong {
-    border-color: var(--ready);
-    background: var(--ready-wash);
-  }
-
-  .action:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
   /* Ce qu'une souris attend, et qu'un doigt n'a jamais demandé (app.css). */
   @media (hover: hover) {
-    .action:hover:not(:disabled),
     .pick:hover,
     summary:hover {
       background: var(--bg);

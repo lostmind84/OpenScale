@@ -9,6 +9,13 @@
    */
   interface Props {
     label: string
+    /**
+     * Ce que l'acte fait au poste — même vocabulaire que {@link Act}, et la même couleur.
+     *
+     * Ce composant garde son markup propre : deux lignes et 96 px de haut ne sont pas ce
+     * qu'`Act` dessine. Il n'en prend que les jetons.
+     */
+    kind?: 'read' | 'write' | 'destructive'
     /** Ce que le bouton fait, en une phrase. Il n'y a pas de deuxième écran pour l'expliquer. */
     hint?: string
     disabled?: boolean
@@ -33,6 +40,7 @@
 
   const {
     label,
+    kind = 'read',
     hint = '',
     disabled = false,
     engaged = false,
@@ -44,7 +52,8 @@
 
 <button
   type="button"
-  class="big touch-target"
+  class="big touch-target {kind}"
+  data-kind={kind}
   class:engaged
   class:busy
   disabled={disabled || busy}
@@ -71,6 +80,33 @@
     border-radius: var(--radius);
   }
 
+  .write {
+    color: var(--surface);
+    background: var(--action);
+    border-color: var(--action);
+  }
+
+  .destructive {
+    color: var(--surface);
+    background: var(--danger);
+    border-color: var(--danger);
+  }
+
+  /* Sur un fond plein, l'explication garde son contraste : --ink-muted y disparaîtrait.
+     Le voile de 15 % la laisse au-dessus de 6:1 sous ses 16 px, et c'est ce qui la
+     distingue du libellé sans la rendre grise. */
+  .write .hint,
+  .destructive .hint {
+    color: var(--surface);
+    opacity: 0.85;
+  }
+
+  .write .guarded,
+  .destructive .guarded {
+    background: var(--surface);
+    color: var(--ink);
+  }
+
   .big:disabled {
     opacity: 0.5;
   }
@@ -80,6 +116,17 @@
     opacity: 1;
     border-color: var(--waiting);
     background: var(--waiting-wash);
+  }
+
+  /* Les deux fonds pleins GARDENT leur couleur pendant le travail : le lavis clair de
+     `.busy` sous l'encre blanche de leur famille tomberait sous 2:1. Le liseré d'attente
+     suffit à dire lequel travaille. */
+  .big.busy.write {
+    background: var(--action);
+  }
+
+  .big.busy.destructive {
+    background: var(--danger);
   }
 
   /* Une clé, pas un cadenas rouge : l'acte est possible, il demande seulement qui vous
