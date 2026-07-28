@@ -8,7 +8,9 @@
   import type { Difference } from '../lib/diff'
   import type { Draft } from '../lib/draft.svelte'
   import type { ConfigVersionDTO, FaultDTO, HealthDTO, ProblemDTO } from '../lib/dto'
+  import { labelOf } from '../lib/fields'
   import { frenchBytes, frenchDateTime, frenchInteger } from '../lib/format'
+  import { preferences } from '../lib/preferences.svelte'
   import type { Admin } from '../lib/session.svelte'
 
   /**
@@ -730,7 +732,15 @@
           <ul>
             {#each shownFaults as fault}
               <li>
-                <code>{fault.field}</code>
+                <!--
+                  The French name FIRST, as the save bar of `App.svelte` renders the very
+                  same refusals: the service answers a key plus a message, and « 99999 hors
+                  bornes [1, 50000] » names nothing on its own once the key is hidden. The
+                  two lists show the same object and must read the same way — one of them
+                  spelling the key out would put back on screen what the switch hides.
+                -->
+                <strong>{labelOf(fault.field)}</strong>
+                {#if preferences.showTechnicalNames}<code>{fault.field}</code>{/if}
                 {fault.message}
                 <!--
                   Half the control was being thrown away: `allowed` carries the values that
@@ -782,9 +792,27 @@
               </tr>
             </thead>
             <tbody>
+              <!--
+                The path stays the KEY of the row and its `data-path`, and stops being what
+                the row is named by. A dotted key identifies a line to whoever wrote the
+                file; it identifies nothing to the volunteer this table was widened for,
+                and the switch is what tells the two apart.
+
+                `labelOf` falls back to the path, so a row the index does not name stays
+                readable — a clone diff always carries a few of those, `pricing.tiers` and
+                `catalog.categories` among them. The `name !== entry.path` guard is what
+                keeps that fallback from being written twice in the same cell once the
+                switch is on.
+              -->
               {#each shownDiff as entry (entry.path)}
-                <tr>
-                  <td><code>{entry.path}</code></td>
+                {@const name = labelOf(entry.path)}
+                <tr data-path={entry.path}>
+                  <td>
+                    {name}
+                    {#if preferences.showTechnicalNames && name !== entry.path}
+                      <code>{entry.path}</code>
+                    {/if}
+                  </td>
                   <td>{entry.before}</td>
                   <td>{entry.after}</td>
                 </tr>

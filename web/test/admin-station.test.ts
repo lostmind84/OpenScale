@@ -308,10 +308,17 @@ function buttonNamed(label: string): HTMLButtonElement {
   return found
 }
 
-/** Les deux valeurs qu'une ligne du diff affiche pour un chemin de clé. */
+/**
+ * Les deux valeurs qu'une ligne du diff affiche pour un chemin de clé.
+ *
+ * La ligne se retrouve par son `data-path` et non par le chemin écrit dedans : la colonne
+ * « Champ » nomme désormais le champ en français, et le chemin n'est à l'écran que sous
+ * l'interrupteur des noms techniques. Ce que ce banc vérifie est ce que la ligne COMPARE,
+ * pas comment elle se nomme — c'est le sujet de `admin-technical-names.test.ts`.
+ */
 function diffRow(path: string): { before: string; after: string } {
   const rows = [...host.querySelectorAll('[data-diff] tbody tr')]
-  const found = rows.find((row) => collapse(row.querySelector('code')?.textContent ?? '') === path)
+  const found = rows.find((row) => row.getAttribute('data-path') === path)
   if (found === undefined) throw new Error(`aucune ligne « ${path} » dans le diff`)
   const cells = [...found.querySelectorAll('td')].map((cell) => collapse(cell.textContent ?? ''))
   return { before: cells[1] ?? '', after: cells[2] ?? '' }

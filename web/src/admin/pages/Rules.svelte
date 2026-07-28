@@ -6,6 +6,7 @@
   import type { HealthDTO } from '../lib/dto'
   import { labelOf } from '../lib/fields'
   import { frenchDate, frenchInteger } from '../lib/format'
+  import { preferences } from '../lib/preferences.svelte'
 
   /**
    * The Rules page of §14.4: the tier grid, the two roundings, the FOURTEEN safeguards,
@@ -598,7 +599,14 @@
     />
     <span class="toggle-text">
       <span class="toggle-label">{label}</span>
-      <code>{path}</code>
+      <!--
+        Behind the switch, exactly as `Field` puts it. This snippet IS a field, drawn by
+        hand for want of a boolean kind, and the key it wrote unconditionally was read on
+        screen as part of the sentence: « Ce poste travaille avec un panier taré
+        limits.basket_check_enabled ». The switch has to hide it here too, or it hides
+        nothing.
+      -->
+      {#if preferences.showTechnicalNames}<code>{path}</code>{/if}
       {#if hint !== ''}<span class="hint">{hint}</span>{/if}
     </span>
   </label>
