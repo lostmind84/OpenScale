@@ -4224,7 +4224,7 @@ Pipeline : `npm ci && npm run build` **avant** `go` (`//go:embed all:dist`) · `
 
 ## 17. Livraison
 
-### 17.1 Dépendances — 10, toutes vérifiées pur Go
+### 17.1 Dépendances — 6, toutes vérifiées pur Go
 
 | Module | Rôle | Licence | cgo |
 |---|---|---|---|
@@ -4233,15 +4233,22 @@ Pipeline : `npm ci && npm run build` **avant** `go` (`//go:embed all:dist`) · `
 | `golang.org/x/image` | `font/sfnt`, `font/opentype`, `vector` | BSD-3 | non |
 | `golang.org/x/text` | NFD, désaccentuation | BSD-3 | non |
 | `golang.org/x/crypto` | argon2id | BSD-3 | non |
-| `golang.org/x/sys` | syscalls Windows/Linux | BSD-3 | non |
-| `github.com/alexbrainman/printer` | spouleur Windows RAW + statut de file | BSD-3 | non (`syscall`) |
-| `github.com/go-pdf/fpdf` | PDF d'aperçu | MIT | non |
-| `github.com/kardianos/service` | service Windows (SCM) / systemd | zlib | non |
-| `github.com/oklog/ulid/v2` | JobID triable | Apache-2.0 | non |
+| `golang.org/x/sys` | syscalls Windows/Linux, `windows/svc` | BSD-3 | non |
+
+**Quatre budgétées, non prises.** Elles figuraient dans cette table ; l'implémentation les a écartées une par une, et chaque refus est argumenté **dans le fichier qui les remplace**. Cette annexe est conservée et non effacée : c'est la base de preuve d'ADR-037, et la trace que ces quatre décisions ont été prises plutôt que subies.
+
+| Module budgété | Ce qui s'est passé | Où c'est écrit | Forme du refus |
+|---|---|---|---|
+| `github.com/alexbrainman/printer` | sept appels `syscall` vers `winspool.drv`, liés paresseusement | `internal/printing/transport/winspool_windows.go:18` | surface trop petite |
+| `github.com/go-pdf/fpdf` | cinq objets PDF, une table d'offsets, un trailer | `internal/printing/preview/pdf.go:11` | surface trop petite |
+| `github.com/kardianos/service` | `golang.org/x/sys/windows/svc` était déjà une dépendance du module | `internal/platform/service_windows.go:23` | redondante |
+| `github.com/oklog/ulid/v2` | le front frappe la clé d'idempotence au `pointerdown` ; `deriveJobID` est une fonction pure, sans entropie ni horloge, et n'a donc jamais à en générer une | `internal/domain/machine.go:1651`, `web/src/lib/ulid.ts` | sans objet |
+
+Le quatrième est le plus instructif : **aucune ligne de code maison n'a remplacé `oklog/ulid`**. C'est une décision de conception qui a fait disparaître le besoin. La meilleure dépendance est celle qu'une décision d'architecture supprime.
 
 **Retirées par rapport à la synthèse** : `golang.org/x/text/encoding/charmap` (plus de mode texte natif, A2), `github.com/OpenPrinting/goipp` (CUPS/IPP hors V1, important-16), `gopkg.in/natefinch/lumberjack.v2` (remplacé par ~60 lignes de rotation maison : trois fichiers de 5 Mo, c'est une dépendance qu'on n'a pas besoin de maintenir 10 ans).
 
-**Aucune** dépendance de framework web, de logging, de configuration, de CLI, de migration, de mock, d'assertion. Chaque module a une ligne de justification dans `docs/adr/0018-dependencies.md` ; **la CI échoue si une nouvelle apparaît sans mise à jour de ce document.**
+**Aucune** dépendance de framework web, de logging, de configuration, de CLI, de migration, de mock, d'assertion — et ce n'est pas une préférence de style, c'est **ADR-037**, qui donne le critère et, ce qui compte autant, le critère de réouverture. L'inventaire des licences est `THIRD-PARTY.md`. **`make deps` échoue si une dépendance apparaît ou disparaît sans que cette table et celle de `THIRD-PARTY.md` soient mises à jour**, et la CI l'exécute — c'est ce contrôle qui manquait, et son absence est la raison pour laquelle cette table a annoncé dix modules pendant que le binaire en portait six.
 
 ### 17.2 Le livrable
 
