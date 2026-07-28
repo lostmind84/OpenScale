@@ -30,6 +30,13 @@ func TestTheCatalogIsServedWholeWithAValidator(t *testing.T) {
 	if tile.ID != garlicID || tile.UnitPriceText != "5,32" || tile.PriceSuffix != " €/kg" {
 		t.Fatalf("tuile = %+v", tile)
 	}
+	byCode := map[string]string{}
+	for _, price := range tile.Prices {
+		byCode[price.Code] = price.Text
+	}
+	if len(tile.Prices) != 2 || byCode["MEMBER"] != "4,79" || byCode["SOLIDARITY"] != "5,32" {
+		t.Fatalf("tarifs de la tuile = %+v, attendu MEMBER=4,79 SOLIDARITY=5,32", tile.Prices)
+	}
 	if len(page.Categories) != 1 || page.Categories[0].ProductCount != 1 {
 		t.Fatalf("catégories = %+v", page.Categories)
 	}

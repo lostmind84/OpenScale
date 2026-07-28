@@ -65,6 +65,18 @@ type catalogProductDTO struct {
 	// ImageURL is empty for 174 of the 355 real products, and that is not a degraded
 	// case: it is one product in two. The tile is sized on the NAME (§14.2).
 	ImageURL string `json:"image_url"`
+	// Prices is one derived unit price per configured tier (§14.2, dual
+	// pricing) — the front picks primary vs secondary from pricing.primary_code
+	// and pricing.tiers, this only carries the numbers.
+	Prices []catalogTilePriceDTO `json:"prices"`
+}
+
+// catalogTilePriceDTO is one configured tier's derived price for one product —
+// the arithmetic of domain.Price, run without a weight, so the grid can show
+// what a customer will actually pay before they even pick anything up.
+type catalogTilePriceDTO struct {
+	Code string `json:"code"`
+	Text string `json:"text"`
 }
 
 // catalogPricingDTO is what the grid needs to show a price on a tile.
@@ -216,6 +228,11 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 			continue
 		}
 		counts[p.CategoryCode]++
+		prices := make([]catalogTilePriceDTO, 0, len(cfg.Pricing.Tiers))
+		for _, tier := range cfg.Pricing.SortedTiers() {
+			unit := domain.UnitPriceFor(p.UnitPrice, tier, cfg.Pricing.UnitPriceRounding)
+			prices = append(prices, catalogTilePriceDTO{Code: tier.Code, Text: unit.Euro()})
+		}
 		out.Products = append(out.Products, catalogProductDTO{
 			ID: p.ID, Name: p.Name, Search: domain.Normalize(p.Name),
 			CategoryCode:   p.CategoryCode,
@@ -224,6 +241,7 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 			UnitPriceText:  p.UnitPrice.Euro(),
 			PriceSuffix:    p.PriceSuffix,
 			ImageURL:       s.imageURLFor(ctx, p.ImageSHA),
+			Prices:         prices,
 		})
 	}
 	out.ProductCount = len(out.Products)
