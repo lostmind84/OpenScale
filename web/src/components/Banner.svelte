@@ -140,8 +140,20 @@
 
   .weight {
     margin: 0;
-    /* Fluid: readable at 2,5 m at every screen width (§14.2). */
-    font-size: clamp(4.5rem, 6.5vw, 8rem);
+    /*
+     * Fluid, but bounded BY THE BANNER and by the reading distance (§14.2).
+     *
+     * The floor is 6rem and not less: 96 px is what makes the weight readable
+     * at 2,5 m, which is the whole reason this figure is the biggest thing on
+     * the screen. The ceiling is what keeps the card INSIDE its band — at
+     * 6.5vw the block came to 171 px in a 160 px banner and spilled over both
+     * edges on a 1920 x 1080 panel, measured in the browser.
+     *
+     * The arithmetic to preserve: 0.5rem x 2 of padding + this + the tare line
+     * (~2rem with its margin) must stay under --banner-height, whose own floor
+     * is 10rem.
+     */
+    font-size: clamp(6rem, 5.5vw, 6.75rem);
     font-weight: 700;
     line-height: 1;
     letter-spacing: -0.02em;
