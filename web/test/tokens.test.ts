@@ -151,3 +151,12 @@ describe('les cibles tactiles de §14.2', () => {
     expect(Number(gap?.[1]) * 16).toBeGreaterThanOrEqual(8)
   })
 })
+
+describe('la densité de grille (ADR-035)', () => {
+  it('la densité de grille est continue : plus de palier data-tile-size', () => {
+    const css = readFileSync(join(SOURCE_DIR, 'app.css'), 'utf8')
+    expect(css).not.toMatch(/\[data-tile-size/)
+    expect(css).toMatch(/--tile-min:\s*clamp\(/)
+    expect(css).toMatch(/--tile-height:\s*calc\(/)
+  })
+})
