@@ -4621,6 +4621,29 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 
 ---
 
+### ADR-037 — Une dépendance se justifie par la surface appelée, pas par la réputation du module
+
+**Statut** : accepté · **Date** : 28/07/2026 · **Portée** : §17.1, `THIRD-PARTY.md`, `tools/deps` · **Complète** : ADR-001
+
+**Contexte.** La question a été posée dans les termes où elle se pose toujours : pourquoi ne pas prendre un framework HTTP, un ORM, un framework d'injection, tous éprouvés, plutôt que d'écrire à la main ? En allant vérifier l'état du dépôt avant d'y répondre, trois choses sont apparues. Le code avait déjà **refusé quatre des dix dépendances** que §17.1 budgétait, chaque fois avec une raison écrite dans le fichier qui les remplace — mais la règle commune n'était formulée nulle part. Le fichier de justification annoncé, `docs/adr/0018-dependencies.md`, **n'existait pas**. Et le garde-fou promis par la même ligne — « la CI échoue si une nouvelle apparaît » — **n'existait pas non plus** : rien n'empêchait d'ajouter un framework sans que personne ne le voie.
+
+**Décision — le critère.** Une dépendance entre quand la surface **réellement appelée** est grande devant ce qu'elle coûte : une ligne de licence, un maillon de chaîne d'approvisionnement, et dix ans de montées de version que personne ne fera sur site. Elle n'entre ni parce qu'elle est réputée, ni parce qu'elle est « le standard de l'industrie ». Les deux extrêmes de l'inventaire disent le critère mieux qu'une définition : `modernc.org/sqlite` apporte un moteur SQL entier dont on emprunte l'intégralité par `database/sql`, et n'a jamais fait débat ; `alexbrainman/printer` enveloppe sept appels, et n'est pas entré. Les quatre refus de l'annexe de §17.1 donnent les trois questions à poser à un candidat : sa surface est-elle **trop petite**, est-il **redondant** avec ce qui est déjà là, ou une décision de conception l'a-t-elle rendu **sans objet** ?
+
+**Décision — le refus par catégorie.** Une raison unique répétée quatre fois serait un slogan ; ces catégories échouent pour des motifs différents, et c'est la différence qui est utile.
+
+| Catégorie | Raison du refus |
+|---|---|
+| Framework HTTP (chi, gin, echo) | `net/http.ServeMux` route par méthode et par wildcard depuis **Go 1.22** — `GET /api/v1/weigh`, `GET /images/{name}` sont dans `internal/web/server.go`. La surface appelée se réduit à `HandleFunc` et à un intercepteur (`internal/web/guard.go`). **Sans objet** : la roue éprouvée est déjà celle de la bibliothèque standard |
+| ORM (GORM, ent) | Deux murs **durs**, pas des préférences. (1) Le driver SQLite de référence de GORM est `mattn/go-sqlite3`, exclu par ADR-001 ; l'alternative pur Go est un fork moins éprouvé que `modernc` — on échangerait de l'éprouvé contre du moins éprouvé. (2) La coupe n° 1 (§5.2) interdit à `domain` d'importer `database/sql`, et un ORM à balises de structure ferait entrer la persistance dans le noyau. **`sqlc` franchit les deux murs** — il génère du Go typé au-dessus de `database/sql`, sans dépendance à l'exécution — et il est nommé ici comme le seul candidat recevable de sa catégorie |
+| Injection de dépendances (fx, wire) | Sur un poste sans développeur sur site, une erreur de câblage doit être une erreur **de compilation**. `fx` la déplace vers un graphe résolu par réflexion au démarrage, c'est-à-dire vers une panne devant un client. `wire` (codegen, sans dépendance à l'exécution) passe ce filtre, mais la chaîne de constructeurs explicite de `cmd/openscale/serve.go` est déjà la forme d'injection la plus lisible **sans outil** — et c'est la lisibilité par un inconnu qui est en jeu |
+| Journalisation, configuration, CLI, migration, assertions | `log/slog`, `encoding/json` (ADR-012), `flag`, un fichier `.sql`, `testing`. Tous dans la bibliothèque standard |
+
+**Décision — le critère de réouverture.** Sans lui, ce qui précède est un dogme. Un candidat entre si les cinq points sont réunis : (1) **déclencheur** — le code maison qui tient le rôle dépasse ~500 lignes, ou il a fallu l'amender au moins deux fois pour corriger un défaut fonctionnel distinct ; (2) il est **pur Go**, vérifié et non supposé (ADR-001) ; (3) il n'oblige `domain` à importer aucun paquet interdit et ne fait entrer aucune balise de sérialisation dans le noyau (coupe n° 1) ; (4) son API n'a pas cassé depuis **trois ans**, ou il publie une promesse de compatibilité ; (5) il entre par **un ADR qui amende celui-ci**, et par une ligne dans §17.1 et dans `THIRD-PARTY.md` — sans quoi `make deps` échoue.
+
+**Conséquence.** L'argument de revue et l'argument des dix ans sont le même argument : `net/http` et `database/sql` sont couverts par la **promesse de compatibilité de Go** — du code qui compile aujourd'hui compilera contre les versions 1.x à venir. Un framework tiers ne l'est pas ; la version épinglée en 2026 demandera des montées de version pour suivre le Go de 2034, et chaque montée est une migration que personne ne fera dans une épicerie coopérative sans développeur. La règle cesse par ailleurs d'être une convention : `tools/deps` compare `go.mod` aux deux tables de l'inventaire, dans les deux sens, et la CI l'exécute. C'est ce contrôle qui manquait — son absence est la raison pour laquelle §17.1 a annoncé dix modules pendant que le binaire en portait six.
+
+---
+
 ## 21. Inconnues à lever sur site
 
 Chacune est une inconnue **matérielle** ou **organisationnelle** que l'analyse documentaire ne peut pas lever. Pour chacune : quoi mesurer, comment, en combien de temps, et **ce qui est bloqué tant qu'elle n'est pas levée**.
