@@ -201,7 +201,7 @@
       {:else if admin.page === 'rules'}
         <Rules {draft} health={admin.health} />
       {:else if admin.page === 'catalog'}
-        <Catalog {admin} health={admin.health} />
+        <Catalog {admin} {draft} health={admin.health} />
       {:else if admin.page === 'journal'}
         <Journal {admin} />
       {:else if admin.page === 'station'}

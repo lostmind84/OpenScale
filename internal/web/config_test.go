@@ -270,6 +270,35 @@ func TestTheDropProbeOnlyRunsWhenTheCatalogBlockMoved(t *testing.T) {
 	}
 }
 
+// TestSwitchingToALocalDirectoryDoesNotBringTheSecretBack.
+//
+// The Catalogue screen deletes the account of a share when somebody moves the station to a
+// local directory, because control 39 refuses its mere PRESENCE there. A carry-over that
+// wrote the password back into a document the screen had emptied on purpose would answer
+// that move with a refusal on a field nobody can see, and no screen could ever repair it.
+func TestSwitchingToALocalDirectoryDoesNotBringTheSecretBack(t *testing.T) {
+	saved := &savedConfig{}
+	b := adminBench(t, webdavPassword("tres-secret"),
+		func(o *benchOptions) { o.configStore = saved })
+	writeFileOf(t, saved, b.hub.Config())
+
+	// Exactly what the panel of the Catalogue page submits: the source, and the keys of the
+	// other one gone.
+	moved := reread(t, b.hub.Config())
+	moved.Catalog.Type = domain.CatalogSourceLocalDrop
+	for _, key := range []string{"url", "username", "password"} {
+		delete(moved.Catalog.Options, key)
+	}
+
+	response := b.do(http.MethodPut, "/admin/api/config", marshal(t, moved), nil)
+	if refusal := body(t, response); response.StatusCode != http.StatusOK {
+		t.Fatalf("statut = %d, attendu 200 : %s", response.StatusCode, refusal)
+	}
+	if saved.saved().Catalog.Options.Has("password") {
+		t.Fatal("le mot de passe du partage est revenu sur une source qui n'en porte aucun")
+	}
+}
+
 // webdavPassword fills in the WebDAV password the shipped file leaves empty.
 //
 // A redaction is only observable on a secret that EXISTS: the delivered configuration

@@ -2,10 +2,13 @@
   import { fetchCatalog } from '../../lib/api'
   import { ALL_CATEGORIES, filterProducts, type Product } from '../../lib/catalog'
   import Act from '../components/Act.svelte'
+  import Field from '../components/Field.svelte'
   import Inventory from '../components/Inventory.svelte'
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
+  import type { Draft } from '../lib/draft.svelte'
   import type { DecisionDTO, FindingDTO, HealthDTO, ImportDTO } from '../lib/dto'
+  import { labelOf } from '../lib/fields'
   import { frenchDate, frenchDateTime, frenchInteger } from '../lib/format'
   import type { Admin } from '../lib/session.svelte'
 
@@ -41,10 +44,12 @@
    */
   interface Props {
     admin: Admin
+    /** Le document de configuration : cette page édite le bloc `catalog`. */
+    draft: Draft
     health: HealthDTO
   }
 
-  const { admin, health }: Props = $props()
+  const { admin, draft, health }: Props = $props()
 
   /** How many products the search draws. Past that, the search gets narrowed. */
   const MATCHES_SHOWN = 20
@@ -84,6 +89,32 @@
     webdav: 'WebDAV',
     manual: 'déposé sur l’écran',
   }
+
+  /**
+   * Les réglages que chaque source possède EN PROPRE.
+   *
+   * Changer de source les efface, parce que le poste refuse leur seule PRÉSENCE sous
+   * l'autre : ni compte ni mot de passe pour lire un répertoire qu'on possède (contrôle
+   * 39), pas de répertoire de cette machine derrière une adresse (contrôle 47). Sans ce
+   * ménage, le seul geste que ce panneau existe pour offrir revenait en trois refus
+   * portant sur des champs que personne n'avait remplis. Ce qui vaut pour les deux
+   * sources — la cadence de veille, le séparateur, les plafonds — n'est pas ici et ne
+   * bouge donc jamais.
+   */
+  const OWN_OPTIONS: Record<string, string[]> = {
+    local_drop: ['catalog.options.directory'],
+    webdav: ['catalog.options.url', 'catalog.options.username', 'catalog.options.password'],
+  }
+
+  /**
+   * La source que le document déclare, vide tant qu'il n'a pas été lu.
+   *
+   * Aucun repli sur « dépôt local » : un document sans source est refusé par le poste
+   * (contrôle 5), et cocher un bouton à sa place ferait lire à l'écran un choix que le
+   * fichier ne porte pas — puis répondre « aucune source de catalogue n'est déclarée » à
+   * un enregistrement que rien n'annonçait.
+   */
+  const source = $derived(draft.text('catalog.type'))
 
   let imports = $state<ImportDTO[]>([])
   let findings = $state<FindingDTO[]>([])
@@ -328,6 +359,24 @@
   }
 
   /**
+   * Choisit la source du catalogue, et efface les réglages de l'autre.
+   *
+   * @param chosen - la source, telle que le service la nomme.
+   */
+  function chooseSource(chosen: string): void {
+    draft.set('catalog.type', chosen)
+    for (const [type, paths] of Object.entries(OWN_OPTIONS)) {
+      if (type === chosen) continue
+      for (const path of paths) draft.unset(path)
+    }
+  }
+
+  /** Le message du contrôle qui a refusé cette clé, vide quand il n'y en a pas. */
+  function faultOf(path: string): string {
+    return draft.faults.find((fault) => fault.field === path)?.message ?? ''
+  }
+
+  /**
    * Opens a product for decision, wherever it was picked from.
    *
    * The waiver field opens on the waiver IN FORCE and not empty: an empty field in front
@@ -564,6 +613,92 @@
 {/snippet}
 
 <div class="pages">
+  <!--
+    En tête de la page : d'où vient le catalogue se lit avant ce qu'il a donné. Le champ
+    du répertoire n'apparaît que sous la source qui en surveille un, et l'adresse que sous
+    celle qui en interroge une — un champ vide sous une source qui l'ignore est une
+    invitation à le remplir, et le poste refuserait l'enregistrement.
+  -->
+  <Panel title="Où le poste va chercher le catalogue">
+    <div class="choice" role="radiogroup" aria-label="Source du catalogue">
+      <label>
+        <input
+          type="radio"
+          name="catalog-source"
+          value="local_drop"
+          checked={source === 'local_drop'}
+          onchange={() => chooseSource('local_drop')}
+        />
+        Un répertoire de ce poste ou du réseau
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="catalog-source"
+          value="webdav"
+          checked={source === 'webdav'}
+          onchange={() => chooseSource('webdav')}
+        />
+        Un serveur WebDAV
+      </label>
+    </div>
+
+    {#if draft.config === null}
+      <p class="fact muted">Lecture des réglages du poste…</p>
+    {:else if source === 'local_drop'}
+      <Field
+        label={labelOf('catalog.options.directory')}
+        path="catalog.options.directory"
+        value={draft.text('catalog.options.directory')}
+        hint="Laissez vide pour le répertoire du poste, celui que le service crée lui-même. Un répertoire nommé ici doit exister : le poste ne le crée pas."
+        fault={faultOf('catalog.options.directory')}
+        onchange={(value) => draft.set('catalog.options.directory', value)}
+      />
+      <p class="fact muted">
+        Le poste y cherche le fichier <code>flv_{health.station}.csv</code>, et le supprime
+        une fois lu : c’est ce qui dit au producteur que la livraison est prise.
+      </p>
+    {:else if source === 'webdav'}
+      <Field
+        label={labelOf('catalog.options.url')}
+        path="catalog.options.url"
+        value={draft.text('catalog.options.url')}
+        fault={faultOf('catalog.options.url')}
+        onchange={(value) => draft.set('catalog.options.url', value)}
+      />
+      <Field
+        label={labelOf('catalog.options.username')}
+        path="catalog.options.username"
+        value={draft.text('catalog.options.username')}
+        fault={faultOf('catalog.options.username')}
+        onchange={(value) => draft.set('catalog.options.username', value)}
+      />
+      <!--
+        Le champ s'ouvre VIDE et non sur la valeur en service : le poste ne sert plus le
+        mot de passe au navigateur. Vide, il ne bouge pas.
+      -->
+      <Field
+        label={labelOf('catalog.options.password')}
+        path="catalog.options.password"
+        kind="password"
+        value=""
+        hint="Laissez vide : le mot de passe actuel est conservé."
+        fault={faultOf('catalog.options.password')}
+        onchange={(value) => draft.set('catalog.options.password', value)}
+      />
+      <p class="fact muted" data-webdav-warning>
+        Sur un serveur WebDAV, le dépôt d’un fichier CSV depuis cet écran n’est plus
+        possible : le poste n’a plus de répertoire local où l’écrire. C’est le seul recours
+        du jour de la mise en service.
+      </p>
+    {:else}
+      <p class="fact">
+        Ce poste ne déclare aucune source : choisissez-en une ci-dessus, sinon il n’ira
+        chercher aucun catalogue.
+      </p>
+    {/if}
+  </Panel>
+
   <Panel title="Dernier import">
     {#if health.catalog === null}
       <p class="fact">Aucun import enregistré sur ce poste.</p>
@@ -1033,6 +1168,41 @@
     margin-top: 0.5rem;
     font-size: 1.0625rem;
     font-weight: 700;
+  }
+
+  /*
+   * Les deux sources, l'une sous l'autre : elles s'excluent, et deux lignes se comparent
+   * mieux que deux cases côte à côte sur un écran tenu en largeur.
+   */
+  .choice {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .choice label {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    /* 44 px : la densité des commandes de formulaire de l'administration. */
+    min-height: 2.75rem;
+    margin: 0;
+    font-weight: 400;
+  }
+
+  /*
+   * Un bouton radio n'est pas un champ de saisie, et la règle `input` de cette page lui
+   * donnerait la largeur, la hauteur, le cadre et le fond d'un champ. Tout est repris ici
+   * pour qu'il se dessine comme le navigateur le dessine.
+   */
+  .choice input {
+    width: 1.5rem;
+    height: 1.5rem;
+    min-height: 0;
+    flex: 0 0 auto;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 0;
   }
 
   input {

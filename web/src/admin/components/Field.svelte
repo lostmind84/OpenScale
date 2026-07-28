@@ -16,7 +16,12 @@
     value: string
     /** Ce que ce réglage décide, en une phrase. */
     hint?: string
-    kind?: 'text' | 'number'
+    /**
+     * `password` masque la saisie et ne fait que ÉCRIRE : le service ne sert jamais un
+     * mot de passe au navigateur, donc un champ ouvert sur sa valeur s'ouvrirait vide et
+     * se lirait comme un secret effacé.
+     */
+    kind?: 'text' | 'number' | 'password'
     disabled?: boolean
     /** Le message du contrôle qui a refusé cette clé, vide quand il n'y en a pas. */
     fault?: string

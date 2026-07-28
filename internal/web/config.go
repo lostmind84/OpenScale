@@ -266,6 +266,15 @@ func (s *Server) writeConfig(w http.ResponseWriter, r *http.Request) {
 // write-only field, and it is paid where every other irreversible repair is paid: in the
 // file itself (ADR-034).
 func carriedOverSecret(served, submitted domain.DriverOptions) domain.DriverOptions {
+	// A key the submission REMOVED is a source that has no password at all, and not a field
+	// left blank: the Catalogue screen deletes the account of a share when somebody moves
+	// the station to a local directory, because control 39 refuses its mere presence there.
+	// Writing the secret back would answer that move with a refusal on a field the screen no
+	// longer shows — and configPayload blanks the key rather than dropping it, so a document
+	// that made the round trip untouched still carries it.
+	if !submitted.Has(catalogPasswordOption) {
+		return submitted
+	}
 	if typed, ok := submitted.Text(catalogPasswordOption); ok && typed != "" {
 		return submitted
 	}

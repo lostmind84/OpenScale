@@ -101,6 +101,33 @@ export class Draft {
   }
 
   /**
+   * Retire une clé du document.
+   *
+   * Une clé qui n'a pas de sens pour ce qui est choisi doit DISPARAÎTRE et non rester
+   * vide : le poste refuse la PRÉSENCE d'un compte sur un répertoire local et celle d'un
+   * répertoire sur un serveur, et une chaîne vide reste une présence. Sans cela, changer
+   * la source du catalogue revenait en trois refus portant sur des champs que la personne
+   * n'avait ni remplis ni même vus.
+   *
+   * @param path - le chemin pointé de la clé.
+   * @returns vrai quand le document a pu être parcouru jusqu'à elle.
+   */
+  unset(path: string): boolean {
+    const keys = path.split('.')
+    const last = keys.pop()
+    if (last === undefined || this.config === null) return false
+    let node: unknown = this.config
+    for (const step of keys) {
+      if (node === null || typeof node !== 'object') return false
+      node = (node as Record<string, unknown>)[step]
+    }
+    if (node === null || typeof node !== 'object') return false
+    delete (node as Record<string, unknown>)[last]
+    this.dirty = true
+    return true
+  }
+
+  /**
    * Enregistre : validation, écriture atomique, rechargement à chaud (§11.4).
    *
    * @returns vrai quand la configuration est appliquée.
@@ -177,18 +204,8 @@ export class Draft {
         'de là. Modifiez le fichier de configuration lui-même.'
       return
     }
-    const keys = key.split('.')
-    const last = keys.pop()
-    if (last === undefined || this.config === null) return
-    let node: unknown = this.config
-    for (const step of keys) {
-      if (node === null || typeof node !== 'object') return
-      node = (node as Record<string, unknown>)[step]
-    }
-    if (node === null || typeof node !== 'object') return
-    delete (node as Record<string, unknown>)[last]
+    if (!this.unset(key)) return
     this.retired = this.retired.filter((candidate) => candidate !== key)
-    this.dirty = true
   }
 }
 
