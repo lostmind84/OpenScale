@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -351,5 +352,40 @@ func writeJSONConfig(t *testing.T, path string, cfg domain.Config) {
 	}
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		t.Fatalf("écriture de %s : %v", path, err)
+	}
+}
+
+// TestTheDeliveredExportShipsNoHostNoAccountNoQueue is the net under the strip list.
+//
+// It asserts on VALUES and not on keys, so it still bites the day somebody adds a
+// driver option carrying a host without classing it in stationSpecificOptions. The
+// archive is published on GitHub: what leaves here leaves for good.
+func TestTheDeliveredExportShipsNoHostNoAccountNoQueue(t *testing.T) {
+	raw, err := os.ReadFile(deliveredConfig(t))
+	if err != nil {
+		t.Fatalf("lecture de la configuration livrée : %v", err)
+	}
+	var delivered domain.Config
+	if err := json.Unmarshal(raw, &delivered); err != nil {
+		t.Fatalf("décodage de la configuration livrée : %v", err)
+	}
+
+	shipped, err := json.Marshal(delivered.Export(false))
+	if err != nil {
+		t.Fatalf("encodage de l'export : %v", err)
+	}
+
+	forbidden := map[string]string{
+		"dav.example.org": "un nom d'hôte",
+		"balance":         "un compte",
+		"SATO WS408_2":    "une file d'impression",
+		"SATO WS408_3":    "une file d'impression de repli",
+		"COM8":            "un port série",
+	}
+	for value, what := range forbidden {
+		if bytes.Contains(shipped, []byte(value)) {
+			t.Errorf("le fichier livré porte %s (%q) : il est publié sur GitHub et installé sur quatre postes",
+				what, value)
+		}
 	}
 }
