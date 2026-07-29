@@ -348,6 +348,35 @@ function Stop-OpenScaleBinaryHolders {
   Wait-FileReplaceable -Path $Paths.Binary
 }
 
+function Start-OpenScaleKiosk {
+  <#
+  .SYNOPSIS
+    Relance l'écran client après un arrêt qui l'a coupé.
+  .DESCRIPTION
+    ★ CE QUI MANQUAIT, ET QUI NE SE VOYAIT PAS. Stop-OpenScaleBinaryHolders termine la
+    tâche du kiosque avec « schtasks /end », openscale-kiosk.xml ne porte QU'UN
+    déclencheur d'ouverture de session, et rien ne la redémarrait — ni install.ps1, ni
+    update.ps1. Après une mise à jour, ou après un installeur relancé sur un poste qui
+    marche, l'écran client restait donc NOIR jusqu'à ce que quelqu'un rouvre une session.
+
+    Le défaut a survécu parce qu'un humain qui met à jour un poste finit par le
+    redémarrer, ce qui rouvre la session et relance la tâche. Un bénévole qui touche un
+    bouton sur l'écran d'administration, lui, ne redémarre rien : il regarde l'écran
+    client dans la minute qui suit.
+
+    Ce n'est PAS gardé par Assert-Success, et ce n'est pas un oubli : sur une machine où
+    la tâche n'existe pas encore — la toute première installation, avant l'étape qui la
+    crée — l'absence est le cas nominal.
+  #>
+  [CmdletBinding()]
+  param([string]$LogFile)
+
+  if (Get-ScheduledTask -TaskName $script:TaskName -ErrorAction Ignore) {
+    schtasks /run /tn $script:TaskName | Out-Null
+    Write-Step 'écran client relancé' $LogFile
+  }
+}
+
 function Get-BinaryHolders {
   <#
   .SYNOPSIS

@@ -2,6 +2,7 @@ import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import Dashboard from '../src/admin/pages/Dashboard.svelte'
 import type { HealthDTO } from '../src/admin/lib/dto'
+import { lightsOf } from '../src/admin/lib/lights'
 import { preferences } from '../src/admin/lib/preferences.svelte'
 import { nominalHealth } from './fixtures/health'
 
@@ -177,5 +178,28 @@ describe('les décisions locales', () => {
     // plus bas — celle-là même que bloquant-7 veut visible.
     expect(host.querySelectorAll('.decisions li')).toHaveLength(5)
     expect(host.textContent).toContain('12 décisions en vigueur')
+  })
+})
+
+describe('la pastille de version', () => {
+  /**
+   * Une version disponible N'EST PAS UNE PANNE.
+   *
+   * `lightsOf` réserve les couleurs aux périphériques et aux ressources ; un poste
+   * parfaitement sain qui s'allumerait en orange parce qu'un correctif est sorti
+   * apprendrait aux bénévoles à ignorer l'orange. La pastille est du texte, et un lien.
+   */
+  it('annonce une version disponible sans allumer de feu', () => {
+    show({ ...nominal(), new_version: '2.1.0' })
+
+    const badge = host.querySelector('[data-update-available]')
+    expect(badge).not.toBeNull()
+    expect(badge?.textContent).toContain('2.1.0')
+    expect(host.querySelectorAll('[data-light]')).toHaveLength(lightsOf(nominal()).length)
+  })
+
+  it('ne dit rien quand le poste est à jour', () => {
+    show({ ...nominal(), new_version: '' })
+    expect(host.querySelector('[data-update-available]')).toBeNull()
   })
 })

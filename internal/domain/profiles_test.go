@@ -132,3 +132,17 @@ func TestNeutralProfileDiffersFromTheDeliveredFile(t *testing.T) {
 		t.Fatal("le profil compilé et le fichier livré doivent avoir des empreintes distinctes")
 	}
 }
+
+// TestTheNeutralProfileFollowsARepository is not a detail of completeness.
+//
+// This profile is what an OUT-OF-SERVICE station runs, and an out-of-service
+// station is exactly the one that may need a newer binary: Hub.UpdateGuard lets
+// it update deliberately, as the escape hatch out of a broken version. A neutral
+// profile failing control 48 would close the door the guard leaves open.
+func TestTheNeutralProfileFollowsARepository(t *testing.T) {
+	profile := NeutralProfile()
+	if profile.Update.Repository != DefaultUpdateRepository {
+		t.Fatalf("dépôt du profil neutre = %q, attendu %q",
+			profile.Update.Repository, DefaultUpdateRepository)
+	}
+}

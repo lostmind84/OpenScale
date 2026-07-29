@@ -79,6 +79,7 @@ type benchOptions struct {
 	printer         SelfTester
 	troubleshooting Troubleshooting
 	dashboard       Dashboard
+	update          Updater
 	// paths is the filesystem probe controls 44 and 46 run through. Nil is the default
 	// and is what a bench standing on no disk honestly is: « we cannot know ».
 	paths domain.PathChecker
@@ -134,6 +135,7 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		// its route carries no password, so one nil must not disable both.
 		Diagnostic: o.diagnostician,
 		Dashboard:  o.dashboard,
+		Update:     o.update,
 		Binder:     o.binder,
 		Registries: domain.Registries{Paths: o.paths},
 		Version:    "test",

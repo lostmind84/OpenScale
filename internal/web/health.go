@@ -186,6 +186,17 @@ type adminHealthDTO struct {
 	// all: that is what decides whether the troubleshooting page offers « Imprimer sur
 	// l'imprimante du poste N » (§14.4, §8.4).
 	Routing *routingDTO `json:"printing"`
+	// NewVersion is the version published that is newer than the one running, or the
+	// empty string.
+	//
+	// It travels HERE, in the payload the dashboard already reads, and not on a
+	// route of its own: the volunteer page opens without a password and calls
+	// exactly one route, which is a property a test holds. A second call from that
+	// page would have widened, for a courtesy, what an unauthenticated screen does.
+	//
+	// It is read from the last poll left on disk, never by asking the repository:
+	// this handler answers every three seconds.
+	NewVersion string `json:"new_version"`
 }
 
 // routingDTO is which printer is in service.
@@ -286,6 +297,7 @@ func (s *Server) adminHealth(w http.ResponseWriter, r *http.Request) {
 		Events:         []technicalLineDTO{},
 		CatalogMotives: []motiveDTO{},
 		Decisions:      []decisionDTO{},
+		NewVersion:     s.newVersion(cfg.Update.Repository),
 	}
 	s.fillHealthFromStore(r.Context(), &body)
 	s.fillHealthFromPlatform(r.Context(), &body, cfg)

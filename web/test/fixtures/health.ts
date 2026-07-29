@@ -152,6 +152,8 @@ export function nominalHealth(overrides: Partial<HealthDTO> = {}): HealthDTO {
       name: 'Étiqueteuse',
       banner: '',
     },
+    // Un poste à jour : la pastille de version ne s'affiche que si un test la demande.
+    new_version: '',
     ...overrides,
   }
 }

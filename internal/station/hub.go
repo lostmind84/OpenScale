@@ -161,11 +161,20 @@ type Hub struct {
 	rate            domain.RateMeter
 	pendingBatch    *CatalogBatch
 	lastInteraction time.Time
-	idempotency     IdempotencyCache
-	message         *Message
-	sound           string
-	armExpiresAt    time.Time
-	pendingReply    chan<- domain.Ack
+	// catalogWaiting mirrors « pendingBatch != nil » for readers OUTSIDE the loop.
+	//
+	// pendingBatch itself is owned by the loop goroutine and reading it from an
+	// HTTP handler would be a race. What needs the answer is UpdateGuard, and the
+	// question it asks is worth the mirror: a pending batch means the CSV has
+	// already been read AND DELETED -- the deletion is the acknowledgement -- so
+	// the products exist only in this process's memory. Stopping the station there
+	// does not defer the catalogue, it loses it.
+	catalogWaiting atomic.Bool
+	idempotency    IdempotencyCache
+	message        *Message
+	sound          string
+	armExpiresAt   time.Time
+	pendingReply   chan<- domain.Ack
 	// subscribersMu guards subscribers, and it is NOT a retreat from the design.
 	//
 	// The map is still written in ONE place — applySubscription, inside the select —
@@ -243,6 +252,44 @@ func (h *Hub) State() Snapshot { return *h.state.Load() }
 
 // Config returns the configuration in force.
 func (h *Hub) Config() domain.Config { return *h.cfg.Load() }
+
+// UpdateGuard reports whether the station may be taken down to install a new
+// version, and says IN FRENCH why not when it may not.
+//
+// The rule lives here and not in the HTTP layer, for one reason: the HTTP layer
+// would have to read a state in order to deduce a rule, and the rule would then
+// exist in two places. It asks a question and renders the answer.
+func (h *Hub) UpdateGuard() (bool, string) {
+	return updateGuardFor(h.State().State, h.catalogWaiting.Load())
+}
+
+// updateGuardFor is the rule itself, without a Hub, so that every state of the
+// machine can be put to it in one table.
+//
+// OutOfService and Faulted PASS, deliberately. A station that cannot serve is
+// exactly the one that may need a newer binary, and refusing there would close
+// the only door -- which is why NeutralProfile names a repository.
+func updateGuardFor(state domain.State, catalogWaiting bool) (bool, string) {
+	if catalogWaiting {
+		// The CSV has already been read and deleted -- the deletion IS the
+		// acknowledgement -- and the products live only in memory until a quiet
+		// moment lets them enter service. Stopping the station here loses them,
+		// and nothing will ever offer them again.
+		return false, "Un catalogue vient d'arriver et n'est pas encore en service. Réessayez dans un instant."
+	}
+	switch state {
+	case domain.Initializing, domain.Idle, domain.ManualMode, domain.ScaleLost,
+		domain.Faulted, domain.OutOfService:
+		return true, ""
+	default:
+		// ProductArmed, WeightPresent, WeightStable, AwaitingStability,
+		// EnteringTare, EnteringWeight, Validating, Printing, Succeeded and
+		// Rejected all mean somebody is mid-cycle or reading a result. Each of
+		// them clears in seconds; the button says to try again rather than
+		// cutting a label in half.
+		return false, "Une pesée est en cours. Réessayez dans un instant."
+	}
+}
 
 // Catalog returns the catalog in service, or nil before the first one.
 func (h *Hub) Catalog() *domain.Catalog { return h.catalog.Load() }
@@ -466,6 +513,7 @@ func (h *Hub) run(ctx context.Context, ticks <-chan time.Time) {
 					// customer's finger. The Tick drains it when the station has
 					// been idle and untouched for MaxSwitchIdle.
 					h.pendingBatch = batch
+					h.catalogWaiting.Store(true)
 					continue
 				}
 				// NOTHING is on screen yet. There is no finger to reorder tiles
@@ -636,6 +684,7 @@ func (h *Hub) applyPendingBatch(now time.Time) {
 	}
 	h.storeCatalog(h.pendingBatch.Catalog, now)
 	h.pendingBatch = nil
+	h.catalogWaiting.Store(false)
 }
 
 // applySubscription adds or removes one subscriber, in the loop goroutine.

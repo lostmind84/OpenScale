@@ -133,5 +133,12 @@ func NeutralProfile() Config {
 		Admin: AdminConfig{SessionMinutes: 30, AttemptsPerMinute: 5},
 
 		Maintenance: MaintenanceConfig{WeeklyIntegrityCheck: true, DiskAlertMB: 200},
+
+		// The repository is named HERE and not left empty, and it matters more than
+		// it looks: this profile is what an out-of-service station runs, and an
+		// out-of-service station is exactly the one that may need a newer binary.
+		// Hub.UpdateGuard lets it update deliberately, for that reason; a neutral
+		// profile that failed control 48 would close the door the guard leaves open.
+		Update: UpdateConfig{Repository: DefaultUpdateRepository},
 	}
 }

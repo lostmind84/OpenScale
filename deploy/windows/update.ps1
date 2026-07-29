@@ -34,6 +34,15 @@
 .PARAMETER Source
   Le nouveau binaire. Par défaut, openscale.exe à côté de ce script.
 
+.PARAMETER OutcomePath
+  Où écrire le compte rendu machine, quand ce script est lancé PAR LE POSTE et non par
+  un humain. C'est la seule chose qui traverse : au moment où ce script se termine, le
+  processus qui aurait pu lire son code de retour est mort depuis une minute — c'est ce
+  script qui l'a arrêté. Sans ce paramètre, rien n'est écrit et la console fait foi.
+
+.PARAMETER LogPath
+  Où recopier le journal des étapes, en plus du journal d'installation.
+
 .EXAMPLE
   .\update.ps1
 #>
@@ -42,13 +51,69 @@ param(
   [string]$Source,
   [string]$InstallDir,
   [string]$DataRoot,
-  [int]$HealthTimeoutSeconds = 60)
+  [int]$HealthTimeoutSeconds = 60,
+  [string]$OutcomePath,
+  [string]$LogPath)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot 'common.ps1')
 Set-NativeOutputEncoding
+
+# Les deux versions, renseignées dès qu'on sait les lire et vides avant : le compte rendu
+# d'un échec précoce doit pouvoir être écrit sans elles.
+$script:VersionBefore = ''
+$script:VersionAfter = ''
+
+function Write-Outcome {
+  <#
+  .SYNOPSIS
+    Écrit le compte rendu que le poste relira à son prochain démarrage.
+  .DESCRIPTION
+    ÉCRIT SUR LES QUATRE SORTIES, et c'est toute sa raison d'être. Au moment où ce script
+    se termine, le processus qui aurait pu lire son code de retour est mort depuis une
+    minute — c'est ce script qui l'a arrêté. Le fichier est la seule chose qui traverse,
+    et il est relu par le binaire qui démarre ensuite : le neuf, ou l'ancien restauré.
+
+    Les quatre statuts ne demandent pas la même chose à un bénévole :
+
+      succeeded              la nouvelle version tourne ;
+      rolled-back            la bascule a échoué, l'ancienne est revenue, le poste marche
+                             — personne à appeler ;
+      rolled-back-unhealthy  la bascule a échoué ET le poste ne répond pas — appeler ;
+      not-started            rien n'a été remplacé, on peut recliquer.
+
+    Sans -OutcomePath, ce script est lancé à la main par un humain qui lit la console :
+    il n'y a rien à écrire.
+  #>
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string]$Status,
+    [Parameter(Mandatory)][int]$ExitCode,
+    [string]$Reason = '',
+    [string]$BackupPath = '',
+    [string[]]$DatabaseBackups = @())
+
+  if (-not $OutcomePath) { return }
+  $report = [ordered]@{
+    status           = $Status
+    exit_code        = $ExitCode
+    from             = $script:VersionBefore
+    to               = $script:VersionAfter
+    reason           = $Reason
+    backup           = $BackupPath
+    database_backups = @($DatabaseBackups)
+    finished_at      = (Get-Date).ToString('o')
+  }
+  $directory = Split-Path -Parent $OutcomePath
+  if ($directory -and -not (Test-Path $directory)) {
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+  }
+  # ConvertTo-Json rend « [] » pour un tableau vide et « null » pour $null : le tableau
+  # forcé plus haut est ce qui évite au poste de lire null là où il attend une liste.
+  $report | ConvertTo-Json -Depth 3 | Set-Content -Path $OutcomePath -Encoding UTF8
+}
 
 $paths = if ($InstallDir -and $DataRoot) { Get-OpenScalePaths -InstallDir $InstallDir -DataRoot $DataRoot }
 elseif ($InstallDir) { Get-OpenScalePaths -InstallDir $InstallDir }
@@ -59,16 +124,30 @@ if (-not (Test-Administrator)) {
   throw 'update.ps1 doit être lancé en ADMINISTRATEUR : il arrête un service et écrit dans Program Files.'
 }
 if (-not $Source) { $Source = Join-Path $PSScriptRoot 'openscale.exe' }
+
+# ★ CES DEUX REFUS SORTENT PAR 12 ET NON PAR UNE EXCEPTION. « not-started » veut dire
+# que RIEN n'a bougé : le binaire installé est intact, le service tourne encore, et
+# recliquer est sans danger. C'est l'information qui manquerait le plus à un bénévole
+# devant un écran qui ne dirait que « la mise à jour a échoué ».
 if (-not (Test-Path $Source)) {
-  throw "le nouveau binaire est introuvable ($Source). Décompressez l'archive de la nouvelle version."
+  $reason = "le nouveau binaire est introuvable ($Source)"
+  Write-Outcome -Status 'not-started' -ExitCode 12 -Reason $reason
+  Write-Host "$reason. Décompressez l'archive de la nouvelle version."
+  exit 12
 }
 if (-not (Test-Path $paths.Binary)) {
-  throw "aucun poste installé dans $($paths.InstallDir) : c'est install.ps1 qu'il faut lancer, pas update.ps1."
+  $reason = "aucun poste installé dans $($paths.InstallDir)"
+  Write-Outcome -Status 'not-started' -ExitCode 12 -Reason $reason
+  Write-Host "$reason : c'est install.ps1 qu'il faut lancer, pas update.ps1."
+  exit 12
 }
 
-$before = (& $paths.Binary --version) -join ' '
-$after = (& $Source --version) -join ' '
+$script:VersionBefore = (& $paths.Binary --version) -join ' '
+$script:VersionAfter = (& $Source --version) -join ' '
+$before = $script:VersionBefore
+$after = $script:VersionAfter
 Write-Step "mise à jour : $before  →  $after" $paths.LogFile
+if ($LogPath) { Write-Step "journal de cette bascule : $LogPath" $LogPath }
 $address = Get-ListenAddress -ConfigPath $paths.Config
 
 # --- 1. Arrêt, avec contrôle d'erreur -----------------------------------------------
@@ -83,8 +162,14 @@ $address = Get-ListenAddress -ConfigPath $paths.Config
 # Ce qui est contrôlé ici est le RÉSULTAT — le fichier est-il remplaçable — et non le code
 # de retour de l'arrêt, qui n'en est qu'un indice.
 if (-not (Stop-OpenScaleBinaryHolders -Paths $paths -LogFile $paths.LogFile)) {
-  throw "$($paths.Binary) est encore tenu par un processus$(Get-BinaryHolders) : la mise à " +
-  'jour ne peut pas remplacer le binaire.'
+  $reason = "$($paths.Binary) est encore tenu par un processus$(Get-BinaryHolders)"
+  Write-Outcome -Status 'not-started' -ExitCode 12 -Reason $reason
+  # Le kiosque vient d'être arrêté par la fonction ci-dessus, et le binaire n'a PAS été
+  # remplacé : sans cette relance, un refus qui ne touche à rien laisserait quand même
+  # l'écran client noir.
+  Start-OpenScaleKiosk -LogFile $paths.LogFile
+  Write-Host "$reason : la mise à jour ne peut pas remplacer le binaire."
+  exit 12
 }
 Write-Step 'poste arrêté, le binaire est remplaçable' $paths.LogFile
 
@@ -159,10 +244,30 @@ if ($failure) {
     Write-Host '      Les pesées enregistrées depuis la mise à jour seront perdues :'
     Write-Host '      exportez le journal avant, depuis l''écran d''administration.'
   }
-  exit 1
+
+  # DEUX ÉCHECS ET NON UN, écrits en toutes lettres et non calculés. « restauré, le poste
+  # répond » n'appelle personne ; « restauré, le poste ne répond toujours pas » demande un
+  # humain tout de suite. Les confondre sous un même « exit 1 » faisait porter à l'écran
+  # la moins utile des deux phrases.
+  #
+  # L'écran client est relancé DANS LES DEUX CAS : un retour arrière réussi qui le
+  # laisserait noir serait une panne créée par la réparation.
+  if ($restored) {
+    Write-Outcome -Status 'rolled-back' -ExitCode 10 -Reason $failure `
+      -BackupPath $backup -DatabaseBackups $new
+    Start-OpenScaleKiosk -LogFile $paths.LogFile
+    exit 10
+  }
+  Write-Outcome -Status 'rolled-back-unhealthy' -ExitCode 11 -Reason $failure `
+    -BackupPath $backup -DatabaseBackups $new
+  Start-OpenScaleKiosk -LogFile $paths.LogFile
+  exit 11
 }
 
 Write-Step "mise à jour réussie : le poste répond sur $address" $paths.LogFile
+Write-Outcome -Status 'succeeded' -ExitCode 0 -BackupPath $backup
+Start-OpenScaleKiosk -LogFile $paths.LogFile
+
 Write-Host ''
 Write-Host "Mise à jour terminée : $after"
 Write-Host "Version précédente conservée dans $backup"

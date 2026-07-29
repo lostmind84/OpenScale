@@ -170,5 +170,8 @@
   "maintenance": {
     "weekly_integrity_check": true,
     "disk_alert_mb": 200
+  },
+  "update": {
+    "repository": "lostmind84/OpenScale"
   }
 }

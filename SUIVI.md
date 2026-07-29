@@ -27,6 +27,46 @@ faute justement de ce journal. **Reste ouvert** : `kiosk.log` n'est pas dans
 `diagnostic.zip`, ce qui oblige `TROUBLESHOOTING.md` à demander un second fichier alors que
 la promesse était « le fichier de diagnostic, et lui seul ».
 
+**La mise à jour se déclenche depuis l'écran, et elle est livrée (29/07/2026).** ADR-040 :
+le poste sonde une fois par jour l'API des publications du dépôt suivi, porte une pastille
+au tableau de bord, télécharge l'archive au clic, **vérifie son empreinte SHA-256**,
+l'extrait, écrit `pending.json` puis lance `update.ps1` détaché. Le service tourne en
+`LocalSystem` : **il n'y avait aucune élévation à obtenir**, ce qui a rendu tout le reste
+possible. Treize tâches, 13 commits, suite Go complète verte en `-race`, **686 tests front**,
+budget de l'écran client inchangé à 70,3 % — cette page est dans le paquet
+d'administration, que la grille ne charge jamais.
+
+**Trois défauts existants ont été payés par ce chantier.** (1) **L'écran client restait
+noir** après toute mise à jour : `Stop-OpenScaleBinaryHolders` termine la tâche du kiosque,
+`openscale-kiosk.xml` n'a qu'un `LogonTrigger`, et personne ne la relançait — ni
+`install.ps1`, ni `update.ps1`. Le défaut a survécu parce qu'un humain qui met à jour finit
+par redémarrer le poste ; un bénévole qui touche un bouton, non. (2) `update.ps1`
+**confondait ses échecs** sous un seul `exit 1`, alors que « restauré, le poste marche » et
+« restauré, le poste est mort » ne demandent pas la même chose. (3) Le **nil typé** : sur un
+binaire `dev`, aucun service de mise à jour n'est construit, et affecter ce `nil` à une
+interface produit une interface **qui n'est pas nulle** — la garde répond faux, la méthode
+est appelée sur un récepteur nul, et le sondage du tableau de bord faisait tomber la
+connexion HTTP toutes les trois secondes. C'était le poste de chaque développeur.
+
+**Quatre décisions ont été prises par des tests, contre le plan.** La table de `tokens.test`
+n'inventorie que `--ink` et `--ink-muted` comme texte : la pastille est **soulignée** et non
+colorée, les deux fonds pleins n'ayant été mesurés que comme fonds. `admin-two-levels` tient
+la page bénévole à **une seule route** : la disponibilité voyage donc dans
+`/admin/api/health` plutôt que dans un second appel qui aurait élargi, pour une courtoisie,
+ce que fait un écran ouvert sans mot de passe. Le jugement des chemins d'archive se fait en
+séparateurs `/` **avant** toute conversion — `filepath.Clean` transforme sur Windows
+`/etc/cron.d/evil` en `\etc\cron.d\evil`, que `filepath.IsAbs` déclare **relatif**, et la
+première écriture du contrôle laissait donc passer un chemin absolu à la Unix. Et le worker
+de sondage enregistre ses minuteries **dans la goroutine appelante**, comme le Hub et le
+superviseur : les enregistrer dans la sienne faisait dépendre le premier sondage de
+l'ordonnanceur. Trente jours passent maintenant en 0,28 s.
+
+**Deux gardes contre le murage d'un poste.** Une bascule dont le budget de quinze minutes
+est dépassé est **effacée** au lieu d'opposer `ErrAlreadyRunning` pour toujours — c'est la
+conséquence directe de ce que le banc a mesuré, un `Start()` qui rend `nil` sans rien
+lancer. Et un lancement qui **échoue** efface son `pending.json` : le processus est encore
+vivant pour le faire.
+
 **Installer la v0.5 comme un bénévole a buté six fois (29/07/2026).** L'archive publiée a
 été posée sur `PC-RECEPTION` par `install.ps1` sans option, puis conduite étape par étape
 comme `INSTALLATION.md` la décrit. Le poste tourne — service automatique, balance GRAM sur
@@ -579,6 +619,7 @@ comptage A/B au scanner de caisse est ce qui tranchera le tracé géométrique d
 | **L7** | Catalogue — sources, import CSV, images | 2,5 sem. | ✅ **26/07/2026** |
 | **L8** | Admin et exploitation — écrans, diagnostic, installeurs | 4 sem. | ✅ **26/07/2026** |
 | **L9** | Recette et mise en service — poste pilote 2 semaines | 3 sem. | ⬜ |
+| **hors lot** | Mise à jour depuis l'écran (ADR-040) — paquet `internal/update`, page « Mise à jour », contrat `update.ps1` | 1 j·h | ✅ **29/07/2026** |
 
 **Ce qui reste, et il n'y a que ça.** L0 approvisionne le banc (SATO WS408, GRAM XFOC,
 rouleau, lecteur) ; L9 est la recette sur site. **Aucun des deux ne demande d'écrire du
@@ -740,6 +781,7 @@ son périmètre. Aucune ne bloque : ce sont des endroits où la documentation d�
 |---|---|---|
 | 1 | §16.4, l'extrait du `Makefile` | Montre `bin/balance`, `./tools/boundary/check.sh` et `test: front` là où le `Makefile` réel dit `bin/openscale`, `go run ./tools/boundary` et `test: vet` |
 | 2 | §16.4, l'énumération du pipeline CI | Nomme `staticcheck`, qu'aucune étape de `ci.yml` ne lance ; et place `make boundary` / `make deps` **avant** `go test -race`, alors que la CI les lance après |
+| 3 | §11.1 et §13.2, les chemins de `ProgramData` | Trois occurrences disent encore `C:\ProgramData\Balance` et `balance.db` là où le poste écrit `C:\ProgramData\OpenScale` et `openscale.db`. Relevé en écrivant §15.5, qui portait la même faute et a été corrigé ; les trois autres sont hors du périmètre d'ADR-040 |
 
 C'est exactement la classe de défaut qu'ADR-039 et `make deps` suppriment pour les
 **dépendances**. Ces deux-là portent sur les **outils**, et rien ne les vérifie encore.
@@ -790,6 +832,7 @@ de référence produit, pas une correction cosmétique.
 
 | Date | Événement |
 |---|---|
+| 29/07/2026 | **Mise à jour depuis l'écran livrée** (ADR-040) : sondage quotidien, empreinte SHA-256 vérifiée, `update.ps1` devenu un contrat à quatre issues, page « Mise à jour », contrôle 48 sur le dépôt suivi. Trois défauts existants payés au passage — l'écran client qui restait noir, les échecs indistincts du script, et le nil typé qui faisait paniquer le tableau de bord de tout binaire `dev` |
 | 29/07/2026 | **La v0.5 installée comme un bénévole sur un poste neuf** : le poste tourne de bout en bout — balance, étiquette, catalogue, redémarrage recette — mais **six défauts** rendent les étapes 4 à 7 infaisables sans ligne de commande. Deux corrigés (la veille du catalogue, dans les deux cas où elle ne quittait pas sa source), quatre ouverts, dont le retour arrière qui écrit le profil d'usine par-dessus les tarifs de la coopérative |
 | 29/07/2026 | **Tâche 0 du plan de mise à jour depuis l'écran mesurée sur le banc** : le processus détaché survit à l'arrêt du service (113 lignes après), mais `DETACHED_PROCESS` empêche `powershell.exe` de démarrer — le plan passe à `CREATE_NO_WINDOW`. Deux trouvailles incidentes : `-InstallDir`/`-DataRoot` morts sur `install.ps1`, et le `--listen` ignoré de L8 repayé une seconde fois |
 | 28/07/2026 | Écran client repris en « Grand Format » (ADR-035, ADR-036) : grille continue — `ui.tile_size` retiré, ce qui **annule le réglage à trois valeurs livré la veille** —, double tarif affiché par tuile, recherche au clavier physique (le poste n'est pas tactile), CategoryBar/StatusBar remplacent FilterBar/ReprintBar. **438 tests front** (23 fichiers), tous verts, mesurés sur ce poste |
