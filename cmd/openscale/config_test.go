@@ -30,6 +30,21 @@ func deliveredConfig(t *testing.T) string {
 // then do their own two hardware steps — a different COM port, a different print queue, a
 // different number, a different name, a different listen address. The four stations must
 // display ONE string of eight characters, or the check is worthless.
+//
+// # Why each hardware step sets ONE KEY and never replaces the block
+//
+// Since the export stopped dropping the option maps whole, Fingerprint compares what
+// those maps hold -- the label offset, the darkness, the speed, the serial settings.
+// Writing `cloned.Scale.Options = DriverOptions{"port": "COM3"}` would therefore not
+// merely name a port: it would throw away the baud rate, the parity and the reconnection
+// backoff the clone had just delivered. Two stations identical in every respect would
+// then show two different strings, and the one check a volunteer can do by eye would be
+// reporting a divergence the test itself invented.
+//
+// It is written this way because it is what the ADMINISTRATION SCREEN does (§15.5): the
+// two steps after an import are « choisissez le port » and « choisissez la file », one
+// field each, and the file behind them keeps every key nobody touched. A screen that
+// rewrote the whole block on one edit would be the bug this test would then be blessing.
 func TestCloningAStationShowsTheSAMEEightCharacters(t *testing.T) {
 	out := &strings.Builder{}
 	export := filepath.Join(t.TempDir(), "config-export.json")
@@ -61,10 +76,9 @@ func TestCloningAStationShowsTheSAMEEightCharacters(t *testing.T) {
 		cloned.Station.Number, cloned.Station.Name = station.number, station.name
 		cloned.Network.Listen = station.listen
 		// The two hardware steps of §15.5, done on the screen after the import: ONE
-		// field each, on top of the options the clone delivered. The screen edits a
-		// field, it does not rewrite the block -- and since the export started carrying
-		// the settings the fleet shares, rewriting it here would model a gesture nobody
-		// makes and drop the very keys this check now compares.
+		// field each, on top of the options the clone delivered. See the head of this
+		// test for why replacing the block instead would make two homogeneous stations
+		// diverge.
 		cloned.Scale.Options = exported.Scale.Options.WithText("port", station.port)
 		cloned.Printer.Options = exported.Printer.Options.WithText("queue", station.queue)
 

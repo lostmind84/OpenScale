@@ -179,9 +179,13 @@ function exportWithoutTheSecret(): Record<string, unknown> {
 /**
  * Un export « sans le matériel », tel que le poste le REND après l'avoir relu.
  *
- * `Config.Export(false)` vide six choses et `importConfig` n'en rétablit qu'une, le
- * numéro : le nom du poste revient à vide, le réseau à vide, et les trois cartes
- * d'options à `null` — compte WebDAV compris.
+ * `Config.Export(false)` vide sept choses et `importConfig` n'en rétablit qu'une, le
+ * numéro : le nom du poste revient à vide, le réseau à vide, le chemin des images à vide,
+ * et les trois cartes d'options perdent ce qui désigne CE poste — compte WebDAV compris.
+ *
+ * La fiction ci-dessous met les trois cartes à `null`, ce qui est le cas EXTRÊME et non
+ * le cas courant : c'est le seul qui déclenche l'avertissement « ce fichier ne porte pas
+ * … », et c'est donc lui qu'il faut pour l'éprouver.
  */
 function hardwareFreeExport(): Record<string, unknown> {
   return {
@@ -591,15 +595,24 @@ describe('ce que l’export sans le matériel ne porte pas', () => {
     expect(said).toContain('la source du catalogue, compte compris')
   })
 
-  it('promet exactement ce que §11.5 retire, et pas trois éléments sur six', async () => {
+  it('promet exactement ce que §11.5 retire, et pas trois éléments sur sept', async () => {
     await open()
 
     const promise = pageText()
-    expect(promise).toContain('le numéro et le nom du poste')
-    expect(promise).toContain('les réglages de la balance')
-    expect(promise).toContain("ceux de l'imprimante")
-    expect(promise).toContain('la source du catalogue')
-    expect(promise).toContain('le réseau')
+    // Les SEPT choses que `Config.Export(false)` vide — le numéro et le nom comptent
+    // pour deux. Le chemin des images est la septième : il a rejoint la liste le jour où
+    // l'export a cessé de vider les cartes d'options en bloc, et une note qui n'en nomme
+    // que six promet moins que la vérité, ce qui est le défaut n° 8 de cette page.
+    for (const stripped of [
+      'le numéro et le nom du poste',
+      'les réglages de la balance',
+      "ceux de l'imprimante",
+      'la source du catalogue',
+      'le chemin des images',
+      'le réseau',
+    ]) {
+      expect(promise, `la note ne nomme pas « ${stripped} »`).toContain(stripped)
+    }
   })
 })
 

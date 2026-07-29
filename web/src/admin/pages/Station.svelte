@@ -54,7 +54,7 @@
    *     so — see {@link compared} and {@link versionsStanding};
    *  7. compare `modified_at`, which no two stations can ever share, or the WebDAV
    *     password, which neither document carries in clear (see {@link NOT_COMPARED});
-   *  8. promise less than the truth. The note now names the SIX things §11.5 strips, and
+   *  8. promise less than the truth. The note now names the SEVEN things §11.5 strips, and
    *     the screen names the ones the file came back empty on before « Recopier » copies
    *     that emptiness (see {@link CLONE_STRIPS});
    *  9. throw away half of a refused control: `allowed` carries the values that would
@@ -104,12 +104,18 @@
   /**
    * What a hardware-free export does NOT carry, and the French name of each.
    *
-   * `Config.Export(false)` clears six things — the station number and name, the three
-   * option maps and the whole network block — and the import puts back only the number and
-   * the two secrets. Everything else comes back EMPTY, so those rows of the diff hold
-   * nothing, and « Recopier » copies emptiness as faithfully as it copies a value: the
-   * WebDAV account of the catalog is in that list. This is what the screen has to name
-   * before anybody presses the button.
+   * `Config.Export(false)` clears seven things — the station number and name, the whole
+   * network block, the station-specific keys of the three option maps, and the image path
+   * of the catalog — and the import puts back only the number and the two secrets.
+   * Everything else comes back EMPTY, so those rows of the diff hold nothing, and
+   * « Recopier » copies emptiness as faithfully as it copies a value: the WebDAV account
+   * of the catalog is in that list. This is what the screen has to name before anybody
+   * presses the button.
+   *
+   * Seven and no longer six: the image path joined the list the day the export stopped
+   * dropping the option maps whole. The rows below still watch whole maps, which is right
+   * for the diff — an option map that came back with only its shared keys is not blank, so
+   * `isBlank` says nothing about it and the warning stays silent, which is the truth.
    */
   const CLONE_STRIPS: { path: string; name: string }[] = [
     { path: 'station.name', name: 'le nom du poste' },
@@ -664,7 +670,7 @@
 
   <Panel
     title="Exporter, importer"
-    note="Pour installer un autre poste : ce fichier emporte les tarifs, les garde-fous, l’étiquette et les catégories. Tout ce qui est propre à ce poste-ci reste ici — le mot de passe, le code de secours, le numéro et le nom du poste, les réglages de la balance, ceux de l’imprimante, la source du catalogue et le réseau."
+    note="Pour installer un autre poste : ce fichier emporte les tarifs, les garde-fous, l’étiquette et les catégories. Tout ce qui est propre à ce poste-ci reste ici — le mot de passe, le code de secours, le numéro et le nom du poste, les réglages de la balance, ceux de l’imprimante, la source du catalogue, le chemin des images et le réseau."
   >
     <div class="actions">
       <Act
