@@ -1,7 +1,9 @@
 # Mettre à jour un poste depuis l'écran d'administration
 
-> Conception validée le 29/07/2026. Elle décrit ce qui doit être construit, pas ce qui
-> existe. L'implémentation n'a pas commencé.
+> Conception validée le 29/07/2026, **implémentée le même jour**. Ce document décrit ce
+> qui a été construit ; les quatre points où la construction l'a corrigé sont réunis au
+> § « Ce que l'implémentation a corrigé dans cette spécification », et reportés là où ils
+> portent. La référence tenue à jour reste `docs/02-architecture.md` (ADR-040, §15.5).
 
 ## Le problème
 
@@ -369,7 +371,12 @@ brouillon et le panneau de mot de passe des autres pages de réglage.
 
 ## Erreurs et journal
 
-Huit codes, préfixe `ERR-UPD`, chacun avec un message français complet.
+Neuf codes, préfixe `ERR-UPD`, chacun avec un message français complet.
+
+> **Neuf et non huit.** Cette spécification en prévoyait huit et faisait porter par
+> `ERR-UPD-03` — le garde-fou — le cas « la version a changé depuis l'affichage ». Ce sont
+> deux refus qui ne demandent pas la même chose à un bénévole : l'un dit « attendez un
+> instant », l'autre « rechargez la page ». L'implémentation les a séparés.
 
 | Code | Quand | Message |
 |---|---|---|
@@ -381,6 +388,7 @@ Huit codes, préfixe `ERR-UPD`, chacun avec un message français complet.
 | `ERR-UPD-06` | `outcome.json` dit `rolled-back` | « La mise à jour a échoué, la version précédente a été remise. Le poste fonctionne. » |
 | `ERR-UPD-07` | `outcome.json` dit `rolled-back-unhealthy` | « La mise à jour a échoué et le poste ne répond pas. Lancez `openscale doctor`. » |
 | `ERR-UPD-08` | Archive absente de la Release | « Cette version ne contient pas de fichier pour ce poste. » |
+| `ERR-UPD-09` | La version affichée n'est plus celle qui serait installée | « Une autre version est parue depuis l'affichage de cette page. Rechargez-la. » |
 
 Journal technique : `info` pour une vérification et une version trouvée ; `warn` pour un
 sondage échoué et pour un **changement de dépôt** ; `error` pour `-02`, `-06` et `-07`. Le
@@ -430,6 +438,31 @@ Dit ici pour ne pas être redemandé :
 - pas de rendu des notes de version ;
 - pas de mise à jour des quatre postes depuis un seul écran ;
 - pas d'hébergeur autre que GitHub.
+
+## Ce que l'implémentation a corrigé dans cette spécification
+
+Quatre écarts, tous assumés et tous nés d'un test ou d'une mesure.
+
+1. **`ERR-UPD-09`**, un neuvième code — voir l'encadré ci-dessus.
+2. **`Status.Supported` est un champ câblé** (`runtime.GOOS == "windows"`) et non une
+   déduction faite en appelant `ApplyUpdate` : la déduction lancerait une PowerShell pour
+   répondre à une question.
+3. **La pastille du tableau de bord voyage dans `/admin/api/health`**, et non sur la route
+   de la page Mise à jour. `web/test/admin-two-levels.test.ts` tient la page bénévole à
+   **une seule route** : un second appel, même libre, aurait élargi pour une courtoisie ce
+   que fait un écran ouvert sans mot de passe. D'où le champ `new_version`, vide quand il
+   n'y a rien à dire — y compris quand le service n'a pas pu lire.
+4. **`CREATE_NO_WINDOW` et non `DETACHED_PROCESS`.** Mesuré au banc le 29/07/2026 :
+   `powershell.exe` est une application console, et sans console à attacher son hôte
+   abandonne — sortie en 100 ms, code **0**, script jamais lu. Le drapeau dont le nom dit
+   « détaché » est celui qui ne lance rien. Compte rendu :
+   `docs/superpowers/plans/2026-07-29-banc-detached-process.md`.
+
+Et une conséquence que le banc a mise au jour, tranchée à l'implémentation : un `Start()`
+qui rend `nil` sans rien lancer laissait un `pending.json` éternel, et `ErrAlreadyRunning`
+aurait refusé **toute** mise à jour ultérieure — un poste muré par un échec qui n'a rien
+écrit nulle part. `SwapBudget` (quinze minutes) et `Pending.Stale` ferment cette porte,
+un instant de départ nul comptant comme périmé.
 
 ## Documentation touchée
 

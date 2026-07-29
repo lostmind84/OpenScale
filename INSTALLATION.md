@@ -313,6 +313,21 @@ et les adresses de partage en sont retirés.
 
 ## Mettre à jour un poste
 
+**Depuis l'écran, en un geste.** Bouton « Réglages » sur l'écran client → page
+**« Mise à jour »**. Le poste vérifie une fois par jour s'il existe une version plus
+récente, et le tableau de bord l'annonce quand c'est le cas. Le bouton la nomme.
+
+Le poste s'arrête environ une minute, l'écran client s'éteint puis **revient tout seul**.
+Ne débranchez rien pendant ce temps. Si la nouvelle version ne démarre pas, l'ancienne est
+remise automatiquement et l'écran dit ce qui s'est passé — les quatre issues possibles sont
+décrites dans `TROUBLESHOOTING.md`.
+
+Le bouton refuse pendant une pesée, et tant qu'un catalogue qui vient d'arriver n'est pas
+entré en service.
+
+**À la main**, si l'écran d'administration est inaccessible, ou sur un poste Linux où le
+bouton n'existe pas :
+
 1. Copiez l'archive de la nouvelle version sur le poste et décompressez-la.
 2. PowerShell **en administrateur**, dans le dossier de la nouvelle version :
 
@@ -320,12 +335,22 @@ et les adresses de partage en sont retirés.
 .\update.ps1
 ```
 
-Le script arrête le service proprement, **sauvegarde l'ancienne version sous un nom
-horodaté**, installe la nouvelle, redémarre, et **vérifie que le poste répond**. Si ça
-échoue, il **remet l'ancienne version tout seul** et vous dit pourquoi.
+C'est le même script que celui du bouton. Il arrête le service proprement, **sauvegarde
+l'ancienne version sous un nom horodaté**, installe la nouvelle, redémarre, **vérifie que
+le poste répond**, et **relance l'écran client**. Si ça échoue, il **remet l'ancienne
+version tout seul** et vous dit pourquoi.
 
 La configuration, le catalogue et le journal des pesées **ne sont pas touchés** : ils ne
 vivent pas à côté du programme.
+
+### Suivre un autre dépôt
+
+Le code est libre. Une coopérative qui fait tourner sa propre version peut la faire suivre
+à ses postes : page **« Mise à jour »**, champ *Dépôt suivi*, sous la forme
+`propriétaire/projet` — jamais une adresse web. C'est un réglage protégé par le mot de
+passe, et il doit être **le même sur les quatre postes** : l'empreinte de configuration
+affichée au tableau de bord en tient compte, et deux postes qui suivent deux dépôts
+différents n'affichent pas la même.
 
 ## Désinstaller un poste
 
