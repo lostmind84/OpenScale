@@ -211,8 +211,37 @@ func optionInt(o domain.DriverOptions, key string) (int64, bool, error) {
 	return value, true, nil
 }
 
+// Complete returns these options with every link setting a caller left out filled in
+// from the defaults of the parc, and refuses — in French — a link no port could accept.
+//
+// # Why it is exported
+//
+// The godoc of Options promises that « the zero value is usable once Port, Decoder and
+// Clock are set ». That promise was only ever kept by New, Loop and ParseOptions, the
+// three callers of the private completion below. Anything else that built an Options
+// field by field and handed it straight to OpenSystemPort got a link with no bitrate, no
+// character size, no parity and no stop bits — refused on the parity before the device
+// was ever touched. The detection of the Matériel screen was built that way, and could
+// not succeed on any port of any machine.
+//
+// # Why it is not hidden inside OpenSystemPort
+//
+// Repairing the options inside the opener would close the same hole in one line, and it
+// would also make the repair invisible at the place that matters: where a caller BINDS a
+// port. A caller must be able to read, at its own call site, that the link was completed,
+// and it must be able to tell a refusal of its own settings — which names the key of
+// scale.options to correct — from a refusal that came from the system, which is a
+// different remedy for whoever is standing in front of the station.
+func (o Options) Complete() (Options, error) {
+	o = o.withDefaults()
+	if _, err := o.mode(); err != nil {
+		return Options{}, err
+	}
+	return o, nil
+}
+
 // withDefaults fills in every field a configuration left out. It is idempotent, so
-// New, Loop and ParseOptions may all call it.
+// New, Loop, ParseOptions and Complete may all call it.
 func (o Options) withDefaults() Options {
 	if o.Baud == 0 {
 		o.Baud = defaultBaud

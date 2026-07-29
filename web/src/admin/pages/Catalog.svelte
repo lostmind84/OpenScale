@@ -7,9 +7,12 @@
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
   import type { Draft } from '../lib/draft.svelte'
-  import type { DecisionDTO, FindingDTO, HealthDTO, ImportDTO } from '../lib/dto'
+  import type { DecisionDTO, FindingDTO, HealthDTO, ImportDTO, ReloadDTO } from '../lib/dto'
   import { labelOf } from '../lib/fields'
   import { frenchDate, frenchDateTime, frenchInteger } from '../lib/format'
+  import { importResultWord, importSourceWord } from '../lib/inventory'
+  import { preferences } from '../lib/preferences.svelte'
+  import { ReloadWatch } from '../lib/reload.svelte'
   import type { Admin } from '../lib/session.svelte'
 
   /**
@@ -44,7 +47,16 @@
    */
   interface Props {
     admin: Admin
-    /** The configuration document: this page edits the `catalog` block. */
+    /**
+     * The configuration document: this page edits the `catalog` block, and the one
+     * `ui` key that decides WHAT THE GRID SHOWS.
+     *
+     * That key sits in `ui` and not in `catalog` on purpose: a change to the catalog
+     * block runs the disk probe and restarts the catalog source, which is a heavy price
+     * for a display choice — and it would fail outright while a WebDAV share is
+     * momentarily unreachable. The draft is shared by every page and the save is global,
+     * so hosting the switch here couples no blocks together.
+     */
     draft: Draft
     health: HealthDTO
   }
@@ -66,29 +78,6 @@
     'PREPACKAGED_PRODUCT',
     'INTERNAL_CODE_NOT_WEIGHABLE',
   ]
-
-  /**
-   * How an import ended, in French.
-   *
-   * `applied`, `unchanged`, `rejected` and `failed` are the four tokens of
-   * `internal/domain/journal.go`, and the history table used to print them as they came:
-   * a volunteer read « unchanged » in a column headed « Résultat » and had no way to
-   * know whether that was good news. `unchanged` is a NOMINAL outcome — a producer may
-   * drop a byte-identical export every night — and it has to read like one.
-   */
-  const IMPORT_RESULTS: Record<string, string> = {
-    applied: 'appliqué',
-    unchanged: 'identique au précédent',
-    rejected: 'refusé',
-    failed: 'échec',
-  }
-
-  /** Where a catalog came from, in French. The three tokens of §10.1. */
-  const IMPORT_SOURCES: Record<string, string> = {
-    local_drop: 'dépôt local',
-    webdav: 'WebDAV',
-    manual: 'déposé sur l’écran',
-  }
 
   /**
    * The settings each source owns OUTRIGHT.
@@ -152,6 +141,43 @@
   const names = $derived(
     new Map(products.map((product): [string, string] => [product.id, product.name])),
   )
+
+  /**
+   * How many products of the catalog IN SERVICE are sold by unit.
+   *
+   * Derived, never written down. Without this figure, the gap between the « 331
+   * pesables » of the last import above and the « 316 produits pesables » the client
+   * screen states at the bottom of its grid is explainable by nobody over the phone —
+   * and a hard-coded 15 would pass a rendering test while lying at the next import.
+   *
+   * The client route serves EVERY weighable tile whatever this station shows, so the
+   * count is right in both positions of the switch.
+   */
+  const byUnitCount = $derived(products.filter((product) => product.mode === 'by_unit').length)
+
+  /**
+   * What this station does with them, in one French sentence.
+   *
+   * It follows the SWITCH and not the saved file, so that the trade-off is legible
+   * before the save rather than after it. And it states nothing this page has not read:
+   * a station whose client catalog could not be opened does not know this number.
+   */
+  const byUnitSentence = $derived.by(() => {
+    if (namesState === 'loading') return 'Lecture du catalogue en service…'
+    if (namesState === 'unread') {
+      return 'Le catalogue en service n’a pas pu être lu : cet écran ne sait pas combien de ' +
+        'produits se vendent à l’unité.'
+    }
+    if (byUnitCount === 0) {
+      return 'Aucun produit vendu à l’unité dans le catalogue en service.'
+    }
+    const many = byUnitCount > 1
+    const subject = many ? 'produits vendus à l’unité sont' : 'produit vendu à l’unité est'
+    const said = draft.flag('ui.show_by_unit_products')
+      ? `${many ? 'montrés' : 'montré'} dans la grille de ce poste`
+      : `${many ? 'masqués' : 'masqué'} sur ce poste`
+    return `${frenchInteger(byUnitCount)} ${subject} ${said}.`
+  })
 
   /**
    * The products the search retains, and how many there are BEFORE the cap.
@@ -301,6 +327,20 @@
     void load()
   })
 
+  /**
+   * What « Recharger le catalogue » left pending, and the sentence that will conclude it.
+   *
+   * The very mechanism above, put to a second use: the reload answers a 202 that carries
+   * no outcome, so the id of the import in force is again what says the wait is over. The
+   * wait itself lives in a shared module because the SAME act is reachable from the
+   * troubleshooting page, and it may not read differently there.
+   */
+  const reloadWatch = new ReloadWatch()
+
+  $effect(() => {
+    reloadWatch.observe(health)
+  })
+
   /** Reads the import history, the findings of the last one, and the catalog in service. */
   async function load(): Promise<void> {
     const history = await admin.load(() => api.fetchImports(health.catalog?.id))
@@ -336,25 +376,40 @@
    * @param action - the protected call, which may be passed TWICE.
    * @returns true when the station accepted it.
    */
-  async function guarded(
+  async function guarded<T extends { message: string }>(
     label: string,
-    action: () => Promise<{ message: string }>,
-  ): Promise<boolean> {
+    action: () => Promise<T>,
+  ): Promise<T | null> {
     working = label
     // What an act leaves on screen lives until ANOTHER act replaces it (§5.1), and
     // starting this one is that replacement: `protect` does not clear it by itself, so a
     // refusal from a minute ago would sit above the sentence this act is about to write.
     admin.actionError = ''
     admin.notice = ''
+    reloadWatch.forget()
     try {
       const done = await admin.protect(action)
-      if (done === null) return false
+      if (done === null) return null
       admin.notice = done.message
       await admin.refresh()
-      return true
+      return done
     } finally {
       working = ''
     }
+  }
+
+  /**
+   * Reloads the catalog through the EXPERT door, and waits for the same outcome the
+   * troubleshooting page waits for.
+   *
+   * The answer is a 202 and carries no outcome — the watch reads, qualifies and applies on
+   * its own thread — so what the screen shows a few seconds later comes from the polling,
+   * word for word the sentence the other door writes. An act cannot announce itself
+   * differently depending on the screen it is reached from.
+   */
+  async function reloadCatalog(): Promise<void> {
+    const answer: ReloadDTO | null = await guarded('reload', api.reloadCatalogAsExpert)
+    if (answer !== null) reloadWatch.begin(answer)
   }
 
   /**
@@ -421,7 +476,7 @@
     const written = await guarded('offered', () =>
       api.saveDecision(id, { offered, min_weight_g: grams, reason: text }),
     )
-    if (written) reason = ''
+    if (written !== null) reason = ''
   }
 
   /**
@@ -443,7 +498,7 @@
     const written = await guarded(grams === null ? 'waiver-off' : 'waiver', () =>
       api.saveDecision(id, { offered, min_weight_g: grams, reason: text }),
     )
-    if (written) reason = ''
+    if (written !== null) reason = ''
   }
 
   /**
@@ -576,13 +631,13 @@
 
   /** How an import ended, in French — never the token the service wrote. */
   function frenchResult(record: ImportDTO): string {
-    const said = IMPORT_RESULTS[record.result] ?? 'résultat inconnu'
+    const said = importResultWord(record.result)
     return record.code === '' ? said : `${said} (${record.code})`
   }
 
   /** Where an import came from, in French — never the token the service wrote. */
   function frenchSource(record: ImportDTO): string {
-    return IMPORT_SOURCES[record.source] ?? 'source inconnue'
+    return importSourceWord(record.source)
   }
 </script>
 
@@ -609,6 +664,29 @@
       {/each}
     </ul>
   </div>
+{/snippet}
+
+<!--
+  A switch, drawn as the Rules page draws its own. `Field` has no boolean kind, and the
+  one flag of this page is not a reason to grow one. It takes a RECORD and not three
+  arguments so that the key it writes reads as `path:` — the form the field index checks
+  for, and the only way this switch cannot be added without its French name.
+-->
+{#snippet toggle(field: { path: string; label: string; hint: string })}
+  <label class="toggle" data-flag={field.path} data-on={String(draft.flag(field.path))}>
+    <input
+      type="checkbox"
+      checked={draft.flag(field.path)}
+      onchange={(event) => draft.set(field.path, event.currentTarget.checked)}
+    />
+    <span class="toggle-text">
+      <span class="toggle-label">{field.label}</span>
+      <!-- Behind the switch, as `Field` puts it: the key is written for whoever edits
+           the file, and read out loud by nobody else. -->
+      {#if preferences.showTechnicalNames}<code>{field.path}</code>{/if}
+      <span class="hint">{field.hint}</span>
+    </span>
+  </label>
 {/snippet}
 
 <div class="pages">
@@ -709,6 +787,9 @@
         ? 'Aucune source de catalogue publiée par ce poste.'
         : 'Source : ' + health.catalog_source.label}
     </p>
+    {#if reloadWatch.sentence !== ''}
+      <p class="fact" data-reload>{reloadWatch.sentence}</p>
+    {/if}
     <div class="actions">
       <Act
         act="reload"
@@ -717,7 +798,7 @@
         protected
         busy={working === 'reload'}
         disabled={busy}
-        onrun={() => void guarded('reload', api.reloadCatalogAsExpert)}
+        onrun={() => void reloadCatalog()}
       />
       <Act
         act="quarantine"
@@ -732,6 +813,30 @@
     <p class="fact muted">
       « Oublier la quarantaine » fait relire un fichier que le poste avait écarté : c’est le
       seul geste de cette page qui puisse remettre en service un catalogue refusé.
+    </p>
+  </Panel>
+
+  <!--
+    Right under the inventory, and not further down: this panel exists to explain the gap
+    between the pesables the import announces above and the number the client screen
+    states at the bottom of its grid.
+  -->
+  <Panel
+    title="Ce que la grille montre"
+    note="Un réglage d’affichage : il ne change ni le fichier reçu, ni ce que le poste sait peser."
+  >
+    {@render toggle({
+      path: 'ui.show_by_unit_products',
+      label: 'Afficher les produits vendus à l’unité',
+      hint:
+        'Décoché, leurs tuiles quittent la grille et la recherche ne les retrouve plus. ' +
+        'Ce que le poste perd : une tuile vendue à l’unité imprime une étiquette sans ' +
+        'jamais lire la balance, et c’est le seul geste que ce réglage retire.',
+    })}
+    <p class="fact" data-by-unit>{byUnitSentence}</p>
+    <p class="fact muted">
+      Un produit masqué reste vendable : la caisse lit toujours son code-barres, et une
+      étiquette déjà imprimée reste valable. Ce réglage ne fait que retirer sa tuile.
     </p>
   </Panel>
 
@@ -1074,6 +1179,66 @@
     flex-wrap: wrap;
     gap: var(--touch-gap);
     margin: 0.75rem 0 0;
+  }
+
+  /* The switch, drawn exactly as the Rules page draws its own: two pages that offer the
+     same kind of control may not look like two different mechanisms. */
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 2.75rem;
+    margin: 0.5rem 0 0;
+    padding: 0.375rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--waiting-wash);
+    /* Taken back from the `label` rule of this page: only the switch's own name is bold,
+       and the sentence behind it is prose. */
+    font-weight: 400;
+    cursor: pointer;
+    transition:
+      background-color var(--tap) var(--ease),
+      border-color var(--tap) var(--ease);
+  }
+
+  .toggle[data-on='true'] {
+    background: var(--ready-wash);
+  }
+
+  /* What a mouse expects, and a finger never asked for (app.css). */
+  @media (hover: hover) {
+    .toggle:hover {
+      border-color: var(--ink-muted);
+    }
+  }
+
+  .toggle input {
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    min-height: 0;
+    min-width: 0;
+    padding: 0;
+    accent-color: var(--focus);
+  }
+
+  .toggle-text {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: baseline;
+  }
+
+  .toggle-label {
+    font-size: 1.0625rem;
+    font-weight: 700;
+  }
+
+  .hint {
+    flex: 1 1 20rem;
+    color: var(--ink-muted);
+    font-size: 1rem;
   }
 
   /* A key, not a red padlock: the act is possible, it only asks who you are. The word is

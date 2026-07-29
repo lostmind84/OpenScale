@@ -126,6 +126,14 @@
 </div>
 
 <style>
+  /*
+   * No stacking context here, and that is load-bearing: the settings key escapes
+   * the fault overlay by climbing into the ROOT context, which only works while
+   * nothing between them opens a context of its own. A `z-index`, an `opacity`
+   * below 1, a `transform`, a `filter` or an `isolation` on this bar would trap
+   * the key underneath the overlay again — with every declared number still
+   * reading exactly right.
+   */
   .bar {
     display: flex;
     /* PERMANENT means it keeps its height whatever the grid above weighs. */
@@ -244,7 +252,23 @@
     background: var(--fault);
   }
 
+  /*
+   * ABOVE the fault overlay — and the only thing on this screen that is.
+   *
+   * The overlay of `FullScreen` sits at 10, opaque and edge to edge, so a station
+   * that cannot serve buries its own bottom bar, this key included. ADR-032 makes
+   * that key the one way into the administration from the screen: no URL to type,
+   * no way out of the kiosk. A station fresh out of the installer starts
+   * OutOfService, so left underneath it is unreachable in the exact state that has
+   * to be repaired. 20 clears the overlay and stays well under the administration
+   * itself (90).
+   *
+   * Everything else in the bar stays buried, deliberately: the overlay is there so
+   * that nobody weighs on a station that cannot serve.
+   */
   .admin {
+    position: relative;
+    z-index: 20;
     display: flex;
     align-items: center;
     justify-content: center;

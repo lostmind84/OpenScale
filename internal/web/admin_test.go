@@ -404,6 +404,67 @@ func TestAnUnknownSelfTestIsRefusedByName(t *testing.T) {
 	}
 }
 
+// TestTheReloadAnswerNamesWhatIsWatchedAndTheImportInForce.
+//
+// « Le catalogue va être relu. » was written before anything had been looked at, and the
+// answer carried nothing else: no file, no directory, no instant, no result. The screen
+// therefore had no way to recognise the import that followed, and on the dominant case —
+// nothing where the station is looking — the promise was followed by a silence that never
+// ended, because the watch returns without a word when it finds no file (§10.5).
+func TestTheReloadAnswerNamesWhatIsWatchedAndTheImportInForce(t *testing.T) {
+	const seen = "Aucun fichier flv_2.csv dans D:\\catalog\\incoming : il n'y a rien à relire."
+	b := newBench(t, func(o *benchOptions) {
+		o.catalogAdmin = &fakeCatalogAdmin{seen: seen}
+		o.dashboard = stubDashboard{DashboardFacts{Source: &CatalogSourceState{
+			Type:  domain.CatalogSourceLocalDrop,
+			Label: "dépôt local, flv_2.csv dans D:\\catalog\\incoming",
+		}}}
+	})
+	b.store.imports = []domain.Import{{
+		ID: 7, OccurredAt: epoch, Source: domain.CatalogSourceLocalDrop,
+		FileName: "flv_1.csv", Result: domain.ImportApplied,
+	}}
+
+	got := decodeStatus[reloadDTO](t,
+		b.post("/admin/api/troubleshooting/reload-catalog", `{}`), http.StatusAccepted)
+	if got.Message != seen {
+		t.Fatalf("message = %q, attendu ce que le poste a VU du fichier surveillé", got.Message)
+	}
+	if !strings.Contains(got.Watched, "flv_2.csv") {
+		t.Fatalf("surveillé = %q, attendu la ligne permanente du catalogue", got.Watched)
+	}
+	// L'écran reconnaît l'import SUIVANT en comparant son identifiant à celui-ci : sans
+	// lui, il ne peut ni annoncer l'issue ni cesser de l'attendre.
+	if got.LastImportID != 7 || got.LastImportAt == "" {
+		t.Fatalf("import en vigueur = %d à %q, attendu le dernier import du journal",
+			got.LastImportID, got.LastImportAt)
+	}
+}
+
+// TestAStationWithNoJournalAndNoDashboardStillAnswersTheReload.
+//
+// Both collaborators are optional — a station whose journal is unavailable still serves
+// (ADR-013), and a station wired without a Dashboard publishes no source line. The answer
+// then says nothing about either, rather than panicking or inventing a sentence.
+func TestAStationWithNoJournalAndNoDashboardStillAnswersTheReload(t *testing.T) {
+	b := newBench(t, func(o *benchOptions) {
+		o.catalogAdmin = &fakeCatalogAdmin{}
+		o.noStore = true
+	})
+
+	got := decodeStatus[reloadDTO](t,
+		b.post("/admin/api/troubleshooting/reload-catalog", `{}`), http.StatusAccepted)
+	if !got.Done {
+		t.Fatalf("relecture = %+v, attendu acceptée", got)
+	}
+	if got.Watched != "" || got.LastImportID != 0 {
+		t.Fatalf("relecture = %+v, attendu aucune affirmation sur ce que rien n'a publié", got)
+	}
+	if got.Message == "" {
+		t.Fatal("un poste sans journal ni tableau de bord ne dit rien du tout de sa relecture")
+	}
+}
+
 // TestACatalogDroppedOnTheScreenGoesThroughTheOrdinaryWatcher (A4, ADR-011).
 func TestACatalogDroppedOnTheScreenGoesThroughTheOrdinaryWatcher(t *testing.T) {
 	catalog := &fakeCatalogAdmin{}
@@ -650,13 +711,15 @@ type fakeCatalogAdmin struct {
 	imported string
 	forgot   bool
 	err      error
+	// seen is what the source answered about the file it watches, in French.
+	seen string
 }
 
-func (f *fakeCatalogAdmin) Reload(context.Context) error {
+func (f *fakeCatalogAdmin) Reload(context.Context) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reloads++
-	return f.err
+	return f.seen, f.err
 }
 
 func (f *fakeCatalogAdmin) Import(_ context.Context, name string, r io.Reader) (domain.Import, error) {

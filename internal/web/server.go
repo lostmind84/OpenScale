@@ -63,9 +63,17 @@ type Controller interface {
 	// Alive reports that the Hub loop is publishing.
 	Alive() bool
 	// Reload publishes a new configuration and restarts what actually changed.
-	Reload(next domain.Config) (station.ReloadOutcome, error)
+	//
+	// The request carries the FILE as it was before the change, and not only the new
+	// configuration, because a rollback has two documents to put back: the station goes
+	// back to what it was running, the file to what it carried. On the one station §11.3
+	// serves — a faulty file, the neutral profile in memory — those are not the same
+	// document, and handing over only one wrote the factory profile onto the shop's file.
+	Reload(req station.ReloadRequest) (station.ReloadOutcome, error)
 	// Confirm accepts the configuration in force and stops the 60 s countdown.
 	Confirm() error
+	// PendingConfirmation reports the end of the countdown still running, or the zero time.
+	PendingConfirmation() time.Time
 }
 
 // Store is the persistence as the administration screens read it.
@@ -117,8 +125,14 @@ type ConfigStore interface {
 
 // CatalogAdmin is the catalog source as the administration screen acts on it.
 type CatalogAdmin interface {
-	// Reload asks the source for a fresh batch now.
-	Reload(ctx context.Context) error
+	// Reload asks the source for a fresh batch now, and reports IN FRENCH what it saw of
+	// the file it watches.
+	//
+	// That sentence is the ONE fact the watch never produces: it polls, finds nothing and
+	// returns in silence, so « Recharger le catalogue » used to be followed by nothing at
+	// all. It is EMPTY when the source watches no file of this machine — a share is
+	// watched over the network — because an absence nobody checked must not be asserted.
+	Reload(ctx context.Context) (string, error)
 	// Import takes a CSV dropped on the screen and writes it where the ordinary
 	// watcher will find it — same parser, same qualification (A4, ADR-011).
 	Import(ctx context.Context, name string, r io.Reader) (domain.Import, error)

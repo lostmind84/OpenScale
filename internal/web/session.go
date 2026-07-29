@@ -17,6 +17,7 @@ import (
 	"golang.org/x/crypto/argon2"
 
 	"openscale/internal/domain"
+	"openscale/internal/station"
 	"openscale/internal/station/ports"
 )
 
@@ -501,9 +502,11 @@ func (s *Server) recoverSession(w http.ResponseWriter, r *http.Request) {
 	}
 	// And the station keeps running what it was running, with the new password in force:
 	// a recovery is not a moment to hand a station a configuration nobody has validated.
+	// No FileBefore: this changes the admin block alone, so no hardware block moves, no
+	// countdown is armed, and there is no rollback for a file to be the target of.
 	next := cfg
 	next.Admin.PasswordHash = hash
-	if _, err := s.controller.Reload(next); err != nil {
+	if _, err := s.controller.Reload(station.ReloadRequest{Next: next}); err != nil {
 		writeProblem(w, http.StatusInternalServerError, "",
 			"Configuration non rechargée : "+err.Error())
 		return

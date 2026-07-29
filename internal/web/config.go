@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"openscale/internal/domain"
+	"openscale/internal/station"
 )
 
 // faultDTO is one configuration control that failed (§11.3).
@@ -161,6 +162,17 @@ func (s *Server) writeConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A second save INSIDE the window is refused, exactly as a confirmation outside it is.
+	// The write of step 3 happens before the countdown of step 5, so accepting one would
+	// move the file the rollback aims at onto a version nobody confirmed either — and the
+	// one somebody really did validate would be the version lost.
+	if deadline := s.controller.PendingConfirmation(); !deadline.IsZero() {
+		writeProblem(w, http.StatusConflict, "",
+			"Une configuration attend encore d'être confirmée. Confirmez-la, ou laissez le "+
+				"poste revenir tout seul à la version précédente, puis enregistrez de nouveau.")
+		return
+	}
+
 	// The document GET serves is the DECODED Go structure, re-marshalled: a retired key
 	// never survives that round trip, because encoding/json drops what no field claims
 	// (§11.3, `configPayload`). A PUT of exactly what GET served can therefore never
@@ -241,7 +253,19 @@ func (s *Server) writeConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outcome, err := s.controller.Reload(next)
+	// The rollback of §11.4 puts THE FILE AS IT WAS back, and `onDisk` is that document: it
+	// was read above, before the Save, and it is the same variable `served` already stands
+	// for. Handing it over is what keeps a station whose file is faulty — and which
+	// therefore RUNS the neutral profile — from having the factory settings written over
+	// its own file sixty seconds after a volunteer repaired it.
+	//
+	// A file that could not be read hands over nothing, and the station falls back on what
+	// it is running: that is all such a station has left.
+	reload := station.ReloadRequest{Next: next}
+	if onDiskErr == nil {
+		reload.FileBefore = &onDisk
+	}
+	outcome, err := s.controller.Reload(reload)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "",
 			"Configuration écrite mais non appliquée : "+err.Error())
@@ -439,6 +463,14 @@ func (s *Server) restoreConfig(w http.ResponseWriter, r *http.Request) {
 		unavailable(w, "la configuration n'est pas versionnée ici")
 		return
 	}
+	// A restoration is a save like any other and it arms the same countdown, so it is
+	// refused inside the window for the same reason writeConfig is.
+	if deadline := s.controller.PendingConfirmation(); !deadline.IsZero() {
+		writeProblem(w, http.StatusConflict, "",
+			"Une configuration attend encore d'être confirmée. Confirmez-la, ou laissez le "+
+				"poste revenir tout seul à la version précédente, puis restaurez de nouveau.")
+		return
+	}
 	restored, err := s.configStore.Restore(r.Context(), body.Version)
 	if err != nil {
 		writeProblem(w, http.StatusNotFound, "",
@@ -456,12 +488,23 @@ func (s *Server) restoreConfig(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// READ BEFORE THE WRITE, and for the reason writeConfig reads it: restoring a version
+	// arms the same countdown, and a rollback that put the RUNNING configuration back would
+	// write the factory profile onto the file of a station that started out of service.
+	// This is the route that reaches it — writeConfig already refuses a station whose file
+	// carries a retired key, and this one does not.
+	fileBefore, fileErr := s.configStore.Read(r.Context())
+
 	if err := s.configStore.Save(r.Context(), restored); err != nil {
 		writeProblem(w, http.StatusInternalServerError, "",
 			"Configuration non écrite : "+err.Error())
 		return
 	}
-	outcome, err := s.controller.Reload(restored)
+	reload := station.ReloadRequest{Next: restored}
+	if fileErr == nil {
+		reload.FileBefore = &fileBefore
+	}
+	outcome, err := s.controller.Reload(reload)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "",
 			"Configuration écrite mais non appliquée : "+err.Error())

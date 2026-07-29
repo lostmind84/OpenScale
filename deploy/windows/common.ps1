@@ -609,11 +609,12 @@ function Test-StationHealth {
   [CmdletBinding()]
   param([string]$Address = 'http://127.0.0.1:8085', [int]$TimeoutSeconds = 30)
 
-  # DEUX adresses, et la seconde n'est pas une précaution vague. Un poste dont la
-  # configuration est fautive démarre sur le PROFIL NEUTRE (§11.3) et sert donc sur
-  # l'adresse de ce profil, pas sur celle que le fichier déclare — c'est exactement l'état
-  # d'un poste fraîchement installé, dont il reste à régler le numéro, la balance et
-  # l'imprimante. Un update.ps1 qui n'interrogerait que l'adresse du fichier conclurait
+  # DEUX adresses, et la seconde n'est pas une précaution vague. Un poste sert sur
+  # l'adresse que son fichier déclare même quand cette configuration est fautive par
+  # ailleurs : c'est celle qu'il faut interroger d'abord. Il retombe sur l'adresse du
+  # PROFIL NEUTRE (§11.3) dans un seul cas, mais un cas courant — network.listen est
+  # lui-même la faute, ce qui est l'état d'un poste fraîchement installé dont le champ
+  # est vide. Un update.ps1 qui n'interrogerait que l'adresse du fichier conclurait alors
   # « le poste ne répond pas » et restaurerait la version précédente d'un poste sain, ce
   # qui est la panne que §15.5 demande d'éviter.
   $candidates = @($Address)

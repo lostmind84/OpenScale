@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"openscale/internal/domain"
 )
@@ -360,6 +361,66 @@ func localDrop(directory string) func(*benchOptions) {
 		}
 	}
 }
+
+// TestUneRestaurationDeVersionMemoriseAussiLeFichierDAvant.
+//
+// Restoring a backup goes through the same path as any other save (§11.4) — including the
+// countdown, and therefore including the rollback. It had the same defect and no test at
+// all: on a station whose file is faulty, and which therefore RUNS the neutral profile, an
+// unconfirmed restoration wrote the factory settings over the cooperative's own file.
+//
+// It is also the one route that can reach a file control 20 refuses: writeConfig turns such
+// a station away before writing anything, and this one does not.
+func TestUneRestaurationDeVersionMemoriseAussiLeFichierDAvant(t *testing.T) {
+	shop := loadConfig(t)
+	store := restorableConfig{savedConfig: &savedConfig{}}
+	writeFileOf(t, store.savedConfig, shop)
+
+	backup := reread(t, shop)
+	backup.Scale.Options["port"] = json.RawMessage(`"COM9"`)
+	store.backup = backup
+
+	b := adminBench(t, func(o *benchOptions) {
+		o.configStore = store
+		// What a station in factory configuration RUNS (§11.3), which is not its file.
+		o.config = func(cfg *domain.Config) { *cfg = domain.NeutralProfile() }
+	})
+
+	restored := decodeStatus[configDTO](t,
+		b.post("/admin/api/config/restore", `{"version":1}`), http.StatusOK)
+	if restored.Pending == nil {
+		t.Fatal("restaurer une version qui change le matériel n'arme aucun compte à rebours")
+	}
+
+	// Nobody confirms.
+	b.advance(61 * time.Second)
+	written := awaitRewrittenFile(t, b, store.savedConfig, "COM9")
+
+	if written.Station.Coop != shop.Station.Coop {
+		t.Errorf("la coopérative du fichier est %q, attendu %q : une restauration non "+
+			"confirmée a écrit le profil d'usine par-dessus le fichier du magasin",
+			written.Station.Coop, shop.Station.Coop)
+	}
+	if got, want := len(written.Pricing.Tiers), len(shop.Pricing.Tiers); got != want {
+		t.Errorf("le fichier porte %d palier(s) de tarif au lieu de %d", got, want)
+	}
+}
+
+// restorableConfig is a store whose backup is a DIFFERENT document from the file in place.
+//
+// savedConfig hands its own file back on Restore, and a restoration that changes nothing
+// arms no countdown at all — so the route under test could not be reached through it.
+type restorableConfig struct {
+	*savedConfig
+	backup domain.Config
+}
+
+// Restore hands back the backup, without applying it, exactly as the real store does.
+func (r restorableConfig) Restore(context.Context, int) (domain.Config, error) {
+	return r.backup, nil
+}
+
+var _ ConfigStore = restorableConfig{}
 
 // writeFileOf makes the store hold what the station is running, so that the round trip
 // under test is the one the screen performs: read the FILE, edit it, save it back.

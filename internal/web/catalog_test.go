@@ -130,6 +130,67 @@ func TestTheSearchNameIsDesaccentuatedByTheServer(t *testing.T) {
 	}
 }
 
+// TestTheGridSettingAboutByUnitProductsTravelsWithTheCatalog, in both directions.
+//
+// The flag is a SCREEN setting and rides with the other three, exactly as
+// show_grid_prices does: the station takes no decision here, it states one so that the
+// grid can apply it.
+func TestTheGridSettingAboutByUnitProductsTravelsWithTheCatalog(t *testing.T) {
+	for name, shown := range map[string]bool{"masqués": false, "montrés": true} {
+		t.Run(name, func(t *testing.T) {
+			b := newBench(t, func(o *benchOptions) {
+				o.config = func(c *domain.Config) { c.UI.ShowByUnitProducts = shown }
+			})
+
+			page := decodeStatus[catalogDTO](t, b.get("/api/v1/catalog"), http.StatusOK)
+
+			if page.Options.ShowByUnitProducts != shown {
+				t.Fatalf("presentation.show_by_unit_products = %v, attendu %v",
+					page.Options.ShowByUnitProducts, shown)
+			}
+		})
+	}
+}
+
+// TestTheStationServesEveryWeighableTileWhateverTheGridShows is the guard against a
+// reload ten times a second.
+//
+// The browser asks for the catalog again the moment `catalog_count` of the state stream
+// differs from `product_count` of the payload. Filtering the by-unit products HERE would
+// make those two numbers differ FOR EVER, and every SSE event — ten a second — would
+// fire a GET /api/v1/catalog. The masking is a station's display choice and it belongs
+// to the grid; the payload stays the inventory of what has a tile.
+func TestTheStationServesEveryWeighableTileWhateverTheGridShows(t *testing.T) {
+	byUnit := domain.NewCatalog([]domain.Product{
+		{
+			ID: "1", Name: "AIL", Reference: "0493021000003",
+			Mode: domain.ByWeight, UnitPrice: 532, CategoryCode: "vegetables",
+			Qualification: domain.Weighable,
+		},
+		{
+			ID: "2", Name: "MELON unite SAF", Reference: "0499000064004",
+			Mode: domain.ByUnit, UnitPrice: 300, CategoryCode: "fruits",
+			Qualification: domain.Weighable,
+		},
+	}, []domain.Category{{Code: "vegetables", Label: "Légumes", Visible: true}})
+
+	b := newBench(t, func(o *benchOptions) {
+		o.catalog = byUnit
+		o.config = func(c *domain.Config) { c.UI.ShowByUnitProducts = false }
+	})
+
+	page := decodeStatus[catalogDTO](t, b.get("/api/v1/catalog"), http.StatusOK)
+
+	if page.ProductCount != 2 {
+		t.Fatalf("%d tuiles servies, attendu 2 : le masquage se fait à l'écran, pas ici",
+			page.ProductCount)
+	}
+	if got := b.state().CatalogCount; got != page.ProductCount {
+		t.Fatalf("catalog_count du flux = %d, product_count du catalogue = %d : "+
+			"le navigateur redemanderait le catalogue à chaque événement", got, page.ProductCount)
+	}
+}
+
 // TestWhatHasNoTileIsNotServedToTheScreen: a prepackaged product is not an error, it
 // is not the scale's business, and it has no tile (§10.3, ADR-021).
 func TestWhatHasNoTileIsNotServedToTheScreen(t *testing.T) {

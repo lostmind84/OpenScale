@@ -2,24 +2,37 @@ import { mount, unmount } from 'svelte'
 import App from './App.svelte'
 
 /**
- * Le bundle d'administration, chargé PARESSEUSEMENT.
+ * The administration bundle, loaded LAZILY.
  *
- * Chargé sur un appui de trois secondes dans le coin bas-droit neutre, DANS LA MÊME
- * FENÊTRE : une fois chargé il partage le contexte JS de l'écran client — même `window`,
- * même `window.onerror`, même tas. Ce que la séparation garantit réellement, et que la CI
- * mesure, c'est (a) le poids — le budget « < 110 ko gzip » de l'écran client ne contient
- * aucun octet d'administration — et (b) le chargement : sur un poste qui ne l'ouvre jamais,
- * ce qui est le cas nominal toute la journée, ce fichier n'est ni téléchargé, ni analysé,
- * ni exécuté (§14.1).
+ * The way in is the settings key at the right of the permanent bottom bar, which ADR-032
+ * makes the ONE entry from the station itself: no URL to type, no way out of the kiosk.
+ * `App.svelte` imports this module on that press and mounts it IN THE SAME WINDOW, so
+ * from that point on it shares the JS context of the client screen — same `window`, same
+ * error net installed by `main.ts`, same heap. What the split into two entries really
+ * guarantees, and what CI measures, is (a) weight — the « < 110 ko gzip » budget of the
+ * client screen carries no administration byte — and (b) loading: on a station that never
+ * opens it, which is the nominal case all day long, this file is neither downloaded, nor
+ * parsed, nor executed (§14.1).
+ *
+ * That key is the only thing painted ABOVE the out-of-service overlay (`StatusBar.svelte`),
+ * and that is what keeps this module reachable at all: a station comes out of the installer
+ * in `OutOfService`, where the overlay would otherwise bury the one entry on the very
+ * station that has to be configured.
+ *
+ * `web/src/admin.ts` mounts the same screen as a document of its own, served on `/admin`.
+ * That path is out of reach AT THE STATION — the browser is started with `--kiosk <url>`,
+ * so there is no address bar in front of the volunteer — and exists for repair from
+ * another machine on the network.
  */
 
-/** Ce qui est monté en ce moment : un deuxième appui long ne monte pas un doublon. */
+/** What is mounted right now: a second press of the settings key does not mount a duplicate. */
 let opened: { component: unknown; host: HTMLElement } | null = null
 
 /**
- * Monte l'écran d'administration dans un élément hôte.
+ * Mounts the administration screen under a host element.
  *
- * @param host - où l'accrocher, normalement `document.body`.
+ * @param host - what to hang it under: `document.body` from the client screen,
+ *   the `#app` of `admin.html` when the administration is opened as its own page.
  */
 export function mountAdmin(host: HTMLElement): void {
   if (opened !== null || host.querySelector('[data-admin]') !== null) return
@@ -30,10 +43,11 @@ export function mountAdmin(host: HTMLElement): void {
 }
 
 /**
- * Retire l'écran d'administration et rend la grille.
+ * Removes the administration screen and gives the grid back.
  *
- * C'est la seule sortie sur un poste en kiosque : il n'y a derrière cet écran ni bureau, ni
- * barre des tâches, ni `Alt+F4` (§15.2).
+ * It is the only exit the screen offers, and the station offers no other in front of the
+ * volunteer: the browser is started with `--kiosk`, so there is neither browser chrome nor
+ * an address bar to leave by (§15.2).
  */
 export function closeAdmin(): void {
   if (opened === null) return

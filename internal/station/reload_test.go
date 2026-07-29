@@ -66,7 +66,7 @@ func TestAnInstantBlockNeverCutsAnything(t *testing.T) {
 	next.Limits.MinWeight = 42
 	next.UI.ReprintWindowSeconds = 120
 
-	outcome, err := b.station.Reload(next)
+	outcome, err := b.station.Reload(ReloadRequest{Next: next})
 	if err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
@@ -99,7 +99,7 @@ func TestSerialToManualAndBack(t *testing.T) {
 	manual := b.hub.Config()
 	manual.Scale.Present = false
 	manual.Scale.Type = ""
-	if _, err := b.station.Reload(manual); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: manual}); err != nil {
 		t.Fatalf("Reload vers manuel : %v", err)
 	}
 	if !b.scale.Closed() {
@@ -114,7 +114,7 @@ func TestSerialToManualAndBack(t *testing.T) {
 	serial := b.hub.Config()
 	serial.Scale.Present = true
 	serial.Scale.Type = "gram-xfoc-plus"
-	if _, err := b.station.Reload(serial); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: serial}); err != nil {
 		t.Fatalf("Reload vers série : %v", err)
 	}
 	if forge.count() != 1 {
@@ -146,7 +146,7 @@ func TestAStartThatFailsBeforeItsGoroutineStillAnswers(t *testing.T) {
 	next.Scale.Options = mustOptions(t, `{"port":"COM9"}`)
 
 	started := time.Now()
-	if _, err := b.station.Reload(next); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
 	if elapsed := time.Since(started); elapsed > 20*time.Millisecond {
@@ -178,7 +178,7 @@ func TestACloseThatNeverReturnsIsBounded(t *testing.T) {
 
 	started := time.Now()
 	done := make(chan error, 1)
-	go func() { _, err := b.station.Reload(next); done <- err }()
+	go func() { _, err := b.station.Reload(ReloadRequest{Next: next}); done <- err }()
 
 	// Nothing moves until the INJECTED clock does.
 	select {
@@ -250,7 +250,7 @@ func TestAHardwareChangeArmsTheCountdownAndCanBeConfirmed(t *testing.T) {
 	next := b.hub.Config()
 	next.Scale.Options = mustOptions(t, `{"port":"COM9"}`)
 
-	outcome, err := b.station.Reload(next)
+	outcome, err := b.station.Reload(ReloadRequest{Next: next})
 	if err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
@@ -283,7 +283,7 @@ func TestAnUnconfirmedHardwareChangeGoesBack(t *testing.T) {
 	before := b.hub.Config()
 	next := before
 	next.Scale.Options = mustOptions(t, `{"port":"COM9"}`)
-	if _, err := b.station.Reload(next); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
 
@@ -470,7 +470,7 @@ func TestThePrinterBlockRebuildsAndReleasesTheOldOne(t *testing.T) {
 	next := b.hub.Config()
 	next.Printer.Options = mustOptions(t, `{"transport":"winspool","queue":"SATO WS408_3"}`)
 
-	outcome, err := b.station.Reload(next)
+	outcome, err := b.station.Reload(ReloadRequest{Next: next})
 	if err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
@@ -498,7 +498,7 @@ func TestAPrinterThatCannotBeRebuiltKeepsTheOneThatWorks(t *testing.T) {
 
 	next := b.hub.Config()
 	next.Printer.Options = mustOptions(t, `{"transport":"winspool","queue":"inconnue"}`)
-	if _, err := b.station.Reload(next); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
 	if b.printer.Closed() {
@@ -526,7 +526,7 @@ func TestTheCatalogBlockFollowsTheStationNumber(t *testing.T) {
 	next := b.hub.Config()
 	next.Station.Number = 3
 
-	outcome, err := b.station.Reload(next)
+	outcome, err := b.station.Reload(ReloadRequest{Next: next})
 	if err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
@@ -597,7 +597,7 @@ func TestTheWatchLeavesTheSourceAReloadReplaced(t *testing.T) {
 	b.station.newCatalogSource = func(domain.Config) (ports.CatalogSource, error) { return second, nil }
 	next := b.hub.Config()
 	next.Station.Number = 3
-	if _, err := b.station.Reload(next); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
 
@@ -618,7 +618,7 @@ func TestReplacingTheSourceIsNotAReadFailure(t *testing.T) {
 	b.station.newCatalogSource = func(domain.Config) (ports.CatalogSource, error) { return second, nil }
 	next := b.hub.Config()
 	next.Station.Number = 3
-	if _, err := b.station.Reload(next); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
 	awaitEntry(t, second, "la veille est restée dans la source remplacée")
@@ -633,7 +633,7 @@ func TestReplacingTheSourceIsNotAReadFailure(t *testing.T) {
 		return nil, errors.New("partage inaccessible")
 	}
 	next.Station.Number = 4
-	if _, err := b.station.Reload(next); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
 	awaitCondition(t, func() bool { return b.technical.has("ERR-CAT-05") },
@@ -659,7 +659,7 @@ func TestTheWatchPicksUpASourceItStartedWithout(t *testing.T) {
 
 	next := b.hub.Config()
 	next.Station.Number = 3
-	if _, err := b.station.Reload(next); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
 
@@ -676,7 +676,7 @@ func TestACatalogSourceThatCannotBeRebuiltIsJournalled(t *testing.T) {
 	}
 	next := b.hub.Config()
 	next.Station.Number = 4
-	if _, err := b.station.Reload(next); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
 	if b.hub.Catalog() == nil {
@@ -694,7 +694,7 @@ func TestTheListenAddressArmsTheCountdownWithoutRestartingAProcess(t *testing.T)
 	next := b.hub.Config()
 	next.Network.Listen = "127.0.0.1:8086"
 
-	outcome, err := b.station.Reload(next)
+	outcome, err := b.station.Reload(ReloadRequest{Next: next})
 	if err != nil {
 		t.Fatalf("Reload : %v", err)
 	}

@@ -370,9 +370,8 @@ func (s *Server) fillHealthFromStore(ctx context.Context, body *adminHealthDTO) 
 	if lines, err := s.store.TechnicalEntries(ctx, TechnicalQuery{Limit: 10}); err == nil {
 		body.Events = technicalLinesOf(lines)
 	}
-	if list, err := s.store.Imports(ctx, 1, 0); err == nil && len(list) > 0 {
-		last := importOf(list[0])
-		body.Catalog = &last
+	if last := s.lastImport(ctx); last != nil {
+		body.Catalog = last
 		if findings, err := s.store.Findings(ctx, last.ID); err == nil {
 			body.CatalogMotives = motivesOf(findings)
 		}
@@ -380,6 +379,39 @@ func (s *Server) fillHealthFromStore(ctx context.Context, body *adminHealthDTO) 
 	if decisions, err := s.store.LocalDecisions(ctx); err == nil {
 		body.Decisions = decisionsOf(decisions)
 	}
+}
+
+// lastImport is the import in force, or nil when there is none to read.
+//
+// Nil covers three states on purpose, because the screen owes the same prudence to all
+// three: no journal at all (ADR-013), a journal that refused the read, and a station
+// installed this morning that has never received a catalog.
+func (s *Server) lastImport(ctx context.Context) *importDTO {
+	if s.store == nil {
+		return nil
+	}
+	list, err := s.store.Imports(ctx, 1, 0)
+	if err != nil || len(list) == 0 {
+		return nil
+	}
+	last := importOf(list[0])
+	return &last
+}
+
+// watchedCatalog is the permanent catalog line of §14.4, or an empty string.
+//
+// The wording comes from the SOURCE itself — « dépôt local, flv_2.csv dans … » — which is
+// why nothing here composes it: only the source knows whether it has an account and which
+// file name a station number derives.
+func (s *Server) watchedCatalog(ctx context.Context) string {
+	if s.dashboard == nil {
+		return ""
+	}
+	source := s.dashboard.Dashboard(ctx).Source
+	if source == nil {
+		return ""
+	}
+	return source.Label
 }
 
 // notWeighableMotives are the three reasons a row has no tile, and the only findings this

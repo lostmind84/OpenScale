@@ -58,6 +58,16 @@ type scriptedStream struct {
 	// endErr, when set, is what the port answers instead of staying silent -- a cable
 	// pulled in the middle of a measurement campaign.
 	endErr error
+	// link is the last set of options the opener was handed, and opens counts how many
+	// times it was called at all.
+	//
+	// A double that IGNORED its options cannot tell a caller which built a usable link
+	// from one which handed over a struct with no bitrate, no parity and no stop bits --
+	// and a real port refuses the second before it touches the device. Recording them is
+	// what makes that assertion possible; internal/scale/gramxfoc does the same with the
+	// port name.
+	link  serial.Options
+	opens int
 }
 
 // newScriptedStream returns a port that answers these reads, in order, and then goes
@@ -102,8 +112,15 @@ func (s *scriptedStream) Close() error {
 
 // opener is the seam capture is injected through: a serial port cannot be opened by
 // `go test`, so the whole command is exercised through this.
+//
+// It KEEPS what it was handed, so that a test can assert on the link a caller built and
+// not only on the bytes it read back.
 func (s *scriptedStream) opener() serial.Opener {
-	return func(serial.Options) (io.ReadCloser, error) { return s, nil }
+	return func(o serial.Options) (io.ReadCloser, error) {
+		s.link = o
+		s.opens++
+		return s, nil
+	}
 }
 
 // refusingOpener is a port that is not there: the commonest failure of the bench, and

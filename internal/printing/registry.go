@@ -32,8 +32,19 @@ type DriverConfig struct {
 	// Transport is the byte layer that carries the frame to the head (§8.4). It is
 	// built by the composition root from printer.options.transport, because a printer
 	// driver never opens a device itself — that is exactly what lets one frame reach
-	// four destinations. The `preview` driver ignores it.
+	// four destinations.
+	//
+	// It is NIL for a driver that declares no `transport` option, which is what `preview`
+	// is: it writes files and opens nothing. The composition root builds a transport only
+	// for the drivers whose own schema asks for one.
 	Transport ports.Transport
+	// OutputDir is where a driver that PRODUCES FILES writes them, and it is empty for a
+	// driver that hands its bytes to a device.
+	//
+	// It comes from the composition root for the same reason the transport does: a driver
+	// never picks a path of its own, because the data directory is a fact about the
+	// station and not about the driver.
+	OutputDir string
 	// Template is the label layout in service (printer.template).
 	Template domain.Template
 	// Clock times a job. time.Now is out of reach of every driver (§5.3).

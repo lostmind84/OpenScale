@@ -161,6 +161,12 @@ export function catalogOf(rows: QualifiedRow[], revision = '"fixture"'): Catalog
       idle_timeout_s: 45,
       reprint_window_s: 60,
       sound: true,
+      // À `true`, ÉCRIT, et différent du fichier livré qui masque ces produits : les
+      // 331 tuiles sont le corpus du CATALOGUE et non celui d'un poste. Laissée à
+      // `false` ici, une quinzaine d'assertions de grid, screen, chips et typography
+      // basculeraient à 316 dans le même commit, et une vraie régression s'y cacherait.
+      // `unit-products.test.ts` est le banc qui décrit ce qu'un poste en fait.
+      show_by_unit_products: true,
     },
   }
 }

@@ -179,8 +179,14 @@ type NetworkConfig struct {
 	AdminOnLAN bool `json:"admin_on_lan"`
 }
 
-// UIConfig holds the only four screen settings an operator has a legitimate choice
+// UIConfig holds the only five screen settings an operator has a legitimate choice
 // about.
+//
+// The fifth one, ShowByUnitProducts, is a choice about the SHOP and not about the
+// screen's looks: a tile sold by unit prints a label WITHOUT EVER READING THE SCALE,
+// and a cooperative whose counter only weighs has no reason to offer that gesture. It
+// is a display and never a refusal — Prepare still judges the qualification alone — so
+// hiding a product closes no path, it only stops proposing it.
 //
 // ABSENT ON PURPOSE, each for a written reason (§11.2, ADR-025):
 //   - title: the name of the cooperative lives in station.coop;
@@ -203,6 +209,11 @@ type UIConfig struct {
 	// Default 60: a trade-off between serving the customer and the fraud window.
 	ReprintWindowSeconds int  `json:"reprint_window_s"`
 	ShowGridPrices       bool `json:"show_grid_prices"`
+	// ShowByUnitProducts puts the by-unit tiles back into the grid. Default false: the
+	// key is named after the PREFIX of the barcode, which alone carries the sale mode,
+	// and never after the `unite` column of the CSV, which is a price label and decides
+	// nothing.
+	ShowByUnitProducts bool `json:"show_by_unit_products"`
 }
 
 // ScaleConfig is the weighing device of this station.
@@ -1476,6 +1487,15 @@ func intOption(options DriverOptions, key string) (int, bool) {
 	value, ok := options.Int(key)
 	return int(value), ok
 }
+
+// CheckListenAddress reports why an address cannot be listened on, and nil when it can.
+//
+// It is exported so that whoever accepts a listening address from OUTSIDE the file —
+// `serve --listen`, and nothing else so far — judges it by the very rule control 2
+// judges network.listen by. A second implementation in the command layer would drift,
+// and the station would end up refusing an address its own administration screen
+// accepts, or the other way round.
+func CheckListenAddress(address string) error { return checkHostPort(address) }
 
 // checkHostPort reports why an address is not a usable host:port.
 func checkHostPort(address string) error {

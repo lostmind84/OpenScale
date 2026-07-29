@@ -148,6 +148,140 @@ func awaitFile(t *testing.T, saved *savedConfig, want string) {
 		"remis en place, et le prochain démarrage repartirait sur la version non confirmée", want)
 }
 
+// TestUnRetourArriereNEcritPasLeProfilDUsineParDessusLeFichierDuMagasin.
+//
+// The station this is about is the one §11.3 exists for: its file is faulty, so it RUNS the
+// neutral profile while the file keeps the cooperative's tariffs, safeguards and categories.
+// A volunteer repairs the file from the screen, the save moves the hardware blocks, and
+// nobody presses « Confirmer » — the roll had run out, the browser was closed, anything.
+//
+// Sixty seconds later the countdown fires, and what it must put back is THE FILE AS IT WAS
+// BEFORE THE SAVE. Putting back what the station is RUNNING writes the factory profile over
+// the shop's own file: the cooperative disappears, the two tariff tiers become one and the
+// member discount with them, the basket check goes off and the printer becomes `preview`.
+// Measured on a real station, in that order, from a single gesture that was meant to repair it.
+//
+// It is the same reasoning as TestARescueDoesNotReplaceTheShopsConfigurationWithTheFactoryOne,
+// which the recovery code already applies: the file and what is running are two documents.
+func TestUnRetourArriereNEcritPasLeProfilDUsineParDessusLeFichierDuMagasin(t *testing.T) {
+	shop := loadConfig(t)
+	saved := &savedConfig{}
+	writeFileOf(t, saved, shop)
+
+	b := adminBench(t, func(o *benchOptions) {
+		o.configStore = saved
+		// What a station in factory configuration RUNS (§11.3), which is not its file.
+		o.config = func(cfg *domain.Config) { *cfg = domain.NeutralProfile() }
+	})
+
+	repaired := reread(t, shop)
+	repaired.Scale.Options["port"] = json.RawMessage(`"COM9"`)
+	response := b.do(http.MethodPut, "/admin/api/config", marshal(t, repaired), nil)
+	armed := decodeStatus[configDTO](t, response, http.StatusOK)
+	if armed.Pending == nil {
+		t.Fatal("réparer un poste en configuration d'usine n'arme aucun compte à rebours : " +
+			"le banc ne construit pas la situation à l'étude")
+	}
+	if port, _ := saved.saved().Scale.Options.Text("port"); port != "COM9" {
+		t.Fatalf("le fichier porte le port %q juste après l'enregistrement, attendu COM9 : "+
+			"l'écriture précède le compte à rebours (§11.4, étapes 3 puis 5)", port)
+	}
+
+	// Nobody confirms.
+	b.advance(61 * time.Second)
+	written := awaitRewrittenFile(t, b, saved, "COM9")
+
+	if got, want := len(written.Pricing.Tiers), len(shop.Pricing.Tiers); got != want {
+		t.Errorf("le fichier porte %d palier(s) de tarif au lieu de %d : la remise adhérent "+
+			"a disparu du fichier du magasin", got, want)
+	}
+	if !written.Limits.BasketCheckEnabled {
+		t.Error("le contrôle du panier est désactivé dans le fichier : c'est le réglage " +
+			"d'usine, pas celui du magasin")
+	}
+	if written.Station.Coop != shop.Station.Coop {
+		t.Errorf("la coopérative du fichier est %q, attendu %q : le fichier du magasin a été "+
+			"remplacé par le profil d'usine", written.Station.Coop, shop.Station.Coop)
+	}
+	if written.Printer.Type == domain.PrinterPreview {
+		t.Error("le fichier déclare le pilote d'aperçu : le poste n'imprimerait plus rien " +
+			"au prochain démarrage")
+	}
+	// And the station keeps running what it was running: nothing makes a poste ENTER the
+	// out-of-service state, so applying the shop's file to a live station would be worse
+	// than the defect this test closes.
+	if b.hub.Config().Station.Coop == shop.Station.Coop {
+		t.Error("le poste s'est mis à faire tourner le fichier au lieu de son profil neutre")
+	}
+}
+
+// TestUnSecondEnregistrementPendantUneConfirmationEstRefuse.
+//
+// The file is written at step 3 and the countdown starts at step 5, so a second save inside
+// the window writes the file again — and the document the rollback aims at becomes a version
+// nobody confirmed either. The one somebody DID validate is then the version lost, which is
+// the exact opposite of what the countdown is for.
+//
+// So it is refused, with the 409 a confirmation outside the window already answers.
+func TestUnSecondEnregistrementPendantUneConfirmationEstRefuse(t *testing.T) {
+	saved := &savedConfig{}
+	b := adminBench(t, func(o *benchOptions) { o.configStore = saved })
+	writeFileOf(t, saved, b.hub.Config())
+
+	first := reread(t, b.hub.Config())
+	first.Scale.Options["port"] = json.RawMessage(`"COM9"`)
+	armed := decodeStatus[configDTO](t,
+		b.do(http.MethodPut, "/admin/api/config", marshal(t, first), nil), http.StatusOK)
+	if armed.Pending == nil {
+		t.Fatal("un changement de matériel n'arme aucun compte à rebours")
+	}
+
+	second := reread(t, b.hub.Config())
+	second.Scale.Options["port"] = json.RawMessage(`"COM7"`)
+	response := b.do(http.MethodPut, "/admin/api/config", marshal(t, second), nil)
+	refusal := body(t, response)
+	if response.StatusCode != http.StatusConflict {
+		t.Fatalf("second enregistrement dans la fenêtre = %d, attendu 409 : %s",
+			response.StatusCode, refusal)
+	}
+	if port, _ := saved.saved().Scale.Options.Text("port"); port != "COM9" {
+		t.Fatalf("le fichier porte %q : un enregistrement refusé a quand même écrit", port)
+	}
+
+	// And the rollback still aims at the version that was in force before the FIRST save.
+	b.advance(61 * time.Second)
+	written := awaitRewrittenFile(t, b, saved, "COM9")
+	if port, _ := written.Scale.Options.Text("port"); port != "COM8" {
+		t.Fatalf("le retour arrière a remis le port %q, attendu COM8 : la cible du compte à "+
+			"rebours a bougé", port)
+	}
+}
+
+// awaitRewrittenFile waits for the rollback to have written the file a second time, and
+// returns what it wrote.
+//
+// The station comes back first and the file a moment later, on the same goroutine, so a
+// wait on the running configuration alone would read the store while the write is still in
+// flight. The sentinel is the PORT the save wrote — and not the fingerprint of the
+// document, which is computed on an export WITHOUT the hardware and is therefore blind to
+// the one block this save moved. The clock keeps moving because the supervisor is the only
+// goroutine that watches deadlines.
+func awaitRewrittenFile(t *testing.T, b *bench, saved *savedConfig, savedPort string) domain.Config {
+	t.Helper()
+	deadline := time.Now().Add(hang)
+	for time.Now().Before(deadline) {
+		written := saved.saved()
+		if port, declared := written.Scale.Options.Text("port"); !declared || port != savedPort {
+			return written
+		}
+		b.clock.Advance(time.Second)
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("le fichier porte encore la configuration non confirmée : le retour arrière ne " +
+		"l'a jamais réécrit, et le prochain démarrage repartirait dessus")
+	return domain.Config{}
+}
+
 // Compile-time proof that the station is what the routes drive here, and not a double: the
 // rollback under test is the real one of §11.4.
 var _ Controller = (*station.Station)(nil)

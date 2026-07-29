@@ -45,9 +45,14 @@ ADDRESS=$(listen)
 healthy() {
   attempt=0
   while [ "$attempt" -lt 60 ]; do
-    # L'adresse du fichier, PUIS celle du profil neutre : un poste dont la configuration
-    # est fautive sert sur la seconde (§11.3), et le conclure mort restaurerait la version
-    # précédente d'un poste parfaitement sain.
+    # DEUX adresses, et la seconde n'est pas une précaution vague. Un poste sert sur
+    # l'adresse que son fichier déclare même quand cette configuration est fautive par
+    # ailleurs : c'est celle qu'il faut interroger d'abord. Il ne retombe sur l'adresse du
+    # PROFIL NEUTRE (§11.3) que dans un seul cas, celui où network.listen est lui-même la
+    # faute — champ vide, ou adresse que le poste ne peut pas lier. N'interroger alors que
+    # l'adresse du fichier ferait conclure « le poste ne répond pas », et le retour arrière
+    # remettrait la version précédente d'un poste que la mise à jour n'a pas cassé, sans
+    # rien réparer de ce qui est en cause : le fichier.
     for candidate in "$ADDRESS" 'http://127.0.0.1:8085'; do
       if command -v curl >/dev/null 2>&1; then
         curl -fsS -m 2 "$candidate/healthz" >/dev/null 2>&1 && return 0

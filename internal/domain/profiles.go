@@ -60,6 +60,11 @@ func NeutralProfile() Config {
 			IdleTimeoutSeconds:   45,
 			ReprintWindowSeconds: 60,
 			ShowGridPrices:       true,
+			// Written out rather than left to the zero value: this profile is read as the
+			// documentation of what a factory station does, and a by-unit tile prints a
+			// label without ever reading the scale — a gesture no station offers until
+			// somebody decides it does.
+			ShowByUnitProducts: false,
 		},
 
 		Scale: ScaleConfig{

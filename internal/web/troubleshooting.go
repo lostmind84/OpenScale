@@ -40,6 +40,27 @@ type actionDTO struct {
 	Message string `json:"message"`
 }
 
+// reloadDTO is the answer of « Recharger le catalogue », and it is its OWN type.
+//
+// NOT a widened actionDTO: that one serves seven handlers and its two fields are frozen
+// by tests, so growing it would change seven answers for the sake of one. And this answer
+// has more to say than « done », because it cannot say the one thing anybody wants: the
+// import is asynchronous BY DESIGN — there is no second import path — so what comes back
+// is not the outcome but the two things that let a screen wait for it honestly.
+type reloadDTO struct {
+	Done bool `json:"done"`
+	// Message is what the station SAW, and never a promise about what it will do.
+	Message string `json:"message"`
+	// Watched is the permanent catalog line of §14.4 — « dépôt local, flv_2.csv dans … ».
+	// Empty when nothing published it, and the screen then asserts nothing about it.
+	Watched string `json:"watched"`
+	// LastImportID is the import in force AT THE INSTANT OF THE PRESS, and 0 when this
+	// station has no journal (ADR-013). It is what the screen compares the dashboard
+	// against: a different id, three seconds later, is the outcome arriving.
+	LastImportID int64  `json:"last_import_id"`
+	LastImportAt string `json:"last_import_at"`
+}
+
 // troubleshootingReprint is POST /admin/api/troubleshooting/reprint.
 //
 // It carries NO idempotency key, on purpose: a volunteer pressing the button twice
@@ -57,15 +78,46 @@ func (s *Server) reloadCatalog(w http.ResponseWriter, r *http.Request) {
 		unavailable(w, "aucune source de catalogue n'est configurée")
 		return
 	}
-	if err := s.catalog.Reload(r.Context()); err != nil {
+	seen, err := s.catalog.Reload(r.Context())
+	if err != nil {
 		writeProblem(w, http.StatusBadGateway, "ERR-CAT-03",
 			"Le catalogue n'a pas pu être relu : "+err.Error())
 		return
 	}
+	// The line names the screen this handler can VOUCH for. It used to say « depuis
+	// l'écran de dépannage » under a press that had come from the Catalogue page, because
+	// both doors land here — and a journal that names the wrong screen is worse than one
+	// that names none.
 	s.technical.Technical(domain.LevelInfo, "catalog", "",
-		"Relecture du catalogue demandée depuis l'écran de dépannage.", "")
-	writeJSON(w, http.StatusAccepted, actionDTO{
-		Done: true, Message: "Le catalogue va être relu."})
+		"Relecture du catalogue demandée depuis l'écran d'administration.", "")
+
+	watched := s.watchedCatalog(r.Context())
+	body := reloadDTO{Done: true, Message: reloadMessage(seen, watched), Watched: watched}
+	if last := s.lastImport(r.Context()); last != nil {
+		body.LastImportID, body.LastImportAt = last.ID, last.OccurredAt
+	}
+	// A 202, and it stays one. Making the reload synchronous would rebuild the second
+	// import path the composition root forbids, with its own guards and its own bugs —
+	// and the stability rule requires waiting anyway: a file still being written must not
+	// be read because somebody pressed a button.
+	writeJSON(w, http.StatusAccepted, body)
+}
+
+// reloadMessage states a FACT, in decreasing order of what the station could establish.
+//
+// « Le catalogue va être relu. » was a promise written before any support had been
+// touched: it named no file, no directory and no instant, and on the case that matters —
+// nothing where the station is looking — it was followed by a silence that never ended.
+func reloadMessage(seen, watched string) string {
+	switch {
+	case seen != "":
+		return seen
+	case watched != "":
+		return "Le poste surveille " + watched + "."
+	}
+	// Neither the source nor the dashboard said anything. What is left is the only thing
+	// still true: the watch has been asked to look now.
+	return "La veille du catalogue a été priée de regarder tout de suite."
 }
 
 // manualEntry is POST /admin/api/troubleshooting/manual-entry.

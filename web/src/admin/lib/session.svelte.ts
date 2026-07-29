@@ -168,12 +168,18 @@ export class Admin {
    * bord est relu derrière, parce que la moitié de l'intérêt d'un bouton de dépannage est
    * de voir le feu changer de couleur.
    *
+   * Elle REND ce que le poste a répondu, parce qu'une des neuf actions a plus à dire que
+   * sa phrase : « Recharger le catalogue » rapporte l'import en service à l'instant de
+   * l'appui, sans quoi l'écran n'a rien à quoi reconnaître celui qui va suivre.
+   *
    * @param action - l'appel à passer.
+   * @returns ce que l'action a répondu, ou null si elle a échoué.
    */
-  async run(action: () => Promise<{ message: string }>): Promise<void> {
+  async run<T extends { message: string }>(action: () => Promise<T>): Promise<T | null> {
     this.#beginAction()
+    let done: T | null = null
     try {
-      const done = await action()
+      done = await action()
       this.notice = done.message
     } catch (failure) {
       this.#failAction(failure)
@@ -181,6 +187,7 @@ export class Admin {
       this.busy = false
     }
     await this.refresh()
+    return done
   }
 
   /**

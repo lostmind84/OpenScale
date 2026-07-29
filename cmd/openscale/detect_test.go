@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -115,6 +116,118 @@ func TestAPortThatCannotBeOpenedSaysWhyItMightBeTaken(t *testing.T) {
 	if !strings.Contains(err.Error(), "EXCLUSIF") {
 		t.Fatalf("le refus ne dit pas que le port est peut-être déjà tenu : %v", err)
 	}
+}
+
+// TestTheDetectionOpensThePortWithUsableLinkSettings is the assertion this bench was
+// missing, and the one that would have caught the defect on the first day.
+//
+// Every other test of this file hands a stream back whatever it is asked for, so none of
+// them can see WHAT the detection puts in the link. A link with no bitrate, no character
+// size, no parity and no stop bits is refused by the real opener before it reaches the
+// device — on every port, on every machine — which made « Détecter automatiquement »
+// unable to succeed anywhere.
+func TestTheDetectionOpensThePortWithUsableLinkSettings(t *testing.T) {
+	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
+	stream := emitting(clock, 4)
+	hardware := adminHardware{clock: clock, registries: benchRegistries(), open: stream.opener()}
+
+	if _, err := hardware.DetectScale(context.Background(), "COM8"); err != nil {
+		t.Fatalf("détection : %v", err)
+	}
+	link := stream.link
+	if link.Port != "COM8" {
+		t.Fatalf("port ouvert %q, attendu celui qui est sondé", link.Port)
+	}
+	if link.Baud != 9600 || link.Bits != 8 || link.Parity != "N" || link.Stop != 1 {
+		t.Fatalf("liaison ouverte en %d bauds %d%s%d : les réglages n'ont pas été complétés, "+
+			"et un vrai port série refuse cette liaison avant même d'essayer",
+			link.Baud, link.Bits, link.Parity, link.Stop)
+	}
+	if link.Clock == nil {
+		t.Fatal("la liaison n'emporte pas l'horloge injectée")
+	}
+}
+
+// TestTheDetectionListensWithTheSettingsThisStationDeclares: the parc defaults are a
+// fallback, never the last word.
+//
+// A station whose scale is not at 9600 bauds would stay undetectable if the detection
+// listened at the figure of the parc, and the volunteer would be told the cable is fine
+// and the scale is silent. The PORT, on the contrary, is always the one being probed:
+// taking it from the configuration would make a scan interrogate the same port N times.
+func TestTheDetectionListensWithTheSettingsThisStationDeclares(t *testing.T) {
+	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
+	stream := emitting(clock, 4)
+	hardware := adminHardware{
+		clock: clock, registries: benchRegistries(), open: stream.opener(),
+		config: stationDeclaring(t, map[string]any{
+			"port": "COM3", "baud": 19200, "parity": "E",
+		}),
+	}
+
+	if _, err := hardware.DetectScale(context.Background(), "COM8"); err != nil {
+		t.Fatalf("détection : %v", err)
+	}
+	if stream.link.Baud != 19200 || stream.link.Parity != "E" {
+		t.Fatalf("liaison ouverte en %d bauds, parité %q : ce poste déclare 19200 et E",
+			stream.link.Baud, stream.link.Parity)
+	}
+	if stream.link.Port != "COM3" && stream.link.Port != "COM8" {
+		t.Fatalf("port ouvert %q, inattendu", stream.link.Port)
+	}
+	if stream.link.Port == "COM3" {
+		t.Fatal("la détection a écouté le port de la configuration : un balayage " +
+			"interrogerait alors N fois le même port au lieu des N ports de la machine")
+	}
+}
+
+// TestAPortRefusedByItsSettingsIsNotReportedAsTaken is the counterpart of
+// TestAPortThatCannotBeOpenedSaysWhyItMightBeTaken, and it is the sentence a volunteer
+// reads on the telephone.
+//
+// « Le port COM7 est déjà utilisé » on a port nothing is holding sends somebody hunting
+// for a process that does not exist. A refusal that comes from the settings of this
+// station must name the setting, and it must not reach the port at all.
+func TestAPortRefusedByItsSettingsIsNotReportedAsTaken(t *testing.T) {
+	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
+	stream := emitting(clock, 4)
+	hardware := adminHardware{
+		clock: clock, registries: benchRegistries(), open: stream.opener(),
+		config: stationDeclaring(t, map[string]any{"port": "COM3", "parity": "K"}),
+	}
+
+	_, err := hardware.DetectScale(context.Background(), "COM8")
+	if err == nil {
+		t.Fatal("une parité inexistante a été acceptée par la détection")
+	}
+	if !strings.Contains(err.Error(), "parity") {
+		t.Fatalf("le refus ne nomme pas le réglage à corriger : %v", err)
+	}
+	for _, accusation := range []string{"déjà utilisé", "EXCLUSIF", "autre programme"} {
+		if strings.Contains(err.Error(), accusation) {
+			t.Fatalf("un refus de réglages accuse un port occupé (%q) : %v", accusation, err)
+		}
+	}
+	if stream.opens != 0 {
+		t.Fatalf("le port a été ouvert %d fois : des réglages inutilisables se refusent "+
+			"avant de toucher le matériel", stream.opens)
+	}
+}
+
+// stationDeclaring is a configuration reader answering with these scale.options, the way
+// the config.json of a station carries them (§11.2).
+func stationDeclaring(t *testing.T, pairs map[string]any) func() domain.Config {
+	t.Helper()
+	options := domain.DriverOptions{}
+	for key, value := range pairs {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("encodage de scale.options.%s : %v", key, err)
+		}
+		options[key] = encoded
+	}
+	cfg := domain.Config{Scale: domain.ScaleConfig{Present: true, Options: options}}
+	return func() domain.Config { return cfg }
 }
 
 // TestTheDetectionRefusesAnEmptyPortByName keeps the message useful: a form submitted with

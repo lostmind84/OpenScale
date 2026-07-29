@@ -12,6 +12,9 @@ const DEFAULT_PRESENTATION: Presentation = {
   idle_timeout_s: 45,
   reprint_window_s: 60,
   sound: true,
+  // Faux comme le défaut du poste : un écran qui n'a pas encore reçu son catalogue ne
+  // doit pas montrer une fraction de seconde des tuiles que ce poste masque.
+  show_by_unit_products: false,
 }
 
 /**
