@@ -119,6 +119,20 @@
   let stopped = $state<Halt | null>(null)
 
   /**
+   * Les deux volets de réglages sont-ils ouverts ?
+   *
+   * La réponse appartient au BÉNÉVOLE, et elle vit ici plutôt que dans une expression du
+   * gabarit. `open` est une PROPRIÉTÉ du DOM : `open={uneExpression}` ne compile pas comme
+   * un attribut ordinaire mais en affectation directe, sans la mémoïsation qu'une écriture
+   * d'attribut porte, et cette affectation est fondue dans l'effet de gabarit du fragment
+   * — celui que le moindre changement du tableau de bord rejoue. Le volet se refermait donc
+   * tout seul trois secondes après avoir été ouvert, sous les doigts de qui tapait un nom
+   * de port dedans, et rien d'autre à l'écran ne trahissait le passage de l'effet.
+   */
+  let scaleSettingsOpen = $state(false)
+  let printerSettingsOpen = $state(false)
+
+  /**
    * Vrai quand la page est démontée.
    *
    * Ce n'est PAS un `$state` : rien à l'écran n'en dépend, et la boucle d'écoute doit
@@ -158,6 +172,25 @@
       faultOf('printer.options.transport') !== '' ||
       faultOf('printer.options.queue') !== '',
   )
+
+  /**
+   * Un refus de contrôle OUVRE le volet qui porte le champ fautif, et rien de plus.
+   *
+   * Ces deux effets n'écrivent que dans un sens : ils ouvrent, ils ne referment jamais. Un
+   * volet ne se referme donc plus quand le refus disparaît — c'est une décision, pas un
+   * oubli : on travaille dedans, et le replier à l'instant où l'enregistrement passe
+   * emporterait le champ qu'on vient de corriger.
+   *
+   * Ils ne LISENT pas l'état qu'ils écrivent : une lecture ferait de l'effet sa propre
+   * dépendance, et le volet se rouvrirait à chaque fois qu'un doigt le referme.
+   */
+  $effect(() => {
+    if (scaleRefused) scaleSettingsOpen = true
+  })
+
+  $effect(() => {
+    if (printerRefused) printerSettingsOpen = true
+  })
 
   onDestroy(() => {
     closed = true
@@ -792,8 +825,15 @@
     <!--
       Les réglages, repliés — et DÉSARMÉS tant que la configuration n'est pas arrivée :
       `draft.set` jette en silence ce qu'on écrit dans un document qui n'existe pas encore.
+
+      `bind:` n'est pas un raffinement de style, c'est ce qui empêche le volet de se
+      refermer sous le doigt : `open={uneExpression}` compile en écriture de propriété DOM
+      non mémoïsée, logée dans l'effet de gabarit du fragment, que le remplacement du
+      tableau de bord rejoue toutes les trois secondes. Lié, l'état vit dans son propre
+      effet, et l'événement `toggle` y réinjecte ce que le doigt a fait. Le banc
+      `web/test/details-open.test.ts` refuse maintenant l'autre écriture partout dans `src`.
     -->
-    <details class="folded" open={scaleRefused}>
+    <details class="folded" bind:open={scaleSettingsOpen}>
       <summary>Réglages série de la balance</summary>
       <div class="folded-body">
         <Field
@@ -924,7 +964,8 @@
       </ul>
     {/if}
 
-    <details class="folded" open={printerRefused}>
+    <!-- Même règle que le volet de la balance : l'ouverture est LIÉE, jamais poussée. -->
+    <details class="folded" bind:open={printerSettingsOpen}>
       <summary>Réglages de l’imprimante</summary>
       <div class="folded-body">
         <Field

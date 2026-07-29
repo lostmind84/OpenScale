@@ -27,6 +27,7 @@ export const FIELD_LABELS: Readonly<Record<string, string>> = {
   'ui.idle_timeout_s': 'Retour à l’accueil après (secondes)',
   'ui.reprint_window_s': 'Réimpression possible pendant (secondes)',
   'ui.show_grid_prices': 'Afficher les prix sur les tuiles',
+  'ui.show_by_unit_products': 'Afficher les produits vendus à l’unité',
 
   'scale.type': 'Protocole de la balance',
   'scale.present': 'Ce poste a une balance',

@@ -199,15 +199,25 @@ pesée** : le prix au kilo lu dans le catalogue, le poids, le tarif appliqué, l
 
 Les quatre postes doivent afficher **la même chaîne de 8 caractères**. Si celui-ci
 diverge, un des réglages que les quatre postes partagent n'est pas le même ici : la
-grille de tarifs, les garde-fous, le gabarit d'étiquette, les catégories, mais aussi les
-réglages du matériel qui voyagent avec la configuration clonée — le décalage
-d'étiquette, le noircissement, la vitesse, le débit de la balance. Page **Poste** →
-l'aperçu du diff dit exactement lequel.
+grille de tarifs, les garde-fous, le gabarit d'étiquette, les catégories, l'affichage ou
+non des produits vendus à l'unité, mais aussi les réglages du matériel qui voyagent avec
+la configuration clonée — le décalage d'étiquette, le noircissement, la vitesse, le débit
+de la balance. Page **Poste** → l'aperçu du diff dit exactement lequel.
 
 **Une chaîne différente ne veut donc pas dire « les prix sont faux ».** Si quelqu'un a
 monté le noircissement sur ce poste parce que l'étiquette sortait pâle, ce poste diverge
 et ses prix sont justes. Lisez le diff avant de conclure : c'est lui qui nomme le
 réglage, pas l'empreinte.
+
+**Deux autres divergences, et elles sont normales.** Un poste qui vend des melons à la
+pièce et un poste qui ne pèse que du vrac ne montrent pas la même grille : il est normal
+que leurs empreintes diffèrent. Et surtout, **une montée de version change à elle seule
+l'empreinte de tous les postes**, même réglés à l'identique, parce qu'un réglage nouveau
+entre dans le calcul dès qu'il existe — avant même que quiconque y touche. Pendant un
+déploiement échelonné, quatre postes rigoureusement identiques affichent donc deux
+chaînes : une pour ceux qui sont passés à la version neuve, une pour les autres.
+**Comparez les versions avant de comparer les empreintes.** La version est écrite en bas
+de l'écran client, à côté du nombre de produits pesables.
 
 3. **L'écran affiche « Le poste ne peut pas calculer les prix (ERR-CFG-01) »** → la
    configuration est invalide, le poste tourne en configuration d'usine. L'écran
@@ -221,12 +231,93 @@ réglage, pas l'empreinte.
 Vous pouvez aussi **restaurer une version précédente** de la configuration : les cinq
 dernières sont conservées, page **Poste**.
 
+## Un réglage enregistré est revenu tout seul une minute plus tard
+
+Ce n'est pas une panne, c'est un garde-fou, et il ne s'arme que sur trois réglages : la
+**balance**, l'**imprimante** et l'**adresse du poste**. Ce sont les seuls qui peuvent
+couper la branche sur laquelle on est assis — un port qui n'existe pas, une file
+d'impression mal nommée, une adresse que le navigateur n'atteint plus. Le poste les
+applique, puis attend qu'on lui dise que ça marche encore. Tous les autres réglages
+s'enregistrent sans rien demander.
+
+**Ce que vous voyez.** Un bandeau en haut de l'écran d'administration : « Configuration
+appliquée mais NON CONFIRMÉE. Ce qui a changé : … Le poste reviendra tout seul à la
+version précédente dans … secondes si personne ne confirme. » À côté, un bouton **« Tout
+fonctionne : confirmer »**.
+
+**Ce qu'il faut faire.** Aller vérifier ce que le bandeau nomme — le poids s'affiche à
+nouveau, une étiquette de test sort, l'écran répond encore — puis toucher **« Tout
+fonctionne : confirmer »**.
+
+**Si personne ne confirme dans les 60 secondes**, le poste remet en service ce qu'il
+faisait tourner avant, et remet le fichier de configuration dans l'état où il était.
+Rien n'est cassé et rien n'est perdu : refaites la modification, et confirmez cette
+fois-ci. Si c'est l'adresse du poste que vous aviez changée et que l'écran
+d'administration ne répond plus, ne touchez à rien : l'ancienne adresse revient d'elle-même
+au bout de la minute.
+
+**Pendant l'attente, un second enregistrement est refusé**, avec cette phrase : « Une
+configuration attend encore d'être confirmée. Confirmez-la, ou laissez le poste revenir
+tout seul à la version précédente, puis enregistrez de nouveau. » Confirmez, ou laissez
+passer la minute.
+
+**Ce que ce retour arrière détruisait, et ne détruit plus.** Sur un poste dont la
+configuration était refusée (`ERR-CFG-01`), et sur celui-là seulement, le retour arrière
+écrivait les réglages d'usine par-dessus le fichier du magasin : le nom de la coopérative
+disparaissait, il ne restait qu'un seul tarif — la remise adhérent avec lui —, le contrôle
+du panier passait à l'arrêt et le pilote d'impression devenait « Aperçu », qui écrit un
+fichier et n'imprime rien. Une minute d'inattention effaçait le geste qui venait justement
+de réparer le poste. **Sur un poste à jour, cela ne peut plus arriver** : le retour arrière
+remet le fichier tel qu'il était avant l'enregistrement, et rien d'autre.
+
+**Si c'est arrivé sur un poste resté en version ancienne**, les réglages ne sont pas
+perdus : le poste garde les cinq dernières versions de son fichier de configuration, à côté
+de lui, en `config.json.1` à `config.json.5`.
+
+1. Page **Poste**, panneau **Cinq versions restaurables**. Chacune porte sa date et son
+   empreinte, la 1 étant la plus récente.
+2. Touchez **« Remettre cette version en service »** sur la 1, puis **confirmez** si le
+   bandeau le demande.
+3. Vérifiez sur la page **Règles** que les paliers de tarif sont revenus, et sur la page
+   **Matériel** que le pilote d'impression est bien celui de l'imprimante. Si ce n'était
+   pas la bonne version, recommencez avec la suivante.
+4. **Mettez le poste à jour** : c'est la seule chose qui empêche que cela recommence.
+
+Sur ces mêmes postes anciens, l'écran peut aussi refuser d'enregistrer en signalant une
+faute sur le **pilote d'impression** alors que personne n'y a touché. Même cause, même
+remède : mettez le poste à jour, puis reprenez.
+
 ## Le catalogue est vide, ou un produit a disparu de la grille
 
-1. **« Catalogue vide. En attente de `flv_2.csv` depuis 4 min »** → le fichier n'est pas
-   arrivé. L'écran de dépannage affiche **le chemin ou l'adresse surveillée et le compte
-   utilisé**. Vérifiez le partage, ou **glissez-déposez un CSV** sur la page Catalogue :
-   c'est fait pour ça.
+1. **« Catalogue vide. En attente du fichier `flv_2.csv`. »** sur l'écran client → le
+   fichier n'est pas arrivé. L'écran de dépannage porte en permanence, au-dessus des gros
+   boutons, la ligne **« Catalogue surveillé : … »** : le chemin du fichier attendu, ou
+   l'adresse du partage et le compte utilisé. C'est là que le poste va chercher, et nulle
+   part ailleurs.
+
+   Touchez **« Recharger le catalogue »**. Le poste répond aussitôt ce qu'il a **vu** :
+
+   - *« Aucun fichier flv_2.csv dans C:\ProgramData\OpenScale\data\catalog\incoming : il
+     n'y a rien à relire. »* → le fichier n'est pas arrivé. Voyez du côté du producteur ou
+     du partage, ou **glissez-déposez un CSV** sur cette même page : c'est fait pour ça.
+   - *« flv_2.csv est là, dans … : la veille le relit maintenant. »* → le fichier est
+     arrivé. Quelques secondes plus tard, l'écran écrit l'issue — le nom du fichier, ce
+     qu'il est devenu, l'heure et l'inventaire : *« flv_2.csv appliqué le 24/07/2026 à
+     14:32 via dépôt local — 355 reçus · 331 pesables · 8 non pesables · 16 anomalies. »*
+
+   Deux issues méritent d'être lues jusqu'au bout :
+
+   - **« identique au précédent »** veut dire que le fichier était le même, à l'octet près.
+     Ce n'est pas une panne — un producteur peut déposer le même export chaque nuit — mais
+     **aucun nouveau catalogue n'est entré en service** : si vous attendiez une correction,
+     elle n'est pas dans ce fichier.
+   - **« Aucun nouvel import enregistré à cet instant »**, au bout d'une trentaine de
+     secondes, veut dire que rien n'a été lu : le fichier n'était pas là, ou il n'avait pas
+     fini d'arriver. Le poste ne lit jamais un fichier encore en cours d'écriture. Attendez
+     la fin de la copie, et recommencez.
+
+   Le poste continue de peser pendant tout ce temps, avec le catalogue qu'il connaissait.
+
 2. **Feu Catalogue rouge, `ERR-CAT-03`, avec un numéro de ligne** → le fichier est
    corrompu à cette ligne. **Le catalogue précédent reste en service** : le poste continue
    de peser avec ce qu'il connaissait. Transmettez le numéro de ligne au producteur du
@@ -235,19 +326,34 @@ dernières sont conservées, page **Poste**.
    mais n'arrive pas à le supprimer, et la suppression **est** l'accusé de réception. Le
    même fichier sera relu indéfiniment. Corrigez les droits du partage pour le compte
    indiqué.
-4. **« 16 anomalies à corriger dans Odoo »** → ce n'est **pas** une panne du poste. Ce
+4. **Le panneau « Le dernier fichier n'a pas pris service » dit « échec », avec
+   `ERR-DB-01`** → le fichier a bien été lu et qualifié, mais le poste n'a pas pu écrire le
+   résultat dans sa base. **Le catalogue en service n'a pas changé** : la grille tourne
+   toujours sur ce qu'elle connaissait. Ce panneau est en bas de l'écran de dépannage, et
+   il montre aussi bien un fichier refusé qu'un fichier en échec. Regardez le feu
+   **Disque**, puis la page **Journal**, panneau **Journal technique** : le poste y écrit ce
+   qui l'a empêché d'écrire.
+5. **« 16 anomalies à corriger dans Odoo »** → ce n'est **pas** une panne du poste. Ce
    sont des lignes du fichier dont le code-barres est mal saisi ; ces produits sont déjà
    inutilisables sur les balances actuelles. Cliquez sur « voir les lignes » : elles sont
    **nommées**, avec la valeur fautive. Transmettez cette liste.
-5. **« 8 non pesables — préemballés (7), code interne 0490 (1) »** → **aucune action**.
+6. **« 8 non pesables — préemballés (7), code interne 0490 (1) »** → **aucune action**.
    Ces produits ne relèvent pas de la balance.
-6. **Feu rouge « chute du nombre de produits pesables », lot non appliqué** → le fichier
+7. **Feu rouge « chute du nombre de produits pesables », lot non appliqué** → le fichier
    reçu contient beaucoup moins de produits que le précédent. Le poste **refuse** de
    l'appliquer et garde l'ancien : c'est presque toujours un décalage de colonne chez le
    producteur. Le poste nomme les trois motifs majoritaires.
-7. **Un produit n'est plus proposé** → quelqu'un a peut-être pris la décision de ne plus
+8. **Un produit n'est plus proposé** → quelqu'un a peut-être pris la décision de ne plus
    le proposer depuis l'écran (page Catalogue). Cette décision **survit aux imports
    suivants**, exprès. La même page permet de la retirer.
+9. **Toute une famille de produits manque, et le compte du bas de l'écran client ne colle
+   plus avec l'inventaire** → ce poste masque peut-être les produits vendus à l'unité. Page
+   **Catalogue**, panneau **« Ce que la grille montre »** : il dit combien de produits
+   vendus à l'unité sont masqués sur ce poste, et la case **« Afficher les produits vendus
+   à l'unité »** les remet. C'est ce qui explique qu'un inventaire annonce 331 produits
+   pesables pendant que le bas de l'écran client en compte 316 : **rien n'est perdu**,
+   c'est un choix de ce poste. Un produit masqué reste vendable — la caisse lit toujours
+   son code-barres, et une étiquette déjà imprimée reste valable.
 
 ## L'écran affiche « Une erreur est survenue » et se recharge en boucle
 

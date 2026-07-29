@@ -11,6 +11,7 @@ import (
 
 	"openscale/internal/domain"
 	"openscale/internal/printing"
+	"openscale/internal/printing/preview"
 	"openscale/internal/printing/raster"
 	"openscale/internal/printing/transport"
 	"openscale/internal/scale"
@@ -42,18 +43,55 @@ func scaleRegistry() *scale.Registry {
 
 // printerRegistry is the set of printer drivers this binary was built with.
 //
-// ONE entry today, `raster`, which is the production path (ADR-002): at 203 dpi no
-// whole module reproduces the magnification of the label the cooperative prints, so
-// the bitmap is drawn dot by dot. `sbpl` and `preview` are named by §8.1 and by
-// domain.PrinterTypes, and neither has a ports.Printer implementation yet —
-// internal/printing/sbpl is the shared ENCODER of the frame and
-// internal/printing/preview the file writer of `openscale label`. Registering a
-// driver that does not exist would put a value in a volunteer's drop-down list that
-// no station can honour.
+// TWO entries. `raster` is the production path (ADR-002): at 203 dpi no whole module
+// reproduces the magnification of the label the cooperative prints, so the bitmap is drawn
+// dot by dot. `preview` writes that same bitmap to a PNG and a life-size PDF and opens no
+// device at all — and it is not a convenience, it is what the NEUTRAL PROFILE names
+// (§11.3). A binary that did not carry it served, on every station whose configuration is
+// unusable, a profile its own validation refused: `printer.type` came back as a fault on a
+// field nobody had touched, and no save was possible from that screen at all.
+//
+// `sbpl` is named by §8.1 and by domain.PrinterTypes and is still not registered:
+// internal/printing/sbpl is the shared ENCODER of the frame, not a ports.Printer.
+// Registering a driver that does not exist would put a value in a volunteer's drop-down
+// list that no station can honour.
 func printerRegistry() *printing.Registry {
 	registry := printing.NewRegistry()
 	registry.Register(rasterDriver())
+	registry.Register(previewDriver())
 	return registry
+}
+
+// previewDriver is the registry entry of the driver that prints nothing.
+//
+// IT DECLARES NO OPTION, and that is the requirement rather than an omission. The neutral
+// profile carries no `printer.options` block — darkness, speed and the number of copies are
+// settled on a real print run, and a factory profile has no business inventing three
+// figures nobody measured — so the driver such a station falls back on must ask for none of
+// them. An empty schema is also what tells the composition root there is no transport to
+// build here.
+func previewDriver() printing.Driver {
+	return printing.Driver{
+		Descriptor: domain.PrinterDescriptor{
+			ID:    preview.ID,
+			Label: preview.Label,
+			Capabilities: domain.PrinterCapabilities{
+				Raster:    true,
+				Status:    false,
+				Cutter:    false,
+				MaxCopies: 1,
+			},
+		},
+		New: func(c printing.DriverConfig) (ports.Printer, error) {
+			return preview.New(preview.Options{
+				Dir:       c.OutputDir,
+				Clock:     c.Clock,
+				Log:       c.Log,
+				Template:  c.Template,
+				DemoLabel: c.DemoLabel,
+			})
+		},
+	}
 }
 
 // rasterDriver is the registry entry of the production printer driver.

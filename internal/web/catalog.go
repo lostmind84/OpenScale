@@ -106,6 +106,11 @@ type catalogPresentationDTO struct {
 	IdleTimeoutSeconds   int  `json:"idle_timeout_s"`
 	ReprintWindowSeconds int  `json:"reprint_window_s"`
 	Sound                bool `json:"sound"`
+	// ShowByUnitProducts is STATED here and applied by the grid, never applied here.
+	// Filtering the payload would make product_count differ from the catalog_count of
+	// the state stream for ever, and the browser asks for the catalog again on that
+	// difference alone -- ten times a second, answering 304, visible to nobody.
+	ShowByUnitProducts bool `json:"show_by_unit_products"`
 }
 
 // rfc3339OrEmpty formats an instant, and the zero time as an empty string.
@@ -226,6 +231,7 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 			IdleTimeoutSeconds:   cfg.UI.IdleTimeoutSeconds,
 			ReprintWindowSeconds: cfg.UI.ReprintWindowSeconds,
 			Sound:                cfg.UI.Sound,
+			ShowByUnitProducts:   cfg.UI.ShowByUnitProducts,
 		},
 		UpdatedAt:  rfc3339OrEmpty(s.hub.CatalogUpdatedAt()),
 		AppVersion: s.version,

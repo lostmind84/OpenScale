@@ -241,6 +241,50 @@ func TestACallerThatGaveUpIsNotAnswered(t *testing.T) {
 	}
 }
 
+// TestTheReloadStatesAFactAndNotAPromise.
+//
+// « Le catalogue va être relu. » named nothing that could be checked, and the volunteer
+// who pressed the button on a station where the file was not there read a promise that
+// nothing ever kept. What replaces it says what is watched and where — the two things
+// somebody can go and look at.
+func TestTheReloadStatesAFactAndNotAPromise(t *testing.T) {
+	b := newBench(t, func(o *benchOptions) {
+		o.catalogAdmin = &fakeCatalogAdmin{}
+		o.dashboard = stubDashboard{DashboardFacts{Source: &CatalogSourceState{
+			Type:  domain.CatalogSourceLocalDrop,
+			Label: "dépôt local, flv_2.csv dans D:\\catalog\\incoming",
+		}}}
+	})
+
+	got := decodeStatus[reloadDTO](t,
+		b.post("/admin/api/troubleshooting/reload-catalog", `{}`), http.StatusAccepted)
+	if strings.Contains(got.Message, "va être relu") {
+		t.Fatalf("message = %q : c'est encore la promesse au futur", got.Message)
+	}
+	if !strings.Contains(got.Message, "flv_2.csv") ||
+		!strings.Contains(got.Message, "D:\\catalog\\incoming") {
+		t.Fatalf("message = %q, attendu qu'il nomme ce qui est surveillé et où", got.Message)
+	}
+}
+
+// TestTheReloadLineNamesTheScreenItCanVouchFor.
+//
+// One handler serves both doors — the troubleshooting page and the Catalogue page — so
+// « depuis l'écran de dépannage » was written under a press that had come from somewhere
+// else. A journal that names the wrong screen is worse than one that names none.
+func TestTheReloadLineNamesTheScreenItCanVouchFor(t *testing.T) {
+	b := newBench(t, func(o *benchOptions) { o.catalogAdmin = &fakeCatalogAdmin{} })
+	b.post("/admin/api/troubleshooting/reload-catalog", `{}`).Body.Close()
+
+	line, ok := b.technical.saying("Relecture du catalogue")
+	if !ok {
+		t.Fatal("aucune ligne technique n'a été écrite pour la relecture")
+	}
+	if strings.Contains(line.Message, "de dépannage") {
+		t.Fatalf("ligne technique = %q : la même route sert la page Catalogue", line.Message)
+	}
+}
+
 // TestACatalogSourceThatRefusesIsReportedAndNotSwallowed.
 func TestACatalogSourceThatRefusesIsReportedAndNotSwallowed(t *testing.T) {
 	catalog := &fakeCatalogAdmin{err: errors.New("répertoire en lecture seule")}

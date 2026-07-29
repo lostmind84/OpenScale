@@ -9,6 +9,8 @@
   import * as api from '../lib/api'
   import type { HealthDTO } from '../lib/dto'
   import { frenchDateTime } from '../lib/format'
+  import { importResultWord } from '../lib/inventory'
+  import { ReloadWatch } from '../lib/reload.svelte'
   import type { Admin } from '../lib/session.svelte'
 
   /**
@@ -66,10 +68,51 @@
 
   const busy = $derived(admin.busy || working !== '')
 
+  /**
+   * L'attente de l'issue d'un rechargement de catalogue.
+   *
+   * Le bouton répondait « Le catalogue va être relu. » — une promesse écrite avant tout
+   * accès au support — puis se taisait pour de bon, parce qu'une veille qui ne trouve rien
+   * revient sans un mot. L'issue n'arrive que par le sondage de trois secondes, et
+   * l'identifiant de l'import en service est ce qui dit que l'attente est finie.
+   */
+  const reloadWatch = new ReloadWatch()
+
+  $effect(() => {
+    reloadWatch.observe(health)
+  })
+
+  /** Ce que ce poste surveille, ou ce qu'il faut dire quand il ne le publie pas. */
+  const watched = $derived(
+    health.catalog_source === null
+      ? 'Ce poste ne publie pas la source de son catalogue.'
+      : 'Catalogue surveillé : ' + health.catalog_source.label,
+  )
+
+  /**
+   * Le dernier import qui n'a RIEN mis en service.
+   *
+   * `failed` autant que `rejected` : le premier est un import que la base n'a pas pu
+   * écrire, et il était jusqu'ici invisible sur l'écran de dépannage alors que le
+   * glisser-déposer de la même page traite les deux.
+   */
+  const setAside = $derived(
+    health.catalog !== null &&
+      (health.catalog.result === 'rejected' || health.catalog.result === 'failed')
+      ? health.catalog
+      : null,
+  )
+
+  /** Ouvre un acte : ce que le précédent a laissé à l'écran s'en va. */
+  function begin(label: string): void {
+    report = ''
+    reloadWatch.forget()
+    working = label
+  }
+
   /** Passe une action de dépannage et garde sa phrase. */
   async function run(label: string, action: () => Promise<{ message: string }>): Promise<void> {
-    report = ''
-    working = label
+    begin(label)
     try {
       await admin.run(action)
     } finally {
@@ -77,10 +120,26 @@
     }
   }
 
+  /**
+   * Recharge le catalogue, et arme l'attente de son issue.
+   *
+   * L'acte a sa fonction à lui parce qu'il est le seul dont la phrase immédiate ne conclut
+   * rien : elle dit ce que le poste a VU du fichier surveillé, et l'issue — appliqué,
+   * identique au précédent, refusé — arrive quelques secondes plus tard par le sondage.
+   */
+  async function reload(): Promise<void> {
+    begin('reload')
+    try {
+      const answer = await admin.run(api.reloadCatalog)
+      if (answer !== null) reloadWatch.begin(answer)
+    } finally {
+      working = ''
+    }
+  }
+
   /** Passe un test de matériel, dont la réponse est une PHRASE et non une action. */
   async function probe(label: string, test: () => Promise<{ message: string }>): Promise<void> {
-    report = ''
-    working = label
+    begin(label)
     try {
       const answer = await admin.load(test)
       if (answer !== null) report = answer.message
@@ -97,8 +156,7 @@
    * raison. Le mot de passe est demandé au moment du geste, puis le geste est rejoué.
    */
   async function guarded(label: string, action: () => Promise<{ message: string }>): Promise<void> {
-    report = ''
-    working = label
+    begin(label)
     try {
       const done = await admin.protect(action)
       if (done !== null) {
@@ -120,8 +178,7 @@
   async function importFile(file: File | null | undefined): Promise<void> {
     dropping = false
     if (file === null || file === undefined) return
-    report = ''
-    working = 'import'
+    begin('import')
     try {
       // Acte protégé (ADR-033) : il remplace toute la grille par un fichier apporté.
       const record = await admin.protect(() => api.importCatalog(file))
@@ -147,9 +204,26 @@
     <p class="report" data-report>{report}</p>
   {/if}
 
+  <!--
+    The outcome of a reload, once the polling has seen the station change import. It is a
+    line of its own and not the one above: what a hardware test answers is over the
+    instant it is read, while this one arrives seconds after the button was released.
+  -->
+  {#if reloadWatch.sentence !== ''}
+    <p class="report" data-reload>{reloadWatch.sentence}</p>
+  {/if}
+
   {#if routing !== null && routing.banner !== ''}
     <p class="report" data-routing>{routing.banner}</p>
   {/if}
+
+  <!--
+    Permanently, and without anybody having to press anything: this is the screen a
+    volunteer opens in front of a station that is not showing the catalog they expect, and
+    « where is it even looking? » is the first question. The dashboard and the Catalogue
+    page said it; the page carrying « Recharger le catalogue » did not.
+  -->
+  <p class="fact muted" data-source>{watched}</p>
 
   <section class="buttons" aria-label="Actions de dépannage">
     <BigButton
@@ -186,7 +260,7 @@
       hint="La veille refait tout de suite le contrôle qu’elle fait toutes les cinq secondes."
       busy={working === 'reload'}
       disabled={busy}
-      onrun={() => void run('reload', api.reloadCatalog)}
+      onrun={() => void reload()}
     />
     <!--
       Red in both directions: cutting the scale out AND putting it back both change the way
@@ -266,14 +340,15 @@
     </div>
   </Panel>
 
-  {#if health.catalog !== null && health.catalog.result === 'rejected'}
-    <Panel title="Le dernier fichier a été refusé">
+  {#if setAside !== null}
+    <Panel title="Le dernier fichier n’a pas pris service">
       <p class="fact">
-        {health.catalog.reason === '' ? 'Aucun motif enregistré.' : health.catalog.reason}
+        {importResultWord(setAside.result)} —
+        {setAside.reason === '' ? 'aucun motif enregistré.' : setAside.reason}
         Le catalogue en service n’a pas changé.
       </p>
       <p class="fact muted">
-        Dernier essai : {frenchDateTime(health.catalog.occurred_at)}.
+        Dernier essai : {frenchDateTime(setAside.occurred_at)}.
       </p>
     </Panel>
   {/if}

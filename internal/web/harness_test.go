@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -115,9 +116,9 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		// composition root that does it (§11.4, serve.go). Without it here, the store the
 		// routes read would keep the configuration nobody confirmed, and the screen would
 		// show a port the station stopped using sixty seconds ago.
-		OnRevert: func(previous domain.Config) {
+		OnRevert: func(fileBefore domain.Config) {
 			if o.configStore != nil {
-				_ = o.configStore.Save(context.Background(), previous)
+				_ = o.configStore.Save(context.Background(), fileBefore)
 			}
 		},
 	})
@@ -360,7 +361,9 @@ func (b *bench) setPassword(password, recovery string) {
 	}
 	cfg := b.hub.Config()
 	cfg.Admin.PasswordHash, cfg.Admin.RecoveryCodeHash = hash, recoveryHash
-	if _, err := b.station.Reload(cfg); err != nil {
+	// No FileBefore: the admin block alone moves, so no countdown is armed and no rollback
+	// has a file to aim at.
+	if _, err := b.station.Reload(station.ReloadRequest{Next: cfg}); err != nil {
 		b.t.Fatalf("Reload : %v", err)
 	}
 }
@@ -415,6 +418,18 @@ func (l *recordingLog) has(code string) bool {
 		}
 	}
 	return false
+}
+
+// saying returns the first line whose message carries that fragment.
+func (l *recordingLog) saying(fragment string) (TechnicalLine, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, line := range l.lines {
+		if strings.Contains(line.Message, fragment) {
+			return line, true
+		}
+	}
+	return TechnicalLine{}, false
 }
 
 // memoryStore is the persistence, in a map. It satisfies web.Store, station.Journal

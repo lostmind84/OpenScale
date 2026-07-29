@@ -5,6 +5,7 @@
   import type { HealthDTO } from '../lib/dto'
   import { logSourceLabelOf } from '../lib/fields'
   import { frenchDate, frenchDateTime, frenchDuration, frenchInteger, frenchTime } from '../lib/format'
+  import { importResultWord } from '../lib/inventory'
   import { lightsOf } from '../lib/lights'
   import { preferences } from '../lib/preferences.svelte'
 
@@ -112,7 +113,7 @@
     {:else}
       <p class="fact" data-attempt>
         Dernier essai : {frenchDateTime(health.catalog.occurred_at)} —
-        {resultWord(health.catalog.result)}{health.catalog.file_name === ''
+        {importResultWord(health.catalog.result)}{health.catalog.file_name === ''
           ? ''
           : ' (' + health.catalog.file_name + ')'}{health.catalog.reason === ''
           ? ''
@@ -246,13 +247,6 @@
 
 <script lang="ts" module>
   /**
-   * Le mot français d'un résultat d'import.
-   *
-   * « inchangé » est un résultat NOMINAL et non un échec : le producteur peut déposer
-   * chaque nuit un export identique à l'octet, et une version antérieure de la conception
-   * en faisait une violation de contrainte suivie d'un bannissement permanent (ADR-015).
-   */
-  /**
    * Le verdict du redémarrage, en un mot que le CSS sait colorer.
    *
    * Trois valeurs et non deux : « je ne sais pas » n'est pas « non configuré », et §14.4
@@ -261,21 +255,6 @@
   function restartVerdict(restart: { configured: boolean; known: boolean } | null): string {
     if (restart === null || !restart.known) return 'unknown'
     return restart.configured ? 'ok' : 'missing'
-  }
-
-  function resultWord(result: string): string {
-    switch (result) {
-      case 'applied':
-        return 'appliqué'
-      case 'unchanged':
-        return 'inchangé, déjà appliqué'
-      case 'rejected':
-        return 'refusé'
-      case 'failed':
-        return 'échec'
-      default:
-        return result
-    }
   }
 </script>
 

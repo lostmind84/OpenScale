@@ -382,7 +382,7 @@ func TestARepairedConfigurationPutsTheStationBackInServiceWITHOUTARestart(t *tes
 	// And what is missing is ONE field. The neutral profile is valid in every other
 	// respect — that is what makes it the profile a station falls back onto — so the
 	// password the first access poses is literally the last fault standing (contrôle 31).
-	if _, err := b.station.Reload(repairedProfile()); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: repairedProfile()}); err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
 	// One turn of the loop, because the answer to a command is sent before the
@@ -405,7 +405,7 @@ func TestAStillBrokenConfigurationLeavesTheStationOutOfService(t *testing.T) {
 
 	broken := repairedProfile()
 	broken.Station.Number = 0 // hors bornes [1, 99] : le nom du fichier surveillé en dérive
-	if _, err := b.station.Reload(broken); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: broken}); err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
 	b.flush()

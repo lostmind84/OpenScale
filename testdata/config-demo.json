@@ -16,7 +16,8 @@
     "sound": true,
     "idle_timeout_s": 45,
     "reprint_window_s": 60,
-    "show_grid_prices": true
+    "show_grid_prices": true,
+    "show_by_unit_products": true
   },
   "scale": {
     "type": "gram-xfoc-plus",

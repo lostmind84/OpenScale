@@ -1068,12 +1068,68 @@ func TestFingerprintChangesWhenASharedValueChanges(t *testing.T) {
 		"le gabarit":              func(c *Config) { c.Printer.Template = "weighing_integer_module" },
 		"une catégorie":           func(c *Config) { c.Catalog.Categories[0].Visible = false },
 		"la rétention du journal": func(c *Config) { c.Journal.MaxDays = 30 },
+		// Two stations that disagree here do not show the same grid: one offers fifteen
+		// tiles the other does not have, and the eight characters have to say so.
+		"les produits à l'unité montrés": func(c *Config) { c.UI.ShowByUnitProducts = true },
 	} {
 		t.Run(name, func(t *testing.T) {
 			diverging := loadDelivered(t)
 			mutate(&diverging)
 			if diverging.Fingerprint() == reference.Fingerprint() {
 				t.Fatalf("empreinte inchangée (%q) alors que %s a changé", reference.Fingerprint(), name)
+			}
+		})
+	}
+}
+
+// TestAFileSilentAboutTheByUnitProductsHidesThem makes a silent consequence visible.
+//
+// UnmarshalJSON applies no default outside update.repository, so a file written before
+// this key existed reads as « hide them » — a station updated in the field loses its
+// by-unit tiles without a message and without a journal line. That is what was asked
+// for; writing it down here is what keeps it a decision instead of a discovery made in
+// front of an amputated grid.
+func TestAFileSilentAboutTheByUnitProductsHidesThem(t *testing.T) {
+	for name, block := range map[string]struct {
+		ui     string
+		wanted bool
+	}{
+		"clé absente": {ui: `{"language":"fr"}`, wanted: false},
+		"clé à faux":  {ui: `{"language":"fr","show_by_unit_products":false}`, wanted: false},
+		"clé à vrai":  {ui: `{"language":"fr","show_by_unit_products":true}`, wanted: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var config Config
+			if err := json.Unmarshal([]byte(`{"version":1,"ui":`+block.ui+`}`), &config); err != nil {
+				t.Fatalf("décodage : %v", err)
+			}
+			if config.UI.ShowByUnitProducts != block.wanted {
+				t.Fatalf("show_by_unit_products relu à %v, attendu %v",
+					config.UI.ShowByUnitProducts, block.wanted)
+			}
+		})
+	}
+}
+
+// TestTheDeliveredFilesSayWhatTheyDoOfTheByUnitProducts: a key left out reads back with
+// the meaning of the language's zero value, which is the costliest failure mode of this
+// project. Both shipped files therefore spell it out, whatever they choose.
+func TestTheDeliveredFilesSayWhatTheyDoOfTheByUnitProducts(t *testing.T) {
+	for _, name := range []string{"config-lacagette.json", "config-demo.json"} {
+		t.Run(name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", name))
+			if err != nil {
+				t.Fatalf("lecture de %s : %v", name, err)
+			}
+			var document struct {
+				UI map[string]json.RawMessage `json:"ui"`
+			}
+			if err := json.Unmarshal(raw, &document); err != nil {
+				t.Fatalf("décodage de %s : %v", name, err)
+			}
+			if _, written := document.UI["show_by_unit_products"]; !written {
+				t.Fatalf("%s ne porte pas show_by_unit_products : le fichier se relirait "+
+					"en silence avec le sens du zéro du langage", name)
 			}
 		})
 	}

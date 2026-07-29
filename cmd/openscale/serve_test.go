@@ -293,7 +293,7 @@ func TestTheFallbackProfileKeepsTheKEYSToTheStation(t *testing.T) {
 	broken.Admin.RecoveryCodeHash = "$argon2id$v=19$m=65536,t=3,p=2$YXV0cmUtc2VsLTAx$Y2xlLWR1LWNvZGUtZGUtc2Vjb3Vycy1pY2k"
 	broken.Station.Coop = "Les Amis de la Coopé"
 
-	fallback := fallbackProfile(broken, "")
+	fallback := fallbackProfile(broken, faultsOn("pricing.tiers[0].discount_percent"))
 	if fallback.Admin.PasswordHash != broken.Admin.PasswordHash {
 		t.Error("le profil de repli oublie le mot de passe d'administration du fichier")
 	}
@@ -305,16 +305,191 @@ func TestTheFallbackProfileKeepsTheKEYSToTheStation(t *testing.T) {
 	if fallback.Station.Coop == broken.Station.Coop {
 		t.Error("le profil de repli fait tourner le poste sur la configuration fautive")
 	}
+}
+
+// TestTheFallbackProfileKeepsTheDOORToTheStation is the same rule applied to the network
+// block, and it is the rule the bench of 2026-07-29 discovered the hard way.
+//
+// The keys are useless behind a door nobody can find. §11.3 replaces what a station RUNS
+// ON, never the way one REACHES it in order to repair it: the address a station answers
+// on is written on the installation sheet and dialled by the kiosk from that same file,
+// and admin_on_lan is what lets a volunteer arrive with a laptop rather than a keyboard.
+// Borrowing the neutral 127.0.0.1:8085 moved the service off the address the file
+// declares while the kiosk kept opening it — a black client screen — and shut the
+// administration screen back onto the loopback at the worst possible moment.
+func TestTheFallbackProfileKeepsTheDOORToTheStation(t *testing.T) {
+	broken := shippedConfig(t)
+	broken.Network = domain.NetworkConfig{Listen: "127.0.0.1:8099", AdminOnLAN: true}
+
+	fallback := fallbackProfile(broken, faultsOn("pricing.tiers[0].discount_percent"))
+	if fallback.Network.Listen != broken.Network.Listen {
+		t.Errorf("adresse du repli = %q, attendu %q : le repli jette une adresse d'écoute qui "+
+			"n'est pas fautive", fallback.Network.Listen, broken.Network.Listen)
+	}
+	if !fallback.Network.AdminOnLAN {
+		t.Error("le repli referme l'écran d'administration sur la boucle locale, au moment " +
+			"même où un bénévole vient réparer le poste depuis son portable")
+	}
+}
+
+// TestTheFallbackProfileTakesTheNeutralAddressWhenTheFileAddressIsItselfFaulted is what
+// keeps the test above from being an invitation to copy an unbindable address.
+//
+// When the faults name the network block, the file has nothing usable to lend: the
+// neutral profile provides the address, exactly as before. Without this case, a fallback
+// that copied « 127.0.0.1 » — no port — would turn ERR-CFG-01, a station serving its
+// fault list, into ERR-SYS-02, a station that is not there at all.
+func TestTheFallbackProfileTakesTheNeutralAddressWhenTheFileAddressIsItselfFaulted(t *testing.T) {
+	broken := shippedConfig(t)
+	broken.Network = domain.NetworkConfig{Listen: "127.0.0.1", AdminOnLAN: true}
+
+	fallback := fallbackProfile(broken, faultsOn("network.listen"))
 	if want := domain.NeutralProfile().Network.Listen; fallback.Network.Listen != want {
-		t.Errorf("adresse du repli = %q, attendu %q", fallback.Network.Listen, want)
+		t.Errorf("adresse du repli = %q, attendu %q : le repli a recopié une adresse "+
+			"inliable", fallback.Network.Listen, want)
+	}
+	if fallback.Network.AdminOnLAN {
+		t.Error("le repli a gardé la moitié d'un bloc network fautif : l'écran " +
+			"d'administration s'ouvre au réseau sur une configuration que personne n'a validée")
+	}
+}
+
+// faultsOn builds the verdict of a Validate that found exactly these fields wrong.
+func faultsOn(fields ...string) []domain.Fault {
+	faults := make([]domain.Fault, 0, len(fields))
+	for _, field := range fields {
+		faults = append(faults, domain.Fault{Field: field, Message: "faute de banc d'essai"})
+	}
+	return faults
+}
+
+// TestAFaultyConfigurationStillServesOnTheAddressItsFileDeclares is what the bench of
+// 2026-07-29 paid for, and the assertion no test made until it did.
+//
+// The station shipped that day carried network.listen 8099 AND eight faults elsewhere.
+// The fallback threw the address out with the rest, the service came up on the
+// 127.0.0.1:8085 of the neutral profile, and the kiosk — which reads the FILE, and reads
+// it successfully because a faulty file is still a readable one — opened 8099. A black
+// client screen, on the very station §11.3 exists to keep alive.
+//
+// So: a fault ANYWHERE BUT on the address, an address in the file, no flag, and the
+// station must serve on the address its file names.
+func TestAFaultyConfigurationStillServesOnTheAddressItsFileDeclares(t *testing.T) {
+	bench := newServeBench(t, func(cfg *domain.Config) {
+		cfg.Pricing.Tiers[0].Discount = -10
+	}).listenFlag("")
+	bench.start()
+
+	if bench.address != bench.fileAddress {
+		t.Fatalf("le poste sert sur %q alors que son fichier déclare %q : le repli a jeté une "+
+			"adresse d'écoute qui n'était pas fautive, et l'écran client ouvre une adresse que "+
+			"rien ne sert", bench.address, bench.fileAddress)
+	}
+	// And it really is the fallback that is being observed, not a configuration that
+	// turned out to be valid after all.
+	if got := bench.output(); !strings.Contains(got, "ERR-CFG-01") {
+		t.Fatalf("la sortie ne nomme pas ERR-CFG-01 : ce banc ne traverse pas le repli\n%s", got)
 	}
 
-	// --listen is the one deliberate instruction that survives: it is what somebody
-	// types to move a station off an address that is already taken, and the neutral
-	// profile carries the address of every station of the parc.
-	moved := fallbackProfile(broken, "127.0.0.1:8099")
-	if moved.Network.Listen != "127.0.0.1:8099" {
-		t.Errorf("adresse du repli = %q : --listen a été perdu par le repli", moved.Network.Listen)
+	if err := bench.stop(); err != nil {
+		t.Fatalf("serve a rendu une erreur sur un arrêt demandé : %v", err)
+	}
+}
+
+// TestTheListenFlagWinsOverTheAddressOfTheFile carries the assertion of
+// TestTheFallbackProfileKeepsTheKEYSToTheStation all the way to the socket.
+//
+// --listen is what somebody types while diagnosing — « cette adresse est prise, déplace
+// ce poste » — and it must win on a healthy configuration as on a broken one. Asserting
+// it on fallbackProfile alone would leave the composition free to apply the flag before
+// a validation that then rejects it, which is exactly what used to happen.
+func TestTheListenFlagWinsOverTheAddressOfTheFile(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		tweak func(*domain.Config)
+	}{
+		{"configuration saine", func(*domain.Config) {}},
+		{"configuration fautive", func(cfg *domain.Config) { cfg.Pricing.Tiers[0].Discount = -10 }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			asked := freeAddress(t)
+			bench := newServeBench(t, c.tweak).listenFlag(asked)
+			if asked == bench.fileAddress {
+				t.Fatalf("le banc a tiré deux fois la même adresse %q : il ne sépare rien", asked)
+			}
+			bench.start()
+
+			if bench.address != asked {
+				t.Fatalf("le poste sert sur %q alors que --listen demandait %q : le drapeau a été "+
+					"perdu", bench.address, asked)
+			}
+			if err := bench.stop(); err != nil {
+				t.Fatalf("serve a rendu une erreur sur un arrêt demandé : %v", err)
+			}
+		})
+	}
+}
+
+// TestAMalformedListenFlagIsBlamedOnTheFlagAndNotOnTheFile is the other half of the same
+// defect, and the one that punishes an innocent file.
+//
+// `--listen 8085` — a port with no host, which anybody types — used to be written into
+// the configuration BEFORE it was validated. A perfectly healthy station then announced
+// « configuration d'usine (ERR-CFG-01) » about a file that carried nothing wrong, and
+// died on ERR-SYS-02 a few lines later. The refusal must name the flag, must not name
+// the file, and must happen before the station takes itself out of service.
+func TestAMalformedListenFlagIsBlamedOnTheFlagAndNotOnTheFile(t *testing.T) {
+	bench := newServeBench(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), startBudget)
+	defer cancel()
+
+	var out bytes.Buffer
+	err := runServe(ctx, []string{
+		"--config", bench.configPath, "--data", bench.dataDir, "--listen", "8085"}, &out)
+	if err == nil {
+		t.Fatal("un --listen sans hôte a été accepté : le poste s'est lancé sur une adresse " +
+			"que personne ne peut lier")
+	}
+
+	message := explain(err)
+	if !strings.Contains(message, "--listen") {
+		t.Fatalf("le refus ne nomme pas le drapeau fautif : %s", message)
+	}
+	if strings.Contains(message, bench.configPath) {
+		t.Fatalf("une faute de frappe en ligne de commande est imputée au fichier de "+
+			"configuration : %s", message)
+	}
+	if got := out.String(); strings.Contains(got, "ERR-CFG-01") {
+		t.Fatalf("un poste sain est passé en configuration d'usine pour une faute de frappe "+
+			"en ligne de commande :\n%s", got)
+	}
+}
+
+// TestAFaultyListenAddressIsStillReportedWhenTheFlagIsGiven keeps the promise of §11.3:
+// TOUTES les fautes, et pas celles que le drapeau a bien voulu laisser voir.
+//
+// A volunteer who runs `serve --listen ...` to get a station up must still leave with the
+// list of what to repair in the file — including the address the file gets wrong.
+// Applying the flag before the validation silently repaired the field for the duration of
+// the run, and the fault came back at the next restart, alone in front of somebody who
+// thought they had finished.
+func TestAFaultyListenAddressIsStillReportedWhenTheFlagIsGiven(t *testing.T) {
+	asked := freeAddress(t)
+	bench := newServeBench(t, func(cfg *domain.Config) {
+		cfg.Network.Listen = "127.0.0.1"
+	}).listenFlag(asked)
+	bench.start()
+
+	if got := bench.output(); !strings.Contains(got, "network.listen") {
+		t.Fatalf("le drapeau a effacé une faute du fichier : §11.3 promet toutes les fautes\n%s", got)
+	}
+	if bench.address != asked {
+		t.Fatalf("le poste sert sur %q alors que --listen demandait %q", bench.address, asked)
+	}
+
+	if err := bench.stop(); err != nil {
+		t.Fatalf("serve a rendu une erreur sur un arrêt demandé : %v", err)
 	}
 }
 
@@ -327,6 +502,9 @@ type serveBench struct {
 	configPath string
 	dataDir    string
 	options    serveOptions
+	// fileAddress is the address the CONFIGURATION FILE declares, kept apart from
+	// options.listen so that a test can say which of the two the station really bound.
+	fileAddress string
 
 	cancel   context.CancelFunc
 	returned chan error
@@ -372,18 +550,19 @@ func newServeBench(t *testing.T, tweak ...func(*domain.Config)) *serveBench {
 	}
 
 	b := &serveBench{
-		t:          t,
-		configPath: filepath.Join(dir, "config.json"),
-		dataDir:    filepath.Join(dir, "data"),
-		out:        &syncBuffer{},
-		returned:   make(chan error, 1),
+		t:           t,
+		configPath:  filepath.Join(dir, "config.json"),
+		dataDir:     filepath.Join(dir, "data"),
+		fileAddress: cfg.Network.Listen,
+		out:         &syncBuffer{},
+		returned:    make(chan error, 1),
 	}
 	writeConfig(t, b.configPath, cfg)
-	// The address travels as the FLAG as well as in the file, and that is what makes a
-	// bench with a deliberately invalid configuration testable: such a station falls back
-	// on the neutral profile, whose address is 127.0.0.1:8085 like every station of the
-	// parc — including the one this developer has installed on their own machine. Only
-	// --listen survives that fallback.
+	// The address travels as the FLAG as well as in the file, so that a bench never lands
+	// on 127.0.0.1:8085 — the address of every station of the parc, including the one this
+	// developer has installed on their own machine — whatever the station decides to bind.
+	// A test that means to prove WHICH of the two was served separates them with
+	// listenFlag.
 	b.options = serveOptions{configPath: b.configPath, dataDir: b.dataDir, listen: cfg.Network.Listen}
 	// No Timeout on the client: an SSE body is read for as long as the station keeps
 	// it open, and a client-side deadline would end the stream itself — which is the
@@ -394,6 +573,16 @@ func newServeBench(t *testing.T, tweak ...func(*domain.Config)) *serveBench {
 			_ = stream.Body.Close()
 		}
 	})
+	return b
+}
+
+// listenFlag sets what --listen carries, the empty string meaning « no flag at all ».
+//
+// It is what tells the address of the FILE from the address of the FLAG: newServeBench
+// puts the same one in both, so a bench left as it comes proves nothing about which of
+// the two a station bound.
+func (b *serveBench) listenFlag(address string) *serveBench {
+	b.options.listen = address
 	return b
 }
 

@@ -59,6 +59,13 @@ export interface Presentation {
   idle_timeout_s: number
   reprint_window_s: number
   sound: boolean
+  /**
+   * Faux — le défaut — retire de la grille les produits vendus à l'unité.
+   *
+   * `by_unit` et non `unit` : le mode de vente vient du PRÉFIXE du code-barres, seul
+   * jeton que la caisse lit. La colonne `unite` du CSV n'est qu'un libellé de prix.
+   */
+  show_by_unit_products: boolean
 }
 
 /** Le corps de `GET /api/v1/catalog`. */
@@ -100,17 +107,32 @@ export interface Chip {
   count: number
 }
 
+/** Le mode de vente d'un produit qui s'achète à la pièce, tel que le serveur l'écrit. */
+const BY_UNIT = 'by_unit'
+
 /**
  * Les produits qu'un poste peut montrer : tout ce que le serveur a envoyé, moins
- * les rayons que ce poste masque.
+ * les rayons que ce poste masque, moins les produits vendus à l'unité s'il les masque.
+ *
+ * Les deux masquages sont ici, et non au serveur, pour la même raison : ce sont des
+ * choix de POSTE et non des décisions d'import. Le serveur sert l'inventaire de ce qui
+ * a une tuile, et `product_count` reste égal au `catalog_count` du flux d'état — que le
+ * navigateur surveille pour redemander le catalogue. Filtrer là-bas ferait diverger ces
+ * deux nombres en permanence, donc un `GET /api/v1/catalog` par événement.
+ *
+ * Masquer est un AFFICHAGE et jamais un refus : le chemin d'impression reste ouvert, et
+ * le poste continue de ne juger que la qualification.
  *
  * @param catalog - le catalogue servi.
- * @returns les produits des catégories visibles, dans l'ordre où ils sont servis.
+ * @returns les produits que ce poste montre, dans l'ordre où ils sont servis.
  */
 export function visibleProducts(catalog: Catalog): Product[] {
   const hidden = new Set(catalog.categories.filter((c) => !c.visible).map((c) => c.code))
-  if (hidden.size === 0) return catalog.products
-  return catalog.products.filter((p) => !hidden.has(p.category_code))
+  const byUnitHidden = !catalog.presentation.show_by_unit_products
+  if (hidden.size === 0 && !byUnitHidden) return catalog.products
+  return catalog.products.filter(
+    (p) => !hidden.has(p.category_code) && !(byUnitHidden && p.mode === BY_UNIT),
+  )
 }
 
 /**

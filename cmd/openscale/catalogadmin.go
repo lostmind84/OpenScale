@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -62,22 +63,91 @@ const maxDroppedBytes = 8 << 20
 // rules it always applies — including « a file still growing is not read » (§10.5), so a
 // producer's export caught mid-copy is not turned into an amputated catalog by somebody
 // pressing a button.
-func (c adminCatalog) Reload(_ context.Context) error {
+//
+// What it DOES add is a single look at the watched file, and the sentence that look
+// yields. The watch is mute when it finds nothing — it forgets and returns — so the one
+// state a volunteer most needs to hear about was the one nothing ever said.
+func (c adminCatalog) Reload(ctx context.Context) (string, error) {
 	source := c.source.current()
 	if source == nil {
 		// The refusal names a PAGE and not two configuration keys: the volunteer reading it
 		// has an administration screen in front of them, not a file, and the « réglages
 		// avancés » this sentence used to send them to were removed on 27/07/2026.
-		return errors.New("aucune source de catalogue n'a pu être ouverte sur ce poste : " +
+		return "", errors.New("aucune source de catalogue n'a pu être ouverte sur ce poste : " +
 			"choisissez où le poste va chercher le catalogue, sur la page Catalogue")
 	}
 	wake, ok := source.(waker)
 	if !ok {
-		return fmt.Errorf("la source %q ne sait pas relire à la demande : le prochain "+
+		return "", fmt.Errorf("la source %q ne sait pas relire à la demande : le prochain "+
 			"balayage la relira", source.Name())
 	}
+	seen := c.lookAtWatchedFile(ctx, source)
+	// The watch is woken WHATEVER the look saw, and in that order: the look is an
+	// observation, the wake is the act the button names. A file dropped between the two is
+	// then read at once instead of at the next tick.
 	wake.Wake()
-	return nil
+	return seen, nil
+}
+
+// watchBudget bounds the ONE look this route takes at the watched directory.
+//
+// The drop directory is a path a human typed and may well be a network share: without a
+// budget, a volunteer stands in front of a screen that answers when the share feels like
+// it. It is the same reason the printer status is observed outside the HTTP handler.
+const watchBudget = 2 * time.Second
+
+// lookAtWatchedFile says, in French, whether the file this station watches is there.
+//
+// It is NOT a second import path, and the difference is the whole point: nothing is
+// opened, nothing is parsed, nothing is applied. The watch keeps doing all of that, with
+// its stability rule, its quarantine and its acknowledgement. What this answers is the
+// single fact the watch never produces, because finding nothing is how it returns
+// silently — « nobody has put anything where the station is looking ».
+//
+// A source with no local file — a share — yields NOTHING rather than an absence: an
+// answer that claimed a file was missing without having looked for one would be worse
+// than the silence it replaces.
+func (c adminCatalog) lookAtWatchedFile(ctx context.Context, source ports.CatalogSource) string {
+	watched, ok := source.(watchedFile)
+	if !ok {
+		return ""
+	}
+	path := watched.Path()
+	name, directory := filepath.Base(path), filepath.Dir(path)
+
+	ctx, cancel := ports.WithBudget(ctx, c.clock, watchBudget)
+	defer cancel()
+	switch present, err := fileExists(ctx, path); {
+	case err != nil:
+		return fmt.Sprintf("Le poste n'a pas pu regarder dans %s : %s.", directory, err)
+	case present:
+		return fmt.Sprintf("%s est là, dans %s : la veille le relit maintenant.",
+			name, directory)
+	}
+	return fmt.Sprintf("Aucun fichier %s dans %s : il n'y a rien à relire.", name, directory)
+}
+
+// fileExists answers « is it there? » WITHIN the budget of ctx.
+//
+// os.Stat takes no context and a stat on an unreachable share blocks inside the kernel,
+// where no cancellation reaches it. The answer therefore travels on a buffered channel:
+// the caller gives up on the deadline, and the goroutine ends with the stat — never later
+// than the work it bounds — and writes into a buffer nobody has to read.
+func fileExists(ctx context.Context, path string) (bool, error) {
+	answered := make(chan error, 1)
+	go func() {
+		_, err := os.Stat(path)
+		answered <- err
+	}()
+	select {
+	case err := <-answered:
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return err == nil, err
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
 }
 
 // Import takes a CSV dropped on the screen and writes it where the ordinary watcher will

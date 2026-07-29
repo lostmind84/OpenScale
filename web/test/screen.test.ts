@@ -1,7 +1,7 @@
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App.svelte'
-import type { Product } from '../src/lib/catalog'
+import type { Catalog, Product } from '../src/lib/catalog'
 import type { LabelDTO, StateDTO } from '../src/lib/dto'
 import { catalogFromExport } from './fixtures/odoo'
 
@@ -15,6 +15,23 @@ import { catalogFromExport } from './fixtures/odoo'
  */
 
 const catalog = catalogFromExport('flv.csv')
+
+/**
+ * Le catalogue que la route sert au cas en cours.
+ *
+ * Le fichier réel par défaut. Un cas qui veut un autre poste — un poste qui masque les
+ * produits vendus à l'unité, par exemple — le remplace avant de monter l'écran : les
+ * réglages d'affichage voyagent AVEC le catalogue, ils n'ont pas d'autre porte d'entrée.
+ */
+let served: Catalog = catalog
+
+/** Le même catalogue, vu par un poste qui montre ou masque les produits à l'unité. */
+function seenWithByUnit(shown: boolean): Catalog {
+  return {
+    ...catalog,
+    presentation: { ...catalog.presentation, show_by_unit_products: shown },
+  }
+}
 
 /** Les corps envoyés à `POST /api/v1/weigh`, dans l'ordre. */
 let posted: { route: string; body: Record<string, unknown> }[] = []
@@ -134,6 +151,7 @@ let component: Record<string, unknown> | null = null
 beforeEach(() => {
   posted = []
   stream = null
+  served = catalog
   vi.stubGlobal('EventSource', FakeEventSource)
   vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
     if (init?.method === 'POST') {
@@ -146,7 +164,7 @@ beforeEach(() => {
     if (String(input).startsWith('/admin/api/')) {
       return new Response('{"message":"Poste indisponible dans ce test."}', { status: 503 })
     }
-    return new Response(JSON.stringify(catalog), { status: 200 })
+    return new Response(JSON.stringify(served), { status: 200 })
   })
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -168,9 +186,65 @@ async function open(state = restingState()): Promise<void> {
   flushSync()
 }
 
+/** Monte l'écran et pousse un état SANS attendre une tuile : la grille peut être vide. */
+async function openWithNoTile(state = restingState()): Promise<void> {
+  component = mount(App, { target: host })
+  flushSync()
+  await vi.waitUntil(() => host.querySelector('.empty') !== null)
+  stream?.push(state)
+  flushSync()
+}
+
 /** Les tuiles actuellement rendues. */
 function tiles(): HTMLElement[] {
   return [...host.querySelectorAll<HTMLElement>('button[data-product-id]')]
+}
+
+/** Ce que la grille dit quand elle n'a rien à dessiner : la phrase, puis sa consigne. */
+function emptyGrid(): { message: string; hint: string } {
+  return {
+    message: host.querySelector('.empty')?.textContent?.trim() ?? '',
+    hint: host.querySelector('.state .hint')?.textContent?.trim() ?? '',
+  }
+}
+
+/**
+ * Le délai accordé au montage de l'administration, et pourquoi il est écrit.
+ *
+ * `openAdmin()` charge l'écran PARESSEUSEMENT (§14.1) : le premier appui de ce
+ * fichier déclenche donc la transformation de tout le bundle d'administration par
+ * Vite, ce qui a dépassé la seconde que `vi.waitUntil` accorde par défaut. Ce
+ * défaut est un pari sur la vitesse de la machine, pas une propriété de l'écran —
+ * il tombe dès que la machine fait autre chose en même temps, et le cas accuse
+ * alors la touche Réglages d'un défaut qu'elle n'a pas.
+ */
+const ADMIN_MOUNT_MS = 15_000
+
+/** Le budget d'un cas qui l'attend : ce montage, plus tout ce que le cas fait autour. */
+const ADMIN_CASE_MS = ADMIN_MOUNT_MS + 5_000
+
+/** Ouvre l'administration par la touche Réglages, et attend qu'elle soit montée. */
+async function openAdminScreen(key: HTMLElement): Promise<void> {
+  key.click()
+  await vi.waitUntil(() => document.querySelector('[data-admin]') !== null, {
+    timeout: ADMIN_MOUNT_MS,
+  })
+}
+
+/**
+ * Referme l'administration par sa seule sortie : il n'y a derrière cet écran ni
+ * bureau, ni barre des tâches, ni `Alt+F4` (§15.2).
+ *
+ * Elle vit sur `document.body`, hors du `host` que `afterEach` retire, et le module
+ * qui la monte garde un verrou : la laisser ouverte rendrait vrai d'avance tout cas
+ * suivant qui l'attend.
+ */
+async function closeAdminScreen(): Promise<void> {
+  const back = [...document.querySelectorAll<HTMLElement>('[data-admin] button')].find((b) =>
+    b.textContent?.includes('Revenir à l’écran client'),
+  ) as HTMLElement
+  back.click()
+  await vi.waitUntil(() => document.querySelector('[data-admin]') === null)
 }
 
 /**
@@ -231,6 +305,68 @@ describe('la grille et la barre basse', () => {
   })
 })
 
+/**
+ * Un poste qui ne vend pas d'article à la pièce au comptoir.
+ *
+ * Une tuile vendue à l'unité imprime une étiquette SANS JAMAIS LIRE LA BALANCE : c'est
+ * un geste à part, et `ui.show_by_unit_products` décide si ce poste l'offre. Le réglage
+ * doit savoir se défaire — un masquage qu'on ne peut pas essayer est un masquage que
+ * personne n'osera toucher.
+ */
+describe('les produits vendus à l’unité, masqués sur ce poste', () => {
+  it('ramène la grille à 316 tuiles et le bandeau à « 316 produits pesables »', async () => {
+    served = seenWithByUnit(false)
+    await open()
+
+    expect(tiles()).toHaveLength(316)
+    expect(host.querySelector('.grid')?.getAttribute('data-tile-count')).toBe('316')
+    expect(host.querySelector('.block.station')?.textContent).toContain('316 produits pesables')
+  })
+
+  it('ne laisse aucune tuile vendue à l’unité sous le doigt', async () => {
+    served = seenWithByUnit(false)
+    await open()
+
+    const drawn = new Set(tiles().map((tile) => tile.dataset.productId))
+    const byUnit = catalog.products.filter((p) => p.mode === 'by_unit')
+    expect(byUnit).toHaveLength(15)
+    expect(byUnit.filter((p) => drawn.has(p.id))).toEqual([])
+  })
+
+  it('les rend toutes quand le poste choisit de les montrer', async () => {
+    served = seenWithByUnit(true)
+    await open()
+
+    expect(tiles()).toHaveLength(331)
+    expect(host.querySelector('.block.station')?.textContent).toContain('331 produits pesables')
+  })
+
+  it('n’accuse pas un fichier manquant quand c’est lui qui vide la grille', async () => {
+    // Un poste dont tout le catalogue se vend à l'unité : le fichier EST arrivé, et la
+    // phrase « En attente du fichier flv_2.csv » enverrait un bénévole chercher un
+    // fichier posé sur le disque depuis ce matin.
+    const byUnit = catalog.products.filter((p) => p.mode === 'by_unit')
+    served = {
+      ...seenWithByUnit(false),
+      products: byUnit,
+      product_count: byUnit.length,
+    }
+    await openWithNoTile(restingState({ catalog_count: byUnit.length }))
+
+    const { message, hint } = emptyGrid()
+    expect(message).not.toContain('En attente du fichier')
+    expect(message).toContain('à l’unité')
+    expect(hint).toContain('Le fichier est bien arrivé')
+  })
+
+  it('dit toujours le fichier attendu quand le poste n’a reçu aucun produit', async () => {
+    served = { ...seenWithByUnit(false), products: [], product_count: 0 }
+    await openWithNoTile(restingState({ catalog_count: 0 }))
+
+    expect(emptyGrid().message).toBe('Catalogue vide. En attente du fichier flv_2.csv.')
+  })
+})
+
 describe('ce que l’écran dit en permanence', () => {
   it('affiche la date et l’heure du catalogue en service', async () => {
     await open()
@@ -256,18 +392,11 @@ describe('ce que l’écran dit en permanence', () => {
     await open()
     const key = host.querySelector<HTMLElement>('[aria-label="Réglages"]') as HTMLElement
 
-    key.click()
-    await vi.waitUntil(() => document.querySelector('[data-admin]') !== null)
-
-    const back = [...document.querySelectorAll<HTMLElement>('[data-admin] button')].find((b) =>
-      b.textContent?.includes('Revenir à l’écran client'),
-    ) as HTMLElement
-    back.click()
-    await vi.waitUntil(() => document.querySelector('[data-admin]') === null)
-
-    key.click()
-    await vi.waitUntil(() => document.querySelector('[data-admin]') !== null)
-  })
+    await openAdminScreen(key)
+    await closeAdminScreen()
+    await openAdminScreen(key)
+    await closeAdminScreen()
+  }, ADMIN_CASE_MS)
 
   it('n’a plus de palier de densité de tuile — la grille est continue (ADR-035)', async () => {
     await open()
@@ -482,6 +611,34 @@ describe('ce qui occupe l’écran, et rien d’autre', () => {
     expect(screen).not.toBeNull()
     expect(screen?.textContent).toContain('ERR-PRN-01')
   })
+
+  /*
+   * Le poste que l'installeur vient de livrer.
+   *
+   * Il démarre hors service — configuration d'usine, ERR-CFG-01 — et le voile prend
+   * l'écran. Ce cas fige l'invariant DOM : le voile est bien là, la touche Réglages
+   * aussi, elle est active, elle n'est pas DANS le voile, et elle ouvre bien
+   * l'administration.
+   *
+   * Ce qu'il ne peut PAS voir, et il faut le dire : le recouvrement. Vitest
+   * n'applique pas les styles des composants et jsdom ne fait aucune mise en page,
+   * donc ce clic aboutissait déjà quand le voile couvrait le bouton à l'écran.
+   * L'empilement est tenu par `layers.test.ts` ; la preuve au poste est une mesure
+   * `elementFromPoint` au navigateur.
+   */
+  it('garde la touche Réglages active sur un poste hors service', async () => {
+    await open(restingState({ state: 'out_of_service', fault_code: 'ERR-CFG-01' }))
+    expect(host.querySelector('[role="alertdialog"]')).not.toBeNull()
+
+    const key = host.querySelector<HTMLButtonElement>('[aria-label="Réglages"]')
+    expect(key).not.toBeNull()
+    expect(key?.disabled).toBe(false)
+    expect(key?.closest('[role="alertdialog"]')).toBeNull()
+
+    expect(document.querySelector('[data-admin]')).toBeNull()
+    await openAdminScreen(key as HTMLElement)
+    await closeAdminScreen()
+  }, ADMIN_CASE_MS)
 
   it('masque le poids quand la mesure est périmée', async () => {
     await open(restingState({ weight: { ...restingState().weight, expired: true } }))

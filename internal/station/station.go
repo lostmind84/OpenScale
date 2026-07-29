@@ -166,15 +166,21 @@ type Options struct {
 	Store  Closer
 	// CatalogWait rolls an import transaction back before the database closes.
 	CatalogWait Waiter
-	// OnRevert is called when the 60 s window of §11.4 closed without a confirmation and
-	// the station has just gone back to the configuration it had.
+	// OnRevert is called when the 60 s window of §11.4 closed without a confirmation, and it
+	// receives THE FILE AS IT WAS BEFORE THE SAVE — never the configuration the station was
+	// running.
 	//
 	// It exists because the countdown protects the RUNNING station and the file is written
 	// before it starts: without this hook, a station that rolled back would come back, at
 	// the next restart, on the very configuration nobody confirmed — which is exactly the
 	// branch the countdown was cutting. What it does is the caller's business; internal/
 	// station knows no file.
-	OnRevert func(previous domain.Config)
+	//
+	// The two documents are distinct on the one station this matters for. A station whose
+	// configuration is unusable RUNS the neutral profile (§11.3) while its file keeps the
+	// cooperative's tariffs, safeguards and categories: handing the running configuration
+	// over here wrote the factory profile onto that file, on the very save that repaired it.
+	OnRevert func(fileBefore domain.Config)
 }
 
 // Station is the running weighing station: the Hub, its two workers, its
@@ -243,7 +249,7 @@ type Station struct {
 	confirmation *pendingConfirmation
 	// onRevert puts the FILE back when nobody confirmed. Nil does nothing, which is what
 	// every test that does not care about the file gets.
-	onRevert func(previous domain.Config)
+	onRevert func(fileBefore domain.Config)
 
 	// started reports that Start launched the loop and the workers. Stop drains
 	// nothing that was never launched: a process that failed before Start must
@@ -259,9 +265,14 @@ type Station struct {
 	duration time.Duration
 }
 
-// pendingConfirmation is the configuration to go back to if nobody confirms.
+// pendingConfirmation is what to go back to if nobody confirms — and it is TWO documents,
+// because a station and its file do not always carry the same one.
 type pendingConfirmation struct {
-	previous domain.Config
+	// running is what the station was OPERATING ON, and it is what goes back into service.
+	running domain.Config
+	// file is what the configuration file CARRIED before the save, and it is what goes
+	// back on disk. On a station out of service the two differ completely (§11.3).
+	file     domain.Config
 	deadline time.Time
 }
 
@@ -419,25 +430,66 @@ type ReloadOutcome struct {
 	ConfirmBefore time.Time
 }
 
+// ReloadRequest is one configuration change, with the document the rollback would have to
+// put back on disk.
+//
+// The two travel together because the countdown of §11.4 has two things to undo, and a
+// caller that only handed over the new configuration left the station guessing at the other.
+type ReloadRequest struct {
+	// Next is the configuration to put in service.
+	Next domain.Config
+	// FileBefore is what the configuration FILE carried before this change was written,
+	// and it is the document a rollback puts back on disk.
+	//
+	// A POINTER, and nil says « je n'ai pas pu lire le fichier » — the rollback then falls
+	// back on the configuration in service, which is all such a caller possesses. It is not
+	// a domain.Config with a zero value, because the zero value of a configuration LOOKS
+	// like a configuration: a caller that forgot this field would arm a rollback towards a
+	// document nobody ever validated, and nothing would say so.
+	FileBefore *domain.Config
+}
+
 // Reload publishes a new configuration and restarts ONLY the subsystems whose
 // block actually changed.
 //
 // limits, tiers, template, UI and journal apply instantly, with no gap in service:
 // they are read from the atomic pointer on the next turn of the loop and by
 // nothing else.
-func (s *Station) Reload(next domain.Config) (ReloadOutcome, error) {
+func (s *Station) Reload(req ReloadRequest) (ReloadOutcome, error) {
 	s.reloadMu.Lock()
 	defer s.reloadMu.Unlock()
 
-	previous := *s.hub.cfg.Load()
-	changed := s.apply(previous, next)
+	running := *s.hub.cfg.Load()
+	changed := s.apply(running, req.Next)
 
 	outcome := ReloadOutcome{Changed: changed}
 	if needsConfirmation(changed) {
 		outcome.ConfirmBefore = s.clock.Now().Add(confirmationWindow)
-		s.confirmation = &pendingConfirmation{previous: previous, deadline: outcome.ConfirmBefore}
+		file := running
+		if req.FileBefore != nil {
+			file = *req.FileBefore
+		}
+		s.confirmation = &pendingConfirmation{
+			running: running, file: file, deadline: outcome.ConfirmBefore,
+		}
 	}
 	return outcome, nil
+}
+
+// PendingConfirmation reports the end of the countdown still running, or the zero time when
+// nothing is waiting to be confirmed.
+//
+// It exists so that the administration can REFUSE a second save inside the window, the way
+// it refuses a confirmation outside it. Accepting one would replace the target of the
+// rollback with a configuration nobody has confirmed either, and the version somebody really
+// did validate would be the one lost.
+func (s *Station) PendingConfirmation() time.Time {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	if s.confirmation == nil {
+		return time.Time{}
+	}
+	return s.confirmation.deadline
 }
 
 // Confirm accepts the configuration in force and stops the countdown.
@@ -460,17 +512,21 @@ func (s *Station) revertIfUnconfirmed(now time.Time) {
 	if s.confirmation == nil || now.Before(s.confirmation.deadline) {
 		return
 	}
-	previous := s.confirmation.previous
+	running, file := s.confirmation.running, s.confirmation.file
 	s.confirmation = nil
 	s.hub.logTechnical(domain.LevelWarn, "config", "",
 		"Configuration non confirmée en 60 s : retour à la version précédente.", "")
-	s.apply(*s.hub.cfg.Load(), previous)
+	// The station goes back to what it was OPERATING ON, and to nothing else. Applying the
+	// file here would be the tempting symmetry and the wrong one: on a station out of
+	// service that document is the very one §11.3 refuses to run, and nothing in this
+	// package can put a station BACK into the out-of-service state.
+	s.apply(*s.hub.cfg.Load(), running)
 	if s.onRevert != nil {
 		// The FILE goes back too, and it has to: the countdown protects the station that
 		// is running, and the write of §11.4 happened before the countdown started. A
 		// station that rolled back and then restarted on the unconfirmed configuration
 		// would have cut the branch sixty seconds later than announced.
-		s.onRevert(previous)
+		s.onRevert(file)
 	}
 }
 

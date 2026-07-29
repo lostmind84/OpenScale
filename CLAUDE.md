@@ -11,7 +11,7 @@ conception est **terminée et validée** ; l'implémentation n'a pas commencé.
 
 | Document | Rôle |
 |---|---|
-| `docs/02-architecture.md` | **La référence.** Tout en découle. 22 sections, 33 ADR |
+| `docs/02-architecture.md` | **La référence.** Tout en découle. 22 sections, 41 ADR |
 | `docs/03-glossaire.md` | **Autorité de nommage.** Ne jamais s'en écarter |
 | `docs/04-parametrage-sato.md` | **Ce que l'imprimante a en mémoire.** Fait foi sur la géométrie |
 | `docs/01-etat-des-lieux.md` | Ce que faisait l'ancienne application, et pourquoi |

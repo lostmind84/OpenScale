@@ -25,7 +25,10 @@ import { nominalHealth, nominalState } from './fixtures/health'
  *    de passe et sont rejoués, au lieu de laisser un bandeau sans porte ;
  *  - `printer.health` n'atteint jamais l'écran en anglais ;
  *  - tant que la configuration n'est pas arrivée, la page n'affirme rien — ni la case à
- *    cocher, ni la légende des trames.
+ *    cocher, ni la légende des trames ;
+ *  - un volet ouvert à la main RESTE OUVERT sous le sondage d'état, qui repasse toutes
+ *    les trois secondes et emportait avec lui les deux seuls champs de l'écran qui
+ *    nomment un port série.
  */
 
 /** Une trame GRAM telle qu'elle sort du câble, STX compris. */
@@ -76,9 +79,12 @@ let heldTests: (() => void)[] = []
 let holding = false
 let holdingCaptures = false
 let holdingTests = false
+/** Le tableau de bord que le poste sert au sondage, tel que le test l'a voulu. */
+let served: HealthDTO = nominalHealth()
 
 beforeEach(() => {
   calls = []
+  served = nominalHealth()
   ports = [{ name: 'COM8', description: 'USB-Serial CH340', vid: '1A86', pid: '7523' }]
   printers = []
   discovered = []
@@ -136,6 +142,11 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       pending_confirmation: null,
     })
   }
+  // Le sondage d'état, celui que `Admin.start` rejoue toutes les trois secondes. Il
+  // repasse par `json`, donc par une sérialisation : chaque tour rend un objet NEUF,
+  // exactement comme le poste. Un objet mémorisé et resservi ne changerait pas d'identité,
+  // n'invaliderait aucune dérivée, et ce banc ne verrait plus rien de ce qui suit.
+  if (route === '/admin/api/health') return json(served)
   if (route === '/admin/api/ports') return json({ ports })
   if (route === '/admin/api/printers') return json({ printers })
   if (route === '/admin/api/printers/discover') {
@@ -193,16 +204,38 @@ function refusal(status: number, message: string): Promise<Response> {
 /**
  * Monte la page Matériel.
  *
+ * Le prop `health` est BRANCHÉ sur le `$state` que le sondage remplace, par un accesseur,
+ * exactement comme `App.svelte` écrit `health={admin.health}`. Un objet figé — ce que ce
+ * banc passait — ne rejoue jamais l'effet de gabarit de la page : la page était montée
+ * dans un poste sans horloge, et tout ce que le sondage abîme restait invisible.
+ *
  * @param health - le tableau de bord servi par le poste.
  * @param readConfig - faux pour observer la page AVANT que la configuration n'arrive.
  */
 async function open(health: HealthDTO = nominalHealth(), readConfig = true): Promise<void> {
   admin = new Admin(60_000)
   draft = new Draft(admin)
+  served = health
   if (readConfig) await draft.load()
-  component = mount(Hardware, { target: host, props: { admin, draft, health } })
+  await admin.refresh()
+  component = mount(Hardware, {
+    target: host,
+    props: {
+      admin,
+      draft,
+      get health(): HealthDTO {
+        return admin.health ?? health
+      },
+    },
+  })
   flushSync()
   await settle()
+}
+
+/** Un tour du sondage d'état, celui que la page subit toutes les trois secondes. */
+async function poll(): Promise<void> {
+  await admin.refresh()
+  flushSync()
 }
 
 /** Laisse ce qui est en vol se terminer, puis met le DOM à jour. */
@@ -254,6 +287,31 @@ function field(path: string): HTMLInputElement {
 /** Combien d'appels ont été passés sur cette route. */
 function countOf(fragment: string): number {
   return calls.filter((line) => line.includes(fragment)).length
+}
+
+/** Le volet replié dont le titre porte ce fragment. */
+function folded(fragment: string): HTMLDetailsElement {
+  const found = [...host.querySelectorAll('details')].find((candidate) =>
+    (candidate.querySelector('summary')?.textContent ?? '').includes(fragment),
+  )
+  if (found === undefined) throw new Error(`aucun volet « ${fragment} » à l'écran`)
+  return found
+}
+
+/**
+ * Touche le titre d'un volet, comme un doigt le fait.
+ *
+ * Le clic et non `details.open = true` : c'est le navigateur qui bascule l'attribut, puis
+ * l'événement `toggle` qui repart vers la page — et cette voie de retour est précisément
+ * celle que le correctif rétablit. Poser l'attribut à la main la court-circuiterait et
+ * ferait passer le banc pour la mauvaise raison. `settle` laisse passer la macrotâche sur
+ * laquelle jsdom émet `toggle`.
+ *
+ * @param volet - le volet à toucher.
+ */
+async function tap(volet: HTMLDetailsElement): Promise<void> {
+  volet.querySelector('summary')?.click()
+  await settle()
 }
 
 describe('le visualiseur des 20 dernières trames, TOUJOURS actif (§14.4)', () => {
@@ -510,5 +568,112 @@ describe('ce que la page dit de l’imprimante et de la balance', () => {
     const fields = [...host.querySelectorAll<HTMLInputElement>('input[type="text"]')]
     expect(fields.length).toBeGreaterThan(0)
     expect(fields.every((field) => field.disabled)).toBe(true)
+  })
+})
+
+/**
+ * Les volets repliés, et le sondage d'état qui passe dessous toutes les trois secondes.
+ *
+ * L'ouverture d'un volet appartient au BÉNÉVOLE : c'est lui qui l'ouvre, c'est lui qui le
+ * referme, et rien d'autre. La page l'ouvrait à sa place — et la rouvrait, et la
+ * refermait — à chaque tour du tableau de bord, sous les doigts de quelqu'un qui tapait un
+ * nom de port dedans. Les deux seuls champs qui nomment un port série vivent là.
+ */
+describe('les volets repliés de la page Matériel', () => {
+  it('garde ouvert le volet des réglages série quand le sondage d’état passe', async () => {
+    await open()
+    const settings = folded('Réglages série de la balance')
+    await tap(settings)
+    expect(settings.open, 'le titre touché n’a pas ouvert le volet').toBe(true)
+
+    await poll()
+    await poll()
+
+    expect(settings.open, 'le sondage d’état a refermé le volet ouvert à la main').toBe(true)
+  })
+
+  it('garde ouvert le volet des réglages de l’imprimante, qui est le même objet', async () => {
+    // Les deux volets partagent l'effet de gabarit du fragment : ce qui referme l'un
+    // referme l'autre, et un seul test ne prouverait rien du second.
+    await open()
+    const settings = folded('Réglages de l’imprimante')
+    await tap(settings)
+    expect(settings.open, 'le titre touché n’a pas ouvert le volet').toBe(true)
+
+    await poll()
+
+    expect(settings.open, 'le sondage d’état a refermé le volet ouvert à la main').toBe(true)
+  })
+
+  it('laisse le champ « Port série » atteignable après un tour de sondage', async () => {
+    // C'est la conséquence qui compte pour le bénévole, et elle ne se déduit pas de
+    // l'attribut : un volet refermé emporte le champ avec lui.
+    await open()
+    await tap(folded('Réglages série de la balance'))
+
+    await poll()
+
+    const port = field('scale.options.port')
+    expect(host.contains(port), 'le champ a quitté la page').toBe(true)
+    expect(
+      port.closest('details')?.open,
+      'le champ est retombé sous un volet que le sondage a refermé',
+    ).toBe(true)
+  })
+
+  it('ouvre le volet tout seul quand un contrôle refuse un de ses champs', async () => {
+    await open()
+    const settings = folded('Réglages série de la balance')
+    expect(settings.open, 'le volet était déjà ouvert alors que rien n’était refusé').toBe(false)
+
+    draft.faults = [
+      { field: 'scale.options.port', message: 'COM99 n’est pas visible depuis ce poste.' },
+    ]
+    flushSync()
+
+    expect(
+      settings.open,
+      'un refus de contrôle n’a pas ouvert le volet qui porte le champ fautif',
+    ).toBe(true)
+  })
+
+  it('laisse refermé un volet refermé à la main, même si le refus tient toujours', async () => {
+    // Le même défaut par l'autre bout : un volet que la page rouvrirait à chaque tour
+    // tant qu'un refus dure serait aussi impossible à refermer qu'il l'était à ouvrir.
+    await open()
+    const settings = folded('Réglages série de la balance')
+    draft.faults = [
+      { field: 'scale.options.port', message: 'COM99 n’est pas visible depuis ce poste.' },
+    ]
+    flushSync()
+    expect(settings.open, 'le refus n’a pas ouvert le volet').toBe(true)
+
+    await tap(settings)
+    expect(settings.open, 'le titre touché n’a pas refermé le volet').toBe(false)
+
+    await poll()
+
+    expect(settings.open, 'le volet s’est rouvert tout seul alors que rien n’avait bougé').toBe(
+      false,
+    )
+  })
+
+  it('ne perd pas la saisie en cours quand le sondage passe', async () => {
+    await open()
+    await tap(folded('Réglages série de la balance'))
+    const port = field('scale.options.port')
+    port.value = 'COM3'
+    port.dispatchEvent(new Event('input', { bubbles: true }))
+    await settle()
+
+    await poll()
+
+    expect(field('scale.options.port').value, 'la saisie en cours a disparu au sondage').toBe(
+      'COM3',
+    )
+    expect(
+      field('scale.options.port').closest('details')?.open,
+      'la saisie en cours est retombée sous un volet refermé',
+    ).toBe(true)
   })
 })

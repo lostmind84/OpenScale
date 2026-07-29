@@ -15,9 +15,10 @@ import (
 // then restarted by the SCM or by a power cut would come back on the configuration nobody
 // confirmed, sixty seconds after the branch was supposed to be safe.
 //
-// internal/station knows no file, so what it does is CALL BACK with the configuration it has
-// just put in service. The composition root writes it, through the same atomic path as any
-// other save.
+// internal/station knows no file, so what it does is CALL BACK with the document that file
+// carried before the save. The composition root writes it, through the same atomic path as
+// any other save. This caller hands no FileBefore, so the two documents are the same one —
+// which is the ordinary station, and the reason the defect stayed invisible for so long.
 func TestARollbackPutsTheFileBackTooIsWhatMakesTheCountdownLastPastARestart(t *testing.T) {
 	reverted := &revertRecorder{}
 	forge := &scaleForge{}
@@ -31,7 +32,7 @@ func TestARollbackPutsTheFileBackTooIsWhatMakesTheCountdownLastPastARestart(t *t
 	next := b.hub.Config()
 	next.Scale.Type = "gram-xfoc-rs"
 
-	outcome, err := b.station.Reload(next)
+	outcome, err := b.station.Reload(ReloadRequest{Next: next})
 	if err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
@@ -74,7 +75,7 @@ func TestAConfirmedChangeNeverWritesTheFileBack(t *testing.T) {
 
 	next := b.hub.Config()
 	next.Scale.Type = "gram-xfoc-rs"
-	if _, err := b.station.Reload(next); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
 	if err := b.station.Confirm(); err != nil {
@@ -92,6 +93,89 @@ func TestAConfirmedChangeNeverWritesTheFileBack(t *testing.T) {
 	}
 }
 
+// TestLaCibleDuRetourArriereEstLeFichierEtPasCeQueLePosteFaitTourner.
+//
+// The countdown has TWO documents to put back and they are not the same one. The station
+// goes back to what it was RUNNING — on a station whose file is faulty that is the neutral
+// profile, and applying anything else would hand a live station a configuration §11.3 says
+// never to run. The FILE goes back to what IT carried, which is the cooperative's own.
+//
+// Remembering only one of the two is what wrote the factory profile over a shop's file.
+func TestLaCibleDuRetourArriereEstLeFichierEtPasCeQueLePosteFaitTourner(t *testing.T) {
+	reverted := &revertRecorder{}
+	forge := &scaleForge{}
+	b := newBench(t, func(o *benchOptions) {
+		o.newScale = forge.New
+		o.onRevert = reverted.record
+		// What a station whose configuration is unusable RUNS (§11.3).
+		o.config = func(cfg *domain.Config) { *cfg = domain.NeutralProfile() }
+	})
+	forge.clock = b.clock
+
+	running := b.hub.Config()
+	file := loadConfig(t)
+	if file.Station.Coop == running.Station.Coop {
+		t.Fatal("le fichier et ce qui tourne portent la même coopérative : le banc ne " +
+			"distingue plus les deux documents")
+	}
+
+	next := loadConfig(t)
+	next.Scale.Type = "gram-xfoc-rs"
+	outcome, err := b.station.Reload(ReloadRequest{Next: next, FileBefore: &file})
+	if err != nil {
+		t.Fatalf("Reload : %v", err)
+	}
+	if outcome.ConfirmBefore.IsZero() {
+		t.Fatal("un changement de matériel n'arme aucun compte à rebours")
+	}
+
+	b.clock.Advance(confirmationWindow + time.Second)
+	awaitCondition(t, func() bool { return reverted.count() == 1 },
+		"le retour arrière n'a jamais été signalé à qui écrit le fichier")
+
+	if got := reverted.last().Station.Coop; got != file.Station.Coop {
+		t.Errorf("le fichier serait réécrit avec la coopérative %q, attendu celle qu'il "+
+			"portait, %q", got, file.Station.Coop)
+	}
+	if got := b.hub.Config().Station.Coop; got != running.Station.Coop {
+		t.Errorf("le poste fait tourner la coopérative %q, attendu celle qu'il faisait "+
+			"tourner, %q : le fichier a été appliqué au poste vivant", got, running.Station.Coop)
+	}
+}
+
+// TestSansFichierDAvantLeRetourArriereRepondCeQueLePosteFaisaitTourner.
+//
+// FileBefore is a POINTER and nil is a legitimate answer: it means « je n'ai pas pu lire le
+// fichier », and what a caller in that state possesses is the configuration in service. The
+// fallback has to stay, or a station whose file is unreadable would see its rollback write
+// the zero configuration — a document nobody ever validated, and one that no station starts on.
+func TestSansFichierDAvantLeRetourArriereRepondCeQueLePosteFaisaitTourner(t *testing.T) {
+	reverted := &revertRecorder{}
+	forge := &scaleForge{}
+	b := newBench(t, func(o *benchOptions) {
+		o.newScale = forge.New
+		o.onRevert = reverted.record
+	})
+	forge.clock = b.clock
+
+	before := b.hub.Config()
+	next := b.hub.Config()
+	next.Scale.Type = "gram-xfoc-rs"
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
+		t.Fatalf("Reload : %v", err)
+	}
+
+	b.clock.Advance(confirmationWindow + time.Second)
+	awaitCondition(t, func() bool { return reverted.count() == 1 },
+		"le retour arrière n'a jamais été signalé à qui écrit le fichier")
+
+	rewritten := reverted.last()
+	if got, want := rewritten.Fingerprint(), before.Fingerprint(); got != want {
+		t.Fatalf("le fichier serait réécrit avec l'empreinte %s, attendu %s : un appelant qui "+
+			"n'a pas pu lire le fichier ne possède que ce qui tourne", got, want)
+	}
+}
+
 // revertRecorder keeps what the station handed back, so that « le fichier revient en
 // arrière » is an assertion and not a hope.
 type revertRecorder struct {
@@ -99,11 +183,11 @@ type revertRecorder struct {
 	configs []domain.Config
 }
 
-// record is the hook the station calls.
-func (r *revertRecorder) record(previous domain.Config) {
+// record is the hook the station calls with the file as it was before the save.
+func (r *revertRecorder) record(fileBefore domain.Config) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.configs = append(r.configs, previous)
+	r.configs = append(r.configs, fileBefore)
 }
 
 // count reports how many rollbacks were signalled.

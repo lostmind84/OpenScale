@@ -10,6 +10,7 @@ import type {
   PortDTO,
   PrinterDeviceDTO,
   ProblemDTO,
+  ReloadDTO,
   SessionDTO,
   TechnicalLineDTO,
   UpdateDTO,
@@ -59,9 +60,16 @@ export function reprintLast(): Promise<ActionDTO> {
   return postJSON<ActionDTO>('/admin/api/troubleshooting/reprint', {})
 }
 
-/** « Recharger le catalogue » : la veille refait le MÊME poll (§14.4). */
-export function reloadCatalog(): Promise<ActionDTO> {
-  return postJSON<ActionDTO>('/admin/api/troubleshooting/reload-catalog', {})
+/**
+ * « Recharger le catalogue » : la veille refait le MÊME poll (§14.4).
+ *
+ * La réponse est un 202 et elle ne porte PAS l'issue — la veille lit, qualifie et
+ * applique sur son propre fil. Elle porte ce que le poste a vu du fichier surveillé, et
+ * l'import en service à l'instant de l'appui, qui est ce qui permet de reconnaître le
+ * suivant.
+ */
+export function reloadCatalog(): Promise<ReloadDTO> {
+  return postJSON<ReloadDTO>('/admin/api/troubleshooting/reload-catalog', {})
 }
 
 /** « Basculer en saisie manuelle ». Un état du poste, jamais une configuration écrite. */
@@ -263,9 +271,9 @@ export function fetchImports(
   return getJSON<{ imports: ImportDTO[]; findings: FindingDTO[] }>('/admin/api/imports' + query)
 }
 
-/** « Recharger le catalogue », porte expert de la même action. */
-export function reloadCatalogAsExpert(): Promise<ActionDTO> {
-  return postJSON<ActionDTO>('/admin/api/catalog/reload', {})
+/** « Recharger le catalogue », porte expert de la même action et de la même réponse. */
+export function reloadCatalogAsExpert(): Promise<ReloadDTO> {
+  return postJSON<ReloadDTO>('/admin/api/catalog/reload', {})
 }
 
 /** « Oublier la quarantaine » : le prochain fichier sera relu (§10.5). */

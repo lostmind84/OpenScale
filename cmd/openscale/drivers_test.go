@@ -152,6 +152,89 @@ func TestPrinterSettingsRefuseAFileThatSaysNothing(t *testing.T) {
 	}
 }
 
+// TestLeProfilNeutreEstApplicableParCeBinaire.
+//
+// The neutral profile is what a station RUNS when its own file is unusable (§11.3), and its
+// whole job is to keep the administration screen reachable so that somebody can repair the
+// file. A profile this binary's own registries refuse is a station serving a configuration
+// its own validation turns down: the read-modify-write cycle of the administration then
+// answers 422 on `printer.type`, a field nobody touched, and no save is possible at all.
+//
+// No existing test could see it. internal/domain validates it against a registry that
+// invents the three printers, and against an empty one where the control is skipped
+// altogether — and the only test that used the real registries validated the DELIVERED file.
+//
+// admin.password_hash is the one fault the profile documents and means: a virgin station has
+// no password, and step 1 of the first-start wizard is the answer to it.
+func TestLeProfilNeutreEstApplicableParCeBinaire(t *testing.T) {
+	profile := domain.NeutralProfile()
+	for _, fault := range profile.Validate(registries()) {
+		if fault.Field == "admin.password_hash" {
+			continue
+		}
+		t.Errorf("le profil d'usine produit une faute contre les registres de ce binaire : %s",
+			fault.String())
+	}
+}
+
+// TestLeProfilNeutreObtientUneVraieImprimante.
+//
+// The other half of the same hole. A station on the neutral profile carries no
+// `printer.options` at all — deliberately: darkness, speed and the number of copies are set
+// on a REAL print run, and a factory profile has no business inventing them. So the printer
+// it gets must come from a driver that needs none of that, and needs no device either.
+//
+// Until the `preview` driver was registered, that station got `unbuiltPrinter`: every button
+// of the troubleshooting screen answered « l'imprimante configurée n'a pas pu être
+// construite », on the one station those buttons exist for.
+func TestLeProfilNeutreObtientUneVraieImprimante(t *testing.T) {
+	profile := domain.NeutralProfile()
+	templates, err := templatesFor(profile, registries())
+	if err != nil {
+		t.Fatalf("templatesFor sur le profil d'usine : %v", err)
+	}
+	printer, err := newPrinter(profile, printerRegistry(), templates,
+		fake.NewClock(captureStart), nopLog{}, t.TempDir())
+	if err != nil {
+		t.Fatalf("le profil d'usine n'obtient aucune imprimante : %v", err)
+	}
+	defer printer.Close()
+	if printer.Descriptor().ID == "" {
+		t.Fatal("l'imprimante du profil d'usine ne se nomme pas")
+	}
+}
+
+// TestChaqueTypeDImprimanteDuDomaineEstConstructible keeps the drop-down list a volunteer
+// reads and what this binary can actually build in step.
+//
+// A driver offered by the administration screen that newPrinter cannot instantiate would be
+// a setting that validates and then refuses to print — the same promise
+// TestEveryTransportOfTheRegistryCanBeBuilt makes one layer down.
+func TestChaqueTypeDImprimanteDuDomaineEstConstructible(t *testing.T) {
+	for _, descriptor := range printerRegistry().Descriptors() {
+		cfg := shippedConfig(t)
+		cfg.Printer.Type = descriptor.ID
+		templates, err := templatesFor(cfg, registries())
+		if err != nil {
+			t.Fatalf("templatesFor pour %q : %v", descriptor.ID, err)
+		}
+		printer, err := newPrinter(cfg, printerRegistry(), templates,
+			fake.NewClock(captureStart), nopLog{}, t.TempDir())
+		if err != nil {
+			t.Fatalf("le driver %q est proposé par le registre et non constructible : %v",
+				descriptor.ID, err)
+		}
+		if err := printer.Close(); err != nil {
+			t.Fatalf("fermeture du driver %q : %v", descriptor.ID, err)
+		}
+	}
+}
+
+// nopLog swallows what a driver reports while a test builds it.
+type nopLog struct{}
+
+func (nopLog) Technical(_, _, _, _, _ string) {}
+
 // registriesOfThisBinary is what a configuration is validated against: the drivers and
 // the transports this binary really carries.
 func registriesOfThisBinary() domain.Registries {

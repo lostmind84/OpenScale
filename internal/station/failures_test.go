@@ -90,7 +90,7 @@ func TestTheScaleComesBackInsideTwoHundredMilliseconds(t *testing.T) {
 
 	next := b.hub.Config()
 	next.Scale.Options = mustOptions(t, `{"port":"COM9"}`)
-	if _, err := b.station.Reload(next); err != nil {
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
 		t.Fatalf("Reload : %v", err)
 	}
 	driver := forge.last()

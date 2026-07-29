@@ -114,6 +114,24 @@ func TestNeutralProfileCarriesNoSiteValue(t *testing.T) {
 	}
 }
 
+// TestTheNeutralProfileHidesTheByUnitProducts, and says so in so many words.
+//
+// A tile sold by unit prints a label WITHOUT EVER READING THE SCALE: it is a gesture of
+// its own, and a station that fell back to the factory profile must not start offering
+// it because nobody wrote the key down. The profile still validates clean, which is the
+// property the whole file exists to hold.
+func TestTheNeutralProfileHidesTheByUnitProducts(t *testing.T) {
+	profile := NeutralProfile()
+	if profile.UI.ShowByUnitProducts {
+		t.Error("le profil d'usine montre les produits vendus à l'unité : " +
+			"un poste en configuration d'usine offrirait un geste que personne n'a décidé")
+	}
+	if faults := profile.Validate(testRegistries()); len(faults) != 0 {
+		t.Fatalf("le profil neutre doit passer sans faute ; obtenu :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
 // TestNeutralProfileReadsNoClock: nothing in internal/domain reads a wall clock, so
 // the profile leaves modified_at to whoever writes it.
 func TestNeutralProfileReadsNoClock(t *testing.T) {

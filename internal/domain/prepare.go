@@ -184,6 +184,12 @@ func Prepare(in PrepareInput) (Preparation, error) {
 	// rule 14 PRODUCT_WITHDRAWN, because a withdrawn product is exactly the case a
 	// customer must be told about in French ("Ce produit n'est pas disponible."),
 	// and because the admin screen wants to see what the weighing WOULD have cost.
+	//
+	// ui.show_by_unit_products is not read here EITHER, and that is a decision rather
+	// than an omission: it is a DISPLAY and never a refusal. A station that hides its
+	// by-unit tiles keeps printing their labels for a browser holding an older catalog,
+	// and the till reads them exactly as before. Closing that path would be a new
+	// safeguard, with its own rule number and its own French sentence.
 	if in.Product.Qualification != Weighable {
 		return Preparation{}, fmt.Errorf("%w: product %s is %s (%s)",
 			ErrProductNotWeighable, in.Product.ID, in.Product.Qualification, in.Product.Reason)

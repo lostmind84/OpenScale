@@ -19,6 +19,31 @@ export interface ActionDTO {
   message: string
 }
 
+/**
+ * Ce que « Recharger le catalogue » répond, sur les deux routes qui y mènent.
+ *
+ * Un type à lui, et non un `ActionDTO` élargi : celui-là sert sept routes et son format
+ * est figé. Et cette réponse-ci ne peut pas porter ce que tout le monde veut — l'import
+ * est asynchrone par conception, la veille fait le travail sur son propre fil, et la
+ * réponse est un 202. Ce qu'elle porte est donc de quoi RECONNAÎTRE l'issue quand elle
+ * arrivera, par le sondage de trois secondes.
+ */
+export interface ReloadDTO {
+  done: boolean
+  /** Ce que le poste a VU, jamais une promesse de ce qu'il va faire. */
+  message: string
+  /** La ligne permanente du catalogue. Vide quand ce poste ne la publie pas. */
+  watched: string
+  /**
+   * L'import en service à l'instant de l'appui, et 0 quand ce poste n'a pas de journal.
+   *
+   * C'est ce que l'écran compare au tableau de bord : un identifiant différent, trois
+   * secondes plus tard, est l'issue qui arrive.
+   */
+  last_import_id: number
+  last_import_at: string
+}
+
 /** Un refus de la couche HTTP. `code` est vide quand aucun ERR-xxx-nn n'est alloué. */
 export interface ProblemDTO {
   code: string

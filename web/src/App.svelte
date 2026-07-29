@@ -43,7 +43,7 @@
   const settings = $derived(session.presentation)
   const healthy = $derived(hardwareIsHealthy(snapshot))
   /**
-   * What the grid says when it has nothing to draw — and the three cases differ.
+   * What the grid says when it has nothing to draw — and the four cases differ.
    *
    * « Aucun produit ne correspond » is true of a filter that matched nothing and
    * FALSE of a station whose catalog has not arrived: there is nothing to
@@ -51,6 +51,10 @@
    * looking for a search box. §14.4 fixes the wording of that second case, and
    * the name of the awaited file is DERIVED from the station number — never
    * written in a message.
+   *
+   * The third case is the one this station creates for itself: the file arrived and
+   * everything it carried is hidden here. Announcing an awaited file would send a
+   * volunteer looking for one that has been on the disk since the morning.
    */
   const empty = $derived.by(() => {
     if (session.catalogError !== '') {
@@ -58,6 +62,16 @@
     }
     if (products.length > 0) {
       return { message: 'Aucun produit ne correspond.', hint: 'Effacez des lettres ou changez de rayon.' }
+    }
+    if (catalog !== null && catalog.products.length > 0) {
+      const byUnitOnly = catalog.products.every((p) => p.mode === 'by_unit')
+      return {
+        message:
+          byUnitOnly && !settings.show_by_unit_products
+            ? 'Aucun produit à montrer : ce poste masque les produits vendus à l’unité, et le catalogue reçu ne contient que ceux-là.'
+            : 'Aucun produit à montrer : les réglages d’affichage de ce poste masquent tout ce qu’il a reçu.',
+        hint: 'Le fichier est bien arrivé : prévenez un responsable, c’est un réglage de ce poste qui vide la grille.',
+      }
     }
     const station = snapshot?.station ?? 0
     return {

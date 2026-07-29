@@ -58,6 +58,15 @@ type adminHardware struct {
 	registries domain.Registries
 	// technical is where an administrative action is recorded — a replayed frame is one.
 	technical ports.TechnicalLog
+	// config reports the configuration IN FORCE, because a detection listens with the
+	// link settings THIS station declares and not only with those of the parc — a scale
+	// that is not at 9600 bauds would otherwise stay undetectable.
+	//
+	// It is a function and not h.hub.Config() on purpose: Hub.Config dereferences the
+	// station's own configuration, so a test building this struct without a hub would
+	// panic. nil therefore means « nothing declared yet », which is exactly the case of
+	// a station being installed — the very moment this route is used.
+	config func() domain.Config
 
 	// open opens a serial port. nil means the real one, so the production path needs no
 	// wiring — and a test drives the detection through a stream it hands back, exactly as
@@ -130,11 +139,14 @@ func printersOf(queues []platform.PrintQueue) []web.PrinterInfo {
 // guess fails at the counter. Here the port is opened, the grammar of §9.2 is applied to
 // what comes out of it, and the answer is a count.
 //
-// # The port in service is EXCLUSIVE
+// # A refusal has to say WHICH refusal it is
 //
 // On Windows a port already held by the scale of this station cannot be opened a second
-// time, and the refusal says so: a volunteer detecting on the port that already works
-// must read « elle est déjà utilisée par ce poste » rather than « accès refusé ».
+// time, and « accès refusé » alone would send a volunteer hunting for a permission
+// problem that does not exist. That hint is only true of a refusal that came from the
+// SYSTEM, though: link settings no port could accept are named — with the key of
+// scale.options to correct — before anything is opened, and must never reach the screen
+// as a port somebody else is holding.
 func (h adminHardware) DetectScale(ctx context.Context, port string) (web.ScaleDetection, error) {
 	if strings.TrimSpace(port) == "" {
 		return web.ScaleDetection{}, errors.New("indiquez le port à écouter : COM8, /dev/balance-serial")
@@ -187,16 +199,21 @@ func (h adminHardware) CaptureFrames(ctx context.Context, port string, d time.Du
 // diagnosis, and a lost cable is not a failure of this function.
 func (h adminHardware) listen(ctx context.Context, port string, window time.Duration) (
 	[]string, []domain.Measurement, int, error) {
-	link := serial.Options{Port: port, Clock: h.clock, Open: h.open}
-	open := link.Open
-	if open == nil {
-		open = serial.OpenSystemPort
-	}
-	stream, err := open(link)
+	link, err := h.linkFor(port)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("le port %s ne peut pas être ouvert : %w. "+
-			"S'il est celui de la balance de ce poste, il est déjà utilisé : un port série est "+
-			"EXCLUSIF sous Windows", port, err)
+		return nil, nil, 0, err
+	}
+	stream, err := link.Open(link)
+	if err != nil {
+		// Every reason the LINK itself could be unusable has already been named by linkFor,
+		// with the key of scale.options to correct, so what is left here comes from the
+		// system — and that is what makes the two causes below the only two. Whoever adds a
+		// check upstream of this call must name its own refusal there, or a settings mistake
+		// will once again reach a volunteer as a port that somebody else is holding.
+		return nil, nil, 0, fmt.Errorf("le port %s n'a pas pu être ouvert : %w. Deux causes "+
+			"possibles : un autre programme le tient — la balance de ce poste en premier, "+
+			"un port série est EXCLUSIF sous Windows — ou bien ce port n'existe plus sur "+
+			"cette machine", port, err)
 	}
 	defer stream.Close()
 
@@ -231,6 +248,55 @@ func (h adminHardware) listen(ctx context.Context, port string, window time.Dura
 		}
 	}
 	return frames, measurements, read, nil
+}
+
+// linkFor is the link a detection listens on: the settings THIS station declares,
+// completed by the defaults of the parc, on the port being probed.
+//
+// # The completion is written here on purpose
+//
+// A link assembled field by field carried no bitrate, no character size, no parity and no
+// stop bits, and the real opener refuses such a link before it reaches the device: the
+// detection could not succeed on any port of any machine, and every port of a scan came
+// back accused of being taken. Calling serial.Options.Complete at the place where the
+// port is BOUND is what makes that visible to the next reader, and what lets the caller
+// tell a refusal of these settings from a refusal of the system.
+//
+// # The port always wins over the configuration
+//
+// A scan probes the ports of the machine one after the other. Taking the port from the
+// configuration would interrogate the same one N times and report the other N-1 as silent.
+func (h adminHardware) linkFor(port string) (serial.Options, error) {
+	link, err := h.declaredLink()
+	if err != nil {
+		return serial.Options{}, fmt.Errorf("les réglages série de ce poste sont refusés, "+
+			"corrigez-les avant de détecter : %w", err)
+	}
+	link.Port = port
+	link.Clock = h.clock
+	if h.open != nil {
+		link.Open = h.open
+	}
+	return link, nil
+}
+
+// declaredLink reads the link settings this station declares and completes them.
+//
+// A station that has declared nothing yet — the one being installed, which is precisely
+// when this route is used — falls back on the defaults of the parc. A station that
+// declares 19200 bauds is listened to at 19200: at the figure of the parc its scale would
+// answer bytes that decode to nothing, and the screen would send somebody to check a
+// cable that is fine.
+func (h adminHardware) declaredLink() (serial.Options, error) {
+	var declared domain.DriverOptions
+	if h.config != nil {
+		declared = h.config().Scale.Options
+	}
+	link, err := serial.ParseOptions(declared)
+	if err != nil {
+		return serial.Options{}, err
+	}
+	return link.Complete()
 }
 
 // defaultReadBuffer is how many bytes one read may hand back.

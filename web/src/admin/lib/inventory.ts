@@ -1,5 +1,5 @@
 import type { ImportDTO, MotiveDTO } from './dto'
-import { frenchDate } from './format'
+import { frenchDate, frenchDateTime } from './format'
 
 /**
  * L'inventaire du catalogue, écrit MOT POUR MOT comme §14.4 le donne.
@@ -119,6 +119,114 @@ function oneLineOf(record: ImportDTO): string {
     parts.push(`${integer(divergent)} ${divergent === 1 ? 'unité divergente' : 'unités divergentes'}`)
   }
   return parts.join(' · ')
+}
+
+/**
+ * Comment un import s'est terminé, en français.
+ *
+ * Les quatre jetons du noyau, et le tableau vit ici parce que trois écrans les lisent : le
+ * tableau de bord, l'historique de la page Catalogue et la phrase que « Recharger le
+ * catalogue » laisse derrière lui. Trois copies auraient fini par diverger, et un bénévole
+ * aurait lu deux mots pour un même sort selon l'écran d'où il regarde.
+ *
+ * « identique au précédent » et jamais « inchangé, déjà appliqué » : un fichier identique
+ * à l'octet est un cas NOMINAL — le producteur peut déposer le même export chaque nuit —
+ * mais celui qui vient d'appuyer sur « Recharger » doit comprendre qu'aucun nouveau
+ * catalogue n'est en service.
+ */
+const IMPORT_RESULTS: Record<string, string> = {
+  applied: 'appliqué',
+  unchanged: 'identique au précédent',
+  rejected: 'refusé',
+  failed: 'échec',
+}
+
+/** D'où un catalogue est arrivé, en français. Les trois jetons du noyau. */
+const IMPORT_SOURCES: Record<string, string> = {
+  local_drop: 'dépôt local',
+  webdav: 'WebDAV',
+  manual: 'déposé sur l’écran',
+}
+
+/**
+ * Le mot français d'un résultat d'import.
+ *
+ * @param result - le jeton que le service a écrit.
+ */
+export function importResultWord(result: string): string {
+  return IMPORT_RESULTS[result] ?? 'résultat inconnu'
+}
+
+/**
+ * Le mot français d'une source de catalogue.
+ *
+ * @param source - le jeton que le service a écrit.
+ */
+export function importSourceWord(source: string): string {
+  return IMPORT_SOURCES[source] ?? 'source inconnue'
+}
+
+/**
+ * L'issue d'un import, en UNE phrase : « flv_1.csv appliqué le 24/07/2026 à 14:00 via
+ * dépôt local — 153 reçus · 107 pesables · 39 non pesables · 7 anomalies. »
+ *
+ * Elle est ici, et non dans une page, parce que les deux portes de « Recharger le
+ * catalogue » — le gros bouton du Dépannage et la porte experte de la page Catalogue —
+ * doivent en rendre exactement la même : un acte ne peut pas s'annoncer différemment selon
+ * l'écran d'où on l'atteint.
+ *
+ * @param record - l'import, tel que le tableau de bord le donne.
+ * @param motives - la répartition des non-pesables par motif, ou une liste vide.
+ */
+export function importOutcomeSentence(record: ImportDTO, motives: MotiveDTO[]): string {
+  const said = [
+    record.file_name === '' ? 'Le dernier fichier' : record.file_name,
+    importResultWord(record.result),
+  ]
+  const when = frenchDateTime(record.occurred_at)
+  if (when !== '') said.push('le ' + when)
+  said.push('via ' + importSourceWord(record.source))
+
+  // Le motif du service passe TEL QUEL : c'est lui qui sait pourquoi il a écarté un
+  // fichier, et un écran qui le résumerait enlèverait la seule chose qui dise quoi faire.
+  const why = record.reason === '' ? '' : ' ' + record.reason
+  return `${said.join(' ')} — ${inventoryOf(record, motives).oneLine}.${why}`
+}
+
+/**
+ * Ce que l'écran dit quand l'attente d'une issue a atteint son plafond.
+ *
+ * Elle ne conclut RIEN : la veille qui ne trouve rien revient sans écrire une ligne, donc
+ * « le fichier n'était pas là » est une hypothèse et pas un constat. Ce qui est affirmé
+ * tient en deux faits — aucun import enregistré, et voici ce qui est surveillé.
+ *
+ * @param watched - ce que le poste surveille, ou une chaîne vide.
+ */
+export function noImportSentence(watched: string): string {
+  if (watched === '') {
+    return 'Aucun nouvel import enregistré à cet instant, et ce poste ne publie pas ce qu’il surveille.'
+  }
+  return (
+    'Aucun nouvel import enregistré à cet instant. Le poste surveille ' +
+    watched +
+    ' : le fichier n’y était pas, ou il n’a pas encore fini d’arriver.'
+  )
+}
+
+/**
+ * Ce que l'écran dit à un poste dont le journal est indisponible.
+ *
+ * Il n'écrira jamais la ligne d'import que l'attente guette : lui promettre une issue,
+ * c'est l'attendre pour rien puis accuser un fichier qui est peut-être en service.
+ *
+ * @param watched - ce que le poste surveille, ou une chaîne vide.
+ */
+export function noJournalSentence(watched: string): string {
+  const where = watched === '' ? '' : ' Le poste surveille ' + watched + '.'
+  return (
+    'Ce poste n’a pas de journal : il ne pourra rien dire de l’issue de cette relecture.' +
+    where
+  )
 }
 
 /** Le libellé du lien vers les lignes concernées, au singulier comme au pluriel. */

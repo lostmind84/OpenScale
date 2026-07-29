@@ -266,6 +266,93 @@ func TestOpenSystemPortRefusesBeforeItTouchesTheHardware(t *testing.T) {
 	}
 }
 
+// TestCompleteMakesAnyCallerAbleToOpenThePort guards the promise the godoc of Options
+// makes to everybody, and used to keep for three callers only.
+//
+// « The zero value is usable once Port, Decoder and Clock are set » was true through New,
+// Loop and ParseOptions, the three callers of the private completion, and false for
+// anything else. A caller outside this package that built an Options field by field — the
+// detection of the Matériel screen did exactly that — handed OpenSystemPort a link with
+// no parity and got a refusal naming the parity, on every port and on every machine.
+func TestCompleteMakesAnyCallerAbleToOpenThePort(t *testing.T) {
+	link, err := Options{Port: "COM8"}.Complete()
+	if err != nil {
+		t.Fatalf("des réglages réduits au port sont refusés : %v", err)
+	}
+	want := linkSettings{
+		Port: "COM8", Baud: 9600, Bits: 8, Parity: "N", Stop: 1,
+		ReadBufferSize: defaultReadBufferSize,
+		BackoffMin:     200 * time.Millisecond,
+		BackoffMax:     5 * time.Second,
+	}
+	if got := linkOf(link); got != want {
+		t.Errorf("liaison complétée %+v, attendu %+v", got, want)
+	}
+	if link.Open == nil {
+		t.Error("Open nil : sans réglage explicite c'est le vrai port série qui est visé")
+	}
+
+	// What a station really declared is never overwritten, and a second pass moves nothing.
+	declared, err := Options{Port: "COM8", Baud: 19200, Bits: 7, Parity: "E", Stop: 2}.Complete()
+	if err != nil {
+		t.Fatalf("des réglages déclarés sont refusés : %v", err)
+	}
+	if declared.Baud != 19200 || declared.Bits != 7 || declared.Parity != "E" || declared.Stop != 2 {
+		t.Errorf("les valeurs déclarées ont été écrasées : %+v", linkOf(declared))
+	}
+	twice, err := declared.Complete()
+	if err != nil {
+		t.Fatalf("second passage : %v", err)
+	}
+	if linkOf(twice) != linkOf(declared) {
+		t.Errorf("second passage %+v, attendu %+v", linkOf(twice), linkOf(declared))
+	}
+
+	// And a completed link really does get as far as the DEVICE: the refusal of a port no
+	// machine can carry names the port, never the parity. That is the whole point — a
+	// settings refusal and a system refusal are two different remedies for a volunteer.
+	nowhere, err := Options{Port: "OPENSCALE-NO-SUCH-PORT"}.Complete()
+	if err != nil {
+		t.Fatalf("la complétion refuse un port qu'elle n'a pas à juger : %v", err)
+	}
+	_, err = OpenSystemPort(nowhere)
+	if err == nil {
+		t.Fatal("un port inexistant a été ouvert")
+	}
+	if strings.Contains(err.Error(), "parité") {
+		t.Errorf("la liaison complétée est encore refusée sur ses réglages : %v", err)
+	}
+}
+
+// TestCompleteRefusesSettingsNoPortCouldAccept: completing is not tolerating.
+//
+// A link that no port could ever accept must be named BEFORE the device is touched, with
+// the key of scale.options to correct — a bénévole reading « accès refusé » on a parity
+// typo would go hunting for a process holding the port.
+func TestCompleteRefusesSettingsNoPortCouldAccept(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		options Options
+		names   string // the key the message must name
+	}{
+		{"une parité inexistante", Options{Port: "COM8", Parity: "K"}, optionParity},
+		{"trois bits d'arrêt", Options{Port: "COM8", Stop: 3}, optionStop},
+		{"neuf bits de données", Options{Port: "COM8", Bits: 9}, optionBits},
+		{"une vitesse négative", Options{Port: "COM8", Baud: -1}, optionBaud},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.options.Complete()
+			if err == nil {
+				t.Fatalf("réglages acceptés : %+v", linkOf(tc.options))
+			}
+			if !strings.Contains(err.Error(), tc.names) {
+				t.Errorf("message %q, il doit nommer %q — un bénévole doit savoir quel "+
+					"champ corriger", err, tc.names)
+			}
+		})
+	}
+}
+
 func TestWithDefaultsIsIdempotent(t *testing.T) {
 	// New, Loop and ParseOptions all call it, and a second pass must not move a value a
 	// station really declared.

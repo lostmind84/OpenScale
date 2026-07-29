@@ -7,8 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Catalog from '../src/admin/pages/Catalog.svelte'
 import { Draft } from '../src/admin/lib/draft.svelte'
 import type { DecisionDTO, FindingDTO, HealthDTO, ImportDTO } from '../src/admin/lib/dto'
+import {
+  importOutcomeSentence,
+  importResultWord,
+  importSourceWord,
+} from '../src/admin/lib/inventory'
 import { Admin } from '../src/admin/lib/session.svelte'
-import { FLV_IMPORT, nominalHealth } from './fixtures/health'
+import { FLV_1_IMPORT, FLV_IMPORT, nominalHealth } from './fixtures/health'
 
 /**
  * La page Catalogue dit-elle la vérité, et le mot de passe est-il demandé au bon moment ?
@@ -92,6 +97,22 @@ function goLiteral(source: string, field: string): string {
   return [...whole.matchAll(/"([^"]*)"/gu)].map((piece) => piece[1] ?? '').join('')
 }
 
+/**
+ * Ce que « Recharger le catalogue » répond, dans la forme exacte du service.
+ *
+ * La réponse est un 202 : l'import est asynchrone par conception, et ce que la route rend
+ * n'est pas l'issue mais de quoi la reconnaître — ce qui est surveillé, et l'import en
+ * service à l'instant de l'appui.
+ */
+const RELOAD_ANSWER = {
+  done: true,
+  message:
+    'Aucun fichier flv_2.csv dans C:\\ProgramData\\OpenScale\\catalog\\incoming : il n’y a rien à relire.',
+  watched: 'dépôt local, flv_2.csv dans C:\\ProgramData\\OpenScale\\catalog\\incoming',
+  last_import_id: FLV_IMPORT.id,
+  last_import_at: FLV_IMPORT.occurred_at,
+}
+
 let host: HTMLElement
 let component: unknown
 /** La page montée avec un tableau de bord MODIFIABLE, quand un test en a besoin. */
@@ -110,7 +131,7 @@ let findings: FindingDTO[] = []
 /** L'historique que la route d'imports rend. */
 let history: ImportDTO[] = []
 /** Les produits que la route CLIENT sert : elle ne sert jamais un produit retiré. */
-let catalogProducts: { id: string; name: string; search: string }[] = []
+let catalogProducts: { id: string; name: string; search: string; mode: string }[] = []
 /** Combien de fois encore une décision doit être refusée en 401 avant d'être acceptée. */
 let refusalsLeft = 0
 /** Vrai quand ce poste n'a pas d'historique d'imports (ADR-013) : la route répond 503. */
@@ -168,6 +189,9 @@ function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
       return json({ code: '', message: 'Session absente ou expirée.' }, 401)
     }
     return json({ done: true, message: 'La décision est enregistrée.' })
+  }
+  if (url === '/admin/api/catalog/reload') {
+    return json(RELOAD_ANSWER, 202)
   }
   if (url === '/admin/api/catalog/import') {
     // EXACTEMENT ce que la route répond : un inventaire SANS résultat, et la phrase qui
@@ -359,6 +383,7 @@ describe('aucune liste sans plafond, et aucun plafond muet', () => {
       id: `p${String(index)}`,
       name: `TOMATE ${String(index)}`,
       search: `tomate ${String(index)}`,
+      mode: 'by_weight',
     }))
     open()
     await settle()
@@ -797,11 +822,15 @@ describe('ce que le mouvement réduit doit éteindre', () => {
 })
 
 describe('aucun jeton anglais du service à l’écran', () => {
+  // Le vocabulaire des imports a quitté cette page pour `lib/inventory.ts` : trois écrans
+  // le lisent — le tableau de bord, cet historique, et la phrase que « Recharger le
+  // catalogue » laisse derrière lui —, et trois copies auraient fini par diverger. La
+  // garantie suit le code : c'est le module partagé qui doit couvrir les jetons du noyau.
   it('traduit les quatre résultats d’import du noyau', () => {
     const tokens = [...JOURNAL_GO.matchAll(/\bImport[A-Za-z]+\s*=\s*"(\w+)"/gu)].map((m) => m[1])
     expect(tokens).toHaveLength(4)
     for (const token of tokens) {
-      expect(PAGE, token).toMatch(new RegExp(`^\\s*${token as string}: '`, 'mu'))
+      expect(importResultWord(token as string), token).not.toBe('résultat inconnu')
     }
   })
 
@@ -811,8 +840,25 @@ describe('aucun jeton anglais du service à l’écran', () => {
     )
     expect(tokens).toHaveLength(3)
     for (const token of tokens) {
-      expect(PAGE, token).toMatch(new RegExp(`^\\s*(?:${token as string}|'${token as string}'): '`, 'mu'))
+      expect(importSourceWord(token as string), token).not.toBe('source inconnue')
     }
+  })
+
+  it('annonce l’issue d’un rechargement dans les MÊMES mots que la page Dépannage', async () => {
+    // Un acte ne peut pas s'annoncer différemment selon l'écran d'où on l'atteint : c'est
+    // la règle déjà écrite à propos de la pastille « clé » sur la même zone de dépôt.
+    const applied = { ...FLV_1_IMPORT, id: 9, result: 'applied' }
+    const poll = openLive(nominalHealth())
+    await settle()
+
+    act('reload').click()
+    await settle()
+    poll(nominalHealth({ catalog: applied }))
+    await settle()
+
+    expect(pageText()).toContain(
+      collapse(importOutcomeSentence(applied, nominalHealth().catalog_motives)),
+    )
   })
 
   it('écrit « identique au précédent » là où le service écrit `unchanged`', async () => {
@@ -824,5 +870,97 @@ describe('aucun jeton anglais du service à l’écran', () => {
     expect(cell).toBe('identique au précédent')
     expect(pageText()).not.toContain('unchanged')
     expect(pageText()).not.toContain('local_drop')
+  })
+})
+
+/**
+ * Le panneau qui dit ce que la grille montre, et ce qu'elle ne montre pas.
+ *
+ * Sans le nombre RÉEL de produits concernés, l'écart entre « 331 pesables » de
+ * l'inventaire et « 316 produits pesables » du bandeau client n'est explicable par
+ * personne au téléphone. Ce nombre est donc DÉRIVÉ du catalogue en service : un chiffre
+ * écrit en dur passerait un test de rendu sans broncher, et mentirait au premier import.
+ */
+describe('ce que la grille montre des produits vendus à l’unité', () => {
+  /** Un catalogue en service : quinze produits à l'unité parmi des produits au poids. */
+  function mixedCatalog(): void {
+    catalogProducts = [
+      ...Array.from({ length: 15 }, (_unused, index) => ({
+        id: `u${String(index)}`,
+        name: `MELON ${String(index)}`,
+        search: `melon ${String(index)}`,
+        mode: 'by_unit',
+      })),
+      ...Array.from({ length: 20 }, (_unused, index) => ({
+        id: `w${String(index)}`,
+        name: `TOMATE ${String(index)}`,
+        search: `tomate ${String(index)}`,
+        mode: 'by_weight',
+      })),
+    ]
+  }
+
+  it('écrit le réglage dans le brouillon, sans toucher au bloc catalogue', async () => {
+    mixedCatalog()
+    const admin = new Admin()
+    const draft = new Draft(admin)
+    draft.config = localDropConfig()
+    component = mount(Catalog, { target: host, props: { admin, draft, health: nominalHealth() } })
+    flushSync()
+    await settle()
+
+    const box = host.querySelector<HTMLInputElement>(
+      '[data-flag="ui.show_by_unit_products"] input',
+    )
+    expect(box, 'aucun interrupteur pour les produits vendus à l’unité').not.toBeNull()
+    expect(box?.checked).toBe(false)
+
+    box?.click()
+    flushSync()
+
+    expect(draft.flag('ui.show_by_unit_products')).toBe(true)
+    // Le bloc `catalog` n'a pas bougé : un changement là-bas relance la sonde disque et
+    // redémarre la source du catalogue, pour un simple réglage d'affichage.
+    expect(draft.config?.catalog).toEqual(localDropConfig().catalog)
+  })
+
+  it('compte les produits vraiment concernés par le dernier import', async () => {
+    mixedCatalog()
+    open()
+    await settle()
+
+    expect(pageText()).toContain("15 produits vendus à l'unité sont masqués sur ce poste")
+  })
+
+  it('dit qu’ils sont montrés quand le poste les montre', async () => {
+    mixedCatalog()
+    const admin = new Admin()
+    const draft = new Draft(admin)
+    draft.config = { ...localDropConfig(), ui: { show_by_unit_products: true } }
+    component = mount(Catalog, { target: host, props: { admin, draft, health: nominalHealth() } })
+    flushSync()
+    await settle()
+
+    expect(pageText()).toContain("15 produits vendus à l'unité sont montrés dans la grille")
+  })
+
+  it('n’affirme aucun nombre quand le catalogue n’a pas pu être lu', async () => {
+    catalogFails = true
+    open()
+    await settle()
+
+    const said = pageText()
+    expect(said).not.toMatch(/\d+ produits vendus à l'unité/u)
+    expect(said).toContain("Le catalogue en service n'a pas pu être lu")
+  })
+
+  it('dit ce qu’un poste perd en masquant ces produits', async () => {
+    mixedCatalog()
+    open()
+    await settle()
+
+    // Ce n'est pas de l'ornement : une tuile à l'unité imprime une étiquette SANS jamais
+    // lire la balance, et c'est le seul geste que ce réglage retire.
+    expect(pageText()).toContain('sans jamais lire la balance')
   })
 })

@@ -185,6 +185,18 @@ Options :
 	}
 
 	o := serveOptions{configPath: *configPath, dataDir: *dataDir, listen: *listen}
+	// A malformed --listen is refused HERE, naming the flag, because from any later point
+	// the only thing left to blame is the file: the flag used to be written into the
+	// configuration before it was validated, so `--listen 8085` took a healthy station out
+	// of service and reported « configuration d'usine (ERR-CFG-01) » about config.json.
+	// The rule is domain's own, control 2's, and not a second one that would drift from it.
+	if o.listen != "" {
+		if err := domain.CheckListenAddress(o.listen); err != nil {
+			return serveOptions{}, &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf(
+				"--listen %q n'est pas une adresse hôte:port valide (%s) ; attendu hôte:port, "+
+					"par exemple 127.0.0.1:8085", o.listen, err)}
+		}
+	}
 	if o.configPath == "" {
 		o.configPath = platform.DefaultConfigPath()
 	}
@@ -202,14 +214,13 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if o.listen != "" {
-		cfg.Network.Listen = o.listen
-	}
 	// The service OWNS its data directory and creates it (§15.3). Nothing here is a
 	// mount point and nothing here is shared: an administrator who wants files to
 	// arrive from a share mounts what they like where they like and synchronises into
 	// it, and the unit has nothing to know about it.
-	for _, dir := range []string{o.dataDir, imagesRoot(o.dataDir), labelsDir(o.dataDir)} {
+	for _, dir := range []string{
+		o.dataDir, imagesRoot(o.dataDir), labelsDir(o.dataDir), previewsDir(o.dataDir),
+	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return &serviceFailure{Exit: exitFailure, Err: err, Message: fmt.Sprintf(
 				"le répertoire de données %s ne peut pas être créé : %v", dir, err)}
@@ -262,7 +273,15 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	outOfService := len(faults) > 0
 	if outOfService {
 		reportFaults(out, o.configPath, faults)
-		cfg = fallbackProfile(cfg, o.listen)
+		cfg = fallbackProfile(cfg, faults)
+	}
+	// --listen is applied AFTER the verdict, and that is the whole point of its position.
+	// Written before, it was judged as if the file had carried it: a typo on the command
+	// line took a healthy station out of service and was reported against config.json,
+	// while a genuine fault in the file's own address was quietly repaired for the
+	// duration of the run and came back at the next restart.
+	if o.listen != "" {
+		cfg.Network.Listen = o.listen
 	}
 
 	// The technical journal belongs to the Hub, and the drivers are built BEFORE it
@@ -379,16 +398,27 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		// The rollback of §11.4 puts the FILE back as well as the running station: a
 		// station that went back on its own and then restarted on the configuration nobody
 		// confirmed would have cut the branch sixty seconds later than announced.
-		OnRevert: func(previous domain.Config) {
-			if err := configFile.Save(context.Background(), previous); err != nil {
+		//
+		// What arrives here is THE FILE AS IT WAS BEFORE THE SAVE, and never the
+		// configuration the station was running. The two differ on exactly the station this
+		// matters for: one whose file is unusable runs the neutral profile (§11.3) while
+		// its file keeps the cooperative's own settings, and writing the running
+		// configuration back replaced them with the factory ones — the tariffs, the
+		// safeguards, the categories — sixty seconds after a volunteer repaired the file.
+		OnRevert: func(fileBefore domain.Config) {
+			if err := configFile.Save(context.Background(), fileBefore); err != nil {
 				log.Technical(domain.LevelError, "config", "",
 					"Retour arrière appliqué au poste mais non écrit : le fichier porte "+
 						"encore la configuration non confirmée.", err.Error())
 				return
 			}
+			// The detail names BOTH fingerprints. « Retour à la version précédente »
+			// designates two documents on an out-of-service station, and a line carrying
+			// one number would leave a volunteer unable to say which one came back.
+			running := st.Hub().Config()
 			log.Technical(domain.LevelWarn, "config", "",
 				"Configuration non confirmée : le fichier est revenu à la version précédente.",
-				previous.Fingerprint())
+				fmt.Sprintf("fichier %s, poste %s", fileBefore.Fingerprint(), running.Fingerprint()))
 		},
 	})
 	if err != nil {
@@ -444,7 +474,7 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		},
 		Hardware: adminHardware{
 			clock: clock, hub: st.Hub(), registries: registries,
-			technical: st.Hub().TechnicalLog(),
+			technical: st.Hub().TechnicalLog(), config: st.Hub().Config,
 		},
 		Printer:         live,
 		Troubleshooting: adminTroubleshooting{station: st, printer: live, file: configFile},
@@ -613,19 +643,44 @@ func readConfig(path string) (domain.Config, error) {
 // answering « ce poste n'a pas de code de secours » — on the ONE station both exist for.
 // The screen was then unreachable on exactly the station §11.3 says it must serve.
 //
-// # The listening address
+// # The network block
 //
-// --listen is what somebody types while diagnosing — « the address is taken, move this
-// station off it ». The neutral profile carries 127.0.0.1:8085 like every station of the
-// parc, so dropping the override answered a deliberate instruction with the very address
-// the operator was trying to leave.
-func fallbackProfile(broken domain.Config, listen string) domain.Config {
+// Same rule, and it was learnt the same way. The neutral profile replaces what the
+// station RUNS ON; it has no business replacing the way one REACHES it in order to
+// repair it. Its address is 127.0.0.1:8085, which every station of the parc shares, so
+// borrowing it moved a station off the address its file declares — while the kiosk, which
+// reads that same file and reads it successfully because a faulty file is still a
+// readable one, kept opening the declared address. A black client screen on the very
+// station §11.3 exists to keep alive, and an administration screen shut back onto the
+// loopback at the moment a volunteer arrives with a laptop to fix it.
+//
+// The address of the file is kept only while it is USABLE: when the faults name the
+// network block itself, the neutral profile provides it, because a fallback that copied
+// an unbindable address would turn ERR-CFG-01 — a station serving its fault list — into
+// ERR-SYS-02, a station that is not there at all.
+func fallbackProfile(broken domain.Config, faults []domain.Fault) domain.Config {
 	cfg := domain.NeutralProfile()
 	cfg.Admin = broken.Admin
-	if listen != "" {
-		cfg.Network.Listen = listen
+	if !faultedOn(faults, "network") {
+		cfg.Network = broken.Network
 	}
 	return cfg
+}
+
+// faultedOn reports whether any fault names a field of one configuration section.
+//
+// It matches the section and everything beneath it — "network" answers for
+// "network.listen" — so a control added to that section later is covered without this
+// function having to learn its name. Half a block is what must never be borrowed: an
+// address open to the network behind an administration screen closed to it is harder to
+// diagnose than a fallback that is wrong in both directions at once.
+func faultedOn(faults []domain.Fault, section string) bool {
+	for _, fault := range faults {
+		if fault.Field == section || strings.HasPrefix(fault.Field, section+".") {
+			return true
+		}
+	}
+	return false
 }
 
 // reportFaults writes the whole list of §11.3 where whoever started the service can
@@ -720,28 +775,44 @@ func buildPrinter(cfg domain.Config, reg *printing.Registry, templates map[strin
 // newPrinter builds the print service of one configuration: the driver
 // printer.type names, over the transport printer.options.transport names, with the
 // retries and the roll counter of §8.2 around it.
+//
+// The transport is built ONLY for a driver that declares one. Built first and
+// unconditionally, as it was, it refused the empty `printer.options` of the neutral profile
+// before the driver was ever consulted — so a station in factory configuration got
+// `unbuiltPrinter` and answered « l'imprimante configurée n'a pas pu être construite » to
+// every button of the troubleshooting screen, which is the one screen that station exists
+// to serve.
 func newPrinter(cfg domain.Config, reg *printing.Registry, templates map[string]domain.Template,
 	clk ports.Clock, log ports.TechnicalLog, dataDir string) (ports.Printer, error) {
-	byteLayer, err := newTransport(cfg.Printer.Options, clk, labelsDir(dataDir))
-	if err != nil {
-		return nil, err
+	var byteLayer ports.Transport
+	if declaresTransport(reg, cfg.Printer.Type) {
+		opened, err := newTransport(cfg.Printer.Options, clk, labelsDir(dataDir))
+		if err != nil {
+			return nil, err
+		}
+		byteLayer = opened
 	}
 	driver, err := reg.New(cfg.Printer.Type, printing.DriverConfig{
 		Options:   cfg.Printer.Options,
 		Transport: byteLayer,
+		OutputDir: previewsDir(dataDir),
 		Template:  templates[cfg.Printer.Template],
 		Clock:     clk,
 		Log:       log,
 		DemoLabel: func() (domain.Label, error) { return demoLabel(cfg.Pricing) },
 	})
 	if err != nil {
-		_ = byteLayer.Close()
+		if byteLayer != nil {
+			_ = byteLayer.Close()
+		}
 		return nil, err
 	}
 	capacity, _ := cfg.Printer.Options.Int(optionRollCapacity)
 	service, err := printing.NewService(printing.ServiceOptions{
-		Main:     driver,
-		MainName: byteLayer.Describe(),
+		Main: driver,
+		// A driver with no transport names itself: printing.NewService falls back on the
+		// label of the descriptor, which for `preview` already says it prints nothing.
+		MainName: describeTransport(byteLayer),
 		Clock:    clk,
 		// The roll counter has NO persistent store yet: internal/store carries no
 		// AddLabels/SetLabels pair, so the count restarts with the process. What it
@@ -757,6 +828,39 @@ func newPrinter(cfg domain.Config, reg *printing.Registry, templates map[string]
 		return nil, err
 	}
 	return service, nil
+}
+
+// declaresTransport reports whether the driver printer.type names carries a byte transport
+// at all.
+//
+// The answer comes from the driver's OWN option schema — the same schema control 7 of
+// §11.3 validates printer.options against and the administration screen generates its form
+// from — so a driver added later says for itself whether the composition root has a device
+// to open for it, with no list to keep in step here.
+//
+// An unknown driver answers false, and that is deliberate: reg.New refuses it one line
+// later with the list of the ones that exist, and building a transport first would replace
+// that refusal with a complaint about a transport key nobody typed.
+func declaresTransport(reg *printing.Registry, driverID string) bool {
+	for _, descriptor := range reg.Descriptors() {
+		if descriptor.ID != driverID {
+			continue
+		}
+		for _, option := range descriptor.Options {
+			if option.Key == optionTransport {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// describeTransport is the French name of the byte layer, or nothing when there is none.
+func describeTransport(byteLayer ports.Transport) string {
+	if byteLayer == nil {
+		return ""
+	}
+	return byteLayer.Describe()
 }
 
 // unbuiltPrinter is what a station has when its configuration names a printer this
@@ -886,3 +990,10 @@ func imagesDir(dataDir string) fs.FS { return os.DirFS(imagesRoot(dataDir)) }
 
 // labelsDir is where the `file` transport drops one copy per label (§11.1).
 func labelsDir(dataDir string) string { return filepath.Join(dataDir, "labels") }
+
+// previewsDir is where the `preview` driver writes the PNG and the PDF of each label.
+//
+// A directory OF ITS OWN, and not the one above. Both answer « envoyez-moi le fichier de la
+// dernière étiquette », and that sentence is how support works: mixing the raw frames of a
+// transport with the images of an aperçu would make it a question with two answers.
+func previewsDir(dataDir string) string { return filepath.Join(dataDir, "previews") }
