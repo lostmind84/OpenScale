@@ -1261,3 +1261,111 @@ func TestTheFifteenMinutesAreCountedAndNotClaimed(t *testing.T) {
 	}
 	t.Logf("les étapes chiffrées de INSTALLATION.md totalisent %d minutes", total)
 }
+
+// --- update.ps1 comme CONTRAT, et non plus comme script qu'on lit -------------------
+
+// TestTheUpdaterTakesEveryParameterTheStationPasses freezes the contract between
+// internal/platform and the script.
+//
+// A parameter renamed on one side and not the other is a swap that never starts,
+// and nothing else in this repository would catch it: the station hands these six
+// on a command line, and PowerShell binds what it recognises and ignores the rest.
+func TestTheUpdaterTakesEveryParameterTheStationPasses(t *testing.T) {
+	updater := codeOnly(readFile(t, filepath.Join("windows", "update.ps1")))
+	for _, parameter := range []string{
+		"$Source", "$InstallDir", "$DataRoot", "$OutcomePath", "$LogPath",
+	} {
+		if !strings.Contains(updater, parameter) {
+			t.Errorf("update.ps1 ne déclare pas le paramètre %s", parameter)
+		}
+	}
+}
+
+// TestTheUpdaterReportsOnAllFourOfItsExits is what lets the screen tell « failed,
+// rolled back, the station works » from « failed, the station is dead ». The two
+// do not ask the same thing of a volunteer: the first calls nobody.
+func TestTheUpdaterReportsOnAllFourOfItsExits(t *testing.T) {
+	updater := codeOnly(readFile(t, filepath.Join("windows", "update.ps1")))
+	for _, code := range []string{"exit 10", "exit 11", "exit 12"} {
+		if !strings.Contains(updater, code) {
+			t.Errorf("update.ps1 ne sort jamais par « %s »", code)
+		}
+	}
+	for _, status := range []string{
+		"succeeded", "rolled-back", "rolled-back-unhealthy", "not-started",
+	} {
+		if !strings.Contains(updater, status) {
+			t.Errorf("update.ps1 n'écrit jamais le statut %q", status)
+		}
+	}
+	if !strings.Contains(updater, "function Write-Outcome") {
+		t.Error("update.ps1 n'a pas de fonction unique d'écriture du compte rendu : " +
+			"quatre écritures dispersées, c'est trois occasions d'en oublier une")
+	}
+}
+
+// TestTheOutcomeCarriesEveryFieldTheStationReads freezes the JSON keys against
+// update.Outcome. The station reads this file at its NEXT START, when the process
+// that could have read an exit code has been dead for a minute.
+func TestTheOutcomeCarriesEveryFieldTheStationReads(t *testing.T) {
+	updater := codeOnly(readFile(t, filepath.Join("windows", "update.ps1")))
+	for _, key := range []string{
+		"status", "exit_code", "from", "to", "reason", "backup",
+		"database_backups", "finished_at",
+	} {
+		if !strings.Contains(updater, key) {
+			t.Errorf("le compte rendu ne porte pas la clé %q", key)
+		}
+	}
+}
+
+// TestTheUpdaterBringsTheClientScreenBack is the defect this work uncovered.
+//
+// Stop-OpenScaleBinaryHolders ends the kiosk task, openscale-kiosk.xml carries a
+// LogonTrigger AND NOTHING ELSE, and nobody restarted it: neither install.ps1 nor
+// update.ps1. The client screen stayed black until somebody logged on.
+//
+// It never showed because a human who updates a station ends up rebooting it. A
+// volunteer who touches a button on the administration screen does not -- they
+// look at the client screen within the minute.
+func TestTheUpdaterBringsTheClientScreenBack(t *testing.T) {
+	common := codeOnly(readFile(t, filepath.Join("windows", "common.ps1")))
+	if !strings.Contains(common, "function Start-OpenScaleKiosk") {
+		t.Fatal("common.ps1 ne porte pas la relance de l'écran client")
+	}
+	if !strings.Contains(common, "schtasks /run") {
+		t.Error("la relance n'appelle pas schtasks /run")
+	}
+
+	updater := codeOnly(readFile(t, filepath.Join("windows", "update.ps1")))
+	if !strings.Contains(updater, "Start-OpenScaleKiosk") {
+		t.Fatal("update.ps1 ne relance jamais l'écran client")
+	}
+	// The installer stops the kiosk too, and for the same reason -- it replaces the
+	// binary the task is running. Re-running install.ps1 on a working station is
+	// what TROUBLESHOOTING.md recommends, so it must not leave a black screen.
+	if !strings.Contains(codeOnly(readFile(t, filepath.Join("windows", "install.ps1"))),
+		"Start-OpenScaleKiosk") {
+		t.Error("install.ps1 ne relance pas l'écran client qu'il vient d'arrêter")
+	}
+}
+
+// TestTheClientScreenComesBackOnTheFailurePathsToo.
+//
+// A rollback that leaves the client screen black is a breakdown created by the
+// repair: the station serves again, the customer sees nothing, and the volunteer
+// concludes the update destroyed the poste.
+func TestTheClientScreenComesBackOnTheFailurePathsToo(t *testing.T) {
+	updater := codeOnly(readFile(t, filepath.Join("windows", "update.ps1")))
+	restarts := strings.Count(updater, "Start-OpenScaleKiosk")
+	// Four exits: succeeded, rolled-back, rolled-back-unhealthy, not-started. The
+	// last two not-started paths share one call, hence three at least.
+	if restarts < 3 {
+		t.Fatalf("%d relance(s) de l'écran client dans update.ps1 : les chemins d'échec "+
+			"n'en ont pas", restarts)
+	}
+	failure := updater[strings.Index(updater, "if ($failure)"):]
+	if !strings.Contains(failure, "Start-OpenScaleKiosk") {
+		t.Error("le chemin d'échec ne relance pas l'écran client")
+	}
+}
