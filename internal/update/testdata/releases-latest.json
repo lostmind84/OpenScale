@@ -1,0 +1,63 @@
+{
+  "url": "https://api.github.com/repos/lostmind84/OpenScale/releases/181234567",
+  "html_url": "https://github.com/lostmind84/OpenScale/releases/tag/2.1.0",
+  "id": 181234567,
+  "tag_name": "2.1.0",
+  "target_commitish": "main",
+  "name": "OpenScale 2.1.0",
+  "draft": false,
+  "prerelease": false,
+  "created_at": "2026-07-28T09:11:47Z",
+  "published_at": "2026-07-28T09:14:22Z",
+  "assets": [
+    {
+      "url": "https://api.github.com/repos/lostmind84/OpenScale/releases/assets/301234501",
+      "id": 301234501,
+      "name": "openscale-2.1.0-linux-amd64.zip",
+      "content_type": "application/zip",
+      "state": "uploaded",
+      "size": 23068672,
+      "download_count": 0,
+      "created_at": "2026-07-28T09:14:19Z",
+      "updated_at": "2026-07-28T09:14:20Z",
+      "browser_download_url": "https://github.com/lostmind84/OpenScale/releases/download/2.1.0/openscale-2.1.0-linux-amd64.zip"
+    },
+    {
+      "url": "https://api.github.com/repos/lostmind84/OpenScale/releases/assets/301234502",
+      "id": 301234502,
+      "name": "openscale-2.1.0-linux-arm64.zip",
+      "content_type": "application/zip",
+      "state": "uploaded",
+      "size": 21495808,
+      "download_count": 0,
+      "created_at": "2026-07-28T09:14:20Z",
+      "updated_at": "2026-07-28T09:14:21Z",
+      "browser_download_url": "https://github.com/lostmind84/OpenScale/releases/download/2.1.0/openscale-2.1.0-linux-arm64.zip"
+    },
+    {
+      "url": "https://api.github.com/repos/lostmind84/OpenScale/releases/assets/301234503",
+      "id": 301234503,
+      "name": "openscale-2.1.0-windows-amd64.zip",
+      "content_type": "application/zip",
+      "state": "uploaded",
+      "size": 24117248,
+      "download_count": 0,
+      "created_at": "2026-07-28T09:14:21Z",
+      "updated_at": "2026-07-28T09:14:22Z",
+      "browser_download_url": "https://github.com/lostmind84/OpenScale/releases/download/2.1.0/openscale-2.1.0-windows-amd64.zip"
+    },
+    {
+      "url": "https://api.github.com/repos/lostmind84/OpenScale/releases/assets/301234504",
+      "id": 301234504,
+      "name": "SHA256SUMS-archives.txt",
+      "content_type": "text/plain",
+      "state": "uploaded",
+      "size": 312,
+      "download_count": 0,
+      "created_at": "2026-07-28T09:14:22Z",
+      "updated_at": "2026-07-28T09:14:22Z",
+      "browser_download_url": "https://github.com/lostmind84/OpenScale/releases/download/2.1.0/SHA256SUMS-archives.txt"
+    }
+  ],
+  "body": "## Installer un poste\n\nTéléchargez l'archive de votre plateforme, puis suivez [`INSTALLATION.md`](https://github.com/lostmind84/OpenScale/blob/2.1.0/INSTALLATION.md)."
+}
