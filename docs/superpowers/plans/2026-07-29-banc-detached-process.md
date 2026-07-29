@@ -70,7 +70,7 @@ personne ne regarde la sortie.
 recherché reste acquis : la console est neuve, le groupe de processus est neuf, et la
 mesure ci-dessus montre que l'enfant survit à la mort du parent.
 
-### 2. Le poste basculait en configuration d'usine, dont le port était pris
+### 2. Le poste basculait en configuration d'usine, dont le port était pris — **défaut déjà connu**
 
 Le service démarrait puis s'arrêtait aussitôt — `Service Control Manager`, événement 7023,
 « Le service OpenScale — poste de pesée s'est arrêté avec l'erreur : Fonction incorrecte ».
@@ -90,6 +90,13 @@ configuration livrée partait avec le reste de la configuration refusée.
 
 Corrigé en donnant l'adresse au service et non au fichier : `serve --listen 127.0.0.1:8099`.
 Un drapeau survit à la bascule en configuration d'usine, un champ de configuration non.
+
+**Ce n'est pas une découverte : `SUIVI.md`, lot L8, le décrit déjà** — « `--listen` est ignoré
+quand la configuration est fautive […] **Correctif d'une ligne dans `serve.go`, non appliqué.** »
+Ce banc l'a repayé une seconde fois, en une demi-heure de diagnostic, sur un défaut connu et
+laissé ouvert. Ce qu'il ajoute est la mesure du coût : le poste ne dit pas « j'ignore votre
+`--listen` », il dit `ERR-SYS-01` et nomme un port que personne n'a demandé. C'est un
+argument pour appliquer le correctif d'une ligne plutôt que de le garder en liste.
 
 ### 3. `bin/openscale` n'est pas `bin/openscale.exe`
 
