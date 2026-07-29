@@ -1261,6 +1261,139 @@ func TestExportNeverCarriesAPassword(t *testing.T) {
 	}
 }
 
+// hostileConfig buries a secret and a site value under every shape a driver author
+// may legitimately invent, and that Export knows no name for.
+//
+// Nothing here is exotic: a serial gateway with its own credentials, an HTTP proxy in
+// front of the share, a second fallback under the first. The point is that the export
+// has never heard of « gateway », « proxy » or « deeper », and must strip them anyway --
+// the same reason internal/diag/redact.go redacts by key name over the whole tree.
+func hostileConfig(t *testing.T) Config {
+	t.Helper()
+	config := loadDelivered(t)
+	setOption(t, config.Scale.Options, "gateway", map[string]any{
+		"password": "secret-passerelle-balance",
+		"port":     "COM12",
+		"retries":  3,
+	})
+	setOption(t, config.Catalog.Options, "proxy", map[string]any{
+		"token":     "secret-jeton-proxy",
+		"url":       "https://proxy.exemple.lan:3128/",
+		"username":  "compte-proxy",
+		"timeout_s": 5,
+	})
+	setOption(t, config.Printer.Options, "password", "secret-mot-de-passe-imprimante")
+
+	// Two levels down, under the one group name the export used to hard-code: the
+	// depth a single hard-coded name can never reach.
+	fallback, ok := config.Printer.Options.Group("fallback")
+	if !ok {
+		t.Fatal("la configuration livrée ne porte plus printer.options.fallback")
+	}
+	setOption(t, fallback, "deeper", map[string]any{
+		"password": "secret-mot-de-passe-repli",
+		"queue":    "SATO WS408_9",
+		"darkness": 4,
+	})
+	setOption(t, config.Printer.Options, "fallback", fallback)
+	return config
+}
+
+// TestExportStripsSecretsAtAnyDepth holds the promise the godoc of Export makes.
+//
+// « TWO SECRETS NEVER LEAVE, whatever includeHardware says » was enforced by a single
+// delete on a single key of a single map, so a password one level down walked out in
+// clear text. The assertion is on the SERIALISED export and not on a key lookup: what
+// leaves the station is bytes, and a test that reads the structure would miss a secret
+// hidden under a name it did not think to look up.
+func TestExportStripsSecretsAtAnyDepth(t *testing.T) {
+	config := hostileConfig(t)
+	setOption(t, config.Catalog.Options, "password", "secret-mot-de-passe-webdav")
+
+	secrets := map[string]string{
+		"secret-passerelle-balance":      "scale.options.gateway.password",
+		"secret-jeton-proxy":             "catalog.options.proxy.token",
+		"secret-mot-de-passe-imprimante": "printer.options.password",
+		"secret-mot-de-passe-repli":      "printer.options.fallback.deeper.password",
+		"secret-mot-de-passe-webdav":     "catalog.options.password",
+	}
+	for _, includeHardware := range []bool{false, true} {
+		shipped, err := json.Marshal(config.Export(includeHardware))
+		if err != nil {
+			t.Fatalf("matériel=%v : encodage de l'export : %v", includeHardware, err)
+		}
+		for secret, path := range secrets {
+			if bytes.Contains(shipped, []byte(secret)) {
+				t.Errorf("matériel=%v : l'export porte le secret de %s (%q), à quelque profondeur qu'on le range",
+					includeHardware, path, secret)
+			}
+		}
+	}
+
+	// The station keeps its own: an export is a copy, never a stripping.
+	gateway, ok := config.Scale.Options.Group("gateway")
+	if !ok {
+		t.Fatal("l'export a retiré scale.options.gateway de la configuration en service")
+	}
+	if secret, _ := gateway.Text("password"); secret != "secret-passerelle-balance" {
+		t.Error("l'export a retiré un secret imbriqué de la configuration en service")
+	}
+}
+
+// TestExportStripsStationKeysAtAnyDepth applies the strip list to the whole option
+// tree, not to its first floor and to one group called « fallback ».
+//
+// The default of the lot does not move: a driver option is a setting the fleet SHARES
+// until stationSpecificOptions proves otherwise. What moves is the REACH of that proof.
+func TestExportStripsStationKeysAtAnyDepth(t *testing.T) {
+	config := hostileConfig(t)
+	shipped, err := json.Marshal(config.Export(false))
+	if err != nil {
+		t.Fatalf("encodage de l'export : %v", err)
+	}
+	stationValues := map[string]string{
+		"COM12":                           "un port série sous scale.options.gateway",
+		"https://proxy.exemple.lan:3128/": "un hôte sous catalog.options.proxy",
+		"compte-proxy":                    "un compte sous catalog.options.proxy",
+		"SATO WS408_9":                    "une file d'impression sous printer.options.fallback.deeper",
+	}
+	for value, what := range stationValues {
+		if bytes.Contains(shipped, []byte(value)) {
+			t.Errorf("l'export porte %s (%q) : il désigne un poste ou un site", what, value)
+		}
+	}
+
+	// Only the NAMED keys leave. A group emptied whole would drop what the fleet
+	// shares, which is the defect this lot was opened to repair.
+	exported := config.Export(false)
+	gateway, ok := exported.Scale.Options.Group("gateway")
+	if !ok {
+		t.Fatal("scale.options.gateway a disparu de l'export : seules ses clés de poste partent")
+	}
+	if retries, ok := gateway.Int("retries"); !ok || retries != 3 {
+		t.Error("scale.options.gateway.retries ne voyage pas, alors que les quatre postes le partagent")
+	}
+	proxy, ok := exported.Catalog.Options.Group("proxy")
+	if !ok {
+		t.Fatal("catalog.options.proxy a disparu de l'export : seules ses clés de site partent")
+	}
+	if timeout, ok := proxy.Int("timeout_s"); !ok || timeout != 5 {
+		t.Error("catalog.options.proxy.timeout_s ne voyage pas, alors que les quatre postes le partagent")
+	}
+
+	// An export WITH hardware is the backup of ONE station: its port, its queue and
+	// its share belong to it, at every depth.
+	backup, err := json.Marshal(config.Export(true))
+	if err != nil {
+		t.Fatalf("encodage de l'export matériel : %v", err)
+	}
+	for value, what := range stationValues {
+		if !bytes.Contains(backup, []byte(value)) {
+			t.Errorf("un export matériel est la sauvegarde d'un poste : %s (%q) doit y rester", what, value)
+		}
+	}
+}
+
 func TestExportWithHardwareKeepsTheRecoveryCode(t *testing.T) {
 	// An export WITH hardware is the backup of one station, not the clone template:
 	// the recovery code of the installation sheet belongs to that backup.
