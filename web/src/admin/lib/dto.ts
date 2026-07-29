@@ -151,6 +151,15 @@ export interface HealthDTO {
   disk: DiskDTO | null
   unattended_restart: RestartDTO | null
   printing: RoutingDTO | null
+  /**
+   * La version publiée plus récente que celle qui tourne, ou une chaîne vide.
+   *
+   * Elle voyage ici, dans la charge utile que le tableau de bord lit déjà, et non sur
+   * une route à elle : la page bénévole s'ouvre sans mot de passe et n'appelle qu'une
+   * route, ce qu'un test tient. Vide aussi quand le service n'a pas pu lire — la
+   * pastille est une courtoisie, pas un diagnostic.
+   */
+  new_version: string
 }
 
 /** Une ligne de tarif d'une pesée journalisée. */

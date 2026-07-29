@@ -189,3 +189,23 @@ func instantOrEmpty(at time.Time) string {
 	}
 	return at.Format(time.RFC3339)
 }
+
+// newVersion reports the published version worth installing, or the empty string.
+//
+// It reads what the daily poll left on disk and never asks the repository: this
+// answers GET /admin/api/health, which every open administration screen calls
+// every three seconds.
+//
+// A FAILURE IS SILENCE. The badge is a courtesy; its absence teaches nothing
+// false, whereas an error on the dashboard would send somebody looking for a
+// breakdown that does not exist.
+func (s *Server) newVersion(repository string) string {
+	if s.updater == nil {
+		return ""
+	}
+	status, err := s.updater.Status(repository)
+	if err != nil || !status.Available {
+		return ""
+	}
+	return status.Check.Version
+}

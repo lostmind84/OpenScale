@@ -10,6 +10,7 @@ import (
 	"openscale/internal/station"
 	"openscale/internal/station/ports"
 	"openscale/internal/update"
+	"openscale/internal/web"
 )
 
 // newUpdateService wires the update service over the running station.
@@ -67,6 +68,25 @@ func newUpdateService(clock ports.Clock, guard update.Guard, dataDir string) *up
 
 // releasePlatform is the suffix release.yml gives the archives.
 func releasePlatform() string { return runtime.GOOS + "-" + runtime.GOARCH }
+
+// updaterFor returns what the HTTP layer should be given for the update routes.
+//
+// ★ IT RETURNS A NIL INTERFACE, NEVER A TYPED NIL, and that distinction is the
+// whole reason this function exists rather than a direct assignment. Putting a nil
+// *update.Service into an interface produces an interface that IS NOT nil: the
+// `s.updater == nil` guard of every handler answers false, the method is then
+// called on a nil receiver, and the first field it reads panics.
+//
+// Measured, not imagined: a binary whose version is « dev » builds no service, and
+// every three-second poll of the dashboard took the whole HTTP connection down
+// with it. That is every developer's station, and it would have been every
+// station's until the first tagged build.
+func updaterFor(service *update.Service) web.Updater {
+	if service == nil {
+		return nil
+	}
+	return service
+}
 
 // updatePoller adapts an update.Service to what the station's daily worker asks.
 //

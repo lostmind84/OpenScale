@@ -459,7 +459,7 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 			printer: live, catalog: liveSource,
 			machine: diag.NewMachine(clock), dataDir: o.dataDir,
 		},
-		Update: updateService,
+		Update: updaterFor(updateService),
 	})
 	if err != nil {
 		_ = binder.Close()

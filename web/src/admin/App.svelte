@@ -216,7 +216,11 @@
       {#if admin.health === null}
         <p class="waiting">Lecture de l’état du poste…</p>
       {:else if admin.page === 'dashboard'}
-        <Dashboard health={admin.health} onshowrows={() => void open('catalog')} />
+        <Dashboard
+          health={admin.health}
+          onshowrows={() => void open('catalog')}
+          onshowupdate={() => void open('update')}
+        />
       {:else if admin.page === 'troubleshooting'}
         <Troubleshooting {admin} health={admin.health} />
       {:else if admin.page === 'hardware'}
