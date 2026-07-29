@@ -339,12 +339,17 @@ func TestTheSevenPointFieldKeepsTheWeightItsTemplateAsksFor(t *testing.T) {
 		autoBold bool
 		wantBold bool
 	}{
-		{"auto_bold false, le gabarit de production", false, false},
+		{"auto_bold false, le gabarit qui s'en dispense", false, false},
 		{"auto_bold true, un gabarit qui ne se prononce pas", true, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r, _ := newTestRasterizer(t)
-			template := domain.IdenticalTemplate()
+			// Le gabarit NEUTRE depuis le 29/07/2026 : le prix solidaire de
+			// weighing_identical est passe au corps du prix adherent a la demande du
+			// commanditaire, il n'est donc plus sous les 20 dots et n'exerce plus la
+			// regle. Le neutre garde un champ de 7 pt, et la regle porte sur le moteur,
+			// pas sur un gabarit en particulier.
+			template := domain.NeutralSingleTemplate()
 			index := elementIndex(t, &template, domain.FieldSecondaryTotalPrice)
 			element := &template.Elements[index]
 			element.AutoBold = c.autoBold
@@ -912,17 +917,20 @@ func TestTheMediaAndTheResolutionComeFromTheTemplate(t *testing.T) {
 
 // --- The frame -------------------------------------------------------------
 
-// TestTheFramedFieldCarriesItsOneDotRule: primary_unit_price is framed on the
-// production label (§7.2), and the rule is one dot.
+// TestTheFramedFieldCarriesItsOneDotRule: a framed field draws a rule of ONE dot.
+//
+// Le gabarit de production ne s'en sert plus — le commanditaire a fait retirer la
+// bordure du prix au kilo le 29/07/2026 —, mais `Framed` reste une fonction du moteur
+// qu'un gabarit peut demander. Le test la pose donc lui-meme au lieu de compter sur un
+// livrable pour l'exercer : c'est ce qui l'empeche de disparaitre avec une decision de
+// mise en page.
 func TestTheFramedFieldCarriesItsOneDotRule(t *testing.T) {
 	r, _ := newTestRasterizer(t)
 	label := weighing(t, celeryRow, referenceMass, domain.LaCagetteRules())
 
 	framed := domain.IdenticalTemplate()
 	index := elementIndex(t, &framed, domain.FieldPrimaryUnitPrice)
-	if !framed.Elements[index].Framed {
-		t.Fatal("le gabarit de production n'encadre plus le prix au kilo (§7.2)")
-	}
+	framed.Elements[index].Framed = true
 	box := elementBox(&framed, framed.Elements[index])
 
 	bare := domain.IdenticalTemplate()
@@ -988,16 +996,33 @@ func TestTheFramedFieldCarriesItsOneDotRule(t *testing.T) {
 
 // TestTheTwoPricesShareABaseline is the guard on emAscentPerMille.
 //
-// domain.IdenticalTemplate places the 7 pt price by subtracting 750/1000 of its em
-// from the baseline of the 11 pt one. If this package ever placed baselines with
-// another ascent — face.Metrics().Ascent, say, which is 0.952 em for Carlito — the
-// two prices would print on two different lines, which is precisely what that
-// template says it fixed.
+// A template that aligns two DIFFERENT bodies does it by subtracting 750/1000 of each
+// em from a common baseline. If this package ever placed baselines with another ascent
+// — face.Metrics().Ascent, say, which is 0.952 em for Carlito — the two fields would
+// print on two different lines.
+//
+// The alignment is BUILT HERE and no longer read off weighing_identical: since the
+// 29/07/2026 its two prices share a body, on the commissioning party's request, so
+// they share a baseline whatever this package believes about ascents. The guard has to
+// outlive that layout decision, so it carries its own two bodies.
 func TestTheTwoPricesShareABaseline(t *testing.T) {
 	template := domain.IdenticalTemplate()
-	primary := template.Elements[elementIndex(t, &template, domain.FieldPrimaryTotalPrice)]
-	secondary := template.Elements[elementIndex(t, &template, domain.FieldSecondaryTotalPrice)]
+	primaryIndex := elementIndex(t, &template, domain.FieldPrimaryTotalPrice)
+	secondaryIndex := elementIndex(t, &template, domain.FieldSecondaryTotalPrice)
 
+	// Le petit corps de l'ancienne mise en page, replace comme le gabarit le faisait :
+	// meme ligne de base, ascendante soustraite de chaque em.
+	const smallBody = domain.Micrometers(2_473) // 7 pt
+	const ascentPerMille = 750
+	big := template.Elements[primaryIndex]
+	baseline := big.YUM + big.FontSizeUM*ascentPerMille/1000
+
+	template.Elements[secondaryIndex].FontSizeUM = smallBody
+	template.Elements[secondaryIndex].HeightUM = smallBody
+	template.Elements[secondaryIndex].YUM = baseline - smallBody*ascentPerMille/1000
+
+	primary := template.Elements[primaryIndex]
+	secondary := template.Elements[secondaryIndex]
 	if primary.FontSizeUM == secondary.FontSizeUM {
 		t.Fatal("les deux prix sont au même corps : ce test ne démontre plus rien")
 	}

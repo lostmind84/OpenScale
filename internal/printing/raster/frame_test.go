@@ -290,7 +290,7 @@ func checkerboard(t domain.Template) *image.Gray {
 // drawing of §7.3 legitimately moves it — and then it moves with the render goldens,
 // in the same commit, and the commit says so.
 const (
-	benchFrameSHA256 = "4e159c207f2b04ad263ed2426ab33bafa08689ccafe241f8c87a637c5b4ecae9"
+	benchFrameSHA256 = "6ea6870c5b98b457535c30179c94d54565b4de4333cecce04c9a540dba752e04"
 	benchFrameBytes  = 14_072
 )
 

@@ -1399,7 +1399,7 @@ func TestTheOffsetReachesTheFrameSignAndAxisIncluded(t *testing.T) {
 // deliberate act with a paper trail. internal/printing/raster asserts the same two
 // numbers from the other side of the border.
 const (
-	benchFrameSHA256 = "4e159c207f2b04ad263ed2426ab33bafa08689ccafe241f8c87a637c5b4ecae9"
+	benchFrameSHA256 = "6ea6870c5b98b457535c30179c94d54565b4de4333cecce04c9a540dba752e04"
 	benchFrameBytes  = 14_072
 )
 

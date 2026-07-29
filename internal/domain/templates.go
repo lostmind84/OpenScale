@@ -163,21 +163,19 @@ func IdenticalTemplate() Template {
 		// label exactly would leave that adjustment nowhere to go, and hard rule 6
 		// applies the offset BEFORE validating.
 		leading = 277
-		body9   = 3_175 //  9 pt
-		body7   = 2_473 //  7 pt, measured on the PDF
-		body11  = 3_888 // 11 pt, measured on the PDF
-		ascent  = 750   // per mille of em: Carlito, metrically Calibri
+		body9  = 3_175 //  9 pt
+		body11 = 3_888 // 11 pt, measured on the PDF
 	)
 	line2 := Micrometers(body9 + leading)          //  3 525
 	line3 := line2 + Micrometers(body9+leading)    //  7 050
 	textBottom := line3 + Micrometers(body11)      // 10 938
 	symbolTop := textBottom + Micrometers(leading) // 11 288
 
-	// The solidarity price is 7 pt and the member price 11 pt; they share a BASELINE,
-	// which is what a typographer would do and what the legacy report did not — its
-	// two prices sat 774 um apart for no reason anyone could state.
-	baseline := line3 + Micrometers(body11*ascent/1000)
-	secondaryTop := baseline - Micrometers(body7*ascent/1000)
+	// The two prices of line 3 share a BODY since 29/07/2026, on the commissioning
+	// party's request: the solidarity price was 7 pt against 11 for the member price,
+	// and it was too small to read on a label held at arm's length. Sharing the body
+	// means sharing the baseline by construction, so the arithmetic that used to align
+	// two different sizes is gone rather than left computing an identity.
 
 	return Template{
 		Name: "weighing_identical",
@@ -211,12 +209,16 @@ func IdenticalTemplate() Template {
 				// customer checks against the shelf.
 				Field: FieldPrimaryUnitPrice,
 				XUM:   15_200, YUM: line2, WidthUM: 19_778, HeightUM: body9,
-				FontSizeUM: body9, Bold: true, Framed: true, AutoBold: true, Align: AlignRight,
+				// Framed: false since 29/07/2026, on the commissioning party's request.
+				// The box around the price per kilo came from the Access report; the
+				// price reads as well without it, and the ink it saves is the quiet zone
+				// the symbol below never had to spare.
+				FontSizeUM: body9, Bold: true, AutoBold: true, Align: AlignRight,
 			},
 			{
 				Field: FieldSecondaryTotalPrice,
-				XUM:   0, YUM: secondaryTop, WidthUM: 15_000, HeightUM: body7,
-				FontSizeUM: body7,
+				XUM:   0, YUM: line3, WidthUM: 15_000, HeightUM: body11,
+				FontSizeUM: body11,
 				// auto_bold OFF: the source carries no FontWeight on LabelAPayer, so the
 				// solidarity price prints in REGULAR. Bolding it would be the one visible
 				// departure from the original, which A1 forbids.
