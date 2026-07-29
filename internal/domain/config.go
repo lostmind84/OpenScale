@@ -1684,12 +1684,81 @@ func (c *Config) Fingerprint() string {
 	return BlockFingerprint(subject)
 }
 
+// stationSpecificOptions names the driver option keys an export must not carry when
+// it is meant to seed ANOTHER station.
+//
+// Everything else in the three option maps travels, and that default is deliberate: a
+// driver option is a setting the fleet SHARES until somebody proves otherwise, and the
+// proof is written here. Dropping the maps whole was the opposite default, and it made
+// INSTALLATION.md lie -- it promises the label offset travels with the cloned
+// configuration, and printer.options went out with it.
+//
+// Two kinds of key are named, and only those two: what designates ONE station (a
+// serial port, a Windows queue), and what designates ONE SITE's infrastructure (a
+// host, an account, a path). A value that is neither belongs to the fleet.
+var stationSpecificOptions = struct {
+	scale    []string
+	printer  []string
+	fallback []string
+	catalog  []string
+}{
+	// COM7 on this station, something else on the next one.
+	scale: []string{"port"},
+	// A Windows queue name differs per machine: the « _2 » of « SATO WS408_2 » is a
+	// duplicate suffix Windows added, measured on PC-RECEPTION. And `address` is a
+	// HOST -- 192.168.0.43:9100 on the bench -- which this repository never ships
+	// (docs/00-donnees-retirees.md).
+	printer:  []string{"queue", "address", "path"},
+	fallback: []string{"queue", "address", "path"},
+	// The share and the account belong to one site. The password leaves in NO mode,
+	// and that is handled before this list, unconditionally.
+	catalog: []string{"url", "username", "directory"},
+}
+
+// withoutKeys returns the options minus the named keys.
+//
+// An absent block stays absent: returning an empty map where there was none would
+// turn « ce poste ne déclare pas d'imprimante » into « ce poste déclare une
+// imprimante sans rien dedans », which validates differently.
+func withoutKeys(options DriverOptions, keys []string) DriverOptions {
+	if options == nil {
+		return nil
+	}
+	out := options.clone()
+	for _, key := range keys {
+		delete(out, key)
+	}
+	return out
+}
+
+// withoutNestedKeys does the same inside one nested option object, such as
+// printer.options.fallback.
+//
+// A group that cannot be read is left ALONE rather than dropped: hiding a malformed
+// value would send the operator looking for a key the file still carries.
+func withoutNestedKeys(options DriverOptions, group string, keys []string) DriverOptions {
+	nested, ok := options.Group(group)
+	if !ok {
+		return options
+	}
+	for _, key := range keys {
+		delete(nested, key)
+	}
+	raw, err := json.Marshal(nested)
+	if err != nil {
+		return options
+	}
+	out := options.clone()
+	out[group] = raw
+	return out
+}
+
 // Export returns a copy of the configuration fit to leave the station.
 //
-// With includeHardware false it drops station.number, station.name, scale.options,
-// printer.options, catalog.options, network and the admin fingerprints: what is
-// left is exactly what four stations of one fleet must share, and it is what
-// "clone a station" copies (§11.5).
+// With includeHardware false it drops station.number, station.name, network, the
+// admin fingerprints, and the option keys of stationSpecificOptions -- a serial
+// port, a print queue, a host, an account, a path. What is left is what four
+// stations of one fleet share, and it is what "clone a station" copies (§11.5).
 //
 // TWO SECRETS NEVER LEAVE, whatever includeHardware says: the admin password, and
 // the WebDAV password of the catalog. On import a station without a password runs
@@ -1720,10 +1789,12 @@ func (c *Config) Export(includeHardware bool) Config {
 	}
 	out.Station.Number, out.Station.Name = 0, ""
 	out.Network = NetworkConfig{}
-	out.Scale.Options = nil
-	out.Printer.Options = nil
-	out.Catalog.Options = nil
 	out.Admin.RecoveryCodeHash = ""
+	out.Scale.Options = withoutKeys(out.Scale.Options, stationSpecificOptions.scale)
+	out.Printer.Options = withoutNestedKeys(
+		withoutKeys(out.Printer.Options, stationSpecificOptions.printer),
+		"fallback", stationSpecificOptions.fallback)
+	out.Catalog.Options = withoutKeys(out.Catalog.Options, stationSpecificOptions.catalog)
 	return out
 }
 

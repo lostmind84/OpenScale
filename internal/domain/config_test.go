@@ -1143,6 +1143,10 @@ func TestBlockFingerprintIsWhatReloadCompares(t *testing.T) {
 
 func TestExportWithoutHardwareDropsWhatBelongsToOneStation(t *testing.T) {
 	config := loadDelivered(t)
+	// A local drop names a directory; the delivered file is on webdav, so the key
+	// has to be put there for the test to have anything to assert on.
+	setOption(t, config.Catalog.Options, "directory", `C:\ProgramData\OpenScale\data\catalog\incoming`)
+	setOption(t, config.Printer.Options, "address", "192.168.0.43:9100")
 	exported := config.Export(false)
 
 	if exported.Station.Number != 0 || exported.Station.Name != "" {
@@ -1151,22 +1155,90 @@ func TestExportWithoutHardwareDropsWhatBelongsToOneStation(t *testing.T) {
 	if exported.Network != (NetworkConfig{}) {
 		t.Errorf("network = %+v, il ne s'exporte pas", exported.Network)
 	}
-	if exported.Scale.Options != nil || exported.Printer.Options != nil || exported.Catalog.Options != nil {
-		t.Error("les options de driver ne s'exportent pas")
-	}
 	if exported.Admin.PasswordHash != "" || exported.Admin.RecoveryCodeHash != "" {
 		t.Error("les empreintes admin ne s'exportent pas")
 	}
-	// What MUST travel: the grid, the safeguards, the template, the categories.
+
+	gone := []struct {
+		path    string
+		key     string
+		options DriverOptions
+	}{
+		{"scale.options.port", "port", exported.Scale.Options},
+		{"printer.options.queue", "queue", exported.Printer.Options},
+		{"printer.options.address", "address", exported.Printer.Options},
+		{"printer.options.path", "path", exported.Printer.Options},
+		{"catalog.options.url", "url", exported.Catalog.Options},
+		{"catalog.options.username", "username", exported.Catalog.Options},
+		{"catalog.options.password", "password", exported.Catalog.Options},
+		{"catalog.options.directory", "directory", exported.Catalog.Options},
+	}
+	for _, option := range gone {
+		if _, present := option.options[option.key]; present {
+			t.Errorf("%s s'exporte, alors qu'il désigne un poste ou un site", option.path)
+		}
+	}
+	fallback, ok := exported.Printer.Options.Group("fallback")
+	if !ok {
+		t.Fatal("printer.options.fallback a disparu de l'export : seules ses clés de repli partent")
+	}
+	for _, key := range []string{"queue", "address", "path"} {
+		if _, present := fallback[key]; present {
+			t.Errorf("printer.options.fallback.%s s'exporte", key)
+		}
+	}
+
+	// The original is untouched: an export is a copy, not a stripping.
+	if config.Station.Number != 2 {
+		t.Error("l'export ne doit rien retirer à la configuration en service")
+	}
+	if port, _ := config.Scale.Options.Text("port"); port != "COM8" {
+		t.Error("l'export a retiré le port de la configuration en service")
+	}
+	if fallback, ok := config.Printer.Options.Group("fallback"); !ok {
+		t.Error("l'export a retiré le repli de la configuration en service")
+	} else if queue, _ := fallback.Text("queue"); queue != "SATO WS408_3" {
+		t.Error("l'export a retiré la file de repli de la configuration en service")
+	}
+}
+
+// TestExportWithoutHardwareKeepsWhatTheFleetShares is the reason this lot exists.
+//
+// INSTALLATION.md promises the next stations that the label offset « voyage avec la
+// configuration clonée ». It lives in printer.options, which the export used to drop
+// whole, so the promise was false.
+func TestExportWithoutHardwareKeepsWhatTheFleetShares(t *testing.T) {
+	config := loadDelivered(t)
+	exported := config.Export(false)
+
+	kept := []struct {
+		path    string
+		key     string
+		options DriverOptions
+	}{
+		{"printer.options.offset_x", "offset_x", exported.Printer.Options},
+		{"printer.options.offset_y", "offset_y", exported.Printer.Options},
+		{"printer.options.darkness", "darkness", exported.Printer.Options},
+		{"printer.options.speed", "speed", exported.Printer.Options},
+		{"printer.options.transport", "transport", exported.Printer.Options},
+		{"scale.options.baud", "baud", exported.Scale.Options},
+		{"scale.options.parity", "parity", exported.Scale.Options},
+		{"catalog.options.separator", "separator", exported.Catalog.Options},
+		{"catalog.options.poll_interval_s", "poll_interval_s", exported.Catalog.Options},
+		{"catalog.options.max_weighable_drop", "max_weighable_drop", exported.Catalog.Options},
+	}
+	for _, option := range kept {
+		if _, present := option.options[option.key]; !present {
+			t.Errorf("%s ne voyage pas, alors que les quatre postes le partagent", option.path)
+		}
+	}
+	// The grid, the template and the coop name were already travelling: they must
+	// keep doing so.
 	if len(exported.Pricing.Tiers) != 2 || exported.Printer.Template != DefaultTemplateName {
 		t.Error("la grille de tarifs et le gabarit doivent voyager")
 	}
 	if exported.Station.Coop != config.Station.Coop {
 		t.Error("le nom de la coopérative doit voyager : il est partagé par les quatre postes")
-	}
-	// The original is untouched: an export is a copy, not a stripping.
-	if config.Station.Number != 2 || config.Scale.Options == nil {
-		t.Error("l'export ne doit rien retirer à la configuration en service")
 	}
 }
 

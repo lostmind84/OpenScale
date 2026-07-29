@@ -56,10 +56,13 @@ func TestCloningAStationShowsTheSAMEEightCharacters(t *testing.T) {
 		cloned := exported
 		cloned.Station.Number, cloned.Station.Name = station.number, station.name
 		cloned.Network.Listen = station.listen
-		// The two hardware steps of §15.5, done on the screen after the import.
-		cloned.Scale.Options = rawOptions(t, map[string]any{"port": station.port, "baud": 9600})
-		cloned.Printer.Options = rawOptions(t, map[string]any{
-			"transport": "winspool", "queue": station.queue})
+		// The two hardware steps of §15.5, done on the screen after the import: ONE
+		// field each, on top of the options the clone delivered. The screen edits a
+		// field, it does not rewrite the block -- and since the export started carrying
+		// the settings the fleet shares, rewriting it here would model a gesture nobody
+		// makes and drop the very keys this check now compares.
+		cloned.Scale.Options = exported.Scale.Options.WithText("port", station.port)
+		cloned.Printer.Options = exported.Printer.Options.WithText("queue", station.queue)
 
 		path := filepath.Join(t.TempDir(), "config.json")
 		writeJSONConfig(t, path, cloned)
@@ -349,18 +352,4 @@ func writeJSONConfig(t *testing.T, path string, cfg domain.Config) {
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		t.Fatalf("écriture de %s : %v", path, err)
 	}
-}
-
-// rawOptions builds one driver options block.
-func rawOptions(t *testing.T, values map[string]any) map[string]json.RawMessage {
-	t.Helper()
-	out := make(map[string]json.RawMessage, len(values))
-	for key, value := range values {
-		raw, err := json.Marshal(value)
-		if err != nil {
-			t.Fatalf("encodage de l'option %s : %v", key, err)
-		}
-		out[key] = raw
-	}
-	return out
 }
