@@ -13,6 +13,16 @@ import (
 	"openscale/internal/web"
 )
 
+// guardFunc lets a plain function answer update.Guard.
+//
+// It exists so that the service can be built BEFORE the station whose Hub answers
+// the question: the two need each other, and the closure resolves the Hub when a
+// volunteer touches a button rather than when the wiring is laid out.
+type guardFunc func() (bool, string)
+
+// UpdateGuard answers by calling the function.
+func (f guardFunc) UpdateGuard() (bool, string) { return f() }
+
 // newUpdateService wires the update service over the running station.
 //
 // It returns nil -- and the routes then answer honestly that this binary cannot
@@ -24,16 +34,6 @@ import (
 //   - a platform with no swap. platform.ApplyUpdate answers ErrUpdateUnsupported
 //     off Windows, and a screen that discovered that only at the last click would
 //     have let a volunteer confirm an irreversible-looking act for nothing.
-// guardFunc lets a plain function answer update.Guard.
-//
-// It exists so that the service can be built BEFORE the station whose Hub answers
-// the question: the two need each other, and the closure resolves the Hub when a
-// volunteer touches a button rather than when the wiring is laid out.
-type guardFunc func() (bool, string)
-
-// UpdateGuard answers by calling the function.
-func (f guardFunc) UpdateGuard() (bool, string) { return f() }
-
 func newUpdateService(clock ports.Clock, guard update.Guard, dataDir string) *update.Service {
 	running, err := update.ParseVersion(version)
 	if err != nil {

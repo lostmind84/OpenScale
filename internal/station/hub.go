@@ -170,11 +170,11 @@ type Hub struct {
 	// the products exist only in this process's memory. Stopping the station there
 	// does not defer the catalogue, it loses it.
 	catalogWaiting atomic.Bool
-	idempotency     IdempotencyCache
-	message         *Message
-	sound           string
-	armExpiresAt    time.Time
-	pendingReply    chan<- domain.Ack
+	idempotency    IdempotencyCache
+	message        *Message
+	sound          string
+	armExpiresAt   time.Time
+	pendingReply   chan<- domain.Ack
 	// subscribersMu guards subscribers, and it is NOT a retreat from the design.
 	//
 	// The map is still written in ONE place — applySubscription, inside the select —

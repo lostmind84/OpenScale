@@ -377,7 +377,7 @@ func TestTakeOutcomeAtStartupIsWhatTheStationTellsAfterwards(t *testing.T) {
 	b := newServiceBench(t, stubGuard{allow: true})
 	writeOutcomeFile(t, b.dir, Outcome{
 		Status: StatusRolledBack, ExitCode: 10, From: "2.0.3", To: "2.1.0",
-		Reason: "le poste ne répond pas sur 127.0.0.1:8085/healthz après 60 s",
+		Reason:     "le poste ne répond pas sur 127.0.0.1:8085/healthz après 60 s",
 		FinishedAt: benchEpoch.Add(-time.Hour),
 	})
 
