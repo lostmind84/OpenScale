@@ -42,14 +42,22 @@ Il fonctionne même quand le poste ne démarre pas — c'est là qu'il sert le p
 4. **Voyez-vous l'écran de connexion de Windows ?** Alors ce n'est pas le poste qui est
    en panne : voir la section suivante, c'est la panne la plus fréquente et la plus
    coûteuse.
-5. **Voyez-vous le bureau de Windows, avec la barre des tâches ?** L'écran client ne
+5. **Le poste vient-il de démarrer ?** Les vingt premières secondes après l'ouverture de
+   session, l'écran reste noir **exprès** : le service finit de démarrer, et le poste
+   préfère ne rien montrer plutôt que d'afficher une page qu'il remplacerait aussitôt.
+   Comptez jusqu'à vingt avant de conclure.
+6. **Voyez-vous le bureau de Windows, avec la barre des tâches ?** L'écran client ne
    s'est pas lancé. Ouvrez le Planificateur de tâches, trouvez **OpenScale-Kiosk**, clic
    droit → **Exécuter**. Si ça remet l'écran, la tâche existe mais ne s'est pas
    déclenchée : relancez `install.ps1`.
-6. **Voyez-vous une page blanche avec « Le poste redémarre… » ?** Le service n'a pas
-   encore répondu. Attendez cinq secondes. Si la phrase reste, allez à « Le poste ne
-   répond pas du tout ».
-7. **Voyez-vous « Le poste rencontre un problème — ERR-KSK-02 » ?** L'affichage
+7. **Voyez-vous une page blanche avec « Application en cours de démarrage… » ?** Le
+   service met plus de vingt secondes à répondre. Attendez encore une minute — un poste
+   qui a beaucoup de photos produit à relire au premier démarrage est plus lent. Si la
+   phrase reste, allez à « Le poste ne répond pas du tout ».
+8. **Voyez-vous une page blanche avec « Le poste redémarre… » ?** Même chose, mais le
+   poste avait déjà fonctionné depuis son démarrage : c'est le service qui s'est arrêté
+   en cours de journée. Attendez cinq secondes, puis même section.
+9. **Voyez-vous « Le poste rencontre un problème — ERR-KSK-02 » ?** L'affichage
    n'arrive pas à rester ouvert : le navigateur se ferme dès qu'il s'ouvre. Le poste a
    cessé de réessayer exprès, pour ne pas clignoter devant les clients. Lancez `doctor`,
    et prévenez un responsable avec le fichier de diagnostic.
@@ -343,6 +351,14 @@ Si l'écran ne s'ouvre pas :
 
 ```powershell
 & "C:\Program Files\OpenScale\openscale.exe" doctor --zip
+```
+
+**Et s'il ne s'est rien passé à l'écran au démarrage**, joignez le journal de l'écran
+client, qui dit ce qu'il a affiché et pourquoi — c'est le seul document qui répond à
+« qu'est-ce qu'il y avait sur l'écran avant que j'arrive ? » :
+
+```
+C:\ProgramData\OpenScale\kiosk.log
 ```
 
 ---

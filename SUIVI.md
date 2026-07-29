@@ -3,6 +3,30 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Le démarrage à froid de la v0.6 montrait une panne qui n'existait pas (29/07/2026).**
+Poste redémarré après l'installation : session `openscale` ouverte seule, puis une page
+blanche pendant deux minutes, puis un redémarrage du navigateur que personne n'avait
+demandé. Rien n'était cassé — c'est l'addition de deux mécanismes voulus. Le service est en
+démarrage automatique **différé** et Windows fixe ce différé à **120 s** par défaut
+(`AutoStartDelay` absent du registre) ; la tâche du kiosque, elle, part 5 s après
+l'ouverture de session. Mesuré : démarrage `17:47:54`, kiosque `17:48:15`, service
+`17:50:11`, navigateur relancé sur l'écran client `17:50:12`. Le « redémarrage » observé
+**était** le mécanisme de retour du superviseur, pas la panne.
+
+Ce qui a été fait, dans l'ordre où ça se voit à l'écran :
+
+| # | Correction | État |
+|---|---|---|
+| 1 | `AutoStartDelay = 20` posé par `install.ps1`, sauvegardé et restauré comme les autres réglages écrasés | ✅ |
+| 2 | Délai de grâce de 20 s : rien n'est affiché tant que le poste n'a jamais répondu | ✅ |
+| 3 | Deux formulations d'attente — « Application en cours de démarrage… » puis « Le poste redémarre… » — et trois points animés en CSS | ✅ |
+| 4 | `C:\ProgramData\OpenScale\kiosk.log` : la sortie du superviseur n'allait nulle part | ✅ |
+
+Le diagnostic a dû se faire à la pince — heures de création des processus, journal système —
+faute justement de ce journal. **Reste ouvert** : `kiosk.log` n'est pas dans
+`diagnostic.zip`, ce qui oblige `TROUBLESHOOTING.md` à demander un second fichier alors que
+la promesse était « le fichier de diagnostic, et lui seul ».
+
 **La mise à jour se déclenche depuis l'écran, et elle est livrée (29/07/2026).** ADR-040 :
 le poste sonde une fois par jour l'API des publications du dépôt suivi, porte une pastille
 au tableau de bord, télécharge l'archive au clic, **vérifie son empreinte SHA-256**,
@@ -42,6 +66,7 @@ est dépassé est **effacée** au lieu d'opposer `ErrAlreadyRunning` pour toujou
 conséquence directe de ce que le banc a mesuré, un `Start()` qui rend `nil` sans rien
 lancer. Et un lancement qui **échoue** efface son `pending.json` : le processus est encore
 vivant pour le faire.
+
 **Installer la v0.5 comme un bénévole a buté six fois (29/07/2026).** L'archive publiée a
 été posée sur `PC-RECEPTION` par `install.ps1` sans option, puis conduite étape par étape
 comme `INSTALLATION.md` la décrit. Le poste tourne — service automatique, balance GRAM sur

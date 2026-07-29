@@ -25,6 +25,9 @@ const (
 	// ConfigName is the configuration file of §11.1, next to its five rotating
 	// versions config.json.1 … .5.
 	ConfigName = "config.json"
+	// KioskLogName is where the browser supervisor's French lines are kept, next to
+	// its own previous generation kiosk.log.1.
+	KioskLogName = "kiosk.log"
 
 	windowsRoot = `C:\ProgramData\OpenScale`
 	linuxConfig = "/etc/openscale"
@@ -52,6 +55,21 @@ func DefaultDataDir() string {
 		return filepath.Join(windowsRoot, "data")
 	}
 	return linuxData
+}
+
+// DefaultKioskLogPath reports where the browser supervisor writes what it did.
+//
+// Beside the configuration and NOT inside the data directory: the kiosk runs as the
+// unprivileged station account, this file is a diagnostic aid rather than data of the
+// station, and putting it next to the database would put the two in the same disk-space
+// alert (§10.4). On Windows the installer already grants that directory to the account;
+// on Linux the unit's stdout goes to the journal as well, and this file is the copy that
+// survives a journal nobody kept.
+func DefaultKioskLogPath() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(windowsRoot, KioskLogName)
+	}
+	return filepath.Join(linuxData, KioskLogName)
 }
 
 // DatabasePath reports the database file inside a data directory.

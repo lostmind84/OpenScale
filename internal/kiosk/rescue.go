@@ -11,11 +11,15 @@ import (
 type RescueReason int
 
 const (
-	// RescueWaiting is « le service n'a pas encore répondu ». It is the ordinary state
-	// of the ten seconds after a power cut: the scheduled task fires at logon, the
-	// service is still opening its database, and a customer must see a sentence rather
-	// than a browser error page.
+	// RescueWaiting is « le poste a répondu, et il ne répond plus ». Something the
+	// customer was using went away: the sentence may legitimately talk about a station
+	// coming back.
 	RescueWaiting RescueReason = iota
+	// RescueStarting is the same silence, before the station has EVER answered — a cold
+	// boot, where the service is on delayed automatic start and the kiosk task fires five
+	// seconds after logon. Nothing has restarted, and a page that says so worries a
+	// volunteer about a station that is merely switching on.
+	RescueStarting
 	// RescueCrashLoop is the twenty-first quick death of §15.2 — ERR-KSK-02.
 	RescueCrashLoop
 )
@@ -69,16 +73,19 @@ func fileURL(path string) string {
 // working station, and a volunteer must be able to read the one instruction from three
 // metres away.
 func rescueHTML(reason RescueReason, address string, shortLives int) string {
-	title, message, instruction := "", "", ""
+	title := rescueTitle(reason)
+	message, instruction := "", ""
 	switch reason {
 	case RescueCrashLoop:
-		title = "Le poste rencontre un problème"
 		message = CodeCrashLoop + " — l'affichage n'arrive pas à rester ouvert " +
 			fmt.Sprintf("(%d arrêts en moins de 10 secondes dans la dernière heure).", shortLives)
 		instruction = "Prévenez un responsable. Ouvrez « openscale doctor » sur ce poste : " +
 			"il dira ce qui manque. En attendant, la caisse peut peser au comptoir."
+	case RescueStarting:
+		message = "L'écran de pesée s'ouvre dès que le service a fini de démarrer."
+		instruction = "Patientez quelques secondes. Si ce message reste affiché, " +
+			"prévenez un responsable — il lancera « openscale doctor »."
 	default:
-		title = "Le poste redémarre…"
 		message = "L'écran de pesée revient dès que le service répond."
 		instruction = "Patientez quelques secondes. Si ce message reste affiché, " +
 			"prévenez un responsable — il lancera « openscale doctor »."
@@ -102,14 +109,61 @@ func rescueHTML(reason RescueReason, address string, shortLives int) string {
   p  { font-size: clamp(1.1rem, 2.5vw, 1.75rem); max-width: 40ch; line-height: 1.4; margin: 0 0 1rem; }
   .instruction { color: #333333; }
   .address { font-size: 1rem; color: #555555; margin-top: 3rem; }
-</style>
+` + rescueAnimation(reason) + `</style>
 </head>
 <body>
   <h1>` + html.EscapeString(title) + `</h1>
   <p>` + html.EscapeString(message) + `</p>
-  <p class="instruction">` + html.EscapeString(instruction) + `</p>
+` + rescueDots(reason) + `  <p class="instruction">` + html.EscapeString(instruction) + `</p>
   <p class="address">Poste attendu sur ` + html.EscapeString(address) + `</p>
 </body>
 </html>
 `
+}
+
+// rescueTitle is the one line read from three metres away, and the only difference
+// between the two waiting reasons.
+func rescueTitle(reason RescueReason) string {
+	switch reason {
+	case RescueCrashLoop:
+		return "Le poste rencontre un problème"
+	case RescueStarting:
+		return "Application en cours de démarrage…"
+	default:
+		return "Le poste redémarre…"
+	}
+}
+
+// rescueAnimation is the three-dot pulse, in CSS and never in JavaScript.
+//
+// A page opened over file:// is the one place on this station where a script is what a
+// browser policy could refuse, and the page whose whole job is to be displayed when
+// nothing else works must not depend on anything.
+//
+// It is absent from the crash-loop page ON PURPOSE: that page is not waiting for
+// anything, and something that moves on it would promise a return that is not coming —
+// the flicker §15.2 opened it to stop, at a slower speed.
+func rescueAnimation(reason RescueReason) string {
+	if reason == RescueCrashLoop {
+		return ""
+	}
+	return `  .dots { display: flex; gap: 0.9rem; margin: 0.5rem 0 1.5rem; }
+  .dots span {
+    width: 0.9rem; height: 0.9rem; border-radius: 50%; background: #1A1A1A;
+    opacity: 0.25; animation: pulse 1.4s ease-in-out infinite;
+  }
+  .dots span:nth-child(2) { animation-delay: 0.2s; }
+  .dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+`
+}
+
+// rescueDots is the markup the animation above moves.
+func rescueDots(reason RescueReason) string {
+	if reason == RescueCrashLoop {
+		return ""
+	}
+	// aria-hidden: it carries no information a screen reader would want — the sentence
+	// above it already says what is happening.
+	return "  <div class=\"dots\" aria-hidden=\"true\"><span></span><span></span><span></span></div>\n"
 }

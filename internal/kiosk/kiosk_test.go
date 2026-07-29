@@ -107,6 +107,70 @@ func TestTheRescuePageIsAFileTheBrowserCanOpen(t *testing.T) {
 	}
 }
 
+// TestTheStartingPageDoesNotClaimAnythingRestarted is the wording of a cold boot.
+//
+// « Le poste redémarre… » in front of a machine that has just been switched on is
+// false, and false in the direction that worries: it tells a volunteer that something
+// went wrong when nothing did.
+func TestTheStartingPageDoesNotClaimAnythingRestarted(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := WriteRescuePage(dir, RescueStarting, "http://127.0.0.1:8085", 0); err != nil {
+		t.Fatalf("écriture de la page de démarrage : %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, RescueFileName))
+	if err != nil {
+		t.Fatalf("relecture : %v", err)
+	}
+	page := string(raw)
+	if !strings.Contains(page, "démarrage") {
+		t.Errorf("la page de démarrage ne parle pas de démarrage :\n%s", page)
+	}
+	if strings.Contains(page, "redémarre") {
+		t.Error("la page de démarrage annonce un redémarrage : rien n'a redémarré")
+	}
+	if strings.Contains(page, CodeCrashLoop) {
+		t.Error("la page de démarrage porte ERR-KSK-02, qui est le code de la boucle de plantage")
+	}
+}
+
+// TestTheWaitingPagesShowASignOfLifeWithoutAScript is what turns two minutes of waiting
+// into two minutes of waiting rather than two minutes of « c'est planté ».
+//
+// In CSS and never in JavaScript: the page is opened over file://, so a script would be
+// the one thing on this screen that a browser policy could refuse. The crash-loop page is
+// deliberately left STILL — it is not waiting for anything, and an animation there would
+// promise a return that is not coming.
+func TestTheWaitingPagesShowASignOfLifeWithoutAScript(t *testing.T) {
+	for name, reason := range map[string]RescueReason{
+		"démarrage": RescueStarting,
+		"attente":   RescueWaiting,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if _, err := WriteRescuePage(dir, reason, "http://127.0.0.1:8085", 0); err != nil {
+				t.Fatalf("écriture : %v", err)
+			}
+			raw, _ := os.ReadFile(filepath.Join(dir, RescueFileName))
+			page := string(raw)
+			if !strings.Contains(page, "@keyframes") {
+				t.Error("la page d'attente est immobile : rien ne dit qu'elle travaille")
+			}
+			if strings.Contains(page, "<script") {
+				t.Error("l'animation passe par un script")
+			}
+		})
+	}
+
+	dir := t.TempDir()
+	if _, err := WriteRescuePage(dir, RescueCrashLoop, "http://127.0.0.1:8085", 21); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, RescueFileName))
+	if strings.Contains(string(raw), "@keyframes") {
+		t.Error("la page ERR-KSK-02 s'anime : elle promet un retour qui n'arrivera pas")
+	}
+}
+
 // TestTheCrashLoopPageCarriesTheCodeAndTheCount is what a volunteer reads out over the
 // telephone: the code §15.2 allocates, and how many times it happened.
 func TestTheCrashLoopPageCarriesTheCodeAndTheCount(t *testing.T) {
