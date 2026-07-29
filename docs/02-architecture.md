@@ -2641,7 +2641,7 @@ func waitAll(clk ports.Clock, d time.Duration, cs ...<-chan struct{}) bool
 
 ```mermaid
 flowchart TD
-  P1(["Poste 1 — poste de référence"]) -->|"GET /admin/api/config/export?hardware=0"| FILE["config-station2-2026-07-24.json<br/>SANS station.number, station.name,<br/>scale.options, printer.options, catalog.options,<br/>network et les empreintes admin"]
+  P1(["Poste 1 — poste de référence"]) -->|"GET /admin/api/config/export?hardware=0"| FILE["config-station2-2026-07-24.json<br/>SANS station.number, station.name, network,<br/>les empreintes admin, et les clés qui désignent<br/>un poste ou un site : port série, file d'impression,<br/>adresse, chemin, URL, compte, mot de passe"]
   FILE -->|"POST /admin/api/config/import — glisser-déposer"| MERGE["fusion + validation<br/>APERÇU DU DIFF champ par champ"]
   MERGE -->|confirmation| P2["poste cible configuré<br/>puis ses 2 étapes matériel"]
   P2 -->|"GET /admin/api/fingerprint"| FP["SHA-256 du JSON canonique<br/>affiché en 8 caractères"]
@@ -2649,6 +2649,12 @@ flowchart TD
   CHECK -->|oui| OKP(["parc homogène, vérifié à l'œil par n'importe qui"])
   CHECK -->|non| KOP(["un poste diverge — ouvrir l'aperçu du diff"])
 ```
+
+**Le reste des options de driver voyage**, et ce défaut est délibéré : une option de
+réglage est partagée par les quatre postes jusqu'à preuve du contraire, et la preuve
+s'écrit dans `stationSpecificOptions` (`internal/domain/config.go`). Le décalage
+d'étiquette est le cas qui a tranché — la notice promet depuis toujours qu'il voyage
+avec la configuration clonée, et il partait avec `printer.options`.
 
 Les 4 postes affichent la même chaîne de 8 caractères, ou pas. Vérification immédiate à l'œil, par n'importe qui — ce que les 227 colonnes `_Poste1..4` de l'existant ne permettaient pas.
 

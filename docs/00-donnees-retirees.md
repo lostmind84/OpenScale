@@ -68,8 +68,11 @@ désignent aucun hôte joignable.
 Rien au code : aucune URL, aucune adresse n'est compilée dans le binaire. `NeutralProfile()`
 ne contient aucune URL, et les valeurs d'un site sont un **fichier livré**, pas du code
 (ADR-026). Il y a donc un seul endroit à renseigner le jour de l'installation, et c'est déjà
-l'inconnue n° 9 de `docs/02-architecture.md` §21 : le bloc `catalog.options` de
-`config-lacagette.json`.
+l'inconnue n° 9 de `docs/02-architecture.md` §21 : **trois clés** du bloc
+`catalog.options` de `config-lacagette.json` — `url`, `username` et `password`. Le
+reste du bloc — séparateur, seuils, cadence — voyage avec la configuration livrée
+depuis le 29/07/2026, et un test refuse qu'un hôte, un compte ou une file
+d'impression s'y glisse (`cmd/openscale/config_test.go`).
 
 > **Aux relecteurs de `docs/`** : partout où un document dit « la valeur réelle est … » ou
 > « l'URL relevée en base est … » suivi d'un `example.org`, la phrase décrit **la forme** de

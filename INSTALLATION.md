@@ -260,6 +260,10 @@ premier.
 | | Étapes 5 et 6 : balance et imprimante (le décalage est déjà bon) |
 | | Étape 7 : **numéro de ce poste** |
 
+> **Le décalage voyage vraiment** : il est dans la configuration livrée, avec le
+> noircissement, la vitesse et les réglages série de la balance. Vérifiez-le sur la
+> première étiquette du poste cloné plutôt que de le régler à nouveau.
+
 **Puis vérifiez l'empreinte.** En bas de l'écran d'administration, chaque poste affiche
 une **empreinte de 8 caractères**. Les quatre postes doivent afficher **exactement la
 même chaîne**.
