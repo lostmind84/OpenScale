@@ -594,20 +594,7 @@ func TestTheJournalIsServedAndExportable(t *testing.T) {
 
 	// The technical journal is not empty: a station that started wrote to it, which is
 	// what proves the adapter really reads the base and not an empty map.
-	technical := bench.get("/admin/api/technical")
-	defer technical.Body.Close()
-	var lines struct {
-		Entries []struct {
-			OccurredAt string `json:"occurred_at"`
-			Level      string `json:"level"`
-			Source     string `json:"source"`
-			Message    string `json:"message"`
-		} `json:"entries"`
-	}
-	decodeInto(t, technical, &lines)
-	if len(lines.Entries) == 0 {
-		t.Fatal("le journal technique est vide : l'adaptateur ne lit pas la base")
-	}
+	lines := bench.awaitTechnicalLines(t)
 	if lines.Entries[0].OccurredAt == "" || lines.Entries[0].Message == "" {
 		t.Fatalf("une ligne technique arrive incomplète à l'écran : %+v", lines.Entries[0])
 	}
@@ -884,6 +871,48 @@ func (b *serveBench) awaitCatalogInventory(t *testing.T) importAnswer {
 	}
 	t.Fatalf("aucun catalogue n'a pris service en %s\n%s", startBudget, b.output())
 	return importAnswer{}
+}
+
+// technicalAnswer is what the Journal page reads on /admin/api/technical.
+type technicalAnswer struct {
+	Entries []struct {
+		OccurredAt string `json:"occurred_at"`
+		Level      string `json:"level"`
+		Source     string `json:"source"`
+		Message    string `json:"message"`
+	} `json:"entries"`
+}
+
+// awaitTechnicalLines polls until the start-up lines of the station have REACHED THE
+// BASE, and never merely until the acts that produce them have run.
+//
+// The two are not the same instant, and the gap between them is invisible on a fast
+// machine. `Hub.logTechnical` hands the entry to a CHANNEL — a non-blocking send, so that
+// journalling can never hold up the one goroutine that decides — and `journalWorker.run`
+// drains it on ANOTHER goroutine, which is what finally writes it where this route can
+// read it. A socket that answers proves the station is UP; it proves nothing about that
+// drain having run.
+//
+// Read straight after `start`, this was a race the repository won locally and lost on a
+// loaded CI runner: « le journal technique est vide : l'adaptateur ne lit pas la base ».
+// Delaying the drain by 50 ms reproduces it every time, which is how it was found — the
+// same instrumentation, and the same cause, as the three station-side readings of a32a9a2.
+func (b *serveBench) awaitTechnicalLines(t *testing.T) technicalAnswer {
+	t.Helper()
+	deadline := time.Now().Add(startBudget)
+	for time.Now().Before(deadline) {
+		response := b.get("/admin/api/technical")
+		var lines technicalAnswer
+		decodeInto(t, response, &lines)
+		_ = response.Body.Close()
+		if len(lines.Entries) != 0 {
+			return lines
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("le journal technique est resté vide %s : l'adaptateur ne lit pas la base\n%s",
+		startBudget, b.output())
+	return technicalAnswer{}
 }
 
 // awaitAcknowledgement waits for the watched file to be gone, which is what an
