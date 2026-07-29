@@ -95,6 +95,35 @@ compte pas des fautes, il compte des **lignes à remplir** : il en a **quatre**.
 est le critère de recette, pas le total brut — annoncer cinq réparations pour quatre
 champs envoie chercher une cinquième ligne qui n'existe pas.
 
+**Ce que le lot « configuration livrée » laisse ouvert derrière lui (29/07/2026).** Quatre
+constats d'une revue adverse, tous reproduits, aucun corrigé — ils sont ici pour ne pas
+être retrouvés une seconde fois.
+
+**L'écran d'administration ment sur ce qu'il exporte.** `web/src/admin/pages/Station.svelte`
+annonce au bénévole qui clone que « tout ce qui est propre à ce poste-ci reste ici — […] les
+réglages de la balance, ceux de l'imprimante, la source du catalogue ». Ces réglages
+**voyagent** depuis ce lot, c'est même sa raison d'être. Un banc front verrouille la phrase
+fausse (`web/test/admin-station.test.ts`), et le `dist` embarqué par `//go:embed` est en
+retard : c'est ce texte-là que le binaire sert. `TROUBLESHOOTING.md` a le même défaut — il
+dit qu'une empreinte divergente signifie que les tarifs, les garde-fous ou le gabarit
+diffèrent, alors qu'elle peut désormais diverger sur un noircissement d'imprimante.
+
+**`GET /admin/api/config/export` inclut le matériel PAR DÉFAUT.** `includeHardware :=
+r.URL.Query().Get("hardware") != "0"` : un paramètre absent, `hardware=false` et
+`hardware=` valent tous **inclure**, quand le CLI déclare `fs.Bool("hardware", false)` et
+fait l'inverse. Deux portes, le même nom, deux défauts opposés — et celle qui échoue en
+s'ouvrant est la mauvaise. Antérieur au lot, derrière le mot de passe d'administration, et
+ce n'est pas le chemin qui fabrique l'archive : `make release` passe par le CLI.
+
+**Deux trous latents dans le retrait de l'export**, sans conséquence aujourd'hui parce
+qu'aucun driver livré ne déclare les clés qu'il faudrait pour les atteindre. La comparaison
+des noms est **sensible à la casse** là où le retrait des secrets minuscule la clé : une
+option épelée `URL`, `Port` ou `Queue` traverserait. Et les trois listes sont **cloisonnées
+par carte** : un port série rangé sous `catalog.options`, une URL sous `scale.options`
+sortiraient. `internal/diag/redact.go` ne souffre ni de l'un ni de l'autre — il minuscule et
+descend partout. Deux portes vers l'extérieur, deux niveaux de rigueur, et c'est l'export
+qui est en dessous.
+
 **Le banc a tranché la mise à jour depuis l'écran, et corrigé son plan (29/07/2026).** La
 tâche 0 du plan `2026-07-29-mise-a-jour-depuis-admin` posait une question qui conditionnait
 tout le reste : une PowerShell lancée **détachée** par le service survit-elle à l'arrêt de
