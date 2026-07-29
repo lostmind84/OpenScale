@@ -1292,6 +1292,77 @@ func (b *realBench) quarantine(sha string) (domain.QuarantineEntry, bool) {
 	return entry, err == nil
 }
 
+// pollByPoll is a REAL catalog source the test polls ONE scrutation at a time.
+//
+// # WHY THE TEST BELOW CANNOT USE THE CLOCK
+//
+// Failure test 8 writes a file that grows and asserts nothing was read. That assertion
+// is only sound if EXACTLY ONE poll observes each size, and advancing the injected
+// clock does not give that: it merely drops a tick into a channel of capacity one. The
+// watch runs on its own goroutine (§13.1 n° 5), so nothing says the poll that tick
+// triggers has happened before the test writes the NEXT size.
+//
+// When that poll lags one turn, two consecutive polls see the same bytes, the file is
+// declared immobile, and what the test calls a violation is a perfectly correct read of
+// a file that really had stopped moving. It turned CI red on 29/07/2026, with an
+// archive AND its .reason.txt — the copy was being parsed while os.WriteFile truncated
+// it underneath. No local stress reproduces it: it takes a loaded two-core runner.
+//
+// The rendezvous closes the window instead of widening it. `ask` is taken by the watch
+// when it is about to poll and `done` is given back when that poll is over, so the test
+// writes the next size while the watch is PARKED — which no timeout can promise.
+type pollByPoll struct {
+	ports.CatalogSource
+	ask  chan struct{}
+	done chan struct{}
+}
+
+// Next performs exactly one poll per request from the test.
+//
+// The context handed down is already spent, which is what makes the real Next poll once
+// and come back rather than wait for its own ticker. It costs the refusal path its
+// quarantine write — and that is acceptable HERE and only here, because a refusal is
+// precisely what this scenario asserts never happens.
+func (p *pollByPoll) Next(ctx context.Context) (*ports.Batch, error) {
+	select {
+	case <-p.ask:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	batch, err := p.CatalogSource.Next(spent(ctx))
+	if errors.Is(err, context.Canceled) && ctx.Err() == nil {
+		// The cancellation is OURS, and it means « the poll is over, nothing found ».
+		err = nil
+	}
+	select {
+	case p.done <- struct{}{}:
+	case <-ctx.Done():
+	}
+	return batch, err
+}
+
+// once asks for one poll and does not return until that poll has finished.
+func (p *pollByPoll) once(t *testing.T) {
+	t.Helper()
+	select {
+	case p.ask <- struct{}{}:
+	case <-time.After(hang):
+		t.Fatal("la veille du catalogue n'a jamais redemandé de scrutation")
+	}
+	select {
+	case <-p.done:
+	case <-time.After(hang):
+		t.Fatal("la scrutation demandée ne s'est jamais terminée")
+	}
+}
+
+// spent returns a child context that is already done.
+func spent(parent context.Context) context.Context {
+	ctx, cancel := context.WithCancel(parent)
+	cancel()
+	return ctx
+}
+
 // TestACatalogFileStillGrowingIsNotReadAgainstTheRealDrop is failure test 8, replayed
 // against the poll loop of internal/catalog/localdrop.
 //
@@ -1300,17 +1371,25 @@ func (b *realBench) quarantine(sha string) (domain.QuarantineEntry, bool) {
 // is stronger than counting reads, because it is the artefact production leaves behind.
 func TestACatalogFileStillGrowingIsNotReadAgainstTheRealDrop(t *testing.T) {
 	initial := garlicCatalog()
-	b := newRealBench(t, func(o *realOptions) { o.catalog = initial })
+	watch := &pollByPoll{ask: make(chan struct{}), done: make(chan struct{})}
+	b := newRealBench(t, func(o *realOptions) {
+		o.catalog = initial
+		o.wrap = func(s ports.CatalogSource) ports.CatalogSource {
+			watch.CatalogSource = s
+			return watch
+		}
+	})
 
 	lines := rows(t, fixtureBytes(t, "flv_1.csv"))
 	for _, upto := range []int{20, 60, 100, 140} {
 		b.dropContent(join(lines[:upto]))
-		b.scan()
+		// ONE poll, and it has finished when this returns: whatever it saw, it saw this
+		// size and no other.
+		watch.once(t)
+		b.flush()
 		// A COMMITTED archive is the proof that a file was read to the end and
 		// acknowledged. The « .part » of a copy in flight is not one, and counting it as
-		// such is what turned this red on a loaded runner: the watch loop runs on its own
-		// goroutine, so a temporary could still be on disk when the assertion ran.
-		// archived() now skips that suffix, and the assertion stays as strong as it was.
+		// such is what turned this red on a loaded runner the first time.
 		if names := b.archived(); len(names) != 0 {
 			t.Fatalf("archives %v : la copie est écrite PENDANT la lecture, donc un fichier "+
 				"dont la taille bouge encore a été lu", names)
@@ -1324,13 +1403,22 @@ func TestACatalogFileStillGrowingIsNotReadAgainstTheRealDrop(t *testing.T) {
 	}
 
 	// Immobile at last. What takes service is the WHOLE file — 107 tiles — and never
-	// one of the four truncations above.
+	// one of the four truncations above. Two identical polls are what the rule asks for,
+	// and the loop below is what grants them.
 	b.dropContent(join(lines))
-	grid := b.awaitTiles(firstTiles)
-	if grid.Len() != firstRows {
+	awaitCondition(t, func() bool {
+		watch.once(t)
+		b.flush()
+		return b.hub.Catalog() != nil && b.hub.Catalog().WeighableCount() == firstTiles
+	}, fmt.Sprintf("la grille n'a jamais compté %d tuiles", firstTiles))
+	if grid := b.hub.Catalog(); grid.Len() != firstRows {
 		t.Errorf("%d produits en base, attendu les %d lignes du fichier", grid.Len(), firstRows)
 	}
-	b.awaitFileGone()
+	awaitCondition(t, func() bool {
+		watch.once(t)
+		_, err := os.Stat(b.path)
+		return errors.Is(err, os.ErrNotExist)
+	}, "le fichier déposé n'a jamais disparu : l'acquittement EST la suppression")
 	if names := b.archived(); len(names) != 1 {
 		t.Errorf("archives %v, attendu une seule copie : celle du fichier complet", names)
 	}
