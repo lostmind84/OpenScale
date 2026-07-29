@@ -14,6 +14,7 @@ import (
 	"openscale/internal/domain"
 	"openscale/internal/station"
 	"openscale/internal/station/ports"
+	"openscale/internal/update"
 )
 
 // maxSubscribers is how many SSE streams one station serves at once (§13.1).
@@ -260,6 +261,22 @@ type Troubleshooting interface {
 	UseFallbackPrinter(ctx context.Context, on bool) error
 }
 
+// Updater is what the HTTP layer needs to move the station to a newer release.
+//
+// Declared here, on the consumer's side; *update.Service satisfies it. Nil answers
+// 501 on the act and « not supported » on the read, which is what a Linux station
+// honestly is: hiding the routes would leave a screen guessing, and a button doing
+// nothing would be worse than none.
+type Updater interface {
+	// Status answers the screen from what is on disk, without polling.
+	Status(repository string) (update.Status, error)
+	// Check polls the repository now and records what it found.
+	Check(ctx context.Context, repository string) (update.Check, error)
+	// Apply brings the wanted version down and hands the swap over. It returns
+	// as soon as the swap has STARTED: what finishes it also stops this process.
+	Apply(ctx context.Context, repository, wanted string) error
+}
+
 // Options is everything the HTTP layer is given. Clock and Hub are required; every
 // other collaborator is optional and its absence is answered honestly.
 type Options struct {
@@ -285,6 +302,8 @@ type Options struct {
 	// restart indicator of §14.4. Nil leaves those four absent from GET /admin/api/health
 	// and never fails it.
 	Dashboard Dashboard
+	// Update installs a newer release from the screen. Nil answers 501 on the act.
+	Update Updater
 
 	// Assets is the built front end (internal/web/dist through //go:embed). Nil
 	// serves a placeholder page rather than a 404: a station whose front end has not
@@ -318,6 +337,7 @@ type Server struct {
 	troubleshooting Troubleshooting
 	diagnostician   Diagnostician
 	dashboard       Dashboard
+	updater         Updater
 	assets          fs.FS
 	images          fs.FS
 	registries      domain.Registries
@@ -353,7 +373,7 @@ func New(o Options) (*Server, error) {
 		clock: o.Clock, hub: o.Hub, controller: o.Controller, technical: o.Technical,
 		store: o.Store, configStore: o.Config, catalog: o.Catalog,
 		hardware: o.Hardware, printer: o.Printer, troubleshooting: o.Troubleshooting,
-		diagnostician: o.Diagnostic, dashboard: o.Dashboard,
+		diagnostician: o.Diagnostic, dashboard: o.Dashboard, updater: o.Update,
 		assets: o.Assets, images: o.Images, registries: o.Registries,
 		binder: o.Binder, version: o.Version,
 		sessions: newSessionStore(o.Clock),
@@ -440,6 +460,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /admin/api/config/versions", s.configVersions)
 	mux.HandleFunc("GET /admin/api/ports", s.listPorts)
 	mux.HandleFunc("GET /admin/api/printers", s.listPrinters)
+	mux.HandleFunc("GET /admin/api/update", s.updateStatus)
 	mux.HandleFunc("GET /admin/api/label/preview.png", s.labelPreview)
 	// The journal is open, EXPORT INCLUDED: the page already shows the 200 weighings,
 	// and diagnostic.zip — open — carries them too. A lock on the third door is not one.
@@ -477,6 +498,8 @@ func (s *Server) routes() http.Handler {
 		"POST /admin/api/catalog/forget-quarantine":    s.forgetQuarantine,
 		"POST /admin/api/products/{id}/decision":       s.productDecision,
 		"POST /admin/api/replay":                       s.replay,
+		"POST /admin/api/update/check":                 s.updateCheck,
+		"POST /admin/api/update/apply":                 s.updateApply,
 	}
 	for pattern, handler := range guarded {
 		mux.HandleFunc(pattern, s.authenticated(handler))

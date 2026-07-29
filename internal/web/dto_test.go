@@ -18,10 +18,14 @@ import (
 	"openscale/internal/station/ports"
 )
 
-// update rewrites the golden files instead of comparing against them. It is the one
-// way this file may be made to pass without thinking, so it is a flag somebody has to
-// type.
-var update = flag.Bool("update", false, "réécrit les fichiers golden au lieu de les comparer")
+// rewriteGolden rewrites the golden files instead of comparing against them. It is
+// the one way this file may be made to pass without thinking, so it is a flag
+// somebody has to type.
+//
+// The Go identifier is NOT « update »: this package now imports internal/update,
+// and a package-level variable of that name would shadow it across the whole test
+// binary. The command-line flag keeps its name -- it is what people type.
+var rewriteGolden = flag.Bool("update", false, "réécrit les fichiers golden au lieu de les comparer")
 
 // TestStateGoldenFreezesTheWireContract is the test §14.5 asks for: the DTO is
 // DECOUPLED from the core, and the price of that decoupling is one conversion
@@ -41,7 +45,7 @@ func TestStateGoldenFreezesTheWireContract(t *testing.T) {
 	got = append(got, '\n')
 
 	golden := filepath.Join("testdata", "state.json")
-	if *update {
+	if *rewriteGolden {
 		if err := os.WriteFile(golden, got, 0o644); err != nil {
 			t.Fatalf("écriture du golden : %v", err)
 		}
