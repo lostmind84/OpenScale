@@ -549,7 +549,7 @@ portent.
 | `version` / `_lisez_moi` / `modifie_le` | `version` / `_readme` / `modified_at` |
 | `poste{numero, nom, coop}` | `station{number, name, coop}` |
 | `reseau{ecoute, admin_reseau_local}` | `network{listen, admin_on_lan}` |
-| `ihm{langue, son, delai_inactivite_s, delai_reimpression_s, afficher_prix_grille}` | `ui{language, sound, idle_timeout_s, reprint_window_s, show_grid_prices}` |
+| `ihm{langue, son, delai_inactivite_s, delai_reimpression_s, afficher_prix_grille, afficher_produits_a_l_unite}` | `ui{language, sound, idle_timeout_s, reprint_window_s, show_grid_prices, show_by_unit_products}` |
 | `balance{type, presente, saisie_manuelle_autorisee, delai_avant_degradation_s}` | `scale{type, present, manual_entry_allowed, degrade_after_s}` |
 | `balance.options{port, baud, bits, parite, stop, backoff_min_ms, backoff_max_ms}` | `scale.options{port, baud, bits, parity, stop, backoff_min_ms, backoff_max_ms}` |
 | `balance.type : gram-xfoc-rs \| gram-xfoc-plus` | `scale.type : gram-xfoc-rs \| gram-xfoc-plus` (inchangés, noms matériels) |

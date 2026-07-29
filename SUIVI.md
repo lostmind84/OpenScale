@@ -3,14 +3,22 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Les compteurs, mesurés le 29/07/2026 après la série de sept chantiers.** **2 562 tests
+Go** verts sur 31 paquets — 0 échec, 5 écartés, contre 2 352 avant la série — et **764 tests
+front** sur 34 fichiers, 0 échec, contre 686 sur 31 fichiers. `gofmt` propre, `go vet` vert,
+`svelte-check` sur 338 fichiers sans une erreur ni un avertissement, et les deux gardes du
+dépôt, `boundary` et `deps`, vertes. Le bundle de l'écran client reconstruit pèse **79 429
+octets gzip, soit 70,5 % du budget de 112 640** — 33 211 octets de marge. La passe `-race`
+**n'a pas pu être jouée sur ce poste** : elle exige cgo, le dépôt est en zéro cgo et il n'y
+a pas de gcc ici. La CI Linux est seule à la couvrir, et c'est d'elle qu'il faut l'exiger.
+
 **La mise à jour se déclenche depuis l'écran, et elle est livrée (29/07/2026).** ADR-040 :
 le poste sonde une fois par jour l'API des publications du dépôt suivi, porte une pastille
 au tableau de bord, télécharge l'archive au clic, **vérifie son empreinte SHA-256**,
 l'extrait, écrit `pending.json` puis lance `update.ps1` détaché. Le service tourne en
 `LocalSystem` : **il n'y avait aucune élévation à obtenir**, ce qui a rendu tout le reste
-possible. Treize tâches, 13 commits, suite Go complète verte en `-race`, **686 tests front**,
-budget de l'écran client inchangé à 70,3 % — cette page est dans le paquet
-d'administration, que la grille ne charge jamais.
+possible. Treize tâches, 13 commits, et la page « Mise à jour » ne coûte rien à l'écran
+client : elle est dans le paquet d'administration, que la grille ne charge jamais.
 
 **Trois défauts existants ont été payés par ce chantier.** (1) **L'écran client restait
 noir** après toute mise à jour : `Stop-OpenScaleBinaryHolders` termine la tâche du kiosque,
@@ -42,6 +50,53 @@ est dépassé est **effacée** au lieu d'opposer `ErrAlreadyRunning` pour toujou
 conséquence directe de ce que le banc a mesuré, un `Start()` qui rend `nil` sans rien
 lancer. Et un lancement qui **échoue** efface son `pending.json` : le processus est encore
 vivant pour le faire.
+
+**Sept chantiers ont refermé la campagne d'installation (29/07/2026).** Quatre des six
+défauts relevés en installant la v0.5 sont corrigés — le voile qui couvrait le bouton
+Réglages, la détection de balance, les volets de la page Matériel, le retour arrière à
+60 s — et avec eux le cinquième, l'adresse d'écoute que le repli jetait, dont l'entrée de L8
+annonçait depuis le 26/07 un correctif déjà livré. Deux demandes neuves du commanditaire
+ont été traitées dans la même série : « Recharger le catalogue » rend enfin compte de ce
+qu'il déclenche, et le poste sait masquer les produits vendus à l'unité, ce qu'il fait
+désormais par défaut. Trois choses ont été **découvertes** en chemin, et non supposées ;
+ce sont elles qui valent d'être écrites.
+
+**Les produits vendus à l'unité n'étaient masqués nulle part.** Quinze produits du vrai
+catalogue étaient sous le doigt du client, tous préfixés `0499` — et une tuile vendue à
+l'unité imprime une étiquette sans jamais lire la balance. La grille passe de **331 à 316
+tuiles**, et les puces à Tout 316 · Fruits 23 · Légumes 59 · Vrac 108 · Autres 126 — aucune
+ne disparaît. Le même chantier a ventilé l'écart des **24 lignes entre 355 et 331** que
+cette page citait deux fois sans jamais l'expliquer : **16 anomalies de zone réservée**
+(lignes 312-317, 319-327 et 356 du CSV, des `0493…` dont les cinq chiffres de charge utile
+ne sont pas à zéro), **7 préemballés** à EAN fournisseur et **1 code interne hors plan**.
+Aucune de ces 24 lignes n'est un produit vendu à l'unité : c'est un défaut des données
+Odoo, pas d'affichage.
+
+**Le retour arrière à 60 s détruisait des données de production, et le trou du pilote
+`preview` en était la moitié.** Le détail est au défaut 4 plus bas ; ce qui compte ici est
+que le pilote d'aperçu, annoncé par la conception et absent du registre, faisait tomber le
+cycle lire-modifier-écrire de l'administration **entière** en `ERR-CFG-01` sur tout poste
+tournant en configuration d'usine — donc sur tout poste fraîchement installé, c'est-à-dire
+au moment précis où l'on vient le régler. Il est livré.
+
+**Le poste savait déjà tout dire du rechargement de son catalogue ; il ne le disait à
+personne.** « Recharger le catalogue » répondait « Le catalogue va être relu. » — une
+promesse au futur, écrite en dur avant tout accès au support — puis se taisait
+définitivement quand le fichier n'était pas là : une veille qui ne trouve rien fait
+`stability.Forget()` et revient sans écrire un seul événement, si bien que le cas dominant
+était le seul parfaitement muet. Le nom du fichier, le résultat, l'heure, l'inventaire et
+la source surveillée étaient tous en base et déjà servis par `GET /admin/api/health`. Rien
+n'a donc été inventé, et la réponse **reste un 202** : la rendre synchrone rebâtirait le
+second chemin d'import que `cmd/openscale/catalogadmin.go` interdit noir sur blanc. Elle
+porte maintenant ce que le poste surveille et l'import en vigueur à l'instant de l'appui,
+plus le seul fait que le code ne produisait jamais — **un** `os.Stat` **borné à deux
+secondes**, parce qu'un répertoire réseau nommé par un humain peut bloquer devant un
+bénévole. L'écran attend l'issue par le sondage de trois secondes qui existait déjà, et les
+deux portes de cet acte, page Catalogue et page Dépannage, rendent littéralement la même
+phrase : un banc le tient en comparant le DOM à la sortie de la fonction partagée. Au bout
+de dix sondages, l'écran dit ce qu'il **sait** — aucun import enregistré, voici ce qui est
+surveillé — et jamais « catalogue rechargé ».
+
 **Installer la v0.5 comme un bénévole a buté six fois (29/07/2026).** L'archive publiée a
 été posée sur `PC-RECEPTION` par `install.ps1` sans option, puis conduite étape par étape
 comme `INSTALLATION.md` la décrit. Le poste tourne — service automatique, balance GRAM sur
@@ -52,46 +107,152 @@ ligne de commande pour chacune.
 
 | # | Défaut | État |
 |---|---|---|
-| 1 | Le voile « Poste hors service » couvre le bouton **Réglages** | ouvert |
-| 2 | « Détecter automatiquement » ne peut jamais réussir | ouvert |
-| 3 | Les volets de la page Matériel se referment seuls en ~2,9 s | ouvert |
-| 4 | Le retour arrière à 60 s écrit le profil d'usine dans `config.json` | ouvert |
+| 1 | Le voile « Poste hors service » couvre le bouton **Réglages** | ✅ corrigé |
+| 2 | « Détecter automatiquement » ne peut jamais réussir | ✅ corrigé |
+| 3 | Les volets de la page Matériel se referment seuls en ~2,9 s | ✅ corrigé |
+| 4 | Le retour arrière à 60 s écrit le profil d'usine dans `config.json` | ✅ corrigé |
 | 5 | La veille du catalogue reste dans la source qu'un rechargement remplace | ✅ corrigé |
 | 6 | La veille ne prend jamais une source arrivée après un démarrage sans source | ✅ corrigé |
 
-**1. L'administration est inatteignable sur un poste neuf.** `FullScreen.svelte` est
-`position: fixed; inset: 0; z-index: 10` et opaque : il intercepte tout clic. Or l'étape 4
-demande de toucher le bouton Réglages, et la notice précise elle-même qu'à cet instant « le
-poste affiche encore Poste hors service, et c'est normal ». Il n'existe aucune autre entrée
-— l'administration se monte dans la même page, sans URL, et `onGlobalKey` sort tôt sur
-`screenTaken`. Le poste sort de l'installeur dans le seul état où on ne peut pas le régler.
+**Les six sont refermés au 29/07/2026** : les deux derniers pendant la campagne elle-même,
+les quatre premiers par la série de sept chantiers. Les paragraphes ci-dessous gardent le
+symptôme mesuré et la cause réelle — deux des quatre en donnaient une fausse.
 
-**2. La détection de balance ne lit aucun réglage série, ni la configuration ni des
-candidats.** `cmd/openscale/hardware.go:190` construit `serial.Options{Port, Clock, Open}` ;
-`Baud`, `Bits`, `Parity` et `Stop` restent aux valeurs nulles Go, et `withDefaults()` n'est
-appelé sur aucun de ses trois appelants connus depuis ce chemin. `OpenSystemPort` refuse
-`Parity == ""` avant toute ouverture, et l'écran affiche pour chaque port « le port COM7 ne
-peut pas être ouvert … S'il est celui de la balance de ce poste, il est déjà utilisé » —
-une phrase qui accuse un port occupé pour une struct vide. Cela échouerait **aussi avec une
-configuration complète**. Les cinq tests de `cmd/openscale/detect_test.go` injectent tous un
-`open:` factice qui court-circuite la validation ; `openscale capture` fait le contraire et
-renseigne 9600 8N1 explicitement (`capture.go:108-115`).
+**1. L'administration était inatteignable sur un poste neuf.** `FullScreen.svelte` est
+`position: fixed; inset: 0` et opaque, sans `pointer-events: none` : il couvrait toute la
+fenêtre, barre basse comprise. La touche Réglages, elle, ne déclarait ni `position` ni
+`z-index` — donc `z-index: auto` dans le contexte d'empilement **racine**, peinte sous le
+voile et hors d'atteinte du doigt. Or l'étape 4 demande de la toucher, et la notice précise
+elle-même qu'à cet instant « le poste affiche encore Poste hors service, et c'est normal ».
+Comme ADR-032 en fait la seule entrée vers l'administration depuis le poste, celui-ci
+sortait de l'installeur dans le seul état où on ne peut pas le régler.
 
-**3. Les volets de la page Matériel se referment sous le doigt.** Mesuré au navigateur :
-ouvert à 112 ms, encore ouvert à 2 836 ms, fermé à 2 944 ms — le rafraîchissement d'état
-re-rend le `<details>`. Les deux seuls champs qui nomment un port série vivent dedans.
+**La note qui affirmait qu'il n'existe aucune autre entrée était fausse au sens strict**,
+et sur deux points. Une autre entrée existe bien, mais côté serveur seulement : `GET /admin`
+et `GET /admin/` sont servis (`internal/web/server.go`, qui rend `admin.html`). Elle est
+hors de portée **au poste**, le navigateur étant lancé en `--kiosk <url>`
+(`internal/kiosk/kiosk.go`) — pas de barre d'adresse devant le bénévole ; c'est une entrée
+pour dépanner depuis une autre machine du réseau, pas pour quelqu'un debout devant l'écran.
+Et le bouton restait atteignable au **clavier** : `onGlobalKey` sort tôt sur `screenTaken`
+**sans** `preventDefault`, donc Tab puis Entrée l'atteignaient — mais sous un voile opaque
+et sans anneau de focus visible. Une entrée réelle et aveugle, qu'aucun bénévole ne peut
+employer.
 
-**4. « Retour à la version précédente » est un retour au profil d'usine, et il l'écrit.**
-Une configuration non confirmée en 60 s ne restaure pas le fichier d'avant : elle écrit dans
-`config.json` ce sur quoi le poste *tourne*, c'est-à-dire le profil neutre. Mesuré sur ce
-poste : coopérative vidée, paliers de prix **2 → 1**, remise adhérent de 10 % perdue,
-contrôle du panier désactivé, pilote passé en `preview`. Et l'écran ne peut plus rien
-enregistrer ensuite : `GET /admin/api/config` sert `printer.type: "preview"` que `PUT`
-refuse en `ERR-CFG-01` sur un champ que personne n'a touché — **c'est le défaut déjà relevé
-le 26/07/2026** (« `printer.type: "preview"` que porte le profil neutre n'est enregistré par
-aucun binaire »), dont on connaît maintenant le prix : il casse le cycle lire-modifier-écrire
-de l'administration entière, sur tout poste tournant en configuration d'usine, donc sur tout
-poste fraîchement installé.
+**Corrigé le 29/07/2026** par deux lignes sur la règle `.admin` de
+`web/src/components/StatusBar.svelte` : `position: relative; z-index: 20`. `.bar` étant un
+item flex à `z-index: auto`, il n'ouvre aucun contexte d'empilement, et la touche remonte
+dans le contexte racine, entre le voile (10) et l'administration (90). C'est **l'engrenage
+seul** qui traverse : le voile garde `inset: 0`, la grille, les puces, le bandeau et
+« Réimprimer » restent couverts, et un client ne peut toujours pas peser sur un poste en
+panne. Un banc neuf, `web/test/layers.test.ts`, tient l'ordre déclaré des cinq couches —
+voile 10 < Réglages 20 < administration 90 < mot de passe 95 < écran fatal 100 — et refuse
+les deux façons de le défaire en silence. *Ce qu'aucun banc ne prouve* : le recouvrement
+lui-même. `web/vite.config.ts` n'active pas `css` sous Vitest et jsdom ne fait aucune mise
+en page, si bien qu'un clic aboutissait déjà en test alors que le bouton était couvert à
+l'écran. La mesure `document.elementFromPoint` au centre de l'engrenage, sur un poste
+démarré en configuration d'usine, reste à faire au navigateur : c'est la seule vérification
+capable de constater le défaut et sa disparition.
+
+**2. La détection de balance lit les réglages en vigueur et complète les trous.**
+`cmd/openscale/hardware.go` construisait `serial.Options{Port, Clock, Open}` : `Baud`,
+`Bits`, `Parity` et `Stop` restaient aux valeurs nulles Go, et `withDefaults()` — non
+exportée — n'était appelée depuis ce chemin par aucun de ses trois appelants (`New`, `Loop`,
+`ParseOptions`). `OpenSystemPort` teste la parité en première instruction et refusait
+`Parity == ""` avant qu'aucun handle ne soit demandé : la détection ne pouvait réussir sur
+aucun port, sur aucune machine, **même avec une configuration complète**.
+
+Elle passe désormais par `adminHardware.linkFor` : lecture de `scale.options` du poste par
+`serial.ParseOptions`, complétion des trous par les défauts du parc via
+`serial.Options.Complete` — **exportée pour cela**, avec la godoc qui dit pourquoi la
+complétion est explicite au point d'appel et non cachée dans l'ouverture —, puis le port
+sondé écrase toujours celui de la configuration, faute de quoi un balayage interrogerait N
+fois le même port et rendrait les N-1 autres muets. Un poste qui n'a encore rien déclaré
+retombe sur 9600 8N1, ce qui garde la détection utilisable au moment même de l'installation ;
+un poste qui déclare 19200 est écouté à 19200. Il n'y a **pas** de balayage de vitesses
+candidates : ni §14.4 ni §9.3 ne le demandent, et multiplier trois secondes par le nombre de
+vitesses sur chaque port allonge d'autant un balayage qu'un bénévole regarde tourner.
+
+Le message d'échec ne ment plus. Un refus de **réglages** remonte avec sa propre phrase —
+« les réglages série de ce poste sont refusés, corrigez-les avant de détecter :
+`scale.options.parity` … » — et n'accuse plus un port occupé. Un refus venu du **système**
+nomme ses deux causes au lieu d'affirmer l'occupation : « un autre programme le tient — la
+balance de ce poste en premier, un port série est EXCLUSIF sous Windows — ou bien ce port
+n'existe plus sur cette machine ».
+
+Le banc était, par construction, incapable de voir le défaut : l'ouvreur factice de
+`capture_test.go` ignorait ses `serial.Options`, le paramètre n'était même pas nommé. Il
+enregistre maintenant la liaison reçue et le nombre d'ouvertures. Chiffre mesuré, contre
+l'annonce précédente de « cinq tests » : `detect_test.go` en portait **huit**, tous servis
+par cet ouvreur aveugle ; il en porte **onze**, dont trois qui traversent la vraie
+complétion et la vraie validation.
+
+**3. Les volets de la page Matériel se refermaient sous le doigt.** Mesuré au navigateur :
+ouvert à 112 ms, encore ouvert à 2 836 ms, fermé à 2 944 ms. **La cause annoncée ici — un
+re-rendu du bloc dépliant — était fausse** : le nœud n'est jamais recréé, il n'y a ni
+`{#key}` ni changement de branche. `open` est une **propriété** du DOM, et
+`open={scaleRefused}` ne compile pas comme un attribut ordinaire mais en affectation
+directe `details.open = …`, privée de la mémoïsation que porte l'écriture d'attribut.
+Cette affectation est fondue dans l'effet de gabarit du fragment, avec les en-têtes d'état
+— dont les dérivées `scaleStanding` et `printerStanding` rendent un littéral d'objet neuf à
+chaque tour. Le sondage d'état de trois secondes rejouait donc l'effet, qui réécrivait
+`open` par-dessus le geste du bénévole, sans que rien d'autre à l'écran ne bouge. Les deux
+seuls champs qui nomment un port série vivent dedans.
+
+**Corrigé le 29/07/2026.** L'ouverture est devenue un état de l'écran : deux `$state`
+locaux liés par `bind:open`, dont le compilateur fait un effet isolé et où l'événement
+`toggle` réinjecte ce que le doigt a fait. Ce qu'un refus de contrôle ouvrait d'office est
+conservé par deux `$effect` qui n'écrivent que dans un sens — ils ouvrent, ils ne referment
+jamais : un volet reste ouvert quand le refus disparaît, parce qu'on travaille dedans. Le
+banc de la page était lui aussi aveugle, montant `Hardware` avec un `health` figé, donc un
+effet de gabarit qui ne se rejouait jamais ; il reçoit désormais `health` par un accesseur,
+comme `App.svelte`, et le sondage est simulé par `admin.refresh()`. Un banc neuf,
+`web/test/details-open.test.ts`, refuse tout `open=` piloté par une expression sur un
+`<details>` dans `web/src` entier : le défaut est une **classe**, et le troisième volet du
+projet n'est pas encore écrit.
+
+**4. « Retour à la version précédente » ramenait le profil d'usine, et il l'écrivait.** La
+cause n'était pas « le retour arrière restaure mal » : c'était que **le compte à rebours ne
+mémorisait qu'un document là où il y en a deux**. `Station.Reload` prenait pour version
+précédente `*s.hub.cfg.Load()` — la configuration *en service* — et remettait ce même
+document au poste **et** au fichier. Sur un poste dont le fichier est fautif, ce document est
+le profil neutre : soixante secondes après qu'un bénévole avait réparé son fichier,
+`config.json` recevait les tarifs d'usine. Mesuré sur ce poste : coopérative vidée, paliers
+de prix **2 → 1**, remise adhérent de 10 % perdue, contrôle du panier désactivé, pilote
+passé en `preview`.
+
+`station.ReloadRequest` porte désormais les deux : `Next`, et `FileBefore` — ce que le
+**fichier** portait avant l'écriture, que `writeConfig` avait déjà en main puisqu'il le lit
+avant le `Save`, et qu'il ne transmettait pas. Le poste revient à ce qu'il faisait tourner,
+le fichier à ce qu'il portait : **deux restaurations, pas une**. `FileBefore` est un
+*pointeur*, et `nil` veut dire « je n'ai pas pu lire le fichier » — le repli sur la
+configuration en service reste, parce que c'est tout ce qu'un tel appelant possède, et parce
+que le zéro d'une structure de configuration ressemble à une configuration. La route de
+restauration de version souffrait exactement du même défaut sans être couverte par un seul
+test : elle lit maintenant le fichier avant de l'écrire, comme l'enregistrement. Et **un
+second enregistrement pendant qu'une confirmation est attendue est refusé en 409**, comme la
+confirmation elle-même hors fenêtre : l'écriture précède le compte à rebours, donc l'accepter
+déplaçait la cible du retour arrière sur une version que personne n'avait confirmée non plus,
+pendant que celle que quelqu'un avait réellement validée était la version perdue.
+
+**Le pilote `preview` est livré**, et c'est l'autre moitié du même défaut — **le défaut déjà
+relevé le 26/07/2026**. `printerRegistry()` n'enregistrait que `raster`, donc
+`domain.PrinterTypes()` valait `[raster]` et le contrôle 4 refusait le
+`printer.type: "preview"` que porte le profil neutre : un poste en configuration d'usine
+servait une configuration que sa propre validation refusait, et le cycle lire-modifier-écrire
+de l'administration entière tombait en `ERR-CFG-01` sur un champ que personne n'avait touché.
+`internal/printing/preview` porte maintenant un `ports.Printer` : il écrit le PNG au pas de
+la tête et le PDF à l'échelle physique — les deux encodeurs existaient déjà — dans
+`<data>/previews`, un répertoire à lui et non celui du transport `file`, pour que « envoyez-moi
+le fichier de la dernière étiquette » garde une seule réponse. Il **ne déclare aucune
+option**, et c'était la condition : le profil neutre ne porte pas de bloc `printer.options`,
+parce que le noircissement, la vitesse et le nombre d'exemplaires se règlent sur un tirage
+réel. Son libellé dit ce qu'il fait — « Aperçu — écrit un fichier, n'imprime rien » — et son
+état ne se déclare jamais *prête* : un voyant vert sur un poste dont aucune étiquette ne sort
+serait pire que pas de voyant. Il refuse les auto-tests `alignment` et `ruler`, qui se lisent
+sur du papier. Le chemin de production reste `raster` (ADR-002). En amont, `newPrinter`
+construisait le transport **avant** le driver et refusait donc les options vides du profil
+neutre : il ne le construit plus que pour un driver dont le schéma déclare `transport`, ce
+que le driver dit lui-même.
 
 **5 et 6 — la veille du catalogue ne quittait jamais sa source.** Symptôme : le poste
 repointé de `local_drop` vers le partage WebDAV a laissé `flv_2.csv` sur le serveur, sans un
@@ -106,18 +267,18 @@ déjà. `watchCatalog` lit ce pointeur dans une variable locale puis se bloque d
 `source.Next(ctx)`, qui ne rend la main que sur un lot, une erreur ou une annulation : une
 source qui ne trouve rien n'en rend aucune. Le remplacement changeait donc ce qu'un accesseur
 répond et rien d'autre. Pire, `Reload` réveille `c.source.current()`
-(`cmd/openscale/catalogadmin.go:66`), c'est-à-dire la source **neuve**, celle que personne ne
+(`cmd/openscale/catalogadmin.go`), c'est-à-dire la source **neuve**, celle que personne ne
 lit. Corrigé : le remplacement annule le contexte de la lecture en cours, et une lecture finie
 par ce remplacement reprend la boucle **sans** écrire `ERR-CAT-03` — un code journalisé à
 chaque changement ordinaire est un code qu'on apprend à ignorer.
 
 Le second cas est celui qu'une installation rencontre en premier : une source qui ne se
-construit pas est un feu orange et jamais un refus de démarrer (`serve.go:313`), donc un
-poste dont le partage était injoignable au démarrage tourne **sans source du tout** — et la
-veille attendait alors la fin du processus. Le bénévole corrigeait l'adresse, le poste
-répondait « configuration enregistrée », et plus rien n'était surveillé jusqu'au prochain
-redémarrage. Les trois tests ajoutés ont été vus échouer avant d'être verts ; suite complète
-au vert avec `-race`.
+construit pas est un feu orange et jamais un refus de démarrer (`ERR-CAT-01` dans
+`serve.go`), donc un poste dont le partage était injoignable au démarrage tourne **sans
+source du tout** — et la veille attendait alors la fin du processus. Le bénévole
+corrigeait l'adresse, le poste répondait « configuration enregistrée », et plus rien
+n'était surveillé jusqu'au prochain redémarrage. Les trois tests ajoutés ont été vus
+échouer avant d'être verts.
 
 **Ce que ce poste neuf reste à saisir : cinq fautes, mais quatre lignes (29/07/2026).**
 Mesuré sur le fichier livré de la v0.5 — `config export testdata/config-lacagette.json`,
@@ -457,7 +618,7 @@ s'ouvrent donc en lecture, le mot de passe est demandé **à l'enregistrement**,
 est **rejoué** derrière. La surface réellement dangereuse a diminué.
 
 Conséquence sur §11.3 : un `password_hash` vide n'est plus une faute, parce que
-`serve.go:256` met hors service tout poste dont la configuration en porte une — un fichier
+`serve.go` met hors service tout poste dont la configuration en porte une — un fichier
 de coopérative complet jusqu'aux tarifs refusait de peser faute d'un secret
 d'administration. `doctor` l'**avertit** désormais, avec le chemin du code de secours.
 
@@ -561,9 +722,10 @@ Ce qui a été livré ferme le trou **sans l'assistant** :
   l'identité de qui a le droit de le réparer — et `--listen` survit au repli.
 
 **Ce qui reste ouvert.** L'**assistant en 5 étapes** de §14.4 n'est toujours pas écrit :
-le chemin existe et il est complet, mais il n'est pas *guidé*. Et `printer.type: "preview"`
-que porte le profil neutre n'est enregistré par aucun binaire (`printerRegistry()` ne
-connaît que `raster`), alors que §11.3 contrôle 3-5 annonce les trois.
+le chemin existe et il est complet, mais il n'est pas *guidé*. Des trois pilotes que §8.1
+nomme, `sbpl` reste le seul que `printerRegistry()` n'enregistre pas — `internal/printing/sbpl`
+est l'**encodeur** partagé de la trame, pas un `ports.Printer` — et aucun profil livré ne le
+nomme, ce qui est la différence avec `preview`, livré depuis le 29/07/2026.
 
 **Ce qui a été vérifié en faisant tourner le poste, et pas seulement en le lisant.**
 Déposer le vrai `flv.csv` dans le répertoire d'un poste neuf sert **331 tuiles** et vide
@@ -697,15 +859,39 @@ SIGKILL que §13.4 raconte.
 
 **Ce que faire tourner le poste a révélé** (et qu'aucune relecture n'aurait montré) :
 
-1. **`--listen` est ignoré quand la configuration est fautive.** `serve` applique
-   l'override *avant* `Validate`, puis remplace toute la configuration par le profil
-   neutre : un poste fraîchement installé sert donc sur `127.0.0.1:8085` quoi qu'on
-   demande. Les scripts interrogent désormais l'adresse du fichier **puis** celle du
-   profil neutre — sans quoi `update.ps1` restaurerait la version précédente d'un poste
-   parfaitement sain. **Correctif d'une ligne dans `serve.go`, non appliqué.** *Repayé le
+1. **Le `network.listen` du fichier ne survivait pas au repli.** `--listen`, lui, survit
+   depuis `1b369d2` : le « correctif d'une ligne » que cette entrée annonçait comme non
+   appliqué l'était déjà, et cette entrée **contredisait** le paragraphe du 26/07/2026 qui
+   enregistre sa livraison. Le défaut réel était voisin — `fallbackProfile` remplaçait tout
+   le bloc `network` par celui du profil neutre, donc l'adresse **du fichier** partait avec
+   le reste **même quand elle n'était pas fautive**. Le poste se posait sur
+   `127.0.0.1:8085` pendant que le kiosque — qui lit le même fichier, et le lit sans peine
+   puisqu'une configuration fautive reste lisible — ouvrait l'adresse déclarée : **écran
+   client noir sur le poste même que §11.3 existe pour garder vivant**, et `admin_on_lan`
+   remis à `false` au moment où un bénévole vient réparer depuis son portable. *Repayé le
    29/07/2026 par le banc de la tâche 0 : un poste jetable refusait de démarrer par
-   `ERR-SYS-01` en nommant le port `8085`, que personne ne lui avait demandé, une demi-heure
-   de diagnostic sur un défaut connu et laissé ouvert.*
+   `ERR-SYS-01` en nommant le port `8085`, que personne ne lui avait demandé — une
+   demi-heure de diagnostic, contournée par `serve --listen 127.0.0.1:8099`, ce qui prouvait
+   du même coup que le drapeau survivait et que le champ, lui, ne survivait pas.*
+   **Corrigé le 29/07/2026** : le repli garde le bloc `network` du fichier tant qu'aucune
+   faute ne le nomme, entier ou pas du tout — une adresse ouverte au réseau derrière une
+   garde d'administration fermée serait plus difficile à diagnostiquer qu'un repli cohérent
+   dans les deux sens. Le profil neutre ne fournit l'adresse que lorsque `network` est
+   lui-même fautif, ce qui est l'état d'un poste tout juste installé ; recopier une adresse
+   inliable transformerait `ERR-CFG-01`, un poste qui sert sa liste de fautes, en
+   `ERR-SYS-02`, un poste absent. `--listen` prime toujours, mais n'est plus appliqué
+   qu'**après** la validation : un `--listen 8085` mal formé est désormais refusé en nommant
+   le drapeau, par `domain.CheckListenAddress` — la règle du contrôle 2 elle-même, et non
+   une seconde implémentation dans `cmd` qui dériverait — au lieu d'être imputé à
+   `config.json` ; et une faute `network.listen` du fichier reste énumérée même quand le
+   drapeau est passé, comme §11.3 le promet. **Ce que l'ancien banc ne pouvait pas voir** :
+   il écrivait la MÊME adresse dans le fichier et dans le drapeau, si bien qu'aucun test de
+   bout en bout ne disait laquelle des deux était servie. Quatre bancs les séparent
+   désormais. Les scripts de déploiement n'ont pas changé de code — ils sondent l'adresse du
+   fichier **puis** celle du profil neutre, et c'est maintenant la première qui est la bonne
+   dans le cas courant ; seuls les commentaires qui justifiaient la double sonde par
+   l'ancien comportement ont été réécrits, dans `deploy/windows/common.ps1` comme dans
+   `deploy/linux/update.sh`.
 2. **`powercfg /query` rend des SECONDES, `powercfg /change` attend des MINUTES.**
    Restaurer un délai lu par le premier avec le second posait 300 minutes là où il y avait
    5. La restauration passe par `/setacvalueindex`, qui prend la même unité que la lecture.
@@ -775,7 +961,11 @@ sautent. ⚠️ Corriger le bug n°2 sans faire de place ferait passer ce compte
 **2. Quinze codes-barres mal saisis dans Odoo.** Leur référence déborde sur la zone
 réservée au poids (`0493100100006` au lieu d'un `0493xxx00000C`). Ces produits sont
 masqués à chaque import. Liste et corrections proposées : voir l'historique de
-conception, ou recalculer depuis `testdata/catalog/flv.csv`.
+conception, ou recalculer depuis `testdata/catalog/flv.csv`. ⚠️ **Le quinze vient de
+l'analyse du legacy et n'a pas été remesuré depuis** : recalculé le 29/07/2026 sur
+`testdata/catalog/flv.csv`, l'export authentique fait foi et en compte **16**, tous
+distincts par code et par identifiant (lignes 312-317, 319-327 et 356). `flv_1.csv` n'en
+porte aucun.
 
 ⚠️ Les nouveaux codes doivent être déclarés **aussi côté caisse** — c'est un changement
 de référence produit, pas une correction cosmétique.
@@ -784,7 +974,7 @@ de référence produit, pas une correction cosmétique.
 
 ## Décisions structurantes
 
-36 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
+41 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
 
 | ADR | Décision |
 |---|---|
@@ -807,9 +997,10 @@ de référence produit, pas une correction cosmétique.
 
 | Date | Événement |
 |---|---|
+| 29/07/2026 | **Sept chantiers referment la campagne d'installation** : cinq défauts corrigés — le voile qui couvrait le bouton Réglages, la détection de balance qui ne pouvait réussir sur aucun port, les volets de la page Matériel refermés par le sondage de 3 s, le retour arrière à 60 s qui écrivait le profil d'usine par-dessus les tarifs de la coopérative (avec le pilote `preview` enfin livré), et l'adresse d'écoute du fichier que le repli jetait même saine. Deux demandes neuves du commanditaire livrées avec : « Recharger le catalogue » rend compte de ce qu'il déclenche — fichier, résultat, heure, inventaire, source surveillée — au lieu de promettre au futur puis de se taire ; et le poste masque les produits vendus à l'unité, `ui.show_by_unit_products` à `false` par défaut, soit 15 tuiles de moins sur le vrai catalogue. **2 562 tests Go** et **764 tests front**, tous verts |
 | 29/07/2026 | **Mise à jour depuis l'écran livrée** (ADR-040) : sondage quotidien, empreinte SHA-256 vérifiée, `update.ps1` devenu un contrat à quatre issues, page « Mise à jour », contrôle 48 sur le dépôt suivi. Trois défauts existants payés au passage — l'écran client qui restait noir, les échecs indistincts du script, et le nil typé qui faisait paniquer le tableau de bord de tout binaire `dev` |
-| 29/07/2026 | **La v0.5 installée comme un bénévole sur un poste neuf** : le poste tourne de bout en bout — balance, étiquette, catalogue, redémarrage recette — mais **six défauts** rendent les étapes 4 à 7 infaisables sans ligne de commande. Deux corrigés (la veille du catalogue, dans les deux cas où elle ne quittait pas sa source), quatre ouverts, dont le retour arrière qui écrit le profil d'usine par-dessus les tarifs de la coopérative |
-| 29/07/2026 | **Tâche 0 du plan de mise à jour depuis l'écran mesurée sur le banc** : le processus détaché survit à l'arrêt du service (113 lignes après), mais `DETACHED_PROCESS` empêche `powershell.exe` de démarrer — le plan passe à `CREATE_NO_WINDOW`. Deux trouvailles incidentes : `-InstallDir`/`-DataRoot` morts sur `install.ps1`, et le `--listen` ignoré de L8 repayé une seconde fois |
+| 29/07/2026 | **La v0.5 installée comme un bénévole sur un poste neuf** : le poste tourne de bout en bout — balance, étiquette, catalogue, redémarrage recette — mais **six défauts** rendent les étapes 4 à 7 infaisables sans ligne de commande. Deux corrigés dans la foulée (la veille du catalogue, dans les deux cas où elle ne quittait pas sa source), quatre laissés ouverts ce jour-là — dont le retour arrière qui écrit le profil d'usine par-dessus les tarifs de la coopérative —, refermés depuis par la série de sept chantiers, ligne ci-dessus |
+| 29/07/2026 | **Tâche 0 du plan de mise à jour depuis l'écran mesurée sur le banc** : le processus détaché survit à l'arrêt du service (113 lignes après), mais `DETACHED_PROCESS` empêche `powershell.exe` de démarrer — le plan passe à `CREATE_NO_WINDOW`. Deux trouvailles incidentes : `-InstallDir`/`-DataRoot` morts sur `install.ps1`, et le défaut d'écoute de L8 repayé une seconde fois — imputé alors à `--listen`, la cause réelle étant le bloc `network` du fichier que le repli jetait |
 | 28/07/2026 | Écran client repris en « Grand Format » (ADR-035, ADR-036) : grille continue — `ui.tile_size` retiré, ce qui **annule le réglage à trois valeurs livré la veille** —, double tarif affiché par tuile, recherche au clavier physique (le poste n'est pas tactile), CategoryBar/StatusBar remplacent FilterBar/ReprintBar. **438 tests front** (23 fichiers), tous verts, mesurés sur ce poste |
 | 24/07/2026 | Analyse du legacy : 16 rapports, 240 000 lignes de VBA lues |
 | 24/07/2026 | Conception : 4 architectures en concurrence, 12 jugements, 32 critiques |
