@@ -27,6 +27,8 @@ type Printer struct {
 	// printed is signalled after every accepted job, so that a test can wait for
 	// the worker without a sleep.
 	printed chan struct{}
+	// held counts the jobs blocked on holds right now. See Held.
+	held int
 }
 
 var _ ports.Printer = (*Printer)(nil)
@@ -86,11 +88,14 @@ func (p *Printer) Print(ctx context.Context, job ports.PrintJob) (ports.PrintRec
 	p.mu.Unlock()
 
 	if holds != nil {
+		p.hold(1)
 		select {
 		case <-holds:
 		case <-ctx.Done():
+			p.hold(-1)
 			return ports.PrintReceipt{}, ctx.Err()
 		}
+		p.hold(-1)
 	}
 	if err != nil {
 		return ports.PrintReceipt{}, err
@@ -105,6 +110,26 @@ func (p *Printer) Print(ctx context.Context, job ports.PrintJob) (ports.PrintRec
 	default:
 	}
 	return ports.PrintReceipt{JobID: job.Label.JobID, Bytes: 16384}, nil
+}
+
+// hold moves the count of jobs currently blocked on the hold.
+func (p *Printer) hold(by int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.held += by
+}
+
+// Held reports how many jobs are blocked on the hold RIGHT NOW.
+//
+// It is what lets a test wait for a hanging device to have been REACHED, rather than
+// for one to have been asked for. The caller of Print posts its budget on the injected
+// clock BEFORE it calls Print, so a job that is held proves that budget is registered —
+// which counting the clock's waiters does not, because every WithBudget of the station
+// registers one and none of them says which.
+func (p *Printer) Held() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.held
 }
 
 // Jobs returns a COPY of what was printed, oldest first.

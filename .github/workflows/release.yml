@@ -36,6 +36,9 @@ permissions:
   # Écrire est ce qui permet de créer la Release et d'y attacher les archives. C'est la
   # SEULE permission élevée de ce dépôt, et elle ne vaut que pour ce workflow.
   contents: write
+  # Lire les exécutions de l'intégration continue, pour savoir si la révision du tag a
+  # déjà été prouvée. Lecture seule, et c'est la seule chose qu'elle sert à faire.
+  actions: read
 
 env:
   # La même version qu'en intégration continue, et pour la même raison : les golden de
@@ -120,8 +123,34 @@ jobs:
             git diff --stat -- internal/web/dist
           fi
 
-      # release dépend de dist, qui dépend de test : la suite complète tourne avant
-      # qu'une archive existe. Une version n'est pas un endroit où gagner du temps.
+      # LA SUITE N'EST PAS REJOUÉE QUAND ELLE VIENT DE PASSER SUR CETTE RÉVISION.
+      #
+      # « Une version n'est pas un endroit où gagner du temps » : c'est vrai, et ce n'est
+      # pas ce qui se passe ici. Le tag pointe un commit de `main`, l'intégration continue
+      # a tourné dessus, et la rejouer n'est pas une seconde preuve — c'est la même, sur
+      # les mêmes octets, une demi-heure plus tard. C'en est en revanche une seconde
+      # OCCASION D'ÉCHOUER : v0.4 est partie sans archives parce qu'un test de
+      # synchronisation est tombé ici après être passé là.
+      #
+      # Quand aucune exécution verte ne couvre la révision — un tag posé hors de `main`,
+      # ou une CI qui n'a jamais tourné — la suite est jouée ici. Le chemin sûr reste le
+      # chemin par défaut ; le chemin rapide demande une preuve.
+      - name: L'intégration continue est-elle verte sur cette révision ?
+        id: proven
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          revision="$(git rev-parse HEAD)"
+          green="$(gh run list --workflow ci.yml --commit "$revision" --status completed \
+                     --json conclusion --jq '[.[] | select(.conclusion == "success")] | length')"
+          if [ "${green:-0}" -gt 0 ]; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "CI verte sur $revision : les archives se fabriquent sans rejouer la suite."
+          else
+            echo "skip=0" >> "$GITHUB_OUTPUT"
+            echo "::notice::aucune exécution verte de la CI sur $revision — la suite est jouée ici."
+          fi
+
       #
       # VERSION EST IMPOSÉE, et ne vient pas du `git describe` du Makefile. Deux raisons,
       # et la seconde a réellement bloqué une publication :
@@ -137,7 +166,8 @@ jobs:
       - name: Fabriquer les trois archives
         env:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: make release VERSION="$TAG"
+          SKIP: ${{ steps.proven.outputs.skip }}
+        run: make release VERSION="$TAG" SKIP_TESTS="$SKIP"
 
       - name: Ce qui va être publié
         run: |

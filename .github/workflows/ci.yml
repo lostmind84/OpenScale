@@ -50,17 +50,25 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # `-short` ÉCARTE une famille précise, et une seule : les tests dont le verdict
+      # dépend du moment où le planificateur Go exécute une autre goroutine du
+      # processus. `skipUnderShort` (internal/station/reload_test.go) les nomme, et sa
+      # note dit pourquoi ils sont ici plutôt qu'ailleurs. `make test` les joue tous, et
+      # c'est ce que fait un poste de développement avant de poser un tag.
+      #
       # La passe -race, restreinte à linux/amd64 comme le dit ADR-001.
       - name: go test -race (CGO_ENABLED=1)
         env:
           CGO_ENABLED: "1"
-        run: go test ./... -race -count=1
+        run: go test ./... -race -short -count=1
 
-      # La passe qui prouve que la configuration LIVRÉE compile et passe.
+      # La passe qui prouve que la configuration LIVRÉE compile et passe. Elle produit
+      # AUSSI le profil de couverture : le mesurer dans une troisième traversée du dépôt
+      # coûtait une minute pour recompter ce que celle-ci venait de compter.
       - name: go test (CGO_ENABLED=0)
         env:
           CGO_ENABLED: "0"
-        run: go test ./... -count=1
+        run: go test ./... -short -count=1 -coverprofile=coverage.out
 
       - name: make boundary
         run: go run ./tools/boundary
@@ -78,7 +86,6 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: |
-          go test ./... -coverprofile=coverage.out -count=1
           go tool cover -func=coverage.out | tail -n 1
           fail=0
           check() {

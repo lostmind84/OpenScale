@@ -1584,13 +1584,25 @@ func TestACatalogFileThatCannotBeDeletedAgainstTheRealApplier(t *testing.T) {
 	}
 	// It is read again and again, and every re-reading is `unchanged`: a station whose
 	// share is read-only keeps serving, and nothing accumulates but history.
-	history := b.awaitImports(2)
-	if history[len(history)-1].Result != domain.ImportApplied {
-		t.Errorf("premier import %q, attendu %q", history[len(history)-1].Result, domain.ImportApplied)
+	//
+	// The applied one is named BY ITS IDENTITY and not by its rank, because the number of
+	// re-readings is bounded by nothing at all: `Next` polls the moment it is entered, so
+	// a file nobody can delete is read again as fast as the loop turns. Twenty rows —
+	// the window `imports()` reads, which is the window the screen shows — scroll past in
+	// well under a second on a slow machine, and « le premier import » silently became
+	// « le vingtième ». Measured here: two rows on this machine, more than twenty as soon
+	// as anything delays the test.
+	applied, err := b.db.LastAppliedImport(context.Background())
+	if err != nil {
+		t.Fatalf("aucun import appliqué : la première lecture n'a rien mis en service : %v", err)
 	}
-	for _, row := range history[:len(history)-1] {
+	for _, row := range b.awaitImports(2) {
+		if row.ID == applied.ID {
+			continue
+		}
 		if row.Result != domain.ImportUnchanged {
-			t.Fatalf("relecture journalisée %q, attendu %q", row.Result, domain.ImportUnchanged)
+			t.Fatalf("import %d journalisé %q, attendu %q : une seule lecture applique, "+
+				"toutes les autres sont des relectures", row.ID, row.Result, domain.ImportUnchanged)
 		}
 	}
 }
