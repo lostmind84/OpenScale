@@ -837,6 +837,19 @@ if ($text -notmatch 'K7M4Q2XR') { throw 'la fiche ne porte pas le code de secour
 if ($text -match 'RECOPIER ICI') { throw 'la fiche demande de recopier un code qu''elle porte déjà' }
 if ($text -notmatch 'seule copie') { throw 'la fiche ne dit pas qu''elle est la seule copie du code' }
 
+# --- 9. Un instantané écrit par une version ANTÉRIEURE se relit sans exploser ------
+# restore.json n'est jamais réécrit : celui d'un poste installé il y a six mois ne
+# connaît pas les sections que l'installeur d'aujourd'hui y met. Sous
+# « Set-StrictMode -Version Latest », lire une propriété absente ÉCHOUE — et ce serait
+# la désinstallation, le geste qui doit toujours marcher, qui casserait.
+$old = Read-Snapshot -Path $restore
+if ($null -ne (Get-SnapshotValue (Get-SnapshotValue $old 'service_control') 'AutoStartDelay')) {
+  throw 'une section absente de l''instantane a rendu une valeur'
+}
+if ((Get-SnapshotValue $old.winlogon 'DefaultUserName') -ne 'ancien') {
+  throw 'Get-SnapshotValue perd une valeur presente'
+}
+
 Write-Output 'TOUT-EST-VERIFIE'
 `
 			writeScript(t, harness, body)

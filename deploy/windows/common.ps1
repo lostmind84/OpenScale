@@ -38,6 +38,12 @@ $script:BinaryName = 'openscale.exe'
 # Les clés que l'installeur écrase, donc celles qu'il doit savoir remettre (important-15).
 $script:WinlogonKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
 $script:WindowsUpdateKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
+$script:ServiceControlKey = 'HKLM:\SYSTEM\CurrentControlSet\Control'
+
+# Le différé appliqué aux services à démarrage automatique différé, en secondes. Il vaut
+# 120 s par défaut chez Windows, et le service du poste en fait partie : c'est ce qui
+# faisait attendre le kiosque deux minutes après une coupure de courant.
+$script:AutoStartDelaySeconds = 20
 
 # La suspension USB sélective : le GUID du sous-groupe « Paramètres USB » et celui du
 # réglage lui-même. Ils sont RECOPIÉS de docs/02-architecture.md §15.2 — on ne devine pas
@@ -376,6 +382,25 @@ function Get-RegistryValue {
   $property.$Name
 }
 
+function Get-SnapshotValue {
+  <#
+  .SYNOPSIS
+    Lit une valeur d'instantané, ou $null quand la section ou la valeur manque.
+  .DESCRIPTION
+    « Set-StrictMode -Version Latest » fait ÉCHOUER l'accès à une propriété absente d'un
+    PSCustomObject. Un restore.json écrit par une version antérieure de l'installeur n'a
+    pas les sections que la version d'aujourd'hui y met : sans cette fonction, désinstaller
+    un poste installé il y a six mois s'arrête sur « The property cannot be found », et
+    c'est la désinstallation — le geste qui doit toujours marcher — qui casse.
+  #>
+  [CmdletBinding()]
+  param($Section, [Parameter(Mandatory)][string]$Name)
+
+  if ($null -eq $Section) { return $null }
+  if (-not ($Section.PSObject.Properties.Name -contains $Name)) { return $null }
+  $Section.$Name
+}
+
 function Get-SystemSettings {
   <#
   .SYNOPSIS
@@ -403,6 +428,11 @@ function Get-SystemSettings {
       SetActiveHours   = Get-RegistryValue $script:WindowsUpdateKey 'SetActiveHours'
       ActiveHoursStart = Get-RegistryValue $script:WindowsUpdateKey 'ActiveHoursStart'
       ActiveHoursEnd   = Get-RegistryValue $script:WindowsUpdateKey 'ActiveHoursEnd'
+    }
+    service_control = @{
+      # Le différé des services à démarrage automatique différé. Il vaut pour TOUTE la
+      # machine, pas seulement pour le nôtre : c'est ce qui en fait un réglage à remettre.
+      AutoStartDelay = Get-RegistryValue $script:ServiceControlKey 'AutoStartDelay'
     }
     power = @{
       # Le plan actif est identifié par son GUID : « SCHEME_CURRENT » n'a de sens que
@@ -526,6 +556,22 @@ function Restore-SystemSettings {
       Set-ItemProperty -Path $script:WinlogonKey -Name $name -Value $value
       Write-Step "ouverture de session : $name remise à sa valeur d'origine" $LogFile
     }
+  }
+
+  # Le différé des services, remis AVANT le reste parce qu'il peut manquer de
+  # l'instantané : les postes installés avant que l'installeur ne touche à ce réglage ont
+  # un restore.json qui n'en parle pas, et restore.json n'est jamais réécrit. « Absent »
+  # veut alors dire « c'est nous qui l'avons posé », donc on le supprime — au risque
+  # assumé de rendre son défaut à une machine qui en avait choisi un autre avant nous.
+  $serviceControl = Get-SnapshotValue $Snapshot 'service_control'
+  $autoStartDelay = Get-SnapshotValue $serviceControl 'AutoStartDelay'
+  if ($null -eq $autoStartDelay) {
+    Remove-ItemProperty -Path $script:ServiceControlKey -Name 'AutoStartDelay' -ErrorAction Ignore
+    Write-Step 'démarrage différé des services : réglage retiré (il n''existait pas avant l''installation)' $LogFile
+  }
+  else {
+    Set-ItemProperty -Path $script:ServiceControlKey -Name 'AutoStartDelay' -Value $autoStartDelay -Type DWord
+    Write-Step 'démarrage différé des services remis à sa valeur d''origine' $LogFile
   }
 
   foreach ($name in 'SetActiveHours', 'ActiveHoursStart', 'ActiveHoursEnd') {

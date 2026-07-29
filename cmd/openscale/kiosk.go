@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -23,9 +24,26 @@ import (
 // label: everything it knows about the station it learns from one URL. That is what
 // makes it restartable at will, and what makes « the browser died » a non-event.
 func runKiosk(ctx context.Context, args []string, out io.Writer) error {
-	options, err := parseKioskOptions(args, out)
+	// What the option parsing has to say is kept aside until the journal exists. It
+	// cannot be opened any earlier — its own path is one of the options — and « la
+	// configuration est illisible » is exactly the line somebody looks for afterwards.
+	var parsed bytes.Buffer
+	options, err := parseKioskOptions(args, io.MultiWriter(out, &parsed))
 	if err != nil {
 		return err
+	}
+
+	if options.logPath != "" {
+		journal, err := kiosk.OpenLog(options.logPath, kiosk.DefaultLogSize)
+		if err != nil {
+			// A journal is a diagnostic aid, never a reason to leave a customer in front
+			// of a black screen. The sentence goes to the stream that is left.
+			fmt.Fprintf(out, "openscale kiosk : %v\n", err)
+		} else {
+			defer func() { _ = journal.Close() }()
+			_, _ = journal.Write(parsed.Bytes())
+			out = io.MultiWriter(out, journal)
+		}
 	}
 
 	browser, found := kiosk.Find(browserCandidates(), kiosk.LookBrowser(programDirectories()))
@@ -59,6 +77,9 @@ func runKiosk(ctx context.Context, args []string, out io.Writer) error {
 type kioskOptions struct {
 	url        string
 	profileDir string
+	// logPath is where the supervisor's lines are kept. Empty means « nowhere but the
+	// standard output », which is what a station under systemd already has.
+	logPath string
 }
 
 // parseKioskOptions resolves the address of the client screen.
@@ -74,9 +95,10 @@ func parseKioskOptions(args []string, out io.Writer) (kioskOptions, error) {
 		configPath = fs.String("config", os.Getenv("OPENSCALE_CONFIG"), "fichier de configuration")
 		address    = fs.String("url", "", "adresse de l'écran client, sinon celle de la configuration")
 		profile    = fs.String("profile", "", "répertoire de profil du navigateur")
+		logPath    = fs.String("log", platform.DefaultKioskLogPath(), "journal du superviseur")
 	)
 	fs.Usage = func() {
-		fmt.Fprint(out, `Usage : openscale kiosk [--config fichier] [--url http://hôte:port] [--profile répertoire]
+		fmt.Fprint(out, `Usage : openscale kiosk [--config fichier] [--url http://hôte:port] [--profile répertoire] [--log fichier]
 
 Le superviseur de navigateur : il ouvre l'écran client en plein écran et le relance
 s'il se ferme. C'est ce que lance la tâche planifiée « `+taskName+` » à l'ouverture de
@@ -88,6 +110,8 @@ Options :
   --url <adresse>          adresse de l'écran client ; prioritaire sur la configuration
   --profile <répertoire>   profil dédié du navigateur, effacé à chaque démarrage ;
                            sinon un répertoire sous le dossier temporaire du compte
+  --log <fichier>          journal du superviseur, en plus de la sortie standard ;
+                           --log "" ne journalise que sur la sortie standard
 `)
 	}
 	positional, err := parseMixed(fs, args)
@@ -99,7 +123,7 @@ Options :
 		return kioskOptions{}, fmt.Errorf("argument inattendu %q : kiosk ne prend que des options", positional[0])
 	}
 
-	o := kioskOptions{url: *address, profileDir: *profile}
+	o := kioskOptions{url: *address, profileDir: *profile, logPath: *logPath}
 	if o.profileDir == "" {
 		o.profileDir = kiosk.DefaultProfileDir()
 	}

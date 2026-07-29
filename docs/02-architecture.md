@@ -124,7 +124,7 @@ flowchart TB
     end
 
     subgraph P2["PROCESSUS 2 — « balance kiosk » · session graphique"]
-      KIOSK["internal/kiosk — superviseur de navigateur<br/>msedge ou chromium en mode kiosque<br/>relance en moins de 2 s · inhibe la veille<br/>page de secours locale si le service ne répond pas"]
+      KIOSK["internal/kiosk — superviseur de navigateur<br/>msedge ou chromium en mode kiosque<br/>relance en moins de 2 s · inhibe la veille<br/>20 s de grâce au démarrage à froid, écran noir<br/>page locale ensuite si le service ne répond pas"]
     end
 
     WEB -->|"HTTP + SSE"| KIOSK
@@ -3989,6 +3989,14 @@ La **suspension USB sélective** provoque en pratique la moitié des « la balan
 
 **Le navigateur** : ordre de recherche `msedge.exe` → `chrome.exe` → `chromium.exe`, arguments `--kiosk`, `--user-data-dir` (profil dédié effacé à chaque démarrage), `--no-first-run`, `--disable-session-crashed-bubble` (pas de « Restaurer les pages ? » après coupure), `--noerrdialogs`, `--check-for-update-interval=31536000`, `--autoplay-policy=no-user-gesture-required` (le bip d'étiquette). Sur Edge, `--edge-kiosk-type=fullscreen` en plus. Le superviseur relance en < 2 s ; **au-delà de 20 morts en moins de 10 s dans l'heure**, il ouvre une page de secours locale (« Le poste rencontre un problème — ERR-KSK-02 ») au lieu de clignoter devant les clients. Il appelle `SetThreadExecutionState(ES_CONTINUOUS|ES_DISPLAY_REQUIRED|ES_SYSTEM_REQUIRED)` toutes les 30 s — ceinture et bretelles par-dessus `powercfg`.
 
+**Le démarrage à froid**, mesuré sur `PC-RECEPTION` le 29/07/2026 et corrigé le même jour. Le service est en démarrage automatique **différé** — les disques, la pile réseau et le spouleur passent devant — et Windows fixe ce différé à **120 s** par défaut, valeur que personne n'avait choisie : démarrage machine à 17:47:54, tâche du kiosque à 17:48:15, service à 17:50:11. Deux minutes de page d'attente, terminées par un redémarrage du navigateur que celui qui regarde l'écran lit comme une panne qui s'est réparée toute seule. Trois règles en découlent :
+
+1. `install.ps1` écrit `HKLM\SYSTEM\CurrentControlSet\Control\AutoStartDelay = 20` (sauvegardé dans `restore.json`, remis à la désinstallation). Le différé garde son sens, il cesse d'être un minuteur aveugle.
+2. Le superviseur accorde un **délai de grâce de 20 s** à un poste qui n'a **jamais** répondu : pendant ce temps il n'affiche **rien**, écran noir, ce qu'une machine qui vient de démarrer a de toute façon l'air d'être. Le cas nominal devient **un seul lancement du navigateur, directement sur l'écran client**. La grâce est servie une fois : un service qui tombe à midi retrouve sa page d'attente en moins de 2 s.
+3. La page locale a **deux formulations d'attente**, pas une : « **Application en cours de démarrage…** » tant que le poste n'a jamais répondu, « **Le poste redémarre…** » ensuite. Les deux portent trois points animés **en CSS** — jamais en JavaScript, la page est ouverte en `file://` — que la page ERR-KSK-02 n'a pas : elle n'attend rien.
+
+**Le journal du kiosque** : `C:\ProgramData\OpenScale\kiosk.log` (+ une génération `.1`, 256 Kio chacune), en plus de la sortie standard. La tâche planifiée ne redirige rien, et les lignes du superviseur — « le poste ne répond pas encore », « le poste répond de nouveau » — sont exactement celles qu'on cherche le lendemain. `--log ""` les laisse à la seule sortie standard, ce dont une station systemd n'a pas besoin.
+
 **Ce qui reste possible** : `Ctrl+Alt+Suppr` (impossible à bloquer sans stratégie) et `Alt+F4`. Dans les deux cas l'agent relance en < 2 s. **On l'assume et on le documente**, plutôt que de prétendre à un verrouillage parfait comme le faisait l'existant avec son `FindWindowA(NULL, "La Cagette")`. Le niveau 3 optionnel (Assigned Access / Shell Launcher v2) est fourni dans `harden.ps1` ; il est optionnel car il complique le dépannage — et c'est précisément pour ce niveau que le **code de secours** existe (§14.4).
 
 ### 15.3 Linux
@@ -4070,7 +4078,8 @@ Le kiosque : unité séparée, `ExecStart=/usr/bin/cage -d -- /usr/local/bin/bal
 | Beaucoup de produits non pesables | **rien, jamais** | inventaire neutre : « 39 non pesables — préemballés ou sans code-barres » | **aucune** : ces produits ne relèvent pas de la balance |
 | Disque plein | (rien : la pesée sort) | feu rouge Journal, `ERR-SYS-05`, « 12 pesées non journalisées » | libérer de l'espace |
 | Config invalide | plein écran « Poste en configuration d'usine (ERR-CFG-01) » | **toutes** les fautes en français | corriger, ou restaurer une version |
-| Service mort | page de secours « Le poste redémarre… » | — | attendre 5 s ; sinon `openscale doctor` |
+| Service pas encore démarré (démarrage à froid) | écran noir pendant 20 s, puis page « Application en cours de démarrage… » | — | attendre ; sinon `openscale doctor` |
+| Service mort en cours de journée | page de secours « Le poste redémarre… » | — | attendre 5 s ; sinon `openscale doctor` |
 | **Redémarrage sans intervention non configuré** | (rien — la panne ne se voit qu'après une coupure de courant, quand le poste reste sur l'écran de connexion Windows) | tableau de bord : **« redémarrage sans intervention : NON CONFIGURÉ »** en orange, `ERR-SYS-08` | relancer `install.ps1` en administrateur (§15.2 étape 3), puis refaire la recette de redémarrage (§15.5) |
 | Mot de passe admin perdu | — | **code de secours 8 caractères** (fiche d'installation) | réinitialiser depuis l'écran |
 
