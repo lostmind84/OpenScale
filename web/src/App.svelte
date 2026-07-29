@@ -9,6 +9,7 @@
   import * as api from './lib/api'
   import { ALL_CATEGORIES, chips, filterProducts, visibleProducts, type Product } from './lib/catalog'
   import { catalogStamp } from './lib/format'
+  import { hardwareIsHealthy } from './lib/health'
   import { Session } from './lib/session.svelte'
   import { ulid } from './lib/ulid'
 
@@ -40,9 +41,7 @@
   // `$state` rune ambiguous with the `$store` prefix, and svelte-check says so.
   const snapshot = $derived(session.state)
   const settings = $derived(session.presentation)
-  const healthy = $derived(
-    snapshot === null || (snapshot.scale.connected && snapshot.printer.health !== 'faulted'),
-  )
+  const healthy = $derived(hardwareIsHealthy(snapshot))
   /**
    * What the grid says when it has nothing to draw — and the three cases differ.
    *
