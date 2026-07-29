@@ -89,9 +89,9 @@ Invoke-RestMethod -Method Post `
 
 </td></tr></table>
 
-L'étiquette est écrite dans le sous-répertoire `labels/` des données — 16 310 octets de
-trame, ceux qu'une vraie imprimante recevrait. C'est le transport `file` de §8.4, qui
-existe pour exactement cet usage.
+L'étiquette est écrite dans le sous-répertoire `labels/` des données : la trame qu'une
+vraie imprimante recevrait, octet pour octet. C'est le transport `file` de §8.4, qui
+existe pour exactement cet usage — la commande ci-dessous en donne la taille.
 
 <table>
 <tr><th align="left">Linux · macOS</th><th align="left">Windows (PowerShell 7)</th></tr>

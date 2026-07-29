@@ -10,16 +10,9 @@ OpenScale remplace une application Microsoft Access de 2015 encore en service, d
 reprend les fonctionnalités et les contrats externes — le format du code-barres lu par
 la caisse, la géométrie de l'étiquette — mais aucune ligne de code.
 
-## État
-
-**Lots L1 à L8 livrés** : le poste fonctionne de bout en bout, 2 425 tests, intégration
-continue verte sur les trois cibles. Restent **L0** — approvisionner le banc (SATO WS408,
-GRAM XFOC, rouleau, lecteur) — et **L9**, la recette sur site. Ni l'un ni l'autre ne
-demande d'écrire du code. Voir [SUIVI.md](SUIVI.md).
-
-**Rien n'a encore tourné sur du matériel réel** : aucune étiquette n'est sortie d'une
-vraie imprimante, aucun octet n'est venu d'une vraie balance. Les tests qui l'exigent
-portent l'étiquette `//go:build hardware` et attendent le banc.
+**Développement terminé, éprouvé sur banc réel — SATO WS408 et GRAM XFOC —, pas encore
+en service.** Il reste la recette sur un poste pilote. Ce qui est prouvé, ce qui ne
+l'est pas et ce qui reste ouvert : [SUIVI.md](SUIVI.md).
 
 ## Essayer, sans balance et sans imprimante
 
@@ -67,8 +60,8 @@ Invoke-RestMethod -Method Post `
 
 <http://127.0.0.1:8085> est l'écran client. Le catalogue de démonstration — 60 produits
 d'un vrai export — remplit la grille en quelques secondes, puis le fichier disparaît :
-**sa suppression est l'acquittement**. La pesée écrit dans `labels/` les 16 310 octets de
-trame qu'une vraie imprimante recevrait.
+**sa suppression est l'acquittement**. La pesée écrit dans `labels/` la trame qu'une
+vraie imprimante recevrait, octet pour octet.
 
 Le reste — sortir l'étiquette en PDF, lancer le diagnostic, la liste des commandes du
 binaire — est dans [`docs/05-demarrage-rapide.md`](docs/05-demarrage-rapide.md).
