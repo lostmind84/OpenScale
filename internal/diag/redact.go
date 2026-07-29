@@ -37,36 +37,27 @@ import (
 // the archive left ».
 const Marker = "[caviardé]"
 
-// sensitiveKeys are the configuration keys whose VALUE never leaves the station.
-//
-// Matched case-insensitively on the LAST segment of a dotted path, so that
-// catalog.options.password and any nested group are covered by one entry.
-var sensitiveKeys = map[string]bool{
-	"password":           true,
-	"password_hash":      true,
-	"recovery_code_hash": true,
-	"passphrase":         true,
-	"secret":             true,
-	"token":              true,
-	"api_key":            true,
-	"apikey":             true,
-	"credential":         true,
-	"credentials":        true,
-	"private_key":        true,
-}
-
 // isSensitiveKey reports whether a value under this key must be redacted.
 //
-// Anything named url, or ending in _url, counts: §15.4 asks for an archive a volunteer can
-// send to anybody, and the address of a cooperative's private Odoo host is not ours to
-// publish. The scheme is preserved separately, because « https » or « http » is the one
-// fact about that address a support call really needs.
+// The names of the SECRETS come from domain.IsSecretOptionKey, and they are shared rather
+// than copied on purpose: Config.Export refuses to carry exactly this list, and an archive
+// must never be less strict than an export. Adding a name in one place must protect both
+// doors, or the next driver option called `token` leaves through whichever door was
+// forgotten. Matched case-insensitively on the LAST segment of a dotted path, so that
+// catalog.options.password and any nested group are covered by one entry.
+//
+// What this side adds is the ADDRESS: anything named url, or ending in _url, counts here
+// and not in the export. §15.4 asks for an archive a volunteer can send to anybody, and
+// the address of a cooperative's private Odoo host is not ours to publish; an export is
+// re-imported by the fleet that owns that host, so domain treats a URL as a SITE value and
+// keeps it in a hardware export. The scheme is preserved separately, because « https » or
+// « http » is the one fact about that address a support call really needs.
 func isSensitiveKey(key string) bool {
 	lowered := strings.ToLower(key)
 	if lowered == "url" || strings.HasSuffix(lowered, "_url") {
 		return true
 	}
-	return sensitiveKeys[lowered]
+	return domain.IsSecretOptionKey(lowered)
 }
 
 // Redact renders a configuration fit to leave the station, as indented JSON.

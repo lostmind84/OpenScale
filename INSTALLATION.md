@@ -260,6 +260,10 @@ premier.
 | | Étapes 5 et 6 : balance et imprimante (le décalage est déjà bon) |
 | | Étape 7 : **numéro de ce poste** |
 
+> **Le décalage voyage vraiment** : il est dans la configuration livrée, avec le
+> noircissement, la vitesse et les réglages série de la balance. Vérifiez-le sur la
+> première étiquette du poste cloné plutôt que de le régler à nouveau.
+
 **Puis vérifiez l'empreinte.** En bas de l'écran d'administration, chaque poste affiche
 une **empreinte de 8 caractères**. Les quatre postes doivent afficher **exactement la
 même chaîne**.
@@ -279,10 +283,25 @@ Poste 4 : 7d2e9b11     ✘ ce poste diverge → ouvrez l'aperçu du diff
 ```
 
 L'empreinte **ignore volontairement** ce qui doit différer d'un poste à l'autre : le
-numéro, le nom, le port de la balance, la file d'impression, l'adresse d'écoute. Elle ne
-compare que ce qui **doit** être identique : la grille de tarifs, les garde-fous, le
-gabarit d'étiquette, les catégories, la durée de conservation du journal. Deux postes qui
-affichent la même chaîne appliquent les mêmes prix.
+numéro, le nom, le port de la balance, la file d'impression, l'adresse d'écoute. Tout le
+reste, elle le compare : la grille de tarifs, les garde-fous, le gabarit d'étiquette, les
+catégories, la durée de conservation du journal — **et aussi les réglages du matériel que
+les quatre postes partagent** : le décalage d'étiquette, le noircissement, la vitesse
+d'impression, les réglages série de la balance, les seuils d'import du catalogue. Ce sont
+exactement les valeurs qui voyagent dans la configuration clonée.
+
+Deux postes qui affichent la même chaîne appliquent donc les mêmes prix **et** impriment
+de la même façon.
+
+> **Si vous ne changez un réglage que sur un seul poste, son empreinte va changer.**
+> Exemple : l'étiquette sort pâle sur le poste 3, vous montez le noircissement sur ce
+> poste-là seulement. Les postes 1, 2 et 4 continuent d'afficher la même chaîne, le poste
+> 3 en affiche une autre. **Ce n'est pas une panne, et il n'y a rien à réparer** : le
+> poste vous dit « je n'imprime pas comme les autres », ce qui est vrai et ce que vous
+> avez voulu. Deux façons de faire disparaître l'écart, si vous le souhaitez : appliquer
+> le même réglage aux trois autres postes, ou noter dans le cahier de la coopérative
+> pourquoi celui-ci diffère. Ce qui doit vous alerter, c'est une empreinte qui diverge
+> **sans que personne n'ait rien touché** — là, ouvrez l'aperçu du diff.
 
 Vous pouvez aussi la lire en ligne de commande, sur le poste :
 
