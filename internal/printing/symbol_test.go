@@ -413,7 +413,7 @@ func TestTheBlockMeasuresWhatTheTemplateDeclares(t *testing.T) {
 		width, height int
 	}{
 		{domain.IdenticalTemplate(), 265, 110},
-		{domain.NeutralSingleTemplate(), 265, 117},
+		{domain.NeutralSingleTemplate(), 265, 110},
 	} {
 		t.Run(c.template.Name, func(t *testing.T) {
 			o := NewSymbolOptions(c.template)

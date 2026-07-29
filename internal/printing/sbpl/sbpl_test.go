@@ -61,11 +61,12 @@ const (
 	shippedCopies   = 1
 )
 
-// The media of weighing_identical, in dots: 40 × 25.4 mm at 8 dots/mm (§7.2). It is
-// stated here as the two numbers <A1> carries, and asserted against the template.
+// The media of weighing_identical, in dots: 35 × 25 mm at 8 dots/mm, as the L0 bench
+// measured it — the printer's own configuration first, a caliper on the stock second.
+// It is stated here as the two numbers <A1> carries, and asserted against the template.
 const (
-	productionHeightDots = 203
-	productionWidthDots  = 320
+	productionHeightDots = 200
+	productionWidthDots  = 280
 )
 
 // --- Fixtures ---------------------------------------------------------------
@@ -263,17 +264,20 @@ func readable(p []byte) string {
 // commands, and the shape of every field — <A3> included, here at its neutral value,
 // which is a value and not an omission (see the package documentation).
 func TestTheFrameIsTheElevenCommandsOfTheDocument(t *testing.T) {
-	want := "\x1bA" + // <A>   start of job, resets every parameter
+	want := "\x02" + // STX   standard protocol, measured on the bench
+		"\x1bA" + // <A>   start of job, resets every parameter
 		"\x1bA1" + "0024" + "0016" + // <A1>  media, height then width
 		"\x1bA3V+0000H+0000" + // <A3>  offset, neutral on this station
 		"\x1b#E3" + // <#E>  darkness
 		"\x1bCS4" + // <CS>  speed, ips
 		"\x1b%0" + // <%>   rotation, parallel 1
 		"\x1bV0001\x1bH0001" + // <V><H> position, 0-based template dots + 1
-		"\x1bGH002003" + // <G>H  two bytes wide, three dots high
-		smallBitmapHex + // the bitmap itself
+		"\x1bGH002001" + // <G>H  two bytes wide, ONE BYTE high — c is a byte count
+		smallBitmapHex + // the three rows of the bitmap
+		"0000" + "0000" + "0000" + "0000" + "0000" + // and the five blank ones that fill the byte
 		"\x1bQ000001" + // <Q>   copies
-		"\x1bZ" // <Z>   end — this is what prints
+		"\x1bZ" + // <Z>   end of job
+		"\x03" // ETX   without it the printer never considers the job finished
 
 	if got := string(encode(t, smallJob(t))); got != want {
 		t.Errorf("la trame ne suit pas §8.3\nobtenu : %s\nattendu : %s",
@@ -288,6 +292,65 @@ func TestTheOtherPolarityFlipsEveryByte(t *testing.T) {
 	const want = "0000" + "FFFF" + "00FF"
 	if got := string(encode(t, job)); !strings.Contains(got, want) {
 		t.Errorf("sous invert_bits le bitmap doit valoir %s\nobtenu : %s", want, readable([]byte(got)))
+	}
+}
+
+// TestTheFrameCarriesItsTransmissionFraming pins what the L0 bench measured on the
+// real WS408: a job that is not wrapped in STX … ETX is never CONSIDERED FINISHED.
+//
+// The printer of the parc runs the STANDARD protocol — the SATO driver's « Sortie
+// non-standard protocole » box is unchecked, and the driver wraps every one of its
+// own jobs. Without the wrapper the bytes reach the head, fill its buffer and stay
+// there: the status LED blinks slowly, the Windows job never leaves « Printing », the
+// single TCP session of the device stays held, and EVERY SUBSEQUENT JOB FAILS until
+// someone power-cycles the printer. Nothing is printed and nothing is reported.
+//
+// It cost four labels and five power cycles to find, which is why it is a test.
+func TestTheFrameCarriesItsTransmissionFraming(t *testing.T) {
+	frame := encode(t, smallJob(t))
+
+	if len(frame) < 2 || frame[0] != 0x02 {
+		t.Errorf("la trame doit commencer par STX (0x02) : %s", readable(frame))
+	}
+	if len(frame) < 2 || frame[len(frame)-1] != 0x03 {
+		t.Errorf("la trame doit finir par ETX (0x03) : %s", readable(frame))
+	}
+	if inner := frame[1 : len(frame)-1]; !bytes.HasPrefix(inner, []byte("\x1bA")) ||
+		!bytes.HasSuffix(inner, []byte("\x1bZ")) {
+		t.Errorf("STX et ETX encadrent <A>…<Z>, ils ne le remplacent pas : %s", readable(frame))
+	}
+}
+
+// TestTheGraphicHeightIsDeclaredInBytesNotDots pins the second finding of the bench,
+// and it is the one that printed nothing for hours.
+//
+// <G>abbbccc takes BOTH sizes « as the byte unit » — the SBPL reference says so of b
+// and of c alike — so the payload is b × c × 8 bytes, not b × height-in-dots. The
+// fourteen <G> blocks of a real SATO driver capture obey that rule, all fourteen, the
+// byte after each block being the next ESC.
+//
+// Declaring the height in DOTS makes the printer wait for eight times the data it is
+// given. It does not refuse: it WAITS, which is the failure mode above.
+//
+// The height is therefore rounded UP to whole bytes and the bitmap padded with blank
+// rows. The padding goes in before the polarity flip, so that « blank » stays blank
+// under invert_bits instead of turning into a black band.
+func TestTheGraphicHeightIsDeclaredInBytesNotDots(t *testing.T) {
+	// smallBitmap is 16 × 3 dots: two bytes wide, and three dots is ONE byte high.
+	const wantCommand = "\x1bGH" + "002" + "001"
+	// Three real rows, then five blank ones to fill the byte.
+	const wantPayload = smallBitmapHex + "0000" + "0000" + "0000" + "0000" + "0000"
+
+	frame := string(encode(t, smallJob(t)))
+	if !strings.Contains(frame, wantCommand+wantPayload) {
+		t.Fatalf("le bloc <G> doit valoir %s puis %s\nobtenu : %s",
+			wantCommand, wantPayload, readable([]byte(frame)))
+	}
+
+	// The rule the fourteen blocks of the driver capture obey, stated once more as a
+	// number so that a future change to the padding cannot quietly break it.
+	if got, want := len(wantPayload)/2, 2*1*8; got != want {
+		t.Errorf("charge utile de %d octets, attendu b × c × 8 = %d", got, want)
 	}
 }
 
@@ -433,11 +496,11 @@ func TestEveryFrameOpensWithAAndClosesWithZ(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			frame := encode(t, c.job)
-			if !bytes.HasPrefix(frame, []byte("\x1bA\x1bA1")) {
-				t.Errorf("la trame ne commence pas par <A><A1> : %s", readable(excerpt(frame, 0)))
+			if !bytes.HasPrefix(frame, []byte("\x02\x1bA\x1bA1")) {
+				t.Errorf("la trame ne commence pas par STX<A><A1> : %s", readable(excerpt(frame, 0)))
 			}
-			if !bytes.HasSuffix(frame, []byte("\x1bZ")) {
-				t.Errorf("la trame ne se termine pas par <Z> : %s", readable(excerpt(frame, len(frame))))
+			if !bytes.HasSuffix(frame, []byte("\x1bZ\x03")) {
+				t.Errorf("la trame ne se termine pas par <Z>ETX : %s", readable(excerpt(frame, len(frame))))
 			}
 			if n := bytes.Count(frame, []byte("\x1bZ")); n != 1 {
 				t.Errorf("<Z> apparaît %d fois, il en faut exactement une", n)
@@ -861,27 +924,32 @@ func TestTheBitmapSurvivesTheHexadecimal(t *testing.T) {
 		{"polarité livrée", sbpl.InkIsOne, func(*testing.T) *image.Gray { return checkerboard(13, 5) }, 24, 16, 2},
 		{"invert_bits", sbpl.InkIsZero, func(*testing.T) *image.Gray { return checkerboard(13, 5) }, 24, 16, 2},
 		{"étiquette de production", sbpl.InkIsOne, productionBitmap,
-			productionHeightDots, productionWidthDots, 40},
+			productionHeightDots, productionWidthDots, 35},
 		{"étiquette de production, invert_bits", sbpl.InkIsZero, productionBitmap,
-			productionHeightDots, productionWidthDots, 40},
+			productionHeightDots, productionWidthDots, 35},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			source := c.source(t)
 			job := mustJob(t, mustSetup(t, c.height, c.width), mustGraphic(t, 0, 0, source, c.ink), 1)
-			widthBytes, height, rows := readGraphic(t, encode(t, job))
+			widthBytes, heightBytes, rows := readGraphic(t, encode(t, job))
 
-			if widthBytes != c.widthBytes || height != source.Bounds().Dy() {
-				t.Fatalf("<G>H annonce %d octets × %d dots, attendu %d × %d",
-					widthBytes, height, c.widthBytes, source.Bounds().Dy())
+			wantHeightBytes := (source.Bounds().Dy() + 7) / 8
+			if widthBytes != c.widthBytes || heightBytes != wantHeightBytes {
+				t.Fatalf("<G>H annonce %d × %d octets, attendu %d × %d",
+					widthBytes, heightBytes, c.widthBytes, wantHeightBytes)
 			}
-			for y := 0; y < height; y++ {
+			// Over the PADDED height, so that the rows added to fill the last byte are
+			// covered too: under invert_bits a forgotten padding row is a black band
+			// across the bottom of every label, and no dot of the render would show it.
+			for y := 0; y < heightBytes*8; y++ {
 				for x := 0; x < widthBytes*8; x++ {
 					bit := rows[y*widthBytes+x/8]&(0x80>>(x%8)) != 0
 					burns := bit == (c.ink == sbpl.InkIsOne)
-					want := x < source.Bounds().Dx() && source.GrayAt(x, y).Y < 0x80
+					want := y < source.Bounds().Dy() &&
+						x < source.Bounds().Dx() && source.GrayAt(x, y).Y < 0x80
 					if burns != want {
-						t.Fatalf("dot (%d;%d) : brûlé=%v, attendu %v — les bits de bourrage "+
-							"d'une ligne qui ne finit pas sur un octet ne doivent jamais brûler",
+						t.Fatalf("dot (%d;%d) : brûlé=%v, attendu %v — ni les bits de bourrage "+
+							"d'une ligne, ni les lignes de bourrage d'un octet ne doivent brûler",
 							x, y, burns, want)
 					}
 				}
@@ -891,7 +959,9 @@ func TestTheBitmapSurvivesTheHexadecimal(t *testing.T) {
 }
 
 // readGraphic finds the <G>H block in a frame and inflates its hexadecimal.
-func readGraphic(t *testing.T, frame []byte) (widthBytes, height int, rows []byte) {
+// It returns the height in BYTES, as <G> declares it, and the rows it hands back are
+// the PADDED ones — heightBytes × 8 of them. A caller that wants dots multiplies.
+func readGraphic(t *testing.T, frame []byte) (widthBytes, heightBytes int, rows []byte) {
 	t.Helper()
 	at := bytes.Index(frame, []byte("\x1bGH"))
 	if at < 0 {
@@ -902,14 +972,14 @@ func readGraphic(t *testing.T, frame []byte) (widthBytes, height int, rows []byt
 		t.Fatalf("en-tête <G>H tronqué : %s", readable(header))
 	}
 	widthBytes = number(t, header[:3])
-	height = number(t, header[3:6])
+	heightBytes = number(t, header[3:6])
 
 	payload := header[6:]
-	wanted := 2 * widthBytes * height
+	wanted := 2 * widthBytes * heightBytes * 8
 	if len(payload) < wanted {
 		t.Fatalf("le bloc annonce %d octets et n'en porte que %d", wanted/2, len(payload)/2)
 	}
-	rows = make([]byte, widthBytes*height)
+	rows = make([]byte, widthBytes*heightBytes*8)
 	for i := range rows {
 		value, err := strconv.ParseUint(string(payload[2*i:2*i+2]), 16, 8)
 		if err != nil {
@@ -923,7 +993,7 @@ func readGraphic(t *testing.T, frame []byte) (widthBytes, height int, rows []byt
 	if hex := string(payload[:wanted]); hex != strings.ToUpper(hex) {
 		t.Errorf("le bloc <G>H contient des minuscules : %q", firstLowercase(hex))
 	}
-	return widthBytes, height, rows
+	return widthBytes, heightBytes, rows
 }
 
 func number(t *testing.T, digits []byte) int {
@@ -1043,18 +1113,20 @@ func TestTheDescriptorNamesTheDriverToAVolunteer(t *testing.T) {
 // TestTheProductionFrameWeighsWhatTheDocumentSays turns the arithmetic of §8.3 into
 // an assertion.
 //
-// « 40 octets × 203 lignes = 8 120 octets ⇒ 16 240 caractères hexa ≈ 16 ko ». That
-// figure is what says the frame goes out in under 50 ms on USB or TCP, and what
-// rules the serial transport out for a printer — 17 s at 9 600 bauds. If the frame
-// ever stopped weighing that, one of those two conclusions would be wrong.
+// §8.3 said « 40 octets × 203 lignes = 8 120 octets ⇒ 16 240 caractères hexa ≈ 16 ko ».
+// The L0 bench corrected the count, not the conclusion: <G> declares its height in
+// BYTES, so 203 dots are 26 bytes, the bitmap is padded to 208 rows, and the payload
+// is 40 × 26 × 8 = 8 320 octets ⇒ 16 640 caractères hexa. Still « environ 16 ko », so
+// the two conclusions that figure carries both hold: the frame goes out in under
+// 50 ms on USB or TCP, and the serial transport stays ruled out — 17 s at 9 600 bauds.
 func TestTheProductionFrameWeighsWhatTheDocumentSays(t *testing.T) {
 	const (
-		bitmapBytes = 40 * 203
+		bitmapBytes = 35 * 25 * 8
 		hexChars    = 2 * bitmapBytes
 	)
 	frame := encode(t, productionJob(t))
-	if !bytes.Contains(frame, []byte("\x1bGH040203")) {
-		t.Fatalf("l'étiquette de production doit tenir en 40 octets × 203 dots : %s",
+	if !bytes.Contains(frame, []byte("\x1bGH035025")) {
+		t.Fatalf("l'étiquette de production doit tenir en 35 × 25 octets : %s",
 			readable(excerpt(frame, bytes.Index(frame, []byte("\x1bGH"))+8)))
 	}
 	// The commands around the bitmap are a few dozen bytes; the frame is the payload
@@ -1063,7 +1135,7 @@ func TestTheProductionFrameWeighsWhatTheDocumentSays(t *testing.T) {
 		t.Errorf("la trame fait %d octets, attendu %d caractères hexa plus quelques dizaines "+
 			"d'octets de commandes", len(frame), hexChars)
 	}
-	if got := fmt.Sprintf("%.1f", float64(len(frame))/1000); got != "16.3" {
+	if got := fmt.Sprintf("%.1f", float64(len(frame))/1000); got != "14.1" {
 		t.Logf("volume de la trame : %s ko (§8.3 annonce « environ 16 ko »)", got)
 	}
 }
@@ -1313,35 +1385,37 @@ func TestTheOffsetReachesTheFrameSignAndAxisIncluded(t *testing.T) {
 
 // --- 12. The merge changed nothing on the wire ------------------------------
 
-// The frame of the reference weighing, as BOTH encoders emitted it before the merge.
+// The frame of the reference weighing, byte for byte.
 //
-// internal/printing/raster carried a complete second encapsulation, written in
-// parallel with this one, and the two produced the same 16 310 bytes for this label —
-// measured, not assumed. The merge deleted that one and moved its <A3> offset here.
+// It was 16 310 bytes and a12e2f21… from the merge of the two encoders until the L0
+// bench of 28/07/2026, and that value proved the merge had been neutral on the wire.
+// THE BENCH MOVED IT, deliberately and for cause: a real WS408 refuses to finish a job
+// that carries no STX … ETX, and counts the height of <G> in bytes, so the frame gained
+// its two framing codes and the five blank rows that pad 203 dots up to 26 whole bytes.
+// Both are printed-paper findings, not readings of a document.
 //
-// A golden alone would not have recorded that: a golden can be regenerated with a
-// flag, and a regenerated golden agrees with whatever produced it. This fingerprint
-// was taken from the PRE-MERGE frame, so changing it is a deliberate act with a paper
-// trail. internal/printing/raster asserts the same two numbers from the other side of
-// the border.
+// A golden alone would not hold this: a golden can be regenerated with a flag, and a
+// regenerated golden agrees with whatever produced it. Changing this constant stays a
+// deliberate act with a paper trail. internal/printing/raster asserts the same two
+// numbers from the other side of the border.
 const (
-	preMergeFrameSHA256 = "a12e2f21dddb460085881df32eaa4d8ec83cdfb4995209c1c4138833dcd2b2c6"
-	preMergeFrameBytes  = 16_310
+	benchFrameSHA256 = "4e159c207f2b04ad263ed2426ab33bafa08689ccafe241f8c87a637c5b4ecae9"
+	benchFrameBytes  = 14_072
 )
 
-// TestTheMergedEncoderEmitsThePreMergeBytes is the proof the fusion was neutral.
-func TestTheMergedEncoderEmitsThePreMergeBytes(t *testing.T) {
+// TestTheFrameIsTheOneTheBenchPrinted pins what a real printer accepted.
+func TestTheFrameIsTheOneTheBenchPrinted(t *testing.T) {
 	frame := encode(t, productionJob(t))
-	if len(frame) != preMergeFrameBytes {
-		t.Errorf("trame de %d octets, %d avant la fusion", len(frame), preMergeFrameBytes)
+	if len(frame) != benchFrameBytes {
+		t.Errorf("trame de %d octets, %d au banc", len(frame), benchFrameBytes)
 	}
 	sum := sha256.Sum256(frame)
-	if got := hex.EncodeToString(sum[:]); got != preMergeFrameSHA256 {
-		t.Errorf("empreinte de la trame : %s\navant la fusion : %s\n"+
-			"La fusion des deux encodeurs devait être neutre sur le fil. Si la trame a changé "+
+	if got := hex.EncodeToString(sum[:]); got != benchFrameSHA256 {
+		t.Errorf("empreinte de la trame : %s\nau banc : %s\n"+
+			"Cette trame est celle qu'une vraie SATO WS408 a imprimée. Si elle a changé "+
 			"EXPRÈS — un changement de dessin de §7.3, par exemple — régénérer les golden de rendu, "+
 			"puis celui de ce paquet, puis cette empreinte, et le dire dans le commit.",
-			got, preMergeFrameSHA256)
+			got, benchFrameSHA256)
 	}
 }
 

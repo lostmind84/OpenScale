@@ -51,25 +51,50 @@ func TestTheAlignmentPatternCarriesItsSquareAndItsFourCrosses(t *testing.T) {
 		t.Errorf("le dot (%d;%d) est encré : il est hors du carré", left-1, top-1)
 	}
 
+	// The arms and the inset both follow the head: one millimetre each, so eight dots
+	// on a WS408. They are spelled out rather than borrowed for the same reason as the
+	// square above.
+	arm := int(template.Media.DotsPerMM * crossArmMM)
+	inset := int(template.Media.DotsPerMM * cornerInsetMM)
+
+	// THE CORNER ITSELF IS BARE, and this is the finding of the L0 bench rather than a
+	// detail of drawing: the stock is die-cut with a rounded corner of about a
+	// millimetre, so the four extreme dots are not paper. A cross printed there comes
+	// out as nothing at all, which is what a volunteer reported on 28/07/2026.
 	for _, corner := range []image.Point{
 		{X: 0, Y: 0},
 		{X: width - 1, Y: 0},
 		{X: 0, Y: height - 1},
 		{X: width - 1, Y: height - 1},
 	} {
-		if pattern.GrayAt(corner.X, corner.Y).Y >= inkThreshold {
-			t.Errorf("le coin (%d;%d) n'est pas encré : c'est là que se lit la zone réellement imprimable",
+		if pattern.GrayAt(corner.X, corner.Y).Y < inkThreshold {
+			t.Errorf("le coin (%d;%d) est encré : la découpe arrondie n'y laisse pas de papier",
 				corner.X, corner.Y)
 		}
 	}
 
-	// The arms follow the head: one millimetre, so eight dots on a WS408.
-	arm := int(template.Media.DotsPerMM * crossArmMM)
-	if pattern.GrayAt(arm, 0).Y >= inkThreshold {
-		t.Errorf("le bras de la croix du coin haut gauche n'atteint pas %d dots (1 mm)", arm)
-	}
-	if pattern.GrayAt(arm+1, 0).Y < inkThreshold {
-		t.Errorf("le bras de la croix dépasse %d dots : il vaut 1 mm de chaque côté", arm)
+	for _, cross := range []image.Point{
+		{X: arm + inset, Y: arm + inset},
+		{X: width - 1 - arm - inset, Y: arm + inset},
+		{X: arm + inset, Y: height - 1 - arm - inset},
+		{X: width - 1 - arm - inset, Y: height - 1 - arm - inset},
+	} {
+		// WHOLE, both arms of both strokes: the outer tip is what a rounded corner used
+		// to swallow, and the inner one is what clipping used to leave behind.
+		for _, tip := range []image.Point{
+			{X: cross.X - arm, Y: cross.Y}, {X: cross.X + arm, Y: cross.Y},
+			{X: cross.X, Y: cross.Y - arm}, {X: cross.X, Y: cross.Y + arm},
+		} {
+			if pattern.GrayAt(tip.X, tip.Y).Y >= inkThreshold {
+				t.Errorf("le bras de la croix (%d;%d) n'atteint pas son extrémité (%d;%d)",
+					cross.X, cross.Y, tip.X, tip.Y)
+			}
+		}
+		// Two dots thick, because one dot is 0.125 mm and nobody sees it on a label.
+		if pattern.GrayAt(cross.X, cross.Y+crossStrokeDots-1).Y >= inkThreshold {
+			t.Errorf("la croix (%d;%d) fait moins de %d dots d'épaisseur",
+				cross.X, cross.Y, crossStrokeDots)
+		}
 	}
 }
 

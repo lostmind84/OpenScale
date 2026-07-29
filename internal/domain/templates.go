@@ -33,13 +33,21 @@ package domain
 func neutralSingleGeometry() Template {
 	return Template{
 		Name: "weighing_neutral_single",
+		// Measured on the bench of 28/07/2026, and in this order of authority: the
+		// PRINTER first, then a caliper on the stock. The SATO driver of the parc is
+		// configured « Largeur 35 mm / Hauteur 25 mm », and the labels themselves are
+		// 38 × 25 mm — the 3 mm of difference are a deliberate margin. The 40 × 25.4 mm
+		// this carried until then came from an old test PDF that was never produced by
+		// the driver, and it made the station declare a print area FIVE MILLIMETRES
+		// wider than the paper: the right-hand corner marks of the alignment self-test
+		// fell off the label.
 		Media: Media{
-			WidthUM:   40_000, // 40 mm
-			HeightUM:  25_400, // 25.4 mm
+			WidthUM:   35_000, // 35 mm — the printable width the printer holds
+			HeightUM:  25_000, // 25 mm — the full height of the stock
 			DotsPerMM: 8,      // WS408; a WS412 would say 12
 		},
-		PrintableWidthUM:  40_000,
-		PrintableHeightUM: 25_400,
+		PrintableWidthUM:  35_000,
+		PrintableHeightUM: 25_000,
 		TextThreshold:     0x68,
 		// The neutral template makes no claim about a truncated symbol: it is not
 		// reproducing anything, so an out-of-standard symbol here IS worth a warning.
@@ -53,19 +61,19 @@ func neutralSingleGeometry() Template {
 			},
 			{
 				Field: FieldQuantity,
-				XUM:   0, YUM: 3_400, WidthUM: 15_000, HeightUM: 3_200,
+				XUM:   0, YUM: 3_450, WidthUM: 15_000, HeightUM: 3_200,
 				FontSizeUM: 3_175, AutoBold: true, Align: AlignLeft,
 			},
 			{
 				Field: FieldPrimaryUnitPrice,
-				XUM:   15_200, YUM: 3_400, WidthUM: 19_778, HeightUM: 3_200,
+				XUM:   15_200, YUM: 3_450, WidthUM: 19_778, HeightUM: 3_200,
 				FontSizeUM: 3_175, Bold: true, Framed: true, AutoBold: true, Align: AlignRight,
 			},
 			{
 				// Present but conditional: on a single-tier grid it is not drawn, and
 				// that is what makes mono-tarif work with no `if` in the renderer.
 				Field: FieldSecondaryTotalPrice,
-				XUM:   0, YUM: 6_800, WidthUM: 15_000, HeightUM: 2_600,
+				XUM:   0, YUM: 7_100, WidthUM: 15_000, HeightUM: 2_600,
 				FontSizeUM: 2_469, // 7 pt
 				// auto_bold OFF, for the same reason as on the production label: the
 				// source carries no FontWeight there, and bolding it would be the one
@@ -74,22 +82,22 @@ func neutralSingleGeometry() Template {
 			},
 			{
 				Field: FieldPrimaryTotalPrice,
-				XUM:   17_978, YUM: 6_600, WidthUM: 17_000, HeightUM: 3_800,
+				XUM:   17_978, YUM: 6_900, WidthUM: 17_000, HeightUM: 3_800,
 				FontSizeUM: 3_881, Bold: true, AutoBold: true, Align: AlignRight,
 			},
 			{
 				Field: FieldBarcode,
-				XUM:   0, YUM: 10_450, WidthUM: 34_978, HeightUM: 14_650,
+				XUM:   0, YUM: 10_950, WidthUM: 34_978, HeightUM: 13_805,
 				Align: AlignLeft,
 			},
 		},
 		Symbol: SymbolGeometry{
-			XUM: 0, YUM: 10_450,
+			XUM: 0, YUM: 10_950,
 			// The same fractional module as the production label: 2.344 dots =
 			// 0.293 mm. Keeping it here means the neutral template exercises the one
 			// case no printer language can express (A2).
 			ModuleMilliDots: 2_344,
-			BarHeightUM:     11_720,
+			BarHeightUM:     10_875,
 			GuardDescentUM:  1_465,
 			HRIHeightUM:     2_930,
 		},
@@ -142,7 +150,19 @@ func IdenticalTemplate() Template {
 	// symbol. Every number below is derived from these four, so changing the leading
 	// changes one constant.
 	const (
-		leading = 350
+		// 277 and not 350 since the bench of 28/07/2026 corrected the media: the label
+		// is 25 mm, not the 25.4 an old test PDF suggested, and at 350 the symbol block
+		// ended 93 um BELOW the paper. The leading is where those micrometres were
+		// taken, because the alternative was shortening the bars, and the symbol is the
+		// one thing ADR-003 protects: module, bar height, guard descent and HRI are all
+		// untouched.
+		//
+		// It buys 1 dot of vertical margin and not zero, deliberately. The ±1 dot
+		// arrows of §7.5 are how a volunteer corrects a roll that sits a hair off, and
+		// the bench needed them on the very first evening; a template that filled the
+		// label exactly would leave that adjustment nowhere to go, and hard rule 6
+		// applies the offset BEFORE validating.
+		leading = 277
 		body9   = 3_175 //  9 pt
 		body7   = 2_473 //  7 pt, measured on the PDF
 		body11  = 3_888 // 11 pt, measured on the PDF
@@ -161,13 +181,14 @@ func IdenticalTemplate() Template {
 
 	return Template{
 		Name: "weighing_identical",
+		// The same measurement as weighing_neutral_single, and for the same reason.
 		Media: Media{
-			WidthUM:   40_000,
-			HeightUM:  25_400,
+			WidthUM:   35_000,
+			HeightUM:  25_000,
 			DotsPerMM: 8,
 		},
-		PrintableWidthUM:  40_000,
-		PrintableHeightUM: 25_400,
+		PrintableWidthUM:  35_000,
+		PrintableHeightUM: 25_000,
 		TextThreshold:     0x68,
 		// The truncation remains a documented decision of the commissioning party.
 		// The flag keeps the admin screen INFORMATIVE about it rather than amber, so

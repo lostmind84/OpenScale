@@ -1137,7 +1137,7 @@ func TestTheFreeRasterizeRendersAndStaysAudible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Rasterize : %v", err)
 	}
-	if got, want := img.Bounds().Max, image.Pt(320, 203); got != want {
+	if got, want := img.Bounds().Max, image.Pt(280, 200); got != want {
 		t.Errorf("image %v, attendu %v", got, want)
 	}
 

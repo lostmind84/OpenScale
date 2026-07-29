@@ -280,10 +280,12 @@ func TestThePageIsTheMediaAndTheBitmapIsAtHeadPitch(t *testing.T) {
 	if !atPitch(micrometres(doc.originX), 0) {
 		t.Errorf("le bitmap commence à %.1f µm du bord gauche", micrometres(doc.originX))
 	}
-	// And the two are NOT the same length: 203 rows cover 25.375 mm of a 25.4 mm page.
-	if doc.scaleY >= doc.pageHeight {
-		t.Errorf("le bitmap couvre toute la hauteur de la page : 25,4 mm font 203,2 dots, "+
-			"et %d rangées ne peuvent pas les couvrir", height)
+	// Since the bench corrected the media, the page is a WHOLE number of dots high —
+	// 25 mm at 8 dots/mm is 200 exactly — so the bitmap covers it exactly instead of
+	// falling 0.2 dots short. What must never happen is covering MORE than the page.
+	if doc.scaleY > doc.pageHeight {
+		t.Errorf("le bitmap déborde la hauteur de la page : %d rangées au pas de la tête "+
+			"dépassent le média", height)
 	}
 	if doc.imageWidth != width || doc.imageHeight != height {
 		t.Errorf("image de %d × %d dots, le média en fait %d × %d",

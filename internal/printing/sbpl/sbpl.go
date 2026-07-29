@@ -197,6 +197,7 @@ func Encode(w io.Writer, j Job) error {
 		return err
 	}
 	e := &encoder{to: w}
+	e.openTransmission()
 	e.begin()
 	e.media(j.setup.media)
 	e.offset(j.setup.offset)
@@ -206,6 +207,7 @@ func Encode(w io.Writer, j Job) error {
 	e.graphic(j.graphic)
 	e.copies(j.copies)
 	e.end()
+	e.closeTransmission()
 	return e.err
 }
 
@@ -220,6 +222,23 @@ type encoder struct {
 	to  io.Writer
 	err error
 }
+
+// openTransmission emits STX, and closeTransmission emits ETX.
+//
+// They are the STANDARD PROTOCOL of §8.3, and they are not decoration: the printers
+// of the parc are configured for it — the SATO driver's « Sortie non-standard
+// protocole » box is unchecked — and a job that arrives without them is never
+// considered finished. The bytes sit in the head's buffer, the status LED blinks
+// slowly, the job never leaves the Windows queue, the single TCP session the device
+// grants stays held, and every later job fails until someone power-cycles the
+// printer. The failure is silent at both ends, which is what made it expensive.
+//
+// NOT a setting (ADR-025): the alternative — non-standard protocol — replaces these
+// two control codes with printable characters for hosts that cannot send control
+// codes, which is not a choice any station of this parc has to make. The day one
+// does, it belongs in the printer options next to `transport`, not here.
+func (e *encoder) openTransmission()  { e.write("\x02") }
+func (e *encoder) closeTransmission() { e.write("\x03") }
 
 // begin emits <A>, which starts the job and RESETS every parameter of the printer.
 func (e *encoder) begin() { e.write("\x1bA") }
@@ -255,11 +274,22 @@ func (e *encoder) rotation() { e.write("\x1b%%0") }
 // and the 1-based dots of the manual, and this is the only place in the code base
 // that performs it.
 func (e *encoder) graphic(g Graphic) {
-	bounds := g.image.Bounds()
 	e.write("\x1bV%04d\x1bH%04d", g.yDots+1, g.xDots+1)
-	e.write("\x1bGH%03d%03d", g.widthB, bounds.Dy())
+	e.write("\x1bGH%03d%03d", g.widthB, heightBytes(g))
 	e.writeBytes(hexadecimal(rows(g)))
 }
+
+// heightBytes is the c field of <G>abbbccc, and it is a number of BYTES.
+//
+// The SBPL reference describes b and c in the same words — « specifies a graphic area
+// of the … direction as the byte unit » — so the payload is b × c × 8 bytes. A
+// capture of the SATO driver printing a real label carries fourteen <G> blocks, and
+// all fourteen obey that rule to the byte.
+//
+// Sending the height in DOTS, as this encoder did until the L0 bench, makes the
+// printer wait for eight times the data it is given. It does not refuse the job — it
+// waits for the rest, forever, and takes the device down with it.
+func heightBytes(g Graphic) int { return (g.image.Bounds().Dy() + 7) / 8 }
 
 // copies emits <Q>: how many identical labels come out.
 func (e *encoder) copies(c Copies) { e.write("\x1bQ%06d", c.count) }
@@ -314,7 +344,11 @@ const inkThreshold = 0x80
 // polarity nobody tests.
 func rows(g Graphic) []byte {
 	bounds := g.image.Bounds()
-	packed := make([]byte, g.widthB*bounds.Dy())
+	// Padded to whole bytes of HEIGHT, because that is what <G> declares and what the
+	// printer counts. The extra rows are left at zero — no ink — and they are added
+	// BEFORE the polarity flip below, so that blank stays blank under InkIsZero
+	// instead of coming out as a black band across the bottom of every label.
+	packed := make([]byte, g.widthB*heightBytes(g)*8)
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		row := packed[(y-bounds.Min.Y)*g.widthB:][:g.widthB]
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
