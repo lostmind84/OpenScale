@@ -226,3 +226,80 @@ func (w *journalWorker) write(entry TechnicalEntry) {
 		w.counters.JournalFailures.Add(1)
 	}
 }
+
+// --- Le sondage des versions publiées ------------------------------------------
+
+// updateGracePeriod is how long a station waits after starting before it looks for
+// a newer version of itself.
+//
+// Five minutes and not zero: a station that has just booted is opening a serial
+// port, reading a catalogue and drawing a screen, and none of that is helped by an
+// outbound request starting at the same instant.
+const updateGracePeriod = 5 * time.Minute
+
+// updatePeriod is how often it looks afterwards.
+const updatePeriod = 24 * time.Hour
+
+// Poller is what the station asks, once a day, whether a newer version exists.
+//
+// It is declared HERE, on the consumer's side, and it names no type of the update
+// package: internal/station has no business knowing what a release is. The version
+// comes back as a plain string, and the adapter that turns an update.Service into
+// this lives in the composition root.
+type Poller interface {
+	// Poll asks the repository whether a newer version exists and records the
+	// answer, returning the newest version published or the empty string.
+	Poll(ctx context.Context, repository string) (string, error)
+}
+
+// runUpdateWorker asks the repository, once a day, whether something newer exists.
+//
+// IT DOWNLOADS NOTHING. It reads a few kilobytes of JSON; the archive comes down
+// only when somebody touches the button. Four stations polling once a day sit far
+// below the sixty-requests-an-hour anonymous limit.
+//
+// A FAILED POLL LIGHTS NOTHING. A shop whose line is down is not a station in
+// breakdown, and an amber light there would teach volunteers to ignore amber
+// lights. It is written down at warn, because a station that has silently stopped
+// seeing new versions for six months is exactly what this feature exists to
+// prevent -- but it is written down, not shown.
+// THE TWO TIMERS ARE REGISTERED BY Start, in the calling goroutine, and handed
+// down -- the same discipline the hub ticker and the supervisor ticker follow, and
+// for the same reason. Registering them here would make the first poll depend on
+// when the scheduler got to this goroutine: on a fake clock that is the difference
+// between a deterministic test and a flaky one, and it was measured, not guessed.
+func (s *Station) runUpdateWorker(ctx context.Context, grace <-chan time.Time,
+	ticks <-chan time.Time, stop func(), poller Poller) {
+
+	defer stop()
+	select {
+	case <-ctx.Done():
+		return
+	case <-grace:
+	}
+	s.pollForUpdate(ctx, poller)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticks:
+			s.pollForUpdate(ctx, poller)
+		}
+	}
+}
+
+// pollForUpdate asks once, and never lets a refusal escape.
+func (s *Station) pollForUpdate(ctx context.Context, poller Poller) {
+	repository := s.hub.Config().Update.Repository
+	version, err := poller.Poll(ctx, repository)
+	if err != nil {
+		// No ERR code: this is not a fault of the station, and giving it one would
+		// file it beside a printer that has stopped.
+		s.hub.logTechnical(domain.LevelWarn, "update", "",
+			"Impossible de joindre le serveur des versions.", err.Error())
+		return
+	}
+	s.hub.logTechnical(domain.LevelInfo, "update", "",
+		"Version publiée la plus récente : "+version, repository)
+}

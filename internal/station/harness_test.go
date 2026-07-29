@@ -197,6 +197,35 @@ func (r *recordingTechnical) count(code string) int {
 	return n
 }
 
+// countSource reports how many lines came from that source.
+//
+// A source and not a code, because the lines this answers for carry no ERR code:
+// « the release server could not be reached » is not a fault of the station, and
+// giving it a code would put it in the same list as a printer that has stopped.
+func (r *recordingTechnical) countSource(source string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, e := range r.entries {
+		if e.Source == source {
+			n++
+		}
+	}
+	return n
+}
+
+// lastLevel reports the level of the most recent line of that source.
+func (r *recordingTechnical) lastLevel(source string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := len(r.entries) - 1; i >= 0; i-- {
+		if r.entries[i].Source == source {
+			return r.entries[i].Level
+		}
+	}
+	return ""
+}
+
 // bench is a whole station running on a fake clock, with no hardware at all.
 type bench struct {
 	t         *testing.T
@@ -236,6 +265,9 @@ type benchOptions struct {
 	// is what lets it come back out of it when a valid configuration arrives.
 	outOfService bool
 	registries   domain.Registries
+	// poller is the daily check for a newer version. Nil starts no worker, which
+	// is what a binary that cannot update itself honestly is.
+	poller Poller
 }
 
 // newBench starts a station and stops it when the test ends.
@@ -268,6 +300,7 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		Printer: b.printer, Journal: b.journal, TechnicalSink: b.technical,
 		NewScale: o.newScale, CatalogSource: o.source, ApplyCatalog: o.applyCatalog,
 		OnRevert: o.onRevert, OutOfService: o.outOfService, Registries: o.registries,
+		Poller: o.poller,
 	}
 	if !o.noScale {
 		options.Scale = b.scale
