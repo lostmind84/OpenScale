@@ -52,8 +52,14 @@
 
   const { admin }: Props = $props()
 
-  /** Ce que le service dit, ou null tant qu'on n'a pas lu. */
-  let state = $state<UpdateDTO | null>(null)
+  /**
+   * Ce que le service dit, ou null tant qu'on n'a pas lu.
+   *
+   * Le nom N'EST PAS `state` : une variable de ce nom rendrait `$state` ambigu — Svelte
+   * lirait la rune comme l'abonnement au store `state` —, et le fichier ne compilerait
+   * plus. `svelte-check` le dit, `vitest` ne le voit pas.
+   */
+  let current = $state<UpdateDTO | null>(null)
 
   /**
    * Ce qui a raté à la LECTURE, distinct de ce qui rate à un ACTE.
@@ -73,8 +79,16 @@
   /** Ce que l'attente du retour a donné, une fois qu'elle est finie. */
   let switchReport = $state('')
 
-  const outcome = $derived(state?.outcome ?? null)
-  const canInstall = $derived(state?.supported === true && state.available)
+  const outcome = $derived(current?.outcome ?? null)
+  const canInstall = $derived(current?.supported === true && current.available)
+  /**
+   * La version que le bouton installera.
+   *
+   * Extraite ici et non lue dans le gabarit : le rappel du bouton s'exécute plus tard,
+   * et TypeScript ne peut pas savoir que `current` sera encore non nul à ce moment-là.
+   * Une chaîne capturée dit exactement ce qui a été affiché — ce que le service exige.
+   */
+  const latest = $derived(current?.latest ?? '')
 
   $effect(() => {
     void read()
@@ -88,7 +102,7 @@
    */
   async function read(): Promise<void> {
     try {
-      state = await api.fetchUpdate()
+      current = await api.fetchUpdate()
       readFailure = ''
     } catch (failure) {
       readFailure = failure instanceof Error ? failure.message : 'Lecture impossible.'
@@ -101,7 +115,7 @@
     try {
       const fresh = await admin.protect(() => api.checkForUpdate())
       if (fresh !== null) {
-        state = fresh
+        current = fresh
         readFailure = ''
       }
     } finally {
@@ -152,7 +166,7 @@
 </script>
 
 <Panel title="Version de ce poste">
-  {#if state === null}
+  {#if current === null}
     <p class="fact muted">{readFailure === '' ? 'Lecture…' : readFailure}</p>
   {:else}
     {#if readFailure !== ''}
@@ -160,26 +174,26 @@
     {/if}
     <dl>
       <dt>Version installée</dt>
-      <dd>{state.running}</dd>
+      <dd>{current.running}</dd>
       <dt>Dépôt suivi</dt>
-      <dd>{state.repository}</dd>
-      {#if state.checked_at !== ''}
+      <dd>{current.repository}</dd>
+      {#if current.checked_at !== ''}
         <dt>Dernière vérification</dt>
-        <dd>{frenchDateTime(state.checked_at)}</dd>
+        <dd>{frenchDateTime(current.checked_at)}</dd>
       {/if}
     </dl>
 
-    {#if !state.supported}
+    {#if !current.supported}
       <p class="fact muted">
         La mise à jour depuis cet écran n’existe que sur les postes Windows. Sur les
         autres, elle se fait à la main — voir la notice d’installation.
       </p>
-    {:else if state.available}
+    {:else if current.available}
       <p class="fact">
-        Version disponible : <strong>{state.latest}</strong>
-        {#if state.published_at !== ''}, publiée le {frenchDateTime(state.published_at)}{/if}.
-        {#if state.html_url !== ''}
-          <a href={state.html_url} target="_blank" rel="noreferrer noopener">
+        Version disponible : <strong>{current.latest}</strong>
+        {#if current.published_at !== ''}, publiée le {frenchDateTime(current.published_at)}{/if}.
+        {#if current.html_url !== ''}
+          <a href={current.html_url} target="_blank" rel="noreferrer noopener">
             Voir les nouveautés
           </a>
         {/if}
@@ -190,7 +204,7 @@
   {/if}
 </Panel>
 
-{#if state !== null && state.supported}
+{#if current !== null && current.supported}
   <Panel title="Installer">
     <div class="row">
       <Act
@@ -205,11 +219,11 @@
       {#if canInstall}
         <Act
           kind="destructive"
-          label={`Installer la version ${state.latest}`}
+          label={`Installer la version ${latest}`}
           protected
           act="apply"
           busy={working === 'apply'}
-          onrun={() => void install(state.latest)}
+          onrun={() => void install(latest)}
         />
       {/if}
     </div>
