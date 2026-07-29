@@ -151,6 +151,15 @@ export interface HealthDTO {
   disk: DiskDTO | null
   unattended_restart: RestartDTO | null
   printing: RoutingDTO | null
+  /**
+   * La version publiée plus récente que celle qui tourne, ou une chaîne vide.
+   *
+   * Elle voyage ici, dans la charge utile que le tableau de bord lit déjà, et non sur
+   * une route à elle : la page bénévole s'ouvre sans mot de passe et n'appelle qu'une
+   * route, ce qu'un test tient. Vide aussi quand le service n'a pas pu lire — la
+   * pastille est une courtoisie, pas un diagnostic.
+   */
+  new_version: string
 }
 
 /** Une ligne de tarif d'une pesée journalisée. */
@@ -254,4 +263,47 @@ export interface SessionDTO {
    * corrigé. Français : c'est la phrase lue telle quelle.
    */
   warning?: string
+}
+
+/**
+ * Les quatre issues d'une bascule, telles qu'`update.ps1` les écrit.
+ *
+ * Quatre et non deux : « annulée, le poste fonctionne » n'appelle personne, « le poste ne
+ * répond pas » demande quelqu'un tout de suite, et « rien n'a été remplacé » veut dire
+ * qu'on peut recommencer.
+ */
+export type UpdateStatus =
+  | 'succeeded'
+  | 'rolled-back'
+  | 'rolled-back-unhealthy'
+  | 'not-started'
+
+/** La dernière bascule tentée par ce poste. */
+export interface UpdateOutcomeDTO {
+  status: UpdateStatus
+  from: string
+  to: string
+  reason: string
+  finished_at: string
+}
+
+/** Ce que la page Mise à jour dessine. */
+export interface UpdateDTO {
+  /** La version qui tourne en ce moment. */
+  running: string
+  /** Le dépôt suivi, sous la forme propriétaire/projet. */
+  repository: string
+  /** Faux là où la bascule n'existe pas : la page le dit au lieu d'un bouton mort. */
+  supported: boolean
+  /** Vrai quand la version publiée est plus récente que celle qui tourne. */
+  available: boolean
+  latest: string
+  published_at: string
+  html_url: string
+  checked_at: string
+  /**
+   * `null` et non un objet vide : « aucune bascule n'a jamais été tentée » et « une
+   * bascule a été tentée et n'a rien fait » sont deux phrases différentes à l'écran.
+   */
+  outcome: UpdateOutcomeDTO | null
 }

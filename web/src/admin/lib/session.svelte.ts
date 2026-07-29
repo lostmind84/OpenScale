@@ -5,7 +5,7 @@ import type { FaultDTO, HealthDTO } from './dto'
 /** À quelle cadence le tableau de bord se relit, en millisecondes. */
 const REFRESH_PERIOD_MS = 3000
 
-/** Les pages de l'administration : deux bénévoles, six expertes (§14.4). */
+/** Les pages de l'administration : deux bénévoles, sept expertes (§14.4). */
 export type PageID =
   | 'dashboard'
   | 'troubleshooting'
@@ -15,6 +15,7 @@ export type PageID =
   | 'catalog'
   | 'journal'
   | 'station'
+  | 'update'
 
 /** Les deux pages ouvertes par défaut, SANS mot de passe (ADR-018, important-10). */
 export const VOLUNTEER_PAGES: PageID[] = ['dashboard', 'troubleshooting']
@@ -28,7 +29,15 @@ export const VOLUNTEER_PAGES: PageID[] = ['dashboard', 'troubleshooting']
  * débrancher l'imprimante — un mot de passe n'ajouterait là aucune sécurité et
  * supprimerait tout le dépannage.
  */
-export const EXPERT_PAGES: PageID[] = ['hardware', 'label', 'rules', 'catalog', 'journal', 'station']
+export const EXPERT_PAGES: PageID[] = [
+  'hardware',
+  'label',
+  'rules',
+  'catalog',
+  'journal',
+  'station',
+  'update',
+]
 
 /** Vrai quand la page nommée demande une session ouverte. */
 export function needsPassword(page: PageID): boolean {

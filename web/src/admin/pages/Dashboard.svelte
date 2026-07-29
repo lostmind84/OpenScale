@@ -30,9 +30,24 @@
      * de passe ; les lignes à corriger, elles, sont un travail d'expert (§14.4).
      */
     onshowrows?: () => void
+    /** Ce qui se passe quand un bénévole touche la pastille de version. */
+    onshowupdate?: () => void
   }
 
-  const { health, onshowrows }: Props = $props()
+  const { health, onshowrows, onshowupdate }: Props = $props()
+
+  /**
+   * La version publiée, quand il en existe une plus récente que celle qui tourne.
+   *
+   * Elle vient du MÊME appel que tout le reste de cette page. Un second appel, même
+   * libre, aurait élargi pour une courtoisie ce que fait un écran ouvert sans mot de
+   * passe — et un test tient cette page à une seule route.
+   *
+   * Le service rend une chaîne vide quand il n'y a rien à dire, y compris quand il n'a
+   * pas pu lire : la pastille est une courtoisie, son absence n'apprend rien de faux,
+   * alors qu'une erreur sur le tableau de bord enverrait chercher une panne inexistante.
+   */
+  const newVersion = $derived(health.new_version)
 
   const lights = $derived(lightsOf(health))
   const scale = $derived(health.state.scale)
@@ -212,6 +227,20 @@
       <dt>Empreinte de configuration</dt>
       <dd data-fingerprint>{health.config_fingerprint}</dd>
     </dl>
+    <!--
+      DU TEXTE, ET NON UN FEU. Une version disponible n'est pas une panne : les six feux
+      restent ceux des périphériques et des ressources, et un poste sain qui s'allumerait
+      en orange parce qu'un correctif est sorti apprendrait aux bénévoles à ignorer
+      l'orange.
+    -->
+    {#if newVersion !== ''}
+      <p class="fact" data-update-available={newVersion}>
+        Version {newVersion} disponible.
+        {#if onshowupdate !== undefined}
+          <button type="button" class="link" onclick={onshowupdate}>Voir la mise à jour</button>
+        {/if}
+      </p>
+    {/if}
   </Panel>
 </div>
 
@@ -255,6 +284,22 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
+  }
+
+  /* La pastille de version est un LIEN et non un acte : elle ne fait rien au poste, elle
+     ouvre une page. Elle n'emprunte donc ni la couleur ni la cible de 44 px des boutons
+     d'action, qui disent la nature d'un acte (ADR-037). */
+  /* Le SOULIGNÉ et non la couleur. §14.2 n'inventorie que --ink et --ink-muted comme
+     texte, et les deux fonds pleins n'ont été mesurés que comme fonds : peindre du texte
+     avec --action poserait un contraste que personne n'a vérifié. */
+  .link {
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-decoration: underline;
+    background: none;
+    border: none;
+    cursor: pointer;
   }
 
   /* `1fr` sur les rangées : les six feux ont la MÊME hauteur, comme les tuiles de la

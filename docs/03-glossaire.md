@@ -73,6 +73,7 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `internal/plateforme/` | `internal/platform/` | Direct. |
 | `internal/plateforme/horloge.go` | `internal/platform/clock.go` | Seule implémentation réelle de `Clock`. |
 | `internal/diag/` | `internal/diag/` | Abréviation identique dans les deux langues. |
+| — | `internal/update/` | Paquet neuf (ADR-040) : lire les versions publiées, télécharger, vérifier, préparer la bascule. Ne s'appelle pas `updater` — c'est le paquet qui met à jour, pas l'objet. |
 | `internal/obs/` | `internal/obs/` | Observabilité / observability : identique. |
 | `internal/assets/` | `internal/assets/` | Déjà anglais. |
 | `internal/web/dist` | `internal/web/dist` | Sortie Vite committée, inchangée. |
@@ -861,6 +862,31 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `Font` · `Carlito` · `DejaVuSansCondensed` | La famille avec laquelle le moteur sait rendre — la valeur de la clé `font` d'un gabarit. `Carlito` est le clone métrique de Calibri retenu par ADR-020 ; `DejaVuSansCondensed` sert les gabarits neutres et le repli. |
 | `ErrUnknownFont` | Un gabarit qui nomme une police que le binaire ne porte pas. Erreur **typée** et non sentinelle, parce qu'elle doit dire LAQUELLE : `ErrUnknownFont.Font`. |
 
+### `internal/update`
+
+Le paquet d'ADR-040. Tout y est calculable ; la seule fonction privilégiée vit dans
+`internal/platform`.
+
+| Identifiant | Ce qu'il désigne |
+| --- | --- |
+| `Version` · `ParseVersion` · `(Version).Compare` · `IsPrerelease` · `String` | Un numéro de publication, ordonné. `Patch` est normalisé — `v0.1` et `0.1.0` nomment la même version, et la première publiée de ce dépôt s'appelait `v0.1`. Une préversion se classe SOUS sa propre version. |
+| `ErrNotAVersion` | Un tag qui n'est pas un numéro : `banc-de-test`, `avant-migration`, et `dev` que porte un binaire compilé hors tag. |
+| `Release` · `Asset` · `(Release).Asset` | Une publication et ses fichiers joints. `Tag` est le tag **tel que publié** — c'est de lui que dérive le nom des archives, jamais de `Version.String()`. `Asset.URL` est `browser_download_url` et jamais le champ `url`, qui rendrait du JSON décrivant l'archive. |
+| `Source` · `GitHubSource` · `(GitHubSource).Latest` · `DefaultBaseURL` | L'interface déclarée côté consommateur, et son implémentation sur `/repos/{owner}/{repo}/releases/latest` — ce point d'entrée exclut déjà brouillons et préversions, c'est son contrat. `DefaultBaseURL` est **compilé** : ce qu'un fichier peut nommer est le dépôt, jamais l'hôte. |
+| `ErrNoRelease` · `ErrUnreachable` | « ce dépôt n'a rien publié de stable » (404, **pas une panne**) contre « le serveur n'a pas pu être lu » (réseau, proxy, limite de débit). Les confondre annoncerait à un poste qu'il est à jour alors que personne n'en sait rien. |
+| `Stager` · `Staged` · `(Stager).Stage` | Télécharge, compare à l'empreinte publiée, extrait. Rien n'est gardé sur un refus. L'empreinte est calculée **en écrivant**, jamais sur un tampon. |
+| `ErrAssetMissing` · `ErrChecksumMismatch` · `ErrUnsafeArchive` | Pas d'archive pour cette plateforme (ou une archive qui ne porte pas ce que la bascule attend) ; l'archive ne correspond pas à son empreinte ; l'archive écrit hors de son répertoire. Le troisième n'est pas théorique : l'archive vient du réseau et un processus `LocalSystem` l'extrait. |
+| `State` · `Check` · `Pending` · `Outcome` | L'état sur disque, sous `<data>/updates/`. Des fichiers et non la base : rien ici ne vaut une migration, et un poste qui ne démarre pas doit pouvoir dire ce qui lui est arrivé — c'est le moment où une base est ce sur quoi on ne peut pas compter. |
+| `(State).TakeOutcome` · `LastOutcome` · `ClearPending` | Consommer le compte rendu **une seule fois** (le renommage rend l'opération idempotente : un poste redémarré trois fois ne journalise pas trois fois la même bascule), servir le dernier à l'écran, abandonner une bascule qui ne rendra jamais compte. |
+| `SwapBudget` · `(Pending).Stale` | Quinze minutes, au-delà desquelles une bascule est réputée n'avoir jamais démarré. Sans cette borne, un `Start()` qui rend `nil` sans rien lancer murait le poste : `pending.json` écrit, aucun `outcome.json` à venir, et `ErrAlreadyRunning` opposé à toute mise à jour ultérieure. Un instant de départ **nul** compte comme périmé. |
+| `StatusSucceeded` · `StatusRolledBack` · `StatusRolledBackUnhealthy` · `StatusNotStarted` | Les quatre issues qu'`update.ps1` écrit, et que l'écran dit en quatre phrases différentes. |
+| `Service` · `Paths` · `Status` · `(Service).Check` · `Status` · `Apply` | L'orchestration. `Apply` écrit `pending.json` **avant** de rendre la main : le script arrête le service, donc rien d'écrit après ne le serait jamais. `Status` lit le disque et ne sonde pas — la page doit se dessiner tout de suite. |
+| `Guard` | « le poste peut-il tomber ? », posée au Hub. Déclarée ici, côté consommateur ; `*station.Hub` la satisfait. |
+| `ErrVersionMoved` · `ErrBusy` · `ErrAlreadyRunning` · `BusyError` | Trois refus qui ne se confondent pas. `BusyError` est un **type** et non un message formaté, parce que la phrase remonte telle quelle jusqu'à l'écran : la retrouver en coupant un préfixe casserait à la première reformulation. |
+| `platform.UpdateSpec` · `platform.ApplyUpdate` · `platform.ErrUpdateUnsupported` | La seule fonction privilégiée. Les chemins sont **absolus** et viennent du processus qui tourne, jamais des défauts du script — qui pointent `Program Files`. |
+| `station.Poller` · `(Station).runUpdateWorker` | Le sondage quotidien, sur l'horloge injectée. `Poller` rend une **chaîne** et ne nomme aucun type d'`internal/update` : la station n'a pas à savoir ce qu'est une publication. |
+| `domain.UpdateConfig` · `DefaultUpdateRepository` | Le bloc `update` du fichier. Un couple `owner/repo` et jamais une URL — c'est le seul champ qui désigne d'où viendra du code privilégié. L'absence de la clé est **légale** et vaut le défaut. |
+
 ### Codes `ERR-xxx-nn` réellement alloués par le code
 
 La table de correspondance `BAL→SCL`, `IMP→PRN`, `BDD→DB`, `IHM→UI`, `KIO→KSK` reste celle
@@ -881,6 +907,16 @@ français.
 | `ERR-DB-01` | `store.ErrDatabaseUnusable` | Le fichier ou son répertoire est inutilisable. Le détail français est enveloppé au cas par cas : « ouverture de … impossible », « base endommagée : … », « contrôle d'intégrité impossible ». |
 | `ERR-DB-02` | `store.ErrSchemaFromNewerVersion` | « base créée par une version plus récente (schéma N, ce binaire connaît M). Mettez l'application à jour. » |
 | `ERR-KSK-02` | `kiosk.CodeCrashLoop` — page de secours du superviseur | « Le poste rencontre un problème » + « l'affichage n'arrive pas à rester ouvert (N arrêts en moins de 10 secondes dans la dernière heure) ». C'est le seul code que §15.2 attribue au kiosque, et il est réservé à la BOUCLE DE PLANTAGE : la page d'attente (« Le poste redémarre… ») n'en porte aucun, parce que §15.4 n'en donne aucun à cette ligne et qu'un code inventé serait répété au téléphone comme si un binaire l'émettait. |
+
+| `ERR-UPD-01` | `web.codeUpdateUnreachable` | « Impossible de joindre le serveur des versions. » Le réseau, un proxy qui rend du HTML, une limite de débit épuisée. **Distinct de « aucune version publiée »**, qui n'est pas une panne et répond 200 avec une phrase : les confondre annoncerait à un poste qu'il est à jour alors que personne n'en sait rien. |
+| `ERR-UPD-02` | `web.codeUpdateChecksum` | « Le fichier téléchargé est abîmé. Rien n'a été installé. » L'archive ne correspond pas à l'empreinte publiée ; le staging est effacé. |
+| `ERR-UPD-03` | `web.codeUpdateBusy` | Le poste est occupé. **Le message est celui du garde-fou, rendu tel quel** — le Hub sait s'il s'agit d'une pesée ou d'un catalogue en attente de mise en service, la couche HTTP ne le sait pas, et paraphraser perdrait la seule information sur laquelle on peut agir. |
+| `ERR-UPD-04` | `web.codeUpdateInFlight` | « Une mise à jour est déjà en cours. » Une bascule dont le budget de quinze minutes est dépassé n'est plus « en cours » : elle est effacée, et le poste réessaie. |
+| `ERR-UPD-05` | `web.codeUpdateUnsupported` | « La mise à jour depuis l'écran n'existe que sous Windows. » La route existe et refuse, plutôt que d'être absente : un 404 enverrait chercher une faute de frappe. |
+| `ERR-UPD-06` | *libellé de `outcome.json`* | La bascule a échoué et la version précédente a été remise ; **le poste fonctionne**. N'appelle personne. Le code sort d'`update.ps1` (`exit 10`), non d'une constante Go. |
+| `ERR-UPD-07` | *libellé de `outcome.json`* | La bascule a échoué **et le poste ne répond pas** (`exit 11`). Demande quelqu'un tout de suite : `openscale doctor`, et le chemin de la sauvegarde. |
+| `ERR-UPD-08` | `web.codeUpdateNoArchive` | « Cette version ne contient pas de fichier pour ce poste. » Un fork qui a renommé ses archives, ou une publication sans `SHA256SUMS-archives.txt`. |
+| `ERR-UPD-09` | `web.codeUpdateMoved` | « Une autre version est parue depuis l'affichage de cette page. Rechargez-la. » **Deux codes et non un avec `-03`** : « attendez un instant » et « rechargez la page » ne sont pas la même instruction. |
 
 > **Codes cités mais pas encore alloués.** `ERR-SCL-08` (poignée déjà relâchée, journalisée
 > par le Hub), `ERR-CAT-03` et `ERR-CAT-05` (échec de contenu, fichier lu mais non
@@ -1153,12 +1189,17 @@ Commandes SBPL `<A>`, `<A1>`, `<A3>`, `<#E>`, `<CS>`, `<%>`, `<V>`, `<H>`, `<G>`
 dans l'aide de `openscale capture`. Le mot `balance` y désigne l'APPAREIL, et c'est le seul
 nom d'objet système où il subsiste.
 
-### « dépôt » : deux sens
+### « dépôt » : trois sens
 
 Le répertoire de dépôt (`depot_local`) → `local_drop` / paquet `localdrop` /
-`<data>/catalog/incoming/` ; et les « 6 dépôts » de la couche SQLite (design pattern) →
-`repositories`, dans le paquet `internal/store`. Ne pas confondre avec « dépôt Git » →
-`repository` en prose seulement.
+`<data>/catalog/incoming/` ; les « 6 dépôts » de la couche SQLite (design pattern) →
+`repositories`, dans le paquet `internal/store` ; et le **dépôt Git** → `repository`.
+
+Ce troisième sens n'était plus « en prose seulement » depuis ADR-040 : il porte la clé
+`update.repository`, le champ `update.GitHubSource.Repository` et le paramètre `repository`
+des trois méthodes de `update.Service`. C'est le SEUL des trois qui soit au singulier dans
+le code, et c'est ce qui les distingue à la lecture : `repositories` est la couche SQLite,
+`repository` est le dépôt Git, `local_drop` est un répertoire.
 
 ### « scrutation » → `poll`
 

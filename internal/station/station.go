@@ -140,6 +140,10 @@ type Options struct {
 	// station never returns: that is the safe default for a caller that never had a reason
 	// to be out of service in the first place.
 	Registries domain.Registries
+	// Poller is the daily check for a newer version of this binary. Nil starts no
+	// worker at all, which is what a binary that cannot update itself honestly is
+	// -- a development build, or a platform with no swap.
+	Poller Poller
 	// Templates resolves printer.template. It defaults to the shipped ones.
 	Templates map[string]domain.Template
 	// NominalRate is the cadence the scale driver DECLARES, used until the rate
@@ -230,6 +234,9 @@ type Station struct {
 	// reload, and nothing else. See Options.Registries.
 	registries domain.Registries
 
+	// poller is the daily check for a newer version. Nil starts no goroutine.
+	poller Poller
+
 	// reloadMu serialises configuration changes: two administrators saving at the
 	// same instant must not open two serial ports.
 	reloadMu     sync.Mutex
@@ -297,6 +304,7 @@ func New(o Options) (*Station, error) {
 		server:           o.Server,
 		store:            o.Store,
 		onRevert:         o.OnRevert,
+		poller:           o.Poller,
 		catalogWait:      o.CatalogWait,
 		sink:             o.TechnicalSink,
 		ready:            make(chan struct{}),
@@ -352,6 +360,18 @@ func (s *Station) Start(ctx context.Context) error {
 	go s.journal.run(s.hub.journalEntries, s.hub.technical)
 	go s.supervise(s.rootCtx, watchTicks, stopWatchTicker, s.clock.Now())
 	go s.watchCatalog(s.rootCtx)
+	// No poller, no goroutine: a binary that cannot update itself does not spend
+	// one pretending it might. It is nil on a development build and off Windows.
+	//
+	// Its two timers are registered HERE for the reason the two above are: a first
+	// poll whose deadline is computed on the worker's own goroutine happens
+	// whenever the scheduler gets there, which on a fake clock is the difference
+	// between a deterministic test and a flaky one.
+	if s.poller != nil {
+		updateGrace := s.clock.After(updateGracePeriod)
+		updateTicks, stopUpdateTicker := s.clock.Ticker(updatePeriod)
+		go s.runUpdateWorker(s.rootCtx, updateGrace, updateTicks, stopUpdateTicker, s.poller)
+	}
 
 	if err := s.startScale(*s.hub.cfg.Load()); err != nil {
 		// A scale that cannot open is an amber light and a fallback to manual

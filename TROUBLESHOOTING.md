@@ -291,17 +291,41 @@ un accès administrateur au PC pour réinitialiser la configuration :
 Le poste redemande alors le parcours « premier accès » et **impose** un nouveau mot de
 passe. **Refaites une fiche d'installation** dans la foulée.
 
+## Mettre le poste à jour
+
+**Réglages → Mise à jour.** Quand une version plus récente existe, le tableau de bord
+l'annonce et cette page porte un bouton rouge qui la nomme. Le poste s'arrête environ une
+minute, l'écran client s'éteint puis revient tout seul. **Ne débranchez rien pendant ce
+temps.**
+
+Le bouton refuse pendant une pesée, et tant qu'un catalogue qui vient d'arriver n'est pas
+entré en service : réessayez dans un instant. Il accepte, en revanche, sur un poste en
+configuration d'usine — c'est justement le cas où une version neuve peut aider.
+
+---
+
 ## Une mise à jour a échoué
 
-`update.ps1` **remet l'ancienne version tout seul** et affiche pourquoi. Le poste doit
-donc fonctionner comme avant. Vérifiez l'écran client, puis prévenez un responsable avec
-le message affiché.
+**Le poste remet l'ancienne version tout seul**, et la page Mise à jour dit ce qui s'est
+passé. Quatre phrases, et elles ne demandent pas la même chose :
+
+| Ce que dit l'écran | Ce que vous faites |
+|---|---|
+| « La dernière mise à jour a réussi. » | Rien. Vérifiez l'écran client. |
+| « …a échoué. La version précédente a été remise et le poste fonctionne. » | **Personne à appeler.** Signalez-le à un responsable quand vous en aurez l'occasion. |
+| « …a échoué et le poste n'a pas redémarré. Appelez le support. » | Tout de suite. Envoyez le fichier de diagnostic (voir plus bas). |
+| « …n'a pas démarré : rien n'a été remplacé. » | **Rien n'a bougé.** Vous pouvez réessayer. |
 
 **Si le message parle du schéma de la base** (`ERR-DB-02`, « base créée par une version
 plus récente »), le retour arrière est en **trois** gestes et le troisième vous appartient :
-le script vous **nomme le fichier de sauvegarde de la base** à remettre en place.
-Attention, les pesées enregistrées depuis la mise à jour seront perdues : exportez le
-journal depuis l'écran d'administration avant de le faire.
+le journal de la mise à jour vous **nomme le fichier de sauvegarde de la base** à remettre
+en place. Attention, les pesées enregistrées depuis la mise à jour seront perdues :
+exportez le journal depuis l'écran d'administration avant de le faire.
+
+**Si l'écran d'administration est inaccessible**, la procédure à la main existe toujours :
+décompressez l'archive de la version, puis, dans une console **en administrateur**,
+`powershell -ExecutionPolicy Bypass -File .\update.ps1`. C'est le seul chemin sur un poste
+Linux, où le bouton n'existe pas et où l'écran le dit.
 
 ---
 
@@ -341,3 +365,11 @@ Ils ne servent **pas** à chercher : ils servent à confirmer qu'on parle de la 
 | `ERR-SYS-08` | **le redémarrage sans intervention n'est pas configuré** |
 | `ERR-KSK-02` | l'affichage n'arrive pas à rester ouvert |
 | `ERR-UI-01` | l'écran client a rencontré une erreur d'affichage |
+| `ERR-UPD-01` | le serveur des versions est injoignable — la connexion du magasin, le plus souvent |
+| `ERR-UPD-02` | le fichier téléchargé est abîmé ; **rien n'a été installé** |
+| `ERR-UPD-03` | le poste est occupé : une pesée, ou un catalogue qui entre en service |
+| `ERR-UPD-04` | une mise à jour est déjà en cours |
+| `ERR-UPD-05` | la mise à jour depuis l'écran n'existe pas sur ce poste (Linux) |
+| `ERR-UPD-06` · `ERR-UPD-07` | la bascule a échoué, version précédente remise · **et le poste ne répond pas** |
+| `ERR-UPD-08` | cette version ne contient pas de fichier pour ce poste |
+| `ERR-UPD-09` | une autre version est parue depuis l'affichage : rechargez la page |

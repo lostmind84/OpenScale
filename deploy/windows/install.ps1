@@ -301,6 +301,14 @@ if (-not $Pilot) {
   }
 }
 
+# L'ÉCRAN CLIENT, RELANCÉ. L'étape 2 bis a arrêté la tâche du kiosque pour pouvoir
+# remplacer le binaire qu'elle exécute, et cette tâche n'a qu'un déclencheur d'ouverture
+# de session : sans cette ligne, relancer l'installeur sur un poste qui marche — le geste
+# que TROUBLESHOOTING.md et « openscale doctor » recommandent — laissait l'écran client
+# NOIR jusqu'à la prochaine session. Sur une machine vierge il n'y a encore aucune tâche,
+# et la fonction ne fait alors rien.
+Start-OpenScaleKiosk -LogFile $paths.LogFile
+
 # --- 7. Fiche d'installation -----------------------------------------------------
 $fingerprint = '(à relever sur l''écran d''administration)'
 if (Test-Path $paths.Config) {

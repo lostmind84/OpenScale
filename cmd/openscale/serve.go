@@ -330,7 +330,15 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	// §13.4 lives.
 	httpHolder := &heldServer{}
 
-	st, err := station.New(station.Options{
+	// The update service needs the Hub to ask « may the station be taken down? »,
+	// and the station needs the service to run its daily poll: the same knot as
+	// the one above, untied the same way. The closure reads `st` when a volunteer
+	// touches a button, which is long after the line that assigns it.
+	var st *station.Station
+	updateService := newUpdateService(clock,
+		guardFunc(func() (bool, string) { return st.Hub().UpdateGuard() }), o.dataDir)
+
+	st, err = station.New(station.Options{
 		Clock:        clock,
 		Config:       cfg,
 		Catalog:      catalog,
@@ -339,6 +347,7 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		// stops being: the answer must not depend on which of the two moments asked.
 		Registries:    registries,
 		Templates:     templates,
+		Poller:        newUpdatePoller(updateService),
 		Scale:         weigher,
 		Printer:       printer,
 		Journal:       db,
@@ -450,6 +459,7 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 			printer: live, catalog: liveSource,
 			machine: diag.NewMachine(clock), dataDir: o.dataDir,
 		},
+		Update: updaterFor(updateService),
 	})
 	if err != nil {
 		_ = binder.Close()
