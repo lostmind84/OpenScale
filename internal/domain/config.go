@@ -1696,13 +1696,17 @@ func (c *Config) Fingerprint() string {
 // Two kinds of key are named, and only those two: what designates ONE station (a
 // serial port, a Windows queue), and what designates ONE SITE's infrastructure (a
 // host, an account, a path). A value that is neither belongs to the fleet.
+//
+// It names KEYS OF A MAP, and it can name nothing else. A site value that lives in a
+// TYPED field -- catalog.images.path -- is out of reach of withoutKeys and is dropped
+// by Export itself; that is where to look before adding a name here.
 var stationSpecificOptions = struct {
 	scale    []string
 	printer  []string
 	fallback []string
 	catalog  []string
 }{
-	// COM7 on this station, something else on the next one.
+	// COM8 on this station, something else on the next one.
 	scale: []string{"port"},
 	// A Windows queue name differs per machine: the « _2 » of « SATO WS408_2 » is a
 	// duplicate suffix Windows added, measured on PC-RECEPTION. And `address` is a
@@ -1756,9 +1760,10 @@ func withoutNestedKeys(options DriverOptions, group string, keys []string) Drive
 // Export returns a copy of the configuration fit to leave the station.
 //
 // With includeHardware false it drops station.number, station.name, network, the
-// admin fingerprints, and the option keys of stationSpecificOptions -- a serial
-// port, a print queue, a host, an account, a path. What is left is what four
-// stations of one fleet share, and it is what "clone a station" copies (§11.5).
+// admin fingerprints, catalog.images.path and the option keys of
+// stationSpecificOptions -- a serial port, a print queue, a host, an account, a
+// path. What is left is what four stations of one fleet share, and it is what "clone
+// a station" copies (§11.5).
 //
 // TWO SECRETS NEVER LEAVE, whatever includeHardware says: the admin password, and
 // the WebDAV password of the catalog. On import a station without a password runs
@@ -1795,6 +1800,13 @@ func (c *Config) Export(includeHardware bool) Config {
 		withoutKeys(out.Printer.Options, stationSpecificOptions.printer),
 		"fallback", stationSpecificOptions.fallback)
 	out.Catalog.Options = withoutKeys(out.Catalog.Options, stationSpecificOptions.catalog)
+	// catalog.images.path designates ONE SITE just as catalog.options.url does -- a
+	// share on the NAS, a letter mapped on this machine -- and it left with the export
+	// for as long as it existed, because the strip list only knows how to delete a KEY
+	// and this is a FIELD. images.source stays: "the pictures come with the CSV" is an
+	// answer the whole fleet shares, and a clone that lost it would fall back on the
+	// names of the products.
+	out.Catalog.Images.Path = ""
 	return out
 }
 

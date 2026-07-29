@@ -3,8 +3,11 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -355,11 +358,41 @@ func writeJSONConfig(t *testing.T, path string, cfg domain.Config) {
 	}
 }
 
+// siteValueShapes are the FORMS a value that designates a site takes, whatever it
+// contains: an address of any scheme, a UNC share, a lettered drive, a host on the
+// wire, a mailbox.
+//
+// Shapes and not values, because docs/00-donnees-retirees.md already paid for the
+// other approach: the first sweep of this repository « cherchait des motifs DEVINÉS
+// […] au lieu du motif GÉNÉRIQUE d'une adresse », two addresses on a neighbouring
+// domain went through it, and the history had to be rewritten a second time. A net
+// woven from the values one fixture happens to carry catches nothing else.
+//
+// They are deliberately narrow enough to stay silent on what an export legitimately
+// carries: a category colour (#C0392B), a template name, a rounding word and the
+// « config.json.1 à .5 » of the _readme. A bare-domain shape would have flagged that
+// last one, which is how a net earns the right to be ignored.
+var siteValueShapes = []struct {
+	what  string
+	shape *regexp.Regexp
+}{
+	{"une URL", regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://`)},
+	{"un chemin UNC", regexp.MustCompile(`\\\\[^\\]+\\`)},
+	{"un chemin avec lettre de lecteur", regexp.MustCompile(`(?i)\b[a-z]:[\\/]`)},
+	{"une adresse IPv4", regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}\b`)},
+	{"une adresse de courriel", regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)},
+}
+
 // TestTheDeliveredExportShipsNoHostNoAccountNoQueue is the net under the strip list.
 //
-// It asserts on VALUES and not on keys, so it still bites the day somebody adds a
-// driver option carrying a host without classing it in stationSpecificOptions. The
-// archive is published on GitHub: what leaves here leaves for good.
+// It asserts on the SHAPE of every string the export carries, so it bites the day
+// somebody ships a host, a share or an account this file has never heard of — which
+// the previous version could not do: it looked for the five literals of the fixture,
+// all five already stripped, while catalog.images.path walked a NAS name straight out
+// of the door. The archive is published on GitHub: what leaves here leaves for good.
+//
+// The five literals stay underneath. They cost nothing and they pin the regression
+// that was found by hand, at the exact values that were found.
 func TestTheDeliveredExportShipsNoHostNoAccountNoQueue(t *testing.T) {
 	raw, err := os.ReadFile(deliveredConfig(t))
 	if err != nil {
@@ -370,11 +403,27 @@ func TestTheDeliveredExportShipsNoHostNoAccountNoQueue(t *testing.T) {
 		t.Fatalf("décodage de la configuration livrée : %v", err)
 	}
 
+	refuseSiteValues(t, "la configuration livrée", delivered.Export(false))
+
+	// And the same export for a cooperative whose site values share NOTHING with the
+	// five below: another host, another account, another queue, another port, a print
+	// spool on a drive letter, and the photo share of a NAS. Only a shape catches those.
+	elsewhere := delivered
+	elsewhere.Scale.Options = delivered.Scale.Options.WithText("port", "COM9")
+	elsewhere.Printer.Options = delivered.Printer.Options.
+		WithText("queue", "Zebra ZD421_7").
+		WithText("address", "192.168.0.43:9100").
+		WithText("path", `D:\spool\etiquettes`)
+	elsewhere.Catalog.Options = delivered.Catalog.Options.
+		WithText("url", "https://partage.exemple.lan:8443/dav/").
+		WithText("username", "poste-pesee")
+	elsewhere.Catalog.Images.Path = `\\nas.exemple.lan\photos\produits`
+	refuseSiteValues(t, "une configuration d'un autre site", elsewhere.Export(false))
+
 	shipped, err := json.Marshal(delivered.Export(false))
 	if err != nil {
 		t.Fatalf("encodage de l'export : %v", err)
 	}
-
 	forbidden := map[string]string{
 		"dav.example.org": "un nom d'hôte",
 		"balance":         "un compte",
@@ -386,6 +435,66 @@ func TestTheDeliveredExportShipsNoHostNoAccountNoQueue(t *testing.T) {
 		if bytes.Contains(shipped, []byte(value)) {
 			t.Errorf("le fichier livré porte %s (%q) : il est publié sur GitHub et installé sur quatre postes",
 				what, value)
+		}
+	}
+}
+
+// refuseSiteValues fails on every string of the export whose shape designates a site.
+func refuseSiteValues(t *testing.T, subject string, exported domain.Config) {
+	t.Helper()
+	carried := stringsCarriedBy(t, exported)
+	paths := make([]string, 0, len(carried))
+	for path := range carried {
+		paths = append(paths, path)
+	}
+	// Sorted, so that two runs name the offending fields in the same order.
+	sort.Strings(paths)
+	for _, path := range paths {
+		for _, form := range siteValueShapes {
+			if form.shape.MatchString(carried[path]) {
+				t.Errorf("l'export de %s porte %s en %s (%q) : l'archive est publiée sur "+
+					"GitHub et installée sur quatre postes", subject, form.what, path, carried[path])
+			}
+		}
+	}
+}
+
+// stringsCarriedBy reports every string an export carries, keyed by its dotted path.
+//
+// It walks the DOCUMENT rather than the Go structure so that no field can escape by
+// being typed instead of being a key of a DriverOptions map — which is exactly how
+// catalog.images.path escaped the strip list. The path is what makes a failure
+// actionable: it names the field a volunteer has to go and empty.
+func stringsCarriedBy(t *testing.T, exported domain.Config) map[string]string {
+	t.Helper()
+	raw, err := json.Marshal(exported)
+	if err != nil {
+		t.Fatalf("encodage de l'export : %v", err)
+	}
+	var document any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("relecture de l'export : %v", err)
+	}
+	found := make(map[string]string)
+	collectStrings("", document, found)
+	return found
+}
+
+func collectStrings(path string, value any, out map[string]string) {
+	switch typed := value.(type) {
+	case string:
+		out[path] = typed
+	case map[string]any:
+		for key, nested := range typed {
+			child := key
+			if path != "" {
+				child = path + "." + key
+			}
+			collectStrings(child, nested, out)
+		}
+	case []any:
+		for index, item := range typed {
+			collectStrings(fmt.Sprintf("%s[%d]", path, index), item, out)
 		}
 	}
 }
