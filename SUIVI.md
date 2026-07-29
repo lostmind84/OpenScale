@@ -3,6 +3,98 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Installer la v0.5 comme un bénévole a buté six fois (29/07/2026).** L'archive publiée a
+été posée sur `PC-RECEPTION` par `install.ps1` sans option, puis conduite étape par étape
+comme `INSTALLATION.md` la décrit. Le poste tourne — service automatique, balance GRAM sur
+COM7 à **103 ms** de médiane, étiquette sortie de la SATO par `winspool` en RAW, catalogue
+de **331 tuiles sur 355 lignes**, redémarrage recette passé, l'écran client revient seul.
+Mais **aucune des étapes 4 à 7 n'est faisable telle qu'elle est écrite**, et il a fallu la
+ligne de commande pour chacune.
+
+| # | Défaut | État |
+|---|---|---|
+| 1 | Le voile « Poste hors service » couvre le bouton **Réglages** | ouvert |
+| 2 | « Détecter automatiquement » ne peut jamais réussir | ouvert |
+| 3 | Les volets de la page Matériel se referment seuls en ~2,9 s | ouvert |
+| 4 | Le retour arrière à 60 s écrit le profil d'usine dans `config.json` | ouvert |
+| 5 | La veille du catalogue reste dans la source qu'un rechargement remplace | ✅ corrigé |
+| 6 | La veille ne prend jamais une source arrivée après un démarrage sans source | ✅ corrigé |
+
+**1. L'administration est inatteignable sur un poste neuf.** `FullScreen.svelte` est
+`position: fixed; inset: 0; z-index: 10` et opaque : il intercepte tout clic. Or l'étape 4
+demande de toucher le bouton Réglages, et la notice précise elle-même qu'à cet instant « le
+poste affiche encore Poste hors service, et c'est normal ». Il n'existe aucune autre entrée
+— l'administration se monte dans la même page, sans URL, et `onGlobalKey` sort tôt sur
+`screenTaken`. Le poste sort de l'installeur dans le seul état où on ne peut pas le régler.
+
+**2. La détection de balance ne lit aucun réglage série, ni la configuration ni des
+candidats.** `cmd/openscale/hardware.go:190` construit `serial.Options{Port, Clock, Open}` ;
+`Baud`, `Bits`, `Parity` et `Stop` restent aux valeurs nulles Go, et `withDefaults()` n'est
+appelé sur aucun de ses trois appelants connus depuis ce chemin. `OpenSystemPort` refuse
+`Parity == ""` avant toute ouverture, et l'écran affiche pour chaque port « le port COM7 ne
+peut pas être ouvert … S'il est celui de la balance de ce poste, il est déjà utilisé » —
+une phrase qui accuse un port occupé pour une struct vide. Cela échouerait **aussi avec une
+configuration complète**. Les cinq tests de `cmd/openscale/detect_test.go` injectent tous un
+`open:` factice qui court-circuite la validation ; `openscale capture` fait le contraire et
+renseigne 9600 8N1 explicitement (`capture.go:108-115`).
+
+**3. Les volets de la page Matériel se referment sous le doigt.** Mesuré au navigateur :
+ouvert à 112 ms, encore ouvert à 2 836 ms, fermé à 2 944 ms — le rafraîchissement d'état
+re-rend le `<details>`. Les deux seuls champs qui nomment un port série vivent dedans.
+
+**4. « Retour à la version précédente » est un retour au profil d'usine, et il l'écrit.**
+Une configuration non confirmée en 60 s ne restaure pas le fichier d'avant : elle écrit dans
+`config.json` ce sur quoi le poste *tourne*, c'est-à-dire le profil neutre. Mesuré sur ce
+poste : coopérative vidée, paliers de prix **2 → 1**, remise adhérent de 10 % perdue,
+contrôle du panier désactivé, pilote passé en `preview`. Et l'écran ne peut plus rien
+enregistrer ensuite : `GET /admin/api/config` sert `printer.type: "preview"` que `PUT`
+refuse en `ERR-CFG-01` sur un champ que personne n'a touché — **c'est le défaut déjà relevé
+le 26/07/2026** (« `printer.type: "preview"` que porte le profil neutre n'est enregistré par
+aucun binaire »), dont on connaît maintenant le prix : il casse le cycle lire-modifier-écrire
+de l'administration entière, sur tout poste tournant en configuration d'usine, donc sur tout
+poste fraîchement installé.
+
+**5 et 6 — la veille du catalogue ne quittait jamais sa source.** Symptôme : le poste
+repointé de `local_drop` vers le partage WebDAV a laissé `flv_2.csv` sur le serveur, sans un
+événement, et les deux « Recharger le catalogue » ont répondu « Le catalogue va être relu. »
+sans rien faire. `doctor` disait « dernier fichier appliqué : flv_1.csv **via local_drop** »
+pendant que la configuration en vigueur déclarait `webdav`. Un redémarrage du service l'a
+importé en une seconde.
+
+La cause n'est pas « la source n'est construite qu'au démarrage » — elle **est** reconstruite
+et le pointeur **est** échangé, ce que `TestTheCatalogBlockFollowsTheStationNumber` prouvait
+déjà. `watchCatalog` lit ce pointeur dans une variable locale puis se bloque dans
+`source.Next(ctx)`, qui ne rend la main que sur un lot, une erreur ou une annulation : une
+source qui ne trouve rien n'en rend aucune. Le remplacement changeait donc ce qu'un accesseur
+répond et rien d'autre. Pire, `Reload` réveille `c.source.current()`
+(`cmd/openscale/catalogadmin.go:66`), c'est-à-dire la source **neuve**, celle que personne ne
+lit. Corrigé : le remplacement annule le contexte de la lecture en cours, et une lecture finie
+par ce remplacement reprend la boucle **sans** écrire `ERR-CAT-03` — un code journalisé à
+chaque changement ordinaire est un code qu'on apprend à ignorer.
+
+Le second cas est celui qu'une installation rencontre en premier : une source qui ne se
+construit pas est un feu orange et jamais un refus de démarrer (`serve.go:313`), donc un
+poste dont le partage était injoignable au démarrage tourne **sans source du tout** — et la
+veille attendait alors la fin du processus. Le bénévole corrigeait l'adresse, le poste
+répondait « configuration enregistrée », et plus rien n'était surveillé jusqu'au prochain
+redémarrage. Les trois tests ajoutés ont été vus échouer avant d'être verts ; suite complète
+au vert avec `-race`.
+
+**Ce que ce poste neuf reste à saisir : cinq fautes, mais quatre lignes (29/07/2026).**
+Mesuré sur le fichier livré de la v0.5 — `config export testdata/config-lacagette.json`,
+puis `config validate` sur l'export : **5 fautes sur 4 champs distincts**.
+`station.number` (0 hors bornes `[1, 99]`, et c'est de lui que dérive le nom du fichier
+surveillé), `network.listen` (vide), `scale.options.port`, `catalog.options.url`. La
+spécification du lot annonçait **neuf** ; le chiffre mesuré est **cinq**, et c'est le
+mesuré qui fait foi.
+
+**`scale.options.port` compte double**, énuméré deux fois avec deux phrases différentes :
+« un poste qui déclare une balance doit nommer son port », puis « option exigée par le
+driver `gram-xfoc-plus` ». Deux règles, un seul champ. Un bénévole devant l'écran ne
+compte pas des fautes, il compte des **lignes à remplir** : il en a **quatre**. Cet écart
+est le critère de recette, pas le total brut — annoncer cinq réparations pour quatre
+champs envoie chercher une cinquième ligne qui n'existe pas.
+
 **Le banc a tranché la mise à jour depuis l'écran, et corrigé son plan (29/07/2026).** La
 tâche 0 du plan `2026-07-29-mise-a-jour-depuis-admin` posait une question qui conditionnait
 tout le reste : une PowerShell lancée **détachée** par le service survit-elle à l'arrêt de
@@ -645,6 +737,7 @@ de référence produit, pas une correction cosmétique.
 
 | Date | Événement |
 |---|---|
+| 29/07/2026 | **La v0.5 installée comme un bénévole sur un poste neuf** : le poste tourne de bout en bout — balance, étiquette, catalogue, redémarrage recette — mais **six défauts** rendent les étapes 4 à 7 infaisables sans ligne de commande. Deux corrigés (la veille du catalogue, dans les deux cas où elle ne quittait pas sa source), quatre ouverts, dont le retour arrière qui écrit le profil d'usine par-dessus les tarifs de la coopérative |
 | 29/07/2026 | **Tâche 0 du plan de mise à jour depuis l'écran mesurée sur le banc** : le processus détaché survit à l'arrêt du service (113 lignes après), mais `DETACHED_PROCESS` empêche `powershell.exe` de démarrer — le plan passe à `CREATE_NO_WINDOW`. Deux trouvailles incidentes : `-InstallDir`/`-DataRoot` morts sur `install.ps1`, et le `--listen` ignoré de L8 repayé une seconde fois |
 | 28/07/2026 | Écran client repris en « Grand Format » (ADR-035, ADR-036) : grille continue — `ui.tile_size` retiré, ce qui **annule le réglage à trois valeurs livré la veille** —, double tarif affiché par tuile, recherche au clavier physique (le poste n'est pas tactile), CategoryBar/StatusBar remplacent FilterBar/ReprintBar. **438 tests front** (23 fichiers), tous verts, mesurés sur ce poste |
 | 24/07/2026 | Analyse du legacy : 16 rapports, 240 000 lignes de VBA lues |

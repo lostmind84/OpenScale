@@ -2308,7 +2308,7 @@ Surcharges : `--config`, `--data`, `OPENSCALE_CONFIG`, `OPENSCALE_DATA`. **Aucun
   "_readme": "Modifiable depuis l'écran d'administration. Édition manuelle : arrêtez le service, éditez, redémarrez. Copies de secours en config.json.1 à .5.",
   "modified_at": "2026-07-24T14:32:05Z",
 
-  "station": { "number": 2, "name": "Poste 2 — fruits", "coop": "Les Amis de la Coopé" },
+  "station": { "number": 2, "name": "Poste 2 — fruits", "coop": "La Coope" },
   "network": { "listen": "127.0.0.1:8085", "admin_on_lan": false },
 
   "ui": { "language": "fr", "sound": true,

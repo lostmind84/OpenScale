@@ -62,6 +62,14 @@ désignent aucun hôte joignable.
   même titre qu'« Odoo » ou « SATO », et c'est l'entité à qui l'inconnue n° 9 de §21 demande
   d'écrire. Le **nom d'hôte** qui le portait, lui, est remplacé : un nom d'entreprise ne
   désigne aucun service joignable, un sous-domaine si.
+- **L'adresse du banc de développement, `192.168.0.43`** — la SATO WS408 posée sur le
+  bureau, citée par `SUIVI.md` et par le commentaire de `internal/domain/config.go` qui
+  motive le retrait de `printer.options.address`. Elle est conservée : RFC1918, non
+  routable depuis l'extérieur, elle ne désigne aucun service du magasin, et c'est elle qui
+  rend rejouable un diagnostic du banc L0. **Elle contredit à la lettre le « never ships »
+  de ce commentaire, et la contradiction est levée ici, pas dans le code** : ce que le
+  dépôt ne livre pas, c'est l'adresse d'un poste *de production*, pas celle d'une
+  imprimante de bureau. Une adresse de magasin, elle, irait au tableau ci-dessus.
 
 ## Ce que cela change pour la mise en service
 
