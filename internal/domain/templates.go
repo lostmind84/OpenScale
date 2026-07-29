@@ -163,8 +163,8 @@ func IdenticalTemplate() Template {
 		// label exactly would leave that adjustment nowhere to go, and hard rule 6
 		// applies the offset BEFORE validating.
 		leading = 277
-		body9  = 3_175 //  9 pt
-		body11 = 3_888 // 11 pt, measured on the PDF
+		body9   = 3_175 //  9 pt
+		body11  = 3_888 // 11 pt, measured on the PDF
 	)
 	line2 := Micrometers(body9 + leading)          //  3 525
 	line3 := line2 + Micrometers(body9+leading)    //  7 050
