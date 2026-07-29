@@ -330,9 +330,12 @@ func verdictOfNative(n *Native) (verdict, bool) {
 	case n.Condition != nil:
 		return verdict{LevelN3, n.Condition.Health(), join(n.Condition.Detail(), n.Detail)}, true
 	case len(n.Raw) > 0:
+		// Alive, and no fault named. NOT ready: the L0 bench measured this printer
+		// answering the very same status byte with its head latched open as with the
+		// head closed, so an idle frame that names nothing says nothing about health.
 		return verdict{LevelN3, ports.PrinterUnknown, join(fmt.Sprintf(
-			"l'imprimante a répondu %d octet(s) : elle est vivante. Le décodage détaillé de la "+
-				"trame n'est pas activé, l'état exact reste donc inconnu", len(n.Raw)), n.Detail)}, true
+			"l'imprimante a répondu %d octet(s) : elle est vivante et ne signale aucune panne, "+
+				"mais au repos elle ne dit pas si elle est prête", len(n.Raw)), n.Detail)}, true
 	}
 	return verdict{}, false
 }
@@ -368,18 +371,28 @@ func join(said, detail string) string {
 // driver speaks ENQ and nothing else does, so its answer is exactly the N3 row of §8.5
 // and the mapping is a reading of that row, not a translation loss:
 //
-//	Faulted     the probe failed          -> Failed
-//	Consumable  it said media-empty       -> PaperOut
-//	Ready       it answered, nothing up   -> an empty Condition
-//	Unknown     alive but undecoded, or silent, or a one-way transport
+//	Faulted, no frame   the probe failed            -> Failed
+//	Faulted, a frame    the printer NAMED a fault   -> Condition{Error}
+//	Consumable          it said media-empty         -> PaperOut
+//	Ready               it answered, nothing up     -> an empty Condition
+//	Unknown             alive but undecoded, or silent, or a one-way transport
+//
+// THE TWO FAULTED CASES ARE NOT THE SAME EVENT, and folding them together is what made
+// a station announce « l'imprimante n'a pas répondu à l'interrogation » about a printer
+// that had answered, in eleven bytes, that its head was open. Raw is what tells them
+// apart: a probe that failed brings nothing back.
 func nativeFrom(s ports.PrinterStatus) *Native {
 	n := &Native{Raw: s.Raw, Detail: s.Detail}
-	switch s.Health {
-	case ports.PrinterFaulted:
+	switch {
+	case s.Health == ports.PrinterFaulted && len(s.Raw) == 0:
 		n.Failed = true
-	case ports.PrinterConsumable:
+	case s.Health == ports.PrinterFaulted:
+		// The exact cause is in Detail, which the driver spelled in French from the
+		// status byte; Condition carries the CONCLUSION the three levels share.
+		n.Condition = &Condition{Error: true}
+	case s.Health == ports.PrinterConsumable:
 		n.Condition = &Condition{PaperOut: true}
-	case ports.PrinterReady:
+	case s.Health == ports.PrinterReady:
 		n.Condition = &Condition{}
 	}
 	return n

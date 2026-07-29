@@ -3,6 +3,71 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Le banc L0 existe, et il a démenti le dossier sur cinq points (29/07/2026).** La
+SATO WS408 et la GRAM XFOC sont sur le bureau, l'imprimante en réseau sur
+`192.168.0.43`, la balance sur `COM7`. **Une étiquette complète et juste est sortie**,
+par le chemin de production — `winspool` en RAW, auto-test déclenché depuis l'écran
+d'administration —, portant le code-barres `0493021012365` : le vecteur de référence
+de L1, imprimé sur du papier. Rien de ce qui suit n'était visible sans matériel.
+
+**Trois défauts du chemin d'impression, chacun suffisant à tout bloquer.** (1) `Encode`
+n'émettait **pas le cadrage `STX`/`ETX`** : les imprimantes du parc tournent en
+protocole standard, et un travail sans `ETX` n'est jamais considéré comme terminé — les
+octets remplissent le tampon, le voyant clignote lentement, le travail Windows ne quitte
+jamais « Printing », l'unique session TCP de l'appareil reste tenue, et **tout travail
+suivant échoue jusqu'à un redémarrage**. Silencieux des deux côtés. (2) `<G>` déclarait
+sa **hauteur en dots là où SBPL la compte en octets** : l'imprimante attendait huit fois
+les données envoyées, et attendait indéfiniment. La charge utile vaut `b × c × 8` — les
+quatorze blocs `<G>` d'une capture du vrai pilote SATO l'attestent, quatorze sur
+quatorze. (3) Le média était déclaré **40 × 25,4 mm** pour un support de **38 × 25**
+dont **35 imprimables** : la moitié de la mire d'alignement tombait hors de l'étiquette.
+
+**La capture du pilote a fait autorité là où la lecture échouait.** Après quatre échecs
+et cinq cycles d'alimentation, c'est le détournement de la file vers un fichier — donc
+les octets qu'Access envoie réellement — qui a tranché le format de `<G>`, le cadrage et
+l'ordre des commandes. Un rejeu à l'aveugle aurait coûté des dizaines d'étiquettes.
+
+**Conséquence sur la géométrie, arbitrée par le commanditaire : l'imprimante fait foi,
+pas ADR-003**, dont le 35,1 × 25,2 mm venait d'un PDF jamais produit par le pilote. Le
+média passe à 280 × 200 dots. Les trois gabarits, dessinés pour 25,4 mm, ne rentraient
+plus : `weighing_identical` a rendu 93 µm sur son **interligne** (350 → 277 µm), jamais
+sur les barres — le symbole d'ADR-003 est intact —, et `weighing_neutral_single` a
+ramené ses barres à 10 875 µm, la valeur d'ADR-029. La trame passe de 16 310 à
+**14 072 octets**, et les deux empreintes qui la figent portent la géométrie mesurée.
+
+**La mire d'alignement était structurellement aveugle.** Ses croix étaient centrées sur
+l'angle exact : la moitié de chaque bras était rognée par le bord du bitmap, et le quart
+survivant tombait dans le millimètre de découpe arrondie où il n'y a pas de papier. Avec
+des traits d'un dot (0,125 mm), rien ne sortait. Rentrées d'un millimètre et épaissies à
+deux dots, **les quatre croix sont lisibles** — et le carré plein confirme au passage la
+polarité de `<G>` : `invert_bits: false`, la valeur livrée, est la bonne.
+
+**La balance décodait zéro trame, et le dossier avait tort sur tout sauf la grammaire.**
+La vraie GRAM XFOC PLUS envoie 16 octets encadrés `SOH STX … ETX EOT` plus un octet de
+drapeaux, un statut `S`/`U` **sans virgule** — §9.2 la rendait obligatoire —, et une
+**somme de contrôle XOR** avant `ETX`. Le cadrage vit dans l'accumulateur, la somme y
+est vérifiée et une trame fausse est jetée sans être devinée. Corpus vivant versé :
+**668 trames réelles**, toutes décodées, zéro resynchronisation.
+
+`openscale capture` écrivait par ailleurs un fichier **vide de trames** tout en
+annonçant 194 décodées : son rédacteur découpait sur `CR`/`LF`, que cette balance
+n'envoie jamais. `frame.FrameEnd` place cette décision dans le paquet qui décode, une
+seule fois.
+
+**Les mesures qui remplacent les hypothèses (§21 n° 3, ADR-005) :**
+
+| | Supposé | **Mesuré** |
+|---|---|---|
+| Cadence d'émission | 400 ms (timer Access) | **96–103 ms** de médiane · min 25 · max 127 |
+| Taux de trames stables | inconnu | **95 à 97 %** · stabilisation ~2,3 s après dépôt |
+| Poids négatifs | non prouvés | **confirmés** — `U- 0,432KG`, plateau poussé |
+| Péremption | constante | **dérivée** : 1 200 ms, le plancher gouverne |
+
+**Ce qui reste ouvert.** Le décalage horizontal ne dispose plus que d'un dot vers la
+gauche : le contenu remplit sa largeur à 22 µm près. L'élargir demande de rétrécir le
+dessin. §7.2, §8.3 et §9.2 portent encore les anciens chiffres. Et le comptage A/B au
+scanner de caisse, qui tranche ADR-019, n'a pas été fait.
+
 **L'administration cesse de parler comme le dossier de conception (28/07/2026).** Trois
 demandes du commanditaire après avoir conduit l'écran livré en L8 : les textes sont
 « beaucoup trop verbeux et incompréhensibles pour un utilisateur qui n'est pas
@@ -335,7 +400,7 @@ comptage A/B au scanner de caisse est ce qui tranchera le tracé géométrique d
 
 | Lot | Contenu | Durée | État |
 |---|---|---|---|
-| **L0** | Banc de développement (SATO WS408, GRAM XFOC, rouleau, lecteur USB) | ~2 j·h | ⬜ matériel annoncé |
+| **L0** | Banc de développement (SATO WS408, GRAM XFOC, rouleau, lecteur USB) | ~2 j·h | ✅ **29/07/2026** — lecteur USB non livré |
 | **L1** | Socle et arithmétique — quantités, EAN-13, tarification | 2 sem. | ✅ **25/07/2026** |
 | **L2** | Noyau complet — garde-fous, trames, machine à états, stockage | 3 sem. | ✅ **25/07/2026** |
 | **L3** | Balance — drivers série, capture, rejeu | 2 sem. | ✅ **25/07/2026** |

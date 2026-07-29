@@ -368,17 +368,86 @@ func (p *Printer) Status(ctx context.Context) ports.PrinterStatus {
 			Detail: fmt.Sprintf("état inconnu : %s n'a rien renvoyé en %s.",
 				p.transport.Describe(), statusBudget)}
 	}
+	// The frame IS decoded now — the L0 bench captured it — but only far enough to name
+	// a FAULT. Read faultOfStatusFrame for why readiness is still never claimed.
+	if fault, named := faultOfStatusFrame(answer); named {
+		return ports.PrinterStatus{Health: fault.health, Raw: answer,
+			Detail: fmt.Sprintf("%s (%s).", fault.reason, p.transport.Describe())}
+	}
+
 	// Any non-empty answer means the printer is ALIVE (§8.5) — and alive is not ready.
-	// The fine decoding stays OFF until a real frame has been captured, so what came
-	// back may well spell PAPER OUT; PrinterReady means « answered and has NOTHING TO
-	// REPORT » (ports), and a station that cannot read the report may not claim there is
-	// none. It would be a green light on /readyz over an empty roll (§14.5). Raw is what
-	// makes completing the decoding possible without travelling to the shop, and the day
-	// it is completed this branch gains a real health.
+	// PrinterReady means « answered and has NOTHING TO REPORT » (ports), and this
+	// printer does not answer that question when it is idle: see faultOfStatusFrame.
+	// Claiming ready here would be a green light on /readyz over an empty roll (§14.5).
+	//
+	// The detail names the TRANSPORT and stops there. What the answer means is the
+	// aggregation's sentence (internal/printing/status.go), and a driver that spelled
+	// the same conclusion produced it twice in a row on the troubleshooting screen.
 	return ports.PrinterStatus{Health: ports.PrinterUnknown, Raw: answer,
-		Detail: fmt.Sprintf("l'imprimante a répondu %d octet(s) (%s) : elle est vivante. "+
-			"Le décodage détaillé de la trame n'est pas encore activé, l'état exact reste inconnu.",
-			len(answer), p.transport.Describe())}
+		Detail: p.transport.Describe()}
+}
+
+// statusFrameLength is the eleven bytes of the answer to ENQ:
+//
+//	STX  <job id, 2 bytes>  <status, 1 byte>  <labels remaining, 6 digits>  ETX
+//
+// Measured on the WS408 of the L0 bench, and identical to what the SATO programming
+// reference describes: two SPACES for the job id when no <ID> was declared, and six
+// ZEROS when nothing is printing.
+const statusFrameLength = 11
+
+// statusFault is one row of the fault table: what to conclude, and what to say.
+type statusFault struct {
+	health ports.PrinterHealth
+	reason string
+}
+
+// statusFaults are the status bytes that name a fault, from the « Return Status of
+// Status3 » table of the SATO programming reference. Lower case is where the errors
+// live; digits and upper case are the online, waiting and printing states.
+//
+// PAPER END IS NOT A FAULT, and that is important-9 rather than an oversight: the last
+// label did come out, and turning the end of a roll into a red screen once sent a
+// customer away holding a valid label and a message telling them to fetch a volunteer —
+// so they stuck two on, or weighed again, and the till counted twice (§8.5).
+var statusFaults = map[byte]statusFault{
+	'0': {ports.PrinterFaulted, "l'imprimante est hors ligne"},
+	'a': {ports.PrinterFaulted, "la mémoire de réception de l'imprimante est saturée"},
+	'b': {ports.PrinterFaulted, "la tête de l'imprimante est ouverte"},
+	'c': {ports.PrinterConsumable, "plus d'étiquettes : le rouleau est à changer"},
+	'd': {ports.PrinterFaulted, "l'imprimante n'a plus de ruban"},
+	'e': {ports.PrinterFaulted, "l'imprimante refuse le média ou l'impression"},
+	'f': {ports.PrinterFaulted, "bourrage papier, ou le capteur ne trouve plus l'étiquette"},
+	'g': {ports.PrinterFaulted, "la tête de l'imprimante est en erreur"},
+	'h': {ports.PrinterFaulted, "le capot de l'imprimante est ouvert"},
+}
+
+// faultOfStatusFrame names the fault a status frame reports, if it reports one.
+//
+// # WHY THIS NAMES FAULTS AND NEVER READINESS
+//
+// The obvious other half — « the status byte says online, therefore the printer is
+// ready » — was tried at the bench on 29/07/2026 and MEASURED FALSE. With the print
+// head latched open and the printer showing its error lamp, three consecutive ENQ
+// requests came back with the very same byte as on a healthy idle printer: 'A'. The
+// reference explains it in passing — the status is described for a printer that is
+// PRINTING, « including QTY is not 0, offline and error » — and it forbids the other
+// route in as many words: « Please do not send ENQ while sending print data ».
+//
+// So an idle WS408 answers 'A' whatever its condition, and a health check built on
+// that byte would have reported READY over an open head. That is precisely the failure
+// this driver refuses (§14.5), and it would have been written in the belief that a
+// measurement backed it.
+//
+// A fault code, on the other hand, is information: nothing but a real condition puts
+// one there. Naming it costs nothing and turns « l'imprimante est vivante » into
+// « elle n'a plus de papier » on the troubleshooting screen.
+func faultOfStatusFrame(answer []byte) (fault statusFault, named bool) {
+	if len(answer) < statusFrameLength || answer[0] != 0x02 {
+		return statusFault{}, false
+	}
+	fault, named = statusFaults[answer[3]]
+	return fault, named
 }
 
 // SelfTest prints one built-in pattern (§8.6).

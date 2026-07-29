@@ -83,7 +83,9 @@ func encodeLabel(img *image.Gray, t domain.Template, s Settings, h Head, copies 
 	}
 
 	var frame bytes.Buffer
-	frame.Grow(2*((widthDots+7)/8)*heightDots + encapsulationBytes)
+	// The height is rounded up to whole bytes like the width: <G> counts both that way,
+	// so the payload carries the blank rows that fill the last byte.
+	frame.Grow(2*((widthDots+7)/8)*((heightDots+7)/8*8) + encapsulationBytes)
 	if err := sbpl.Encode(&frame, job); err != nil {
 		// Nothing this driver can produce reaches here: Encode refuses a job or fails on
 		// a writer, and this job was just accepted while this writer is a bytes.Buffer.
@@ -94,11 +96,12 @@ func encodeLabel(img *image.Gray, t domain.Template, s Settings, h Head, copies 
 	return frame.Bytes(), nil
 }
 
-// encapsulationBytes is what the ten commands around the bitmap weigh, in bytes:
-// <A> 2 + <A1> 11 + <A3> 15 + <#E> 4 + <CS> 4 + <%> 3 + <V> 6 + <H> 6 + <G> header 9
-// + <Q> 8 + <Z> 2. It sizes the buffer once instead of letting it double four times
-// on the way to 16 kB, and it is asserted rather than estimated (see the frame tests).
-const encapsulationBytes = 70
+// encapsulationBytes is what everything around the bitmap weighs, in bytes:
+// STX 1 + <A> 2 + <A1> 11 + <A3> 15 + <#E> 4 + <CS> 4 + <%> 3 + <V> 6 + <H> 6 +
+// <G> header 9 + <Q> 8 + <Z> 2 + ETX 1. It sizes the buffer once instead of letting it
+// double four times on the way to 16 kB, and it is asserted rather than estimated (see
+// the frame tests).
+const encapsulationBytes = 72
 
 // checkRenderFitsTemplate refuses a bitmap that does not belong to the template the
 // job names.

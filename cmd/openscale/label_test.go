@@ -101,8 +101,8 @@ func TestDemonstrationCriterionOfWorkPackageFour(t *testing.T) {
 		t.Errorf("le bitmap couvre %.1f µm de haut, %d dots au pas de la tête en font %.1f",
 			got, doc.imageHeight, want)
 	}
-	if doc.imageWidth != 320 || doc.imageHeight != 203 {
-		t.Errorf("bitmap de %d × %d dots, 320 × 203 attendus à 8 dots/mm",
+	if doc.imageWidth != 280 || doc.imageHeight != 200 {
+		t.Errorf("bitmap de %d × %d dots, 280 × 200 attendus à 8 dots/mm",
 			doc.imageWidth, doc.imageHeight)
 	}
 }
@@ -125,7 +125,7 @@ func TestThePNGIsTheRenderItself(t *testing.T) {
 	if written.Bounds() != want.Bounds() {
 		t.Fatalf("le PNG mesure %v, le rendu %v", written.Bounds(), want.Bounds())
 	}
-	if got, expected := written.Bounds().Dx(), 320; got != expected {
+	if got, expected := written.Bounds().Dx(), 280; got != expected {
 		t.Errorf("largeur du PNG = %d dots, %d attendus", got, expected)
 	}
 	for y := written.Bounds().Min.Y; y < written.Bounds().Max.Y; y++ {

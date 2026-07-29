@@ -4370,7 +4370,43 @@ Chaque lot livre quelque chose de **démontrable** et laisse le dépôt vert.
 ### ADR-003 — Le symbole EAN-13 est volontairement tronqué
 **Contexte.** Le symbole imprimé a un module de 0,293 mm (grandissement 88,8 %, **dans** la plage GS1) mais des barres de ~11,7 mm au lieu des 20,3 mm normatifs, soit une troncature à ~58 %. Un EAN-13 conforme à ce grandissement occupe 33,1 × 23,3 mm ; sur une étiquette de 40 × 25 mm il ne resterait pas 2 mm pour les cinq champs texte imposés.
 **Décision (commanditaire).** **L'étiquette est reproduite à l'identique, code-barres compris.** Ce n'est **pas** un défaut à corriger. Ne pas proposer de changer de consommable, ni de passer en 305 dpi, ni de modifier le grandissement.
-**Conséquences.** (a) Une **règle de validation dure** refuse tout gabarit dont le contenu encré déborde la **géométrie de l'étiquette existante** — `35,1 × 25,2 mm`, mesurée sur un tirage de production (§7.5-3). (b) **Aucune mesure de rouleau n'est requise** : le rendu part vers une file d'impression déjà calibrée qui connaît son média, et l'on compare l'encre à l'encre. (c) Le gabarit porte `truncation_accepted: true` : le diagnostic est **informatif**, pas un avertissement — pour qu'aucun contributeur ne « corrige » cette décision par zèle. **Les critiques bloquant-3, bloquant-4, bloquant-5 et bloquant-10 sont closes sans objet** : elles portaient toutes sur la mise en conformité du symbole. Ce qu'on en retient est intégré : la règle de validation et le présent ADR.
+**Conséquences.** (a) Une **règle de validation dure** refuse tout gabarit dont le contenu encré déborde la géométrie de l'étiquette — voir l'amendement ci-dessous pour les chiffres, qui ne sont plus ceux du PDF. (b) Le gabarit porte `truncation_accepted: true` : le diagnostic est **informatif**, pas un avertissement — pour qu'aucun contributeur ne « corrige » cette décision par zèle. **Les critiques bloquant-3, bloquant-4, bloquant-5 et bloquant-10 sont closes sans objet** : elles portaient toutes sur la mise en conformité du symbole. Ce qu'on en retient est intégré : la règle de validation et le présent ADR.
+
+**Amendement du 29/07/2026 — la géométrie vient de l'imprimante, plus du PDF.**
+Le banc L0 a mis les deux sources face à face, et le PDF a perdu.
+
+Ce que cet ADR affirmait — `35,1 × 25,2 mm`, et « aucune mesure de rouleau n'est
+requise » — était **tiré de `reference/test_etiquette_EtataImprimer.pdf`**, un document
+qui n'a jamais été produit par le pilote de l'imprimante. Ce n'était donc pas une
+mesure du parc, mais celle d'un fichier dont rien ne garantit la fidélité.
+
+| Grandeur | Ce que l'ADR disait | **Mesuré au banc** |
+|---|---|---|
+| Support physique | non mesuré | **38 × 25 mm**, au pied à coulisse |
+| Zone imprimable | non mesurée | **35 × 25 mm**, réglée dans l'imprimante |
+| Contenu encré | 35,1 × 25,2 mm | **35,0 × 25,0 mm** (280 × 200 dots) |
+
+Le code, lui, déclarait un média de **40 × 25,4 mm** : cinq millimètres de plus que le
+support. La moitié de la mire d'alignement tombait à côté de l'étiquette, et personne
+ne pouvait le voir sans imprimante.
+
+**L'ordre d'autorité est désormais explicite** : l'imprimante d'abord — ses réglages
+survivent au RAW et gouvernent le tirage —, le pied à coulisse sur le rouleau ensuite,
+les documents en dernier. « Aucune mesure de rouleau n'est requise » est **retiré** :
+c'est exactement la mesure qui manquait.
+
+**Ce que l'amendement ne touche pas** : le module reste à 0,293 mm (2 344 milli-dots),
+le grandissement à 88,8 %, le hors-tout à 33,109 mm, et la troncature reste une
+décision assumée du commanditaire. Les 93 µm rendus par `weighing_identical` pour
+tenir dans 25 mm ont été pris sur l'**interligne** (350 → 277 µm), jamais sur les
+barres. `weighing_neutral_single`, qui ne reproduit rien, a ramené ses barres de
+11 720 à 10 875 µm — la valeur qu'ADR-029 avait déjà fixée pour la production.
+
+**Contrepartie mesurée** : le contenu remplit désormais sa largeur à 22 µm près, donc
+le décalage d'alignement de §7.5 ne dispose plus que d'**un dot vers la gauche et zéro
+vers la droite**. Tant que le média était déclaré à 40 mm, les flèches avaient cinq
+millimètres de jeu — sur du papier qui n'existait pas. Élargir cette plage exige de
+rétrécir le dessin ; la question reste ouverte.
 **Risque assumé.** Si le taux de lecture en caisse se dégrade un jour (tête usée, nouvelle douchette), le remède géométrique a été écarté par décision. Le remède qui reste est le gabarit B (§7.6) et le réglage du noircissement. Aucune mesure ISO/IEC 15416 n'est au plan.
 
 ### ADR-004 — L'acquittement est la suppression du fichier

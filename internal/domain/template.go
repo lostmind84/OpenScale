@@ -82,9 +82,20 @@ const (
 // are reproducing, and that is known to the hundredth of a millimetre from the test
 // PDF: 35.11 x 25.23 mm. We compare INK TO INK, two quantities measured on the same
 // reference document, and no delivery waits for a pair of calipers.
+//
+// # WHAT THE BENCH OF 28/07/2026 CHANGED
+//
+// The height came from that test PDF — 25.23 mm, 202 dots — and the PDF turned out
+// not to be evidence: it was never produced by the printer's driver. The stock is
+// 38 × 25 mm under a caliper, and the driver of the parc holds 35 × 25 mm of printable
+// area. The printer is the authority, so the inked height is the paper: 200 dots.
+//
+// The two bounds now coincide with the media on both axes, and that is the honest
+// reading rather than a lost distinction — ink may not exceed paper, and nothing else
+// was ever measured well enough to say otherwise.
 const (
 	InkedWidthDots  = 280
-	InkedHeightDots = 202
+	InkedHeightDots = 200
 )
 
 // Media describes the label stock, for the life-size preview and for nothing else.

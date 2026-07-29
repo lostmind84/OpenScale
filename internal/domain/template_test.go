@@ -67,13 +67,13 @@ func TestNeutralTemplateInkedExtentHasMargin(t *testing.T) {
 // bars + max(descent, hri), never bars + descent + hri.
 //
 // The two readings differ by 1 465 um on the shipped geometry — the additive one
-// gives 16 115 um against 14 650 — which is two different answers to the same
+// gives 15 270 um against 13 805 — which is two different answers to the same
 // blocking rule.
 func TestSymbolHeightUsesMaxAndNotASum(t *testing.T) {
 	symbol := NeutralSingleTemplate().Symbol
 
-	if got := symbol.HeightUM(); got != 14_650 {
-		t.Errorf("hauteur du bloc = %d µm, want 14650", got)
+	if got := symbol.HeightUM(); got != 13_805 {
+		t.Errorf("hauteur du bloc = %d µm, want 13805", got)
 	}
 	if additive := symbol.BarHeightUM + symbol.GuardDescentUM + symbol.HRIHeightUM; additive == symbol.HeightUM() {
 		t.Error("la lecture additive donne le même résultat : le test ne distingue rien")
@@ -109,9 +109,10 @@ func TestSymbolTotalWidthIsOneHundredAndThirteenModules(t *testing.T) {
 // direction that matters: a symbol pushed too low.
 func TestRuleThreeRefusesContentBelowTheInkedHeight(t *testing.T) {
 	template := NeutralSingleTemplate()
-	// 202 dots is 25 250 um. A symbol at 11 000 um ends at 25 650 um: 5 dots over.
-	template.Symbol.YUM = 11_000
-	template.Elements[5].YUM = 11_000
+	// 200 dots is 25 000 um. The block is 13 805 um tall, so a symbol at 11 500 um ends
+	// at 25 305 um: a little over two dots past the paper.
+	template.Symbol.YUM = 11_500
+	template.Elements[5].YUM = 11_500
 
 	faults := template.Validate(2)
 	if !hasFault(faults, "inked_content") {

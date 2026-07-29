@@ -308,14 +308,18 @@ func TestStatusIsHonestAboutWhatItCannotKnow(t *testing.T) {
 			says:    "n'a rien renvoyé",
 		},
 		{
-			// Vivante, et pas prête : le décodage fin est désactivé (§8.5), donc la trame
-			// revenue peut très bien dire PAPER OUT. PrinterReady signifie « a répondu et
-			// n'a rien à signaler » ; un poste qui ne sait pas lire le rapport ne peut pas
-			// affirmer qu'il est vide.
+			// Vivante, et pas prête. PrinterReady signifie « a répondu et n'a rien à
+			// signaler », et le banc L0 a mesuré cette imprimante rendant le MÊME octet
+			// d'état la tête ouverte et la tête fermée : au repos, une trame qui ne nomme
+			// aucune panne ne dit rien de sa santé.
+			//
+			// Le Detail nomme le TRANSPORT et rien d'autre : la conclusion est la phrase
+			// de internal/printing/status.go, qui la compose pour les trois niveaux. Un
+			// pilote qui l'énonçait aussi la faisait lire deux fois de suite au bénévole.
 			name:     "imprimante vivante",
 			arrange:  func(r *recorder) { r.queryErr = nil; r.answer = []byte{0x30, 0x41} },
 			health:   ports.PrinterUnknown,
-			says:     "elle est vivante",
+			says:     "enregistreur de trames",
 			wantsRaw: true,
 		},
 		{
@@ -457,5 +461,54 @@ func TestAHeadWithoutAWidthIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "max_width_bytes") {
 		t.Errorf("erreur « %v » : elle devait nommer la largeur manquante", err)
+	}
+}
+
+// TestTheStatusFrameNamesAFaultAndNeverClaimsReady is the L0 bench measurement,
+// frozen.
+//
+// The printer of the parc answers ENQ with an eleven-byte frame. Its status byte names
+// a fault when there is one — and says NOTHING USEFUL when there is not: with the head
+// latched open and the error lamp lit, three consecutive requests returned 'A', the
+// same byte as on a healthy idle printer. Readiness is therefore never claimed here,
+// and this test is what keeps a future contributor from adding it.
+func TestTheStatusFrameNamesAFaultAndNeverClaimsReady(t *testing.T) {
+	// STX, two spaces of job id, the status byte, six zeros of count, ETX.
+	frame := func(status byte) []byte {
+		return append([]byte{0x02, ' ', ' ', status}, append([]byte("000000"), 0x03)...)
+	}
+
+	for _, c := range []struct {
+		name   string
+		answer []byte
+		health ports.PrinterHealth
+		says   string
+	}{
+		{"plus de papier", frame('c'), ports.PrinterConsumable, "rouleau est à changer"},
+		{"tête ouverte", frame('b'), ports.PrinterFaulted, "tête de l'imprimante est ouverte"},
+		{"hors ligne", frame('0'), ports.PrinterFaulted, "hors ligne"},
+		// Fin de rouleau : pas une panne, important-9. La derniere etiquette est sortie.
+		// 'A' is what the bench measured on a printer whose head was OPEN. It must not
+		// become PrinterReady, whatever it looks like.
+		{"au repos, condition inconnue", frame('A'), ports.PrinterUnknown, "enregistreur de trames"},
+		{"trame tronquée", []byte{0x02, ' ', ' '}, ports.PrinterUnknown, "enregistreur de trames"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			printer, transport, _ := newPrinter(t, nil)
+			transport.queryErr = nil
+			transport.answer = c.answer
+			got := printer.Status(context.Background())
+
+			if got.Health != c.health {
+				t.Errorf("santé = %v, attendu %v — détail : %s", got.Health, c.health, got.Detail)
+			}
+			if got.Health == ports.PrinterReady {
+				t.Error("aucune trame ne doit valoir « prête » : au repos cette imprimante " +
+					"repond le meme octet la tete ouverte et la tete fermee")
+			}
+			if !strings.Contains(got.Detail, c.says) {
+				t.Errorf("le détail ne dit pas « %s » : %s", c.says, got.Detail)
+			}
+		})
 	}
 }

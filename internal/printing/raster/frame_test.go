@@ -96,7 +96,15 @@ var commandNames = []string{"A1", "A3", "GH", "#E", "CS", "A", "V", "H", "Q", "Z
 func readFrame(t *testing.T, frame []byte) sbplFrame {
 	t.Helper()
 	out := sbplFrame{}
+	// STX … ETX is the transmission framing of the standard protocol, which the L0
+	// bench proved a real WS408 requires. It wraps the commands rather than being one,
+	// so it comes off before the scan — and its ABSENCE is a failure, because a frame
+	// without it prints nothing and takes the printer down until it is power-cycled.
 	rest := string(frame)
+	if !strings.HasPrefix(rest, "\x02") || !strings.HasSuffix(rest, "\x03") {
+		t.Fatalf("la trame n'est pas encadrée par STX … ETX : %#x … %#x", frame[0], frame[len(frame)-1])
+	}
+	rest = rest[1 : len(rest)-1]
 	for len(rest) > 0 {
 		if rest[0] != 0x1B {
 			t.Fatalf("octet %#x hors commande : toute la trame est faite de commandes précédées d'ESC", rest[0])
@@ -138,11 +146,17 @@ func readGraphic(t *testing.T, rest string, out *sbplFrame) (header, remainder s
 	}
 	header = rest[:6]
 	widthBytes := atoi(t, header[:3])
-	height := atoi(t, header[3:])
+	// BOTH fields of <G>abbbccc are byte counts — the SBPL reference says so of b and
+	// of c in the same words, and the L0 bench confirmed it on paper: a height sent in
+	// dots makes the printer wait for eight times the data and hang. The block
+	// therefore carries widthBytes × heightBytes × 8 bytes, and the rows past the real
+	// bitmap are the padding that fills the last byte.
+	heightBytes := atoi(t, header[3:])
+	height := heightBytes * 8
 	payload := 2 * widthBytes * height
 	if len(rest) < 6+payload {
-		t.Fatalf("bloc <G> de %d × %d annoncé, %d caractères hexa présents sur %d attendus",
-			widthBytes, height, len(rest)-6, payload)
+		t.Fatalf("bloc <G> de %d × %d octets annoncé, %d caractères hexa présents sur %d attendus",
+			widthBytes, heightBytes, len(rest)-6, payload)
 	}
 	out.widthBytes, out.height = widthBytes, height
 	out.graphic = decodeGraphic(t, rest[6:6+payload], widthBytes, height)
@@ -252,45 +266,51 @@ func checkerboard(t domain.Template) *image.Gray {
 	return img
 }
 
-// --- The merge changed nothing on the wire ----------------------------------
+// --- The frame a real printer accepted --------------------------------------
 
-// The frame of the reference weighing, as BOTH encoders emitted it before the merge.
+// The frame of the reference weighing, byte for byte.
 //
 // # WHY A FINGERPRINT AND NOT ONLY A GOLDEN
 //
 // Two encoders existed, one in this package and one in internal/printing/sbpl, and
 // they produced the same 16 310 bytes for this label — measured, not assumed. The
-// merge deleted one of them. The claim that nothing changed on the wire is worth
-// exactly as much as the evidence pinned here, and a golden file alone is not that
-// evidence: a golden can be regenerated with a flag, and a regenerated golden agrees
-// with whatever produced it.
+// merge deleted one of them, and this fingerprint was the safety net of that merge.
+// A golden file alone would not have been: a golden can be regenerated with a flag,
+// and a regenerated golden agrees with whatever produced it.
 //
-// This sha256 was taken from the frame the PRE-MERGE encoders emitted. Changing it is
-// a deliberate act with a paper trail, which is what the frame of a production printer
-// deserves. A change to the drawing of §7.3 legitimately moves it — and then it moves
-// with the render goldens, in the same commit, and the commit says so.
+// # WHY IT MOVED
+//
+// The L0 bench of 28/07/2026 put the frame in front of a real SATO WS408 for the first
+// time. Two things had to change before anything came out of it, and both are findings
+// read off paper rather than off a document: a job must be wrapped in STX … ETX, and
+// <G> counts its height in BYTES, so 203 dots become 26 bytes and the bitmap is padded
+// to 208 rows. 16 310 bytes became 16 712.
+//
+// Changing this constant stays a deliberate act with a paper trail. A change to the
+// drawing of §7.3 legitimately moves it — and then it moves with the render goldens,
+// in the same commit, and the commit says so.
 const (
-	preMergeFrameSHA256 = "a12e2f21dddb460085881df32eaa4d8ec83cdfb4995209c1c4138833dcd2b2c6"
-	preMergeFrameBytes  = 16_310
+	benchFrameSHA256 = "6ea6870c5b98b457535c30179c94d54565b4de4333cecce04c9a540dba752e04"
+	benchFrameBytes  = 14_072
 )
 
-// TestTheMergedEncoderEmitsThePreMergeBytes is the whole safety net of the merge.
-func TestTheMergedEncoderEmitsThePreMergeBytes(t *testing.T) {
+// TestTheFrameIsTheOneTheBenchPrinted pins what a real printer accepted.
+func TestTheFrameIsTheOneTheBenchPrinted(t *testing.T) {
 	template, rendered := productionLabel(t)
 	frame, err := encodeLabel(rendered, template, DefaultSettings(), WS408(), 1)
 	if err != nil {
 		t.Fatalf("encodage : %v", err)
 	}
-	if len(frame) != preMergeFrameBytes {
-		t.Errorf("trame de %d octets, %d avant la fusion", len(frame), preMergeFrameBytes)
+	if len(frame) != benchFrameBytes {
+		t.Errorf("trame de %d octets, %d au banc", len(frame), benchFrameBytes)
 	}
 	sum := sha256.Sum256(frame)
-	if got := hex.EncodeToString(sum[:]); got != preMergeFrameSHA256 {
-		t.Errorf("empreinte de la trame : %s\navant la fusion : %s\n"+
-			"La fusion des deux encodeurs devait être neutre sur le fil. Si la trame a changé "+
+	if got := hex.EncodeToString(sum[:]); got != benchFrameSHA256 {
+		t.Errorf("empreinte de la trame : %s\nau banc : %s\n"+
+			"Cette trame est celle qu'une vraie SATO WS408 a imprimée. Si elle a changé "+
 			"EXPRÈS — un changement de dessin de §7.3, par exemple — régénérer les golden de rendu, "+
 			"puis celui de sbpl, puis cette empreinte, et le dire dans le commit.",
-			got, preMergeFrameSHA256)
+			got, benchFrameSHA256)
 	}
 }
 
@@ -353,12 +373,18 @@ func TestTheEncapsulatedBitmapIsReadBackDotForDot(t *testing.T) {
 	}
 }
 
-// compareDots holds two bitmaps to bit-for-bit equality over the width of the
-// original, and requires the padding columns of the frame to be bare label.
+// compareDots holds two bitmaps to bit-for-bit equality over the width AND height of
+// the original, and requires the padding of the frame — the columns that fill the last
+// byte of a row, and the rows that fill the last byte of the height — to be bare label.
+//
+// Both paddings burn the same way if they are forgotten: a black band down the right
+// edge, or across the bottom, of every label the station prints.
 func compareDots(t *testing.T, want, got *image.Gray) {
 	t.Helper()
-	if got.Bounds().Dy() != want.Bounds().Dy() {
-		t.Fatalf("%d lignes relues, %d écrites", got.Bounds().Dy(), want.Bounds().Dy())
+	paddedHeight := (want.Bounds().Dy() + 7) / 8 * 8
+	if got.Bounds().Dy() != paddedHeight {
+		t.Fatalf("%d lignes relues, %d écrites complétées à %d — <G> compte sa hauteur en octets",
+			got.Bounds().Dy(), want.Bounds().Dy(), paddedHeight)
 	}
 	if got.Bounds().Dx() < want.Bounds().Dx() {
 		t.Fatalf("%d colonnes relues, %d écrites : la trame en a perdu",
@@ -377,6 +403,14 @@ func compareDots(t *testing.T, want, got *image.Gray) {
 		for x := want.Bounds().Dx(); x < got.Bounds().Dx(); x++ {
 			if got.GrayAt(x, y).Y < inkThreshold {
 				t.Fatalf("le bit de bourrage (%d;%d) est encré : la fin de ligne imprimerait une bande noire", x, y)
+			}
+		}
+	}
+	for y := want.Bounds().Dy(); y < got.Bounds().Dy(); y++ {
+		for x := 0; x < got.Bounds().Dx(); x++ {
+			if got.GrayAt(x, y).Y < inkThreshold {
+				t.Fatalf("la ligne de bourrage (%d;%d) est encrée : le bas de l'étiquette "+
+					"imprimerait une bande noire", x, y)
 			}
 		}
 	}
@@ -399,14 +433,14 @@ func TestTheFrameIsTheElevenCommandsInTheOrderOfTheManual(t *testing.T) {
 
 	want := []sbplCommand{
 		{"A", ""},
-		{"A1", "02030320"}, // 25,4 mm × 40 mm à 8 dots/mm
+		{"A1", "02000280"}, // 25,4 mm × 40 mm à 8 dots/mm
 		{"A3", "V+0000H+0000"},
 		{"#E", "3"},
 		{"CS", "4"},
 		{"%", "0"},
 		{"V", "0001"},
 		{"H", "0001"},
-		{"GH", "040203"}, // 40 octets de large, 203 dots de haut
+		{"GH", "035025"}, // 35 octets de large, 25 octets de haut — les deux en octets
 		{"Q", "000001"},
 		{"Z", ""},
 	}
@@ -421,34 +455,37 @@ func TestTheFrameIsTheElevenCommandsInTheOrderOfTheManual(t *testing.T) {
 }
 
 // TestTheVolumeOfOneLabelIsTheOneTheDocumentAnnounces checks the arithmetic of §8.3
-// against the real render: 320 × 203 dots, 40 octets × 203 lignes = 8 120 octets,
-// 16 240 caractères hexa.
+// against the real render, as the L0 bench corrected it: the render is 320 × 203 dots,
+// <G> declares 40 × 26 OCTETS, the bitmap is padded to 208 rows, and the payload is
+// 40 × 208 = 8 320 octets ⇒ 16 640 caractères hexa. §8.3 announced 16 240 for 203 rows;
+// the extra 400 are the five blank rows that fill the last byte of the height, and
+// « environ 16 ko » — the figure the transport conclusions rest on — still holds.
 func TestTheVolumeOfOneLabelIsTheOneTheDocumentAnnounces(t *testing.T) {
 	template, rendered := productionLabel(t)
-	if got := rendered.Bounds(); got.Dx() != 320 || got.Dy() != 203 {
-		t.Fatalf("rendu de %d × %d dots, §8.3 annonce 320 × 203", got.Dx(), got.Dy())
+	if got := rendered.Bounds(); got.Dx() != 280 || got.Dy() != 200 {
+		t.Fatalf("rendu de %d × %d dots, le média mesuré au banc en fait 280 × 200", got.Dx(), got.Dy())
 	}
 	frame, err := encodeLabel(rendered, template, DefaultSettings(), WS408(), 1)
 	if err != nil {
 		t.Fatalf("encodage : %v", err)
 	}
 	read := readFrame(t, frame)
-	if read.widthBytes != 40 || read.height != 203 {
-		t.Fatalf("bloc <G> de %d octets × %d lignes, 40 × 203 attendus", read.widthBytes, read.height)
+	if read.widthBytes != 35 || read.height != 200 {
+		t.Fatalf("bloc <G> de %d octets × %d lignes, 35 × 200 attendus", read.widthBytes, read.height)
 	}
-	if payload := 2 * read.widthBytes * read.height; payload != 16_240 {
-		t.Fatalf("%d caractères hexa, §8.3 en annonce 16 240", payload)
+	if payload := 2 * read.widthBytes * read.height; payload != 14_000 {
+		t.Fatalf("%d caractères hexa, attendu 14 000", payload)
 	}
 	// The whole frame is the payload plus the ten other commands. Their cost is not an
 	// approximation and is asserted as such: <A> 2 + <A1> 11 + <A3> 15 + <#E> 4 +
 	// <CS> 4 + <%> 3 + <V> 6 + <H> 6 + <G> header 9 + <Q> 8 + <Z> 2 = 70 octets. §8.3
 	// rounds the total to « environ 16 ko », and 16 310 is that. The same figure sizes
 	// the buffer of encodeLabel, which is why it is a constant and not a comment.
-	t.Logf("trame complète : %d octets = 16 240 de charge utile + %d d'encapsulation "+
+	t.Logf("trame complète : %d octets = 14 000 de charge utile + %d d'encapsulation "+
 		"(§8.3 annonce « environ 16 ko »)", len(frame), encapsulationBytes)
-	if len(frame) != 16_240+encapsulationBytes {
-		t.Fatalf("trame de %d octets, %d attendus : la charge utile fait 16 240 et les dix autres "+
-			"commandes %d", len(frame), 16_240+encapsulationBytes, encapsulationBytes)
+	if len(frame) != 14_000+encapsulationBytes {
+		t.Fatalf("trame de %d octets, %d attendus : la charge utile fait 14 000 et le cadrage "+
+			"avec les dix autres commandes %d", len(frame), 14_000+encapsulationBytes, encapsulationBytes)
 	}
 }
 
@@ -497,14 +534,17 @@ func TestTheThreeAdjustmentsEachChangeTheFrame(t *testing.T) {
 	faster := base
 	faster.Speed = base.Speed + 1
 	shifted := base
-	shifted.OffsetXDots = 1
+	// LEFT and not right: since the media was corrected to the paper the label really
+	// runs on, the ink fills its width to within a sixth of a dot, so the only
+	// horizontal dot still available goes the other way.
+	shifted.OffsetXDots = -1
 
 	frames := map[string]string{}
 	for name, settings := range map[string]Settings{
 		"réglages livrés": base,
 		"noircissement+1": darker,
 		"vitesse+1":       faster,
-		"décalage +1 dot": shifted,
+		"décalage -1 dot": shifted,
 	} {
 		frame, err := encodeLabel(rendered, template, settings, WS408(), 1)
 		if err != nil {
@@ -524,13 +564,13 @@ func TestTheThreeAdjustmentsEachChangeTheFrame(t *testing.T) {
 	// And the offset really is the ±dddd of <A3>, sign included: V carries the vertical
 	// axis, H the horizontal one, which is the reverse of the (x;y) of everything else.
 	lifted := base
-	lifted.OffsetXDots, lifted.OffsetYDots = 2, -3
+	lifted.OffsetXDots, lifted.OffsetYDots = -1, -3
 	frame, err := encodeLabel(rendered, template, lifted, WS408(), 1)
 	if err != nil {
-		t.Fatalf("décalage (+2;-3) : %v", err)
+		t.Fatalf("décalage (-1;-3) : %v", err)
 	}
-	if got := commandArg(readFrame(t, frame), "A3"); got != "V-0003H+0002" {
-		t.Errorf("<A3>%s pour un décalage x=+2 y=-3, « V-0003H+0002 » attendu", got)
+	if got := commandArg(readFrame(t, frame), "A3"); got != "V-0003H-0001" {
+		t.Errorf("<A3>%s pour un décalage x=-1 y=-3, « V-0003H-0001 » attendu", got)
 	}
 }
 
@@ -567,14 +607,21 @@ func TestAnAdjustmentOutOfBoundsIsRefusedRatherThanClamped(t *testing.T) {
 // while nudging a label back into place: it names the range instead of saying no.
 //
 // The two ranges are WRITTEN OUT rather than asked of the code under test. They are a
-// measurement of the shipped weighing_identical — its ink spans x ∈ [1;280[ and
-// y ∈ [3;200[ on a 320 × 203 media — and stating them here is what makes this a test
-// of the rule rather than a restatement of it. If the drawing of §7.3 moves, these
-// numbers move, and a volunteer's arrows stop where they stopped yesterday.
+// measurement of the shipped weighing_identical on the 280 × 200 media the L0 bench
+// established, and stating them here is what makes this a test of the rule rather than
+// a restatement of it. If the drawing of §7.3 moves, these numbers move, and a
+// volunteer's arrows stop where they stopped yesterday.
+//
+// THE HORIZONTAL RANGE IS ONE DOT WIDE, and that is a consequence of the correction,
+// not of the drawing: the text boxes are 34 978 um across on 35 000 um of paper, so
+// there are 22 um of slack — a sixth of a dot. While the media was declared 40 mm the
+// arrows had five millimetres to play with, and they were playing with paper that does
+// not exist. Widening that range means narrowing the label, which is a decision about
+// the drawing and is recorded as an open question rather than taken here.
 func TestTheOffsetIsBoundedByTheInkOfTheShippedLabel(t *testing.T) {
 	const (
-		lowX, highX = -1, 40
-		lowY, highY = -3, 3
+		lowX, highX = -1, 0
+		lowY, highY = -3, 1
 	)
 	template, rendered := productionLabel(t)
 
