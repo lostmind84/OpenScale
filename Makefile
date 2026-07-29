@@ -76,7 +76,20 @@ cover:
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/openscale ./cmd/openscale
 
-dist: test
+# SKIP_TESTS=1 empaquette SANS rejouer la suite, et un seul appelant y a droit : le
+# workflow de publication, quand il a d'abord vérifié que l'intégration continue est
+# VERTE SUR LA RÉVISION EXACTE du tag. Rejouer la suite là est une seconde occasion
+# d'échouer sur rien — c'est ce qui a privé v0.4 de ses archives — et ce n'est pas une
+# seconde preuve : c'est la même, sur le même commit, une demi-heure plus tard.
+#
+# Sans cette variable, `make release` teste. Un humain qui publie depuis son poste ne
+# gagne pas de temps ici, et c'est voulu.
+TEST_DEP := test
+ifeq ($(SKIP_TESTS),1)
+TEST_DEP :=
+endif
+
+dist: $(TEST_DEP)
 	@mkdir -p dist
 	@for t in $(TARGETS); do \
 	  os=$${t%/*}; arch=$${t#*/}; ext=""; \

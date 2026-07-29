@@ -412,6 +412,7 @@ func TestAnEmptyRollAfterASuccessfulSendStaysASuccess(t *testing.T) {
 // spent on the INJECTED clock, so sixty seconds of a hanging device cost this test
 // nothing at all.
 func TestAPrinterHangingIsCutAtEightSecondsOfInjectedClock(t *testing.T) {
+	skipUnderShort(t)
 	started := time.Now()
 
 	b := newBench(t)
@@ -433,10 +434,18 @@ func TestAPrinterHangingIsCutAtEightSecondsOfInjectedClock(t *testing.T) {
 		t.Fatalf("état %s : le cycle s'est terminé sans réponse de l'imprimante", got)
 	}
 
-	awaitCondition(t, func() bool {
-		waiters, _ := b.clock.Pending()
-		return waiters > 0
-	}, "le budget d'impression n'a jamais été posé sur l'horloge injectée")
+	// The device must have been REACHED, and counting the clock's waiters does not say
+	// that. Every ports.WithBudget of the station registers one — the supervisor posts
+	// its own on every turn to probe the printer's status — and a cancelled budget stays
+	// registered until its deadline, which is the fake's bookkeeping and not a leak. So
+	// `waiters > 0` was true long before the print budget existed: the Advance below
+	// fired somebody else's, the print budget was posted a moment later against a clock
+	// that had already moved, and nothing ever cut the job. It broke the publication of
+	// v0.4 — `make test` gates the archives, and the archives never came.
+	//
+	// A held job is exact: printWorker.print posts its budget and THEN calls Print.
+	awaitCondition(t, func() bool { return b.printer.Held() > 0 },
+		"l'imprimante n'a jamais reçu le travail : le budget d'impression n'est pas encore posé")
 	b.clock.Advance(printBudget)
 
 	row := b.awaitJournal()

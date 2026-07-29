@@ -191,6 +191,7 @@ func TestThePrintWorkerHandsTheJobOverExactlyOnce(t *testing.T) {
 // TestThePrintBudgetIsSpentOnTheInjectedClock is failure test 6 at the worker: a
 // device that hangs is cut at eight seconds of FAKE clock.
 func TestThePrintBudgetIsSpentOnTheInjectedClock(t *testing.T) {
+	skipUnderShort(t)
 	printer := fake.NewPrinter()
 	printer.Hang()
 	defer printer.Release()
@@ -207,10 +208,11 @@ func TestThePrintBudgetIsSpentOnTheInjectedClock(t *testing.T) {
 
 	started := time.Now()
 	jobs <- job{Label: domain.Label{JobID: "j-hang"}}
-	awaitCondition(t, func() bool {
-		waiters, _ := clock.Pending()
-		return waiters > 0
-	}, "le budget d'impression n'a jamais été posé sur l'horloge injectée")
+	// A held job and not a waiter count: the worker posts its budget and THEN calls
+	// Print, so this is exact where counting waiters is a guess. See the twin assertion
+	// in failures_test.go, which that guess cost a publication.
+	awaitCondition(t, func() bool { return printer.Held() > 0 },
+		"l'imprimante n'a jamais reçu le travail : le budget d'impression n'est pas encore posé")
 	clock.Advance(printBudget)
 
 	select {
