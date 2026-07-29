@@ -3,6 +3,30 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Le banc a tranché la mise à jour depuis l'écran, et corrigé son plan (29/07/2026).** La
+tâche 0 du plan `2026-07-29-mise-a-jour-depuis-admin` posait une question qui conditionnait
+tout le reste : une PowerShell lancée **détachée** par le service survit-elle à l'arrêt de
+ce service par le gestionnaire de services Windows ? **Oui** — le témoin a écrit 113 de ses
+120 lignes après la mort de son parent, service arrêté à 11:12:35, dernière ligne à
+11:14:27. L'approche A tient et les tâches 6 et 7 s'exécutent telles quelles.
+
+**Mais pas avec les drapeaux que le plan écrivait.** Avec `DETACHED_PROCESS`,
+`powershell.exe` **sort en 100 ms, code 0, sans lire son script** : c'est une application
+console, et son hôte abandonne quand il n'a aucune console à attacher. Mesuré sur quatre
+jeux de drapeaux, chaque enfant attendu — `DETACHED_PROCESS` seul et combiné : zéro ligne ;
+`CREATE_NO_WINDOW` et `CREATE_NEW_CONSOLE` : les cinq lignes attendues. Le plan passe à
+`CREATE_NO_WINDOW`, qui donne une console sans fenêtre et laisse acquis le détachement
+recherché — un groupe de processus neuf et un `Release()`.
+
+*Ce que ce mode de défaillance impose au reste du plan*, et qui n'y était pas : un `Start()`
+qui rend `nil` sans que rien ne démarre laisse `pending.json` écrit et **aucun**
+`outcome.json` à venir. `ClearPending` ne tourne qu'à la lecture d'un compte rendu, donc le
+poste garde un `pending.json` éternel et **refuse toute mise à jour ultérieure par
+`ErrAlreadyRunning`**. Un poste muré par un échec qui n'a rien écrit nulle part. À borner
+avant d'écrire les tâches 5 et 7 : `Pending` porte déjà `StartedAt`.
+
+Compte rendu complet : `docs/superpowers/plans/2026-07-29-banc-detached-process.md`.
+
 **Le banc L0 existe, et il a démenti le dossier sur cinq points (29/07/2026).** La
 SATO WS408 et la GRAM XFOC sont sur le bureau, l'imprimante en réseau sur
 `192.168.0.43`, la balance sur `COM7`. **Une étiquette complète et juste est sortie**,
@@ -517,7 +541,10 @@ SIGKILL que §13.4 raconte.
    neutre : un poste fraîchement installé sert donc sur `127.0.0.1:8085` quoi qu'on
    demande. Les scripts interrogent désormais l'adresse du fichier **puis** celle du
    profil neutre — sans quoi `update.ps1` restaurerait la version précédente d'un poste
-   parfaitement sain. **Correctif d'une ligne dans `serve.go`, non appliqué.**
+   parfaitement sain. **Correctif d'une ligne dans `serve.go`, non appliqué.** *Repayé le
+   29/07/2026 par le banc de la tâche 0 : un poste jetable refusait de démarrer par
+   `ERR-SYS-01` en nommant le port `8085`, que personne ne lui avait demandé, une demi-heure
+   de diagnostic sur un défaut connu et laissé ouvert.*
 2. **`powercfg /query` rend des SECONDES, `powercfg /change` attend des MINUTES.**
    Restaurer un délai lu par le premier avec le second posait 300 minutes là où il y avait
    5. La restauration passe par `/setacvalueindex`, qui prend la même unité que la lecture.
@@ -527,6 +554,15 @@ SIGKILL que §13.4 raconte.
 4. **`service status` exigeait l'élévation** : `mgr.Connect` demande le contrôle total. Un
    bénévole qui suit `TROUBLESHOOTING.md` lisait « accès refusé » au lieu de l'état. Le
    SCM est maintenant ouvert en lecture seule.
+5. **`-InstallDir` et `-DataRoot` sont des paramètres morts** sur `install.ps1` **et**
+   `uninstall.ps1` (trouvé le 29/07/2026 en installant un poste jetable). Les deux scripts
+   les déclarent en `param()`, puis dot-sourcent `common.ps1`, qui pose
+   `$script:InstallDir` et `$script:DataRoot`. Au niveau d'un script, `$script:InstallDir`
+   **est** `$InstallDir` : le dot-source écrase les valeurs liées juste après leur liaison,
+   et `Get-OpenScalePaths` reçoit toujours les chemins de production. Une installation
+   demandée dans `C:\Temp\banc` se fait dans `C:\Program Files\OpenScale`, sans un mot.
+   Ces paramètres n'existent que pour permettre un poste d'essai à côté d'un poste réel, et
+   c'est exactement ce qu'ils ne permettent pas. **Non corrigé.**
 
 **Ce qui reste ouvert sur ce lot :** `flv_demo.csv` (§17.2) n'existe pas ; les
 identifiants USB de l'imprimante ne sont pas relevés, donc sa règle udev est livrée
@@ -609,6 +645,7 @@ de référence produit, pas une correction cosmétique.
 
 | Date | Événement |
 |---|---|
+| 29/07/2026 | **Tâche 0 du plan de mise à jour depuis l'écran mesurée sur le banc** : le processus détaché survit à l'arrêt du service (113 lignes après), mais `DETACHED_PROCESS` empêche `powershell.exe` de démarrer — le plan passe à `CREATE_NO_WINDOW`. Deux trouvailles incidentes : `-InstallDir`/`-DataRoot` morts sur `install.ps1`, et le `--listen` ignoré de L8 repayé une seconde fois |
 | 28/07/2026 | Écran client repris en « Grand Format » (ADR-035, ADR-036) : grille continue — `ui.tile_size` retiré, ce qui **annule le réglage à trois valeurs livré la veille** —, double tarif affiché par tuile, recherche au clavier physique (le poste n'est pas tactile), CategoryBar/StatusBar remplacent FilterBar/ReprintBar. **438 tests front** (23 fichiers), tous verts, mesurés sur ce poste |
 | 24/07/2026 | Analyse du legacy : 16 rapports, 240 000 lignes de VBA lues |
 | 24/07/2026 | Conception : 4 architectures en concurrence, 12 jugements, 32 critiques |

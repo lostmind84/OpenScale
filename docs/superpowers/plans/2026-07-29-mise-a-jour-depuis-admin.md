@@ -75,7 +75,21 @@ Chaque tâche hérite implicitement de cette section.
 
 ---
 
-## Task 0: L'essai du banc qui décide de l'approche
+## Task 0: L'essai du banc qui décide de l'approche — ✅ **FAITE le 29/07/2026**
+
+> **Verdict : l'approche A tient, à une ligne près.** Le témoin lancé par le service a
+> atteint ses 120 lignes, dont **113 après l'arrêt du service** — service arrêté à
+> 11:12:35,03, dernière ligne du témoin à 11:14:27,77. Les tâches 6 et 7 s'exécutent
+> **telles quelles**.
+>
+> **Mais pas avec les drapeaux écrits ci-dessous.** Mesuré : avec `DETACHED_PROCESS`,
+> `powershell.exe` sort en 100 ms, code 0, **sans lire son script** — c'est une
+> application console, et son hôte abandonne quand il n'a aucune console à attacher.
+> `CREATE_NO_WINDOW` lui en donne une, sans fenêtre, et le détachement recherché reste
+> acquis. La correction porte sur la tâche 6, § `ApplyUpdate`.
+>
+> Compte rendu, tableau des quatre jeux de drapeaux et deux trouvailles incidentes :
+> `docs/superpowers/plans/2026-07-29-banc-detached-process.md`.
 
 **Ce n'est pas du code de production.** C'est une mesure, et elle conditionne tout le reste.
 Si elle échoue, les tâches 6 et 7 changent de forme et le plan doit être réécrit avant
@@ -87,7 +101,11 @@ service par le gestionnaire de services Windows ?
 **Files:**
 - Create: `docs/superpowers/plans/2026-07-29-banc-detached-process.md` (le compte rendu)
 
-- [ ] **Step 1: Installer un poste jetable sur la machine du banc**
+- [x] **Step 1: Installer un poste jetable sur la machine du banc**
+
+> Fait, mais `-InstallDir` et `-DataRoot` sont des **paramètres morts** : `common.ps1`,
+> dot-sourcé après le `param()`, écrase les deux variables. Le poste s'est donc installé
+> dans `C:\Program Files\OpenScale`. Voir le compte rendu.
 
 ```powershell
 # Depuis une archive construite localement, dans un répertoire jetable.
@@ -96,7 +114,7 @@ make release VERSION=banc
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-- [ ] **Step 2: Écrire le témoin, qui écrit une ligne par seconde pendant deux minutes**
+- [x] **Step 2: Écrire le témoin, qui écrit une ligne par seconde pendant deux minutes**
 
 `C:\Temp\survivor.ps1` :
 
@@ -108,7 +126,7 @@ $ErrorActionPreference = 'Stop'
 }
 ```
 
-- [ ] **Step 3: Écrire le déclencheur, qui reproduit exactement ce que fera `ApplyUpdate`**
+- [x] **Step 3: Écrire le déclencheur, qui reproduit exactement ce que fera `ApplyUpdate`**
 
 `C:\Temp\spawn.go`, compilé et lancé **par le service**, pas depuis une console :
 le plus simple est d'ajouter temporairement la ligne au démarrage de `serve`, ou de lancer
@@ -125,7 +143,7 @@ _ = cmd.Start()
 _ = cmd.Process.Release() // le parent n'attend pas son enfant
 ```
 
-- [ ] **Step 4: Arrêter le service pendant que le témoin écrit**
+- [x] **Step 4: Arrêter le service pendant que le témoin écrit**
 
 ```powershell
 Start-Sleep -Seconds 5
@@ -134,7 +152,7 @@ Start-Sleep -Seconds 20
 Get-Content C:\Temp\survivor.log -Tail 3
 ```
 
-- [ ] **Step 5: Lire le verdict**
+- [x] **Step 5: Lire le verdict**
 
 **Réussite** : le journal continue au-delà de l'instant de l'arrêt et atteint 120 lignes.
 L'approche A tient, le plan s'exécute tel quel.
@@ -144,7 +162,7 @@ Il faut alors **arrêter ce plan** et réécrire les tâches 6 et 7 : la bascule
 sous-commande Go `openscale apply-update --from <staging> --wait-pid <n>`, lancée depuis le
 binaire **neuf** du staging, et `update.ps1` n'est plus appelé par le poste.
 
-- [ ] **Step 6: Écrire le compte rendu et committer**
+- [x] **Step 6: Écrire le compte rendu et committer**
 
 Le compte rendu porte : la date, la version de Windows, les trois dernières lignes du
 journal, l'instant de l'arrêt du service, et le verdict en une phrase.
@@ -2028,6 +2046,7 @@ package platform
 import (
 	"fmt"
 	"os/exec"
+	"syscall"
 
 	"golang.org/x/sys/windows"
 )
@@ -2035,12 +2054,18 @@ import (
 // ApplyUpdate starts the swap and RETURNS IMMEDIATELY.
 //
 // The script stops the service, which kills this very process. That is why the
-// child is DETACHED and why its handle is released at once: a child that stayed
-// in the parent's process group would die with it, and the station would be left
-// with a stopped service and a binary nobody replaced.
+// child gets a process group of its own and why its handle is released at once:
+// a child that stayed in the parent's group would die with it, and the station
+// would be left with a stopped service and a binary nobody replaced.
 //
-// Whether a detached child truly survives the SCM stopping its parent was
-// MEASURED on the bench before this was written; see the plan's task 0.
+// CREATE_NO_WINDOW and NOT DETACHED_PROCESS. Both hide the window; only one runs
+// the script. MEASURED on the bench, 29/07/2026: with DETACHED_PROCESS the child
+// exits after 100 ms with code 0 without reading its script, because powershell.exe
+// is a console application and its host gives up when it has no console to attach
+// to -- a silent failure with a successful exit code. See the plan's task 0.
+//
+// That the child then survives the SCM stopping its parent was measured the same
+// day: 113 of the witness's 120 lines were written after the service had stopped.
 func ApplyUpdate(spec UpdateSpec) error {
 	command := exec.Command("powershell.exe",
 		"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
@@ -2050,8 +2075,8 @@ func ApplyUpdate(spec UpdateSpec) error {
 		"-DataRoot", spec.DataRoot,
 		"-OutcomePath", spec.OutcomePath,
 		"-LogPath", spec.LogPath)
-	command.SysProcAttr = &windows.SysProcAttr{
-		CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP,
+	command.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: windows.CREATE_NO_WINDOW | windows.CREATE_NEW_PROCESS_GROUP,
 	}
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("platform: starting the update script: %w", err)
@@ -2063,9 +2088,28 @@ func ApplyUpdate(spec UpdateSpec) error {
 ```
 
 > **Note pour l'implémenteur :** `windows.SysProcAttr` n'existe pas — le bon type est
-> `syscall.SysProcAttr`, et les constantes viennent de `golang.org/x/sys/windows`. Vérifier
-> par `grep -rn "SysProcAttr" internal/ cmd/` avant d'écrire, et compiler par
+> `syscall.SysProcAttr`, et les constantes viennent de `golang.org/x/sys/windows`. Corrigé
+> ci-dessus après la tâche 0, qui a compilé et exécuté ce code. Vérifier par
+> `grep -rn "SysProcAttr" internal/ cmd/` avant d'écrire, et compiler par
 > `GOOS=windows go build ./...`.
+>
+> **Et ne pas rétablir `DETACHED_PROCESS`.** Il paraît plus juste que `CREATE_NO_WINDOW`
+> — c'est le drapeau dont le nom dit « détaché » — et il ne marche pas. La tâche 0 l'a
+> mesuré sur quatre jeux de drapeaux ; le tableau est dans le compte rendu.
+
+> **Conséquence à traiter, que la tâche 0 met au jour.** Un script qui ne démarre pas
+> laisse `Start()` rendre `nil` et le poste continuer comme si la bascule était lancée.
+> `Apply` a alors déjà écrit `pending.json` — c'est l'ordre voulu, et il est juste — mais
+> aucun `outcome.json` n'arrivera **jamais**, et `ClearPending` ne tourne qu'à la lecture
+> d'un compte rendu. Le poste reste donc avec un `pending.json` éternel, et **toute mise à
+> jour ultérieure est refusée par `ErrAlreadyRunning`** : un poste muré par un échec qui
+> n'a rien écrit nulle part.
+>
+> Le plan ne borne aujourd'hui ni l'âge d'un `pending.json` ni l'absence de compte rendu.
+> `Pending` porte déjà `StartedAt` : il suffit que `Status` traite « `pending.json`
+> présent, aucun `outcome.json`, `StartedAt` plus vieux que le budget de la bascule »
+> comme un échec nommé, et que `Apply` cesse d'opposer `ErrAlreadyRunning` à ce cas-là.
+> **À trancher en tâche 5 ou 7 avant de les écrire.**
 
 - [ ] **Step 6: Vérifier que les trois cibles compilent**
 
