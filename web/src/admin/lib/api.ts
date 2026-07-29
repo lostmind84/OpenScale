@@ -12,6 +12,7 @@ import type {
   ProblemDTO,
   SessionDTO,
   TechnicalLineDTO,
+  UpdateDTO,
   WeighingDTO,
 } from './dto'
 
@@ -370,4 +371,35 @@ function parseProblem(raw: string): ProblemDTO | null {
   } catch {
     return null
   }
+}
+
+// --- La page Mise à jour ----------------------------------------------------
+
+/** Lit l'état des mises à jour. Libre : les pages de réglage s'ouvrent en lecture. */
+export function fetchUpdate(): Promise<UpdateDTO> {
+  return getJSON<UpdateDTO>('/admin/api/update')
+}
+
+/**
+ * « Vérifier maintenant », sans attendre le tour quotidien.
+ *
+ * Rend l'état FRAIS et non un accusé : la page n'a rien à relire derrière.
+ */
+export function checkForUpdate(): Promise<UpdateDTO> {
+  return postJSON<UpdateDTO>('/admin/api/update/check', {})
+}
+
+/**
+ * Installe la version NOMMÉE.
+ *
+ * Le numéro voyage dans le corps parce que c'est celui que l'écran montrait : entre le
+ * dessin de la page et l'appui, une autre version a pu paraître, et l'installer sans rien
+ * dire serait installer ce que personne n'a lu. Le service répond alors 409.
+ *
+ * La réponse est un 202 : la bascule a commencé, et le poste qui l'a acceptée est sur le
+ * point d'être arrêté par elle. Il n'y aura pas de seconde réponse sur cette connexion —
+ * c'est l'écran qui va sonder jusqu'au retour.
+ */
+export function applyUpdate(version: string): Promise<{ version: string }> {
+  return postJSON<{ version: string }>('/admin/api/update/apply', { version })
 }

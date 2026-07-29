@@ -14,6 +14,7 @@
   import Rules from './pages/Rules.svelte'
   import Station from './pages/Station.svelte'
   import Troubleshooting from './pages/Troubleshooting.svelte'
+  import Update from './pages/Update.svelte'
 
   /**
    * L'écran d'administration, et ses DEUX NIVEAUX explicites (§14.4).
@@ -63,6 +64,7 @@
         { id: 'catalog', label: 'Catalogue' },
         { id: 'journal', label: 'Journal' },
         { id: 'station', label: 'Poste' },
+        { id: 'update', label: 'Mise à jour' },
       ],
     },
   ]
@@ -229,6 +231,8 @@
         <Journal {admin} />
       {:else if admin.page === 'station'}
         <Station {admin} {draft} health={admin.health} />
+      {:else if admin.page === 'update'}
+        <Update {admin} />
       {/if}
     </main>
 

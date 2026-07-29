@@ -255,3 +255,46 @@ export interface SessionDTO {
    */
   warning?: string
 }
+
+/**
+ * Les quatre issues d'une bascule, telles qu'`update.ps1` les écrit.
+ *
+ * Quatre et non deux : « annulée, le poste fonctionne » n'appelle personne, « le poste ne
+ * répond pas » demande quelqu'un tout de suite, et « rien n'a été remplacé » veut dire
+ * qu'on peut recommencer.
+ */
+export type UpdateStatus =
+  | 'succeeded'
+  | 'rolled-back'
+  | 'rolled-back-unhealthy'
+  | 'not-started'
+
+/** La dernière bascule tentée par ce poste. */
+export interface UpdateOutcomeDTO {
+  status: UpdateStatus
+  from: string
+  to: string
+  reason: string
+  finished_at: string
+}
+
+/** Ce que la page Mise à jour dessine. */
+export interface UpdateDTO {
+  /** La version qui tourne en ce moment. */
+  running: string
+  /** Le dépôt suivi, sous la forme propriétaire/projet. */
+  repository: string
+  /** Faux là où la bascule n'existe pas : la page le dit au lieu d'un bouton mort. */
+  supported: boolean
+  /** Vrai quand la version publiée est plus récente que celle qui tourne. */
+  available: boolean
+  latest: string
+  published_at: string
+  html_url: string
+  checked_at: string
+  /**
+   * `null` et non un objet vide : « aucune bascule n'a jamais été tentée » et « une
+   * bascule a été tentée et n'a rien fait » sont deux phrases différentes à l'écran.
+   */
+  outcome: UpdateOutcomeDTO | null
+}
