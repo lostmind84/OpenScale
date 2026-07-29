@@ -610,6 +610,12 @@ func brokenConfigurations() []brokenConfiguration {
 				setOption(t, c.Catalog.Options, "directory", `D:\catalogue`)
 			},
 			field: "catalog.options.directory",
+		}, {
+			control: "48", name: "le dépôt suivi est une adresse web",
+			mutate: func(_ *testing.T, c *Config) {
+				c.Update.Repository = "https://github.com/lostmind84/OpenScale"
+			},
+			field: "update.repository",
 		},
 	}
 }
@@ -667,7 +673,7 @@ func TestTheCorpusCoversTheControls(t *testing.T) {
 		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
 		"16", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32",
 		"33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45",
-		"46", "47",
+		"46", "47", "48",
 	} {
 		if !covered[control] {
 			t.Errorf("le contrôle %s n'a aucune configuration fausse", control)
@@ -1669,5 +1675,121 @@ func TestBase64ShapeRefusesAnImpossibleCharacter(t *testing.T) {
 	}
 	if !isBase64Raw("b3BlbnNjYWxlLXNhbHQxMg", 8) {
 		t.Error("un sel base64 non paddé doit passer")
+	}
+}
+
+// --- Control 48: the repository this station follows -----------------------------
+
+// TestControl48RefusesAnythingThatIsNotAnOwnerRepoPair is the control that keeps
+// « save the configuration » from becoming « run code from anywhere ».
+//
+// The host lives in the binary. A field that took a whole URL would hand the
+// station's LocalSystem process to whoever can write the configuration file --
+// and writing that file is what the administration screen exists to do.
+func TestControl48RefusesAnythingThatIsNotAnOwnerRepoPair(t *testing.T) {
+	for _, wrong := range []string{
+		"https://github.com/lostmind84/OpenScale",
+		"git@github.com:lostmind84/OpenScale.git",
+		"lostmind84/OpenScale/extra",
+		"../../etc/passwd",
+		"lostmind84",
+		"lostmind84/",
+		"/OpenScale",
+		"lost mind/OpenScale",
+		"lostmind84/Open;Scale",
+		"lostmind84/Open Scale",
+	} {
+		config := loadDelivered(t)
+		config.Update.Repository = wrong
+		if findFault(config.Validate(testRegistries()), "update.repository") == nil {
+			t.Errorf("%q est accepté par le contrôle 48", wrong)
+		}
+	}
+}
+
+// TestControl48AcceptsAForkOfTheProject: the code is AGPL, and a cooperative
+// following its own fork is the case this field exists for.
+func TestControl48AcceptsAForkOfTheProject(t *testing.T) {
+	for _, right := range []string{
+		"lostmind84/OpenScale",
+		"la-cagette/openscale",
+		"coop_2/Open.Scale-2",
+	} {
+		config := loadDelivered(t)
+		config.Update.Repository = right
+		if fault := findFault(config.Validate(testRegistries()), "update.repository"); fault != nil {
+			t.Errorf("%q est refusé par le contrôle 48 : %s", right, fault.Message)
+		}
+	}
+}
+
+// TestAFileWithoutTheUpdateBlockStillLoads is the symmetric of the defect of
+// 28/07/2026, where control 20 made the station refuse its own delivered
+// configuration: a file written before this block existed must read back with
+// nothing said, and run on the default.
+func TestAFileWithoutTheUpdateBlockStillLoads(t *testing.T) {
+	raw, err := os.ReadFile(deliveredConfigPath)
+	if err != nil {
+		t.Fatalf("lecture de %s : %v", deliveredConfigPath, err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("décodage : %v", err)
+	}
+	delete(document, "update")
+	trimmed, err := json.Marshal(document)
+	if err != nil {
+		t.Fatalf("encodage : %v", err)
+	}
+
+	var config Config
+	if err := json.Unmarshal(trimmed, &config); err != nil {
+		t.Fatalf("un fichier sans le bloc update ne se relit pas : %v", err)
+	}
+	if config.Update.Repository != DefaultUpdateRepository {
+		t.Errorf("dépôt par défaut = %q, attendu %q",
+			config.Update.Repository, DefaultUpdateRepository)
+	}
+	if fault := findFault(config.Validate(testRegistries()), "update.repository"); fault != nil {
+		t.Errorf("l'absence du bloc update est traitée comme une faute : %s", fault.Message)
+	}
+}
+
+// TestAnEmptyRepositoryFallsBackRatherThanFailing: a file that carries the block
+// but leaves the key empty is the same case as one that omits it. Refusing there
+// would put a station out of service over a field nobody meant to set.
+func TestAnEmptyRepositoryFallsBackRatherThanFailing(t *testing.T) {
+	var config Config
+	if err := json.Unmarshal([]byte(`{"update":{"repository":""}}`), &config); err != nil {
+		t.Fatalf("décodage : %v", err)
+	}
+	if config.Update.Repository != DefaultUpdateRepository {
+		t.Errorf("dépôt = %q, attendu le défaut %q",
+			config.Update.Repository, DefaultUpdateRepository)
+	}
+}
+
+// TestTheFollowedRepositoryEntersTheFingerprint: the four stations of one
+// cooperative must follow the same repository, and a divergence has to be visible
+// on the eight characters the dashboard shows and a volunteer compares by eye.
+func TestTheFollowedRepositoryEntersTheFingerprint(t *testing.T) {
+	reference := loadDelivered(t)
+	diverged := loadDelivered(t)
+	diverged.Update.Repository = "someone-else/OpenScale"
+
+	if reference.Fingerprint() == diverged.Fingerprint() {
+		t.Fatal("deux postes suivant deux dépôts différents portent la même empreinte")
+	}
+}
+
+// TestTheFollowedRepositorySurvivesAnExportWithoutHardware: it is a decision of
+// the cooperative and not a property of one machine, so cloning a station must
+// carry it.
+func TestTheFollowedRepositorySurvivesAnExportWithoutHardware(t *testing.T) {
+	config := loadDelivered(t)
+	config.Update.Repository = "la-cagette/openscale"
+
+	if got := config.Export(false).Update.Repository; got != "la-cagette/openscale" {
+		t.Fatalf("dépôt après export sans matériel = %q", got)
 	}
 }

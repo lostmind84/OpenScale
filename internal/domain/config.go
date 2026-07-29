@@ -9,13 +9,14 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// This file owns the SCHEMA of config.json and its 45 validation controls.
+// This file owns the SCHEMA of config.json and its 48 validation controls.
 //
 // One JSON file, which is also the export format (§11.1): encoding/json serialises
 // the very structure the administration screen edits, so "clone a station" is a
@@ -147,6 +148,7 @@ type Config struct {
 	Journal     JournalConfig     `json:"journal"`
 	Admin       AdminConfig       `json:"admin"`
 	Maintenance MaintenanceConfig `json:"maintenance"`
+	Update      UpdateConfig      `json:"update"`
 
 	// retired holds the dotted paths of the keys control 20 refuses, exactly as they
 	// were found in the file. It is unexported and filled by UnmarshalJSON: a Config
@@ -323,6 +325,39 @@ type MaintenanceConfig struct {
 	DiskAlertMB          int  `json:"disk_alert_mb"`
 }
 
+// DefaultUpdateRepository is the repository a station follows when its file names
+// none.
+//
+// THE ABSENCE OF THE KEY IS LEGAL, and that is deliberate: a file written before
+// this block existed must read back with nothing said. The symmetric mistake --
+// making a new key mandatory -- is what made a station refuse its own delivered
+// configuration on 28/07/2026, and it took seven tests in three packages down at
+// once.
+const DefaultUpdateRepository = "lostmind84/OpenScale"
+
+// UpdateConfig says where this station looks for a newer version of itself.
+//
+// The code is under the AGPL: a cooperative running its own fork must be able to
+// follow it, and that is the whole reason this is a setting rather than a
+// constant.
+//
+// WHAT THE FILE NAMES IS AN owner/repo PAIR AND NEVER A URL. The host is compiled
+// into the binary. A field taking a whole address would turn « save the
+// configuration » into « download code from anywhere, and run it as LocalSystem »
+// -- and writing the configuration is precisely what the administration screen
+// exists to do. Control 48 is what holds that line.
+//
+// It travels in Export(false), so it enters the fingerprint: the four stations of
+// one cooperative must follow the same repository, and a station that diverges is
+// visible on the eight characters a volunteer compares by eye.
+type UpdateConfig struct {
+	Repository string `json:"repository"`
+}
+
+// repositoryShape is control 48: an owner and a repository, nothing else. No
+// scheme, no host, no dots that climb, no third segment.
+var repositoryShape = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,39}/[A-Za-z0-9_.-]{1,100}$`)
+
 // --- JSON, for the three domain types that predate the configuration file ------
 //
 // Their codecs live here rather than beside them on purpose: safeguard.go says what
@@ -458,6 +493,12 @@ func (c *Config) UnmarshalJSON(raw []byte) error {
 		return err
 	}
 	*c = Config(shadow)
+	// A file that names no repository -- one written before this block existed,
+	// or one that carries it empty -- runs on the default. Refusing here would put
+	// a station out of service over a field nobody meant to set.
+	if c.Update.Repository == "" {
+		c.Update.Repository = DefaultUpdateRepository
+	}
 	c.retired = nil
 	scanRetired("", document, &c.retired)
 	return nil
@@ -1248,6 +1289,19 @@ func (c *Config) Validate(reg Registries) []Fault {
 		failWith("catalog.options."+catalogDirectoryOption, []string{CatalogSourceLocalDrop},
 			"%q ne surveille pas un répertoire de cette machine : c'est la source %q qui en surveille un",
 			CatalogSourceWebDAV, CatalogSourceLocalDrop)
+	}
+
+	// 48. update.repository is an owner/repo PAIR, never a URL.
+	//
+	//     This is the only field of the file that says where privileged code will
+	//     come from: the station downloads that repository's release and runs it as
+	//     LocalSystem. Accepting a whole address here would make writing the
+	//     configuration equivalent to running arbitrary code on the four stations.
+	//     The host is compiled in; see UpdateConfig.
+	if !repositoryShape.MatchString(c.Update.Repository) {
+		fail("update.repository",
+			"%q n'est pas un dépôt de la forme propriétaire/projet : ce champ ne prend pas d'adresse web",
+			c.Update.Repository)
 	}
 
 	return faults
