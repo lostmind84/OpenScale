@@ -54,7 +54,7 @@
    *     so — see {@link compared} and {@link versionsStanding};
    *  7. compare `modified_at`, which no two stations can ever share, or the WebDAV
    *     password, which neither document carries in clear (see {@link NOT_COMPARED});
-   *  8. promise less than the truth. The note now names the SIX things §11.5 strips, and
+   *  8. promise less than the truth. The note now names the SEVEN things §11.5 strips, and
    *     the screen names the ones the file came back empty on before « Recopier » copies
    *     that emptiness (see {@link CLONE_STRIPS});
    *  9. throw away half of a refused control: `allowed` carries the values that would
@@ -104,19 +104,29 @@
   /**
    * What a hardware-free export does NOT carry, and the French name of each.
    *
-   * `Config.Export(false)` clears six things — the station number and name, the three
-   * option maps and the whole network block — and the import puts back only the number and
-   * the two secrets. Everything else comes back EMPTY, so those rows of the diff hold
-   * nothing, and « Recopier » copies emptiness as faithfully as it copies a value: the
-   * WebDAV account of the catalog is in that list. This is what the screen has to name
-   * before anybody presses the button.
+   * `Config.Export(false)` clears seven things — the station number and name, the whole
+   * network block, the station-specific keys of the three option maps, and the image path
+   * of the catalog — and the import puts back only the number and the two secrets.
+   * Everything else comes back EMPTY, so those rows of the diff hold nothing, and
+   * « Recopier » copies emptiness as faithfully as it copies a value: the WebDAV account
+   * of the catalog is in that list. This is what the screen has to name before anybody
+   * presses the button.
+   *
+   * The rows watch the exact KEYS the export clears, and no longer the whole option
+   * maps. Watching a map stopped working the day the export kept its shared keys: the
+   * map comes back carrying the separator and the label offset, so it is not blank, so
+   * the warning fell silent — including for the WebDAV account, the emptiness this
+   * screen exists to name. The volunteer would have pressed « Recopier » on a file whose
+   * share address was gone, and nothing would have said so.
    */
   const CLONE_STRIPS: { path: string; name: string }[] = [
     { path: 'station.name', name: 'le nom du poste' },
     { path: 'network.listen', name: 'l’adresse d’écoute' },
-    { path: 'scale.options', name: 'les réglages de la balance' },
-    { path: 'printer.options', name: 'les réglages de l’imprimante' },
-    { path: 'catalog.options', name: 'la source du catalogue, compte compris' },
+    { path: 'scale.options.port', name: 'le port de la balance' },
+    { path: 'printer.options.queue', name: 'la file d’impression' },
+    { path: 'catalog.options.url', name: 'l’adresse du partage' },
+    { path: 'catalog.options.username', name: 'le compte du partage' },
+    { path: 'catalog.images.path', name: 'le chemin des images' },
   ]
 
   let versions = $state<ConfigVersionDTO[]>([])
@@ -664,7 +674,7 @@
 
   <Panel
     title="Exporter, importer"
-    note="Pour installer un autre poste : ce fichier emporte les tarifs, les garde-fous, l’étiquette et les catégories. Tout ce qui est propre à ce poste-ci reste ici — le mot de passe, le code de secours, le numéro et le nom du poste, les réglages de la balance, ceux de l’imprimante, la source du catalogue et le réseau."
+    note="Pour installer un autre poste : ce fichier emporte les tarifs, les garde-fous, l’étiquette, les catégories, et les réglages du matériel que les quatre postes partagent — le décalage d’étiquette, le noircissement, la vitesse, le débit de la balance. Reste ici ce qui désigne ce poste-ci ou ce magasin — le mot de passe, le code de secours, le numéro et le nom du poste, le port de la balance, la file d’impression, l’adresse du partage et son compte, le chemin des images et le réseau."
   >
     <div class="actions">
       <Act

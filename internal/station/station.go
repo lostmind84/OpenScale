@@ -204,7 +204,11 @@ type Station struct {
 	// reason. This one is only ever held across a pointer read or a pointer write.
 	catalogMu     sync.Mutex
 	catalogSource ports.CatalogSource
-	applyCatalog  CatalogApplier
+	// cancelCatalogRead ends the read the watch is blocked in. Next returns on a
+	// batch, an error or a cancellation and on NOTHING else, so a source that finds
+	// nothing never gives the watch a chance to notice it was replaced.
+	cancelCatalogRead context.CancelFunc
+	applyCatalog      CatalogApplier
 
 	newScale         ScaleFactory
 	newPrinter       PrinterFactory
@@ -782,12 +786,35 @@ func (s *Station) currentCatalogSource() ports.CatalogSource {
 // swapCatalogSource puts next in service and returns the one it replaced, so the
 // caller closes the old source OUTSIDE the lock — Close talks to a file system or to
 // a WebDAV server and has no business being held against the watch loop.
+//
+// It also ENDS the read in flight. Without that, the swap changes what a getter
+// answers and nothing else: the watch stays parked in the source it just replaced,
+// for as long as the process lives, and a station pointed at a share goes on watching
+// an empty drop folder until somebody restarts the service.
 func (s *Station) swapCatalogSource(next ports.CatalogSource) ports.CatalogSource {
 	s.catalogMu.Lock()
 	defer s.catalogMu.Unlock()
 	previous := s.catalogSource
 	s.catalogSource = next
+	if s.cancelCatalogRead != nil {
+		s.cancelCatalogRead()
+		s.cancelCatalogRead = nil
+	}
 	return previous
+}
+
+// beginCatalogRead hands back the source in service and the context to read it with.
+//
+// The context ends with the parent or with the next swap, whichever comes first, and
+// the returned func ends it once the read is over. It is handed out EVEN WHEN THERE IS
+// NO SOURCE: a station whose share was unreachable at boot starts without one, and
+// waiting on that context is how it notices the one a reload puts in service.
+func (s *Station) beginCatalogRead(parent context.Context) (ports.CatalogSource, context.Context, context.CancelFunc) {
+	s.catalogMu.Lock()
+	defer s.catalogMu.Unlock()
+	ctx, cancel := context.WithCancel(parent)
+	s.cancelCatalogRead = cancel
+	return s.catalogSource, ctx, cancel
 }
 
 // watchCatalog reads whole catalogs from the source and hands them to the loop.
@@ -797,14 +824,31 @@ func (s *Station) swapCatalogSource(next ports.CatalogSource) ports.CatalogSourc
 func (s *Station) watchCatalog(ctx context.Context) {
 	defer close(s.catalogDone)
 	for {
-		source := s.currentCatalogSource()
+		source, readCtx, endRead := s.beginCatalogRead(ctx)
 		if source == nil {
-			<-ctx.Done()
-			return
+			// Wait for one to arrive rather than for the end of the process: the
+			// station was started with an unbuildable source, and the volunteer is
+			// about to repair it on the screen.
+			<-readCtx.Done()
+			endRead()
+			if ctx.Err() != nil {
+				return
+			}
+			continue
 		}
-		batch, err := source.Next(ctx)
+		batch, err := source.Next(readCtx)
+		// READ BEFORE ENDING IT: endRead cancels this very context, so asking
+		// afterwards answers « replaced » for every batch the source ever yields.
+		replaced := readCtx.Err() != nil
+		endRead()
 		if ctx.Err() != nil {
 			return
+		}
+		// A read ended by the swap and not by the source: the station has a new source
+		// and this loop reads it now. It is not a failure and it says nothing in the
+		// journal — the reload already wrote what changed.
+		if replaced {
+			continue
 		}
 		if err != nil {
 			s.hub.logTechnical(domain.LevelWarn, "catalog", "ERR-CAT-03",

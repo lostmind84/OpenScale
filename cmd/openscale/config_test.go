@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -26,6 +30,21 @@ func deliveredConfig(t *testing.T) string {
 // then do their own two hardware steps — a different COM port, a different print queue, a
 // different number, a different name, a different listen address. The four stations must
 // display ONE string of eight characters, or the check is worthless.
+//
+// # Why each hardware step sets ONE KEY and never replaces the block
+//
+// Since the export stopped dropping the option maps whole, Fingerprint compares what
+// those maps hold -- the label offset, the darkness, the speed, the serial settings.
+// Writing `cloned.Scale.Options = DriverOptions{"port": "COM3"}` would therefore not
+// merely name a port: it would throw away the baud rate, the parity and the reconnection
+// backoff the clone had just delivered. Two stations identical in every respect would
+// then show two different strings, and the one check a volunteer can do by eye would be
+// reporting a divergence the test itself invented.
+//
+// It is written this way because it is what the ADMINISTRATION SCREEN does (§15.5): the
+// two steps after an import are « choisissez le port » and « choisissez la file », one
+// field each, and the file behind them keeps every key nobody touched. A screen that
+// rewrote the whole block on one edit would be the bug this test would then be blessing.
 func TestCloningAStationShowsTheSAMEEightCharacters(t *testing.T) {
 	out := &strings.Builder{}
 	export := filepath.Join(t.TempDir(), "config-export.json")
@@ -56,10 +75,12 @@ func TestCloningAStationShowsTheSAMEEightCharacters(t *testing.T) {
 		cloned := exported
 		cloned.Station.Number, cloned.Station.Name = station.number, station.name
 		cloned.Network.Listen = station.listen
-		// The two hardware steps of §15.5, done on the screen after the import.
-		cloned.Scale.Options = rawOptions(t, map[string]any{"port": station.port, "baud": 9600})
-		cloned.Printer.Options = rawOptions(t, map[string]any{
-			"transport": "winspool", "queue": station.queue})
+		// The two hardware steps of §15.5, done on the screen after the import: ONE
+		// field each, on top of the options the clone delivered. See the head of this
+		// test for why replacing the block instead would make two homogeneous stations
+		// diverge.
+		cloned.Scale.Options = exported.Scale.Options.WithText("port", station.port)
+		cloned.Printer.Options = exported.Printer.Options.WithText("queue", station.queue)
 
 		path := filepath.Join(t.TempDir(), "config.json")
 		writeJSONConfig(t, path, cloned)
@@ -351,16 +372,143 @@ func writeJSONConfig(t *testing.T, path string, cfg domain.Config) {
 	}
 }
 
-// rawOptions builds one driver options block.
-func rawOptions(t *testing.T, values map[string]any) map[string]json.RawMessage {
-	t.Helper()
-	out := make(map[string]json.RawMessage, len(values))
-	for key, value := range values {
-		raw, err := json.Marshal(value)
-		if err != nil {
-			t.Fatalf("encodage de l'option %s : %v", key, err)
-		}
-		out[key] = raw
+// siteValueShapes are the FORMS a value that designates a site takes, whatever it
+// contains: an address of any scheme, a UNC share, a lettered drive, a host on the
+// wire, a mailbox.
+//
+// Shapes and not values, because docs/00-donnees-retirees.md already paid for the
+// other approach: the first sweep of this repository « cherchait des motifs DEVINÉS
+// […] au lieu du motif GÉNÉRIQUE d'une adresse », two addresses on a neighbouring
+// domain went through it, and the history had to be rewritten a second time. A net
+// woven from the values one fixture happens to carry catches nothing else.
+//
+// They are deliberately narrow enough to stay silent on what an export legitimately
+// carries: a category colour (#C0392B), a template name, a rounding word and the
+// « config.json.1 à .5 » of the _readme. A bare-domain shape would have flagged that
+// last one, which is how a net earns the right to be ignored.
+var siteValueShapes = []struct {
+	what  string
+	shape *regexp.Regexp
+}{
+	{"une URL", regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://`)},
+	{"un chemin UNC", regexp.MustCompile(`\\\\[^\\]+\\`)},
+	{"un chemin avec lettre de lecteur", regexp.MustCompile(`(?i)\b[a-z]:[\\/]`)},
+	{"une adresse IPv4", regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}\b`)},
+	{"une adresse de courriel", regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)},
+}
+
+// TestTheDeliveredExportShipsNoHostNoAccountNoQueue is the net under the strip list.
+//
+// It asserts on the SHAPE of every string the export carries, so it bites the day
+// somebody ships a host, a share or an account this file has never heard of — which
+// the previous version could not do: it looked for the five literals of the fixture,
+// all five already stripped, while catalog.images.path walked a NAS name straight out
+// of the door. The archive is published on GitHub: what leaves here leaves for good.
+//
+// The five literals stay underneath. They cost nothing and they pin the regression
+// that was found by hand, at the exact values that were found.
+func TestTheDeliveredExportShipsNoHostNoAccountNoQueue(t *testing.T) {
+	raw, err := os.ReadFile(deliveredConfig(t))
+	if err != nil {
+		t.Fatalf("lecture de la configuration livrée : %v", err)
 	}
-	return out
+	var delivered domain.Config
+	if err := json.Unmarshal(raw, &delivered); err != nil {
+		t.Fatalf("décodage de la configuration livrée : %v", err)
+	}
+
+	refuseSiteValues(t, "la configuration livrée", delivered.Export(false))
+
+	// And the same export for a cooperative whose site values share NOTHING with the
+	// five below: another host, another account, another queue, another port, a print
+	// spool on a drive letter, and the photo share of a NAS. Only a shape catches those.
+	elsewhere := delivered
+	elsewhere.Scale.Options = delivered.Scale.Options.WithText("port", "COM9")
+	elsewhere.Printer.Options = delivered.Printer.Options.
+		WithText("queue", "Zebra ZD421_7").
+		WithText("address", "192.168.0.43:9100").
+		WithText("path", `D:\spool\etiquettes`)
+	elsewhere.Catalog.Options = delivered.Catalog.Options.
+		WithText("url", "https://partage.exemple.lan:8443/dav/").
+		WithText("username", "poste-pesee")
+	elsewhere.Catalog.Images.Path = `\\nas.exemple.lan\photos\produits`
+	refuseSiteValues(t, "une configuration d'un autre site", elsewhere.Export(false))
+
+	shipped, err := json.Marshal(delivered.Export(false))
+	if err != nil {
+		t.Fatalf("encodage de l'export : %v", err)
+	}
+	forbidden := map[string]string{
+		"dav.example.org": "un nom d'hôte",
+		"balance":         "un compte",
+		"SATO WS408_2":    "une file d'impression",
+		"SATO WS408_3":    "une file d'impression de repli",
+		"COM8":            "un port série",
+	}
+	for value, what := range forbidden {
+		if bytes.Contains(shipped, []byte(value)) {
+			t.Errorf("le fichier livré porte %s (%q) : il est publié sur GitHub et installé sur quatre postes",
+				what, value)
+		}
+	}
+}
+
+// refuseSiteValues fails on every string of the export whose shape designates a site.
+func refuseSiteValues(t *testing.T, subject string, exported domain.Config) {
+	t.Helper()
+	carried := stringsCarriedBy(t, exported)
+	paths := make([]string, 0, len(carried))
+	for path := range carried {
+		paths = append(paths, path)
+	}
+	// Sorted, so that two runs name the offending fields in the same order.
+	sort.Strings(paths)
+	for _, path := range paths {
+		for _, form := range siteValueShapes {
+			if form.shape.MatchString(carried[path]) {
+				t.Errorf("l'export de %s porte %s en %s (%q) : l'archive est publiée sur "+
+					"GitHub et installée sur quatre postes", subject, form.what, path, carried[path])
+			}
+		}
+	}
+}
+
+// stringsCarriedBy reports every string an export carries, keyed by its dotted path.
+//
+// It walks the DOCUMENT rather than the Go structure so that no field can escape by
+// being typed instead of being a key of a DriverOptions map — which is exactly how
+// catalog.images.path escaped the strip list. The path is what makes a failure
+// actionable: it names the field a volunteer has to go and empty.
+func stringsCarriedBy(t *testing.T, exported domain.Config) map[string]string {
+	t.Helper()
+	raw, err := json.Marshal(exported)
+	if err != nil {
+		t.Fatalf("encodage de l'export : %v", err)
+	}
+	var document any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("relecture de l'export : %v", err)
+	}
+	found := make(map[string]string)
+	collectStrings("", document, found)
+	return found
+}
+
+func collectStrings(path string, value any, out map[string]string) {
+	switch typed := value.(type) {
+	case string:
+		out[path] = typed
+	case map[string]any:
+		for key, nested := range typed {
+			child := key
+			if path != "" {
+				child = path + "." + key
+			}
+			collectStrings(child, nested, out)
+		}
+	case []any:
+		for index, item := range typed {
+			collectStrings(fmt.Sprintf("%s[%d]", path, index), item, out)
+		}
+	}
 }
