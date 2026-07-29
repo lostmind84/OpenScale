@@ -125,9 +125,18 @@ export interface ScaleDTO {
   too_slow: boolean
 }
 
+/**
+ * The four tokens `printer.health` can carry, and nothing else.
+ *
+ * They mirror `printerHealthName` in `internal/web/dto.go`, which is the only place
+ * that spells them. `unknown` is the HONEST answer of a one-way transport, not a
+ * failure — a RAW queue takes the bytes and never answers back.
+ */
+export type PrinterHealth = 'ready' | 'consumable' | 'faulted' | 'unknown'
+
 /** La dernière chose que le superviseur a vue de l'imprimante. */
 export interface PrinterDTO {
-  health: string
+  health: PrinterHealth
   detail: string
   pending_jobs_count: number
   observed_at: string
