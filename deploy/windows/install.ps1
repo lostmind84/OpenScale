@@ -222,6 +222,15 @@ else {
 }
 
 # --- 4. Service et tâche du kiosque ------------------------------------------------
+# Le service est en démarrage automatique DIFFÉRÉ (internal/platform/service_windows.go) :
+# les disques, la pile réseau et le spouleur d'impression passent devant. Windows fixe ce
+# différé à 120 s par défaut, et personne ne l'a choisi — mesuré sur PC-RECEPTION le
+# 29/07/2026 : démarrage à 17:47:54, service à 17:50:11, soit deux minutes pendant
+# lesquelles le kiosque n'avait rien d'autre à afficher que sa page d'attente. 20 s
+# laissent passer ce qui doit passer sans faire attendre le premier client du samedi.
+Set-ItemProperty $script:ServiceControlKey 'AutoStartDelay' $script:AutoStartDelaySeconds -Type DWord
+Write-Step "démarrage différé des services ramené à $($script:AutoStartDelaySeconds) s (défaut Windows : 120 s)" $paths.LogFile
+
 $startMode = if ($Pilot) { 'demand' } else { 'auto' }
 & $paths.Binary service install --start $startMode --config $paths.Config --data $paths.DataDir
 Assert-Success 'openscale service install'

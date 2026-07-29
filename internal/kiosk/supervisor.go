@@ -25,6 +25,17 @@ const (
 	// One second: a customer watching « Le poste redémarre… » is watching a station
 	// that is about to work, and the wait must not be added to the service's own.
 	StationRecheck = 1 * time.Second
+	// StartGrace is how long a station that has NEVER answered is given before anything
+	// is put on the screen.
+	//
+	// It buys the ordinary cold boot: the kiosk task fires five seconds after logon, the
+	// service is on delayed automatic start, and the twenty seconds below cover the gap
+	// on a station whose AutoStartDelay has been shortened. Inside the grace the screen
+	// stays black — which is what a machine that has just booted looks like anyway —
+	// instead of showing a page for a few seconds and then restarting the browser in
+	// front of whoever is watching. Beyond it, the page appears: a grace that never ended
+	// would be a black screen nobody can read.
+	StartGrace = 20 * time.Second
 	// ProbeBudget bounds one liveness question. It is a network deadline, spent in the
 	// kernel's TCP stack, and no business decision rests on it.
 	ProbeBudget = 2 * time.Second
@@ -75,9 +86,16 @@ type Options struct {
 type Supervisor struct {
 	options Options
 	crashes CrashCounter
-	// rescue is the file:// URL of the local page, written at start and rewritten when
-	// the crash-loop threshold is crossed.
+	// rescue is the file:// URL of the local page, written at start and rewritten
+	// whenever the reason it carries changes.
 	rescue string
+	// rescueReason is what the page on disk currently says, so that it is rewritten when
+	// the answer changes and never once per relaunch.
+	rescueReason RescueReason
+	// answered is true once the station has served at least one /healthz in the life of
+	// this supervisor. It is what tells « the poste is starting » from « the poste is
+	// coming back », which are the same silence and two different sentences.
+	answered bool
 	// rescueMode is true once §15.2's twenty-first quick death has happened. Nothing
 	// clears it: the page says « prévenez un responsable », and a supervisor that
 	// silently went back to a screen it had just declared broken would make that
@@ -123,15 +141,20 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		// consequence, and the line below is what a volunteer reads afterwards.
 		s.logf("le profil du navigateur n'a pas pu être effacé : %v", err)
 	}
-	rescue, err := WriteRescuePage(s.options.ProfileDir, RescueWaiting, s.options.URL, 0)
+	// Written here and not at the first need: a profile directory that refuses to be
+	// written to is a station that will never show anything, and it must fail now rather
+	// than in front of a customer.
+	rescue, err := WriteRescuePage(s.options.ProfileDir, RescueStarting, s.options.URL, 0)
 	if err != nil {
 		return err
 	}
-	s.rescue = rescue
+	s.rescue, s.rescueReason = rescue, RescueStarting
 
 	go s.keepAwake(ctx)
 
 	s.logf("superviseur démarré : %s sur %s", s.options.Browser.Name, s.options.URL)
+	s.awaitStation(ctx)
+
 	first := true
 	for ctx.Err() == nil {
 		if !first && !s.pause(ctx, RelaunchDelay) {
@@ -141,6 +164,51 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		s.showOnce(ctx)
 	}
 	return nil
+}
+
+// awaitStation gives a station that has never answered StartGrace to come up, showing
+// nothing at all in the meantime.
+//
+// It runs ONCE, before the first browser of this supervisor. Afterwards a station that
+// goes silent gets the waiting page inside the two seconds §15.2 promises: the grace
+// covers a boot, not a failure, and re-serving it later would turn a browser that died at
+// noon into twenty seconds of black screen in front of the queue.
+func (s *Supervisor) awaitStation(ctx context.Context) {
+	if s.answering(ctx) {
+		return
+	}
+	s.logf("le poste ne répond pas encore : %s d'attente avant d'afficher quoi que ce soit", StartGrace)
+
+	ticks, stop := s.options.Clock.Ticker(StationRecheck)
+	defer stop()
+	grace := s.options.Clock.After(StartGrace)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-grace:
+			s.logf("le poste n'a pas répondu en %s : page de démarrage", StartGrace)
+			return
+		case <-ticks:
+			if s.answering(ctx) {
+				return
+			}
+		}
+	}
+}
+
+// answering reports whether the station serves, and remembers a yes for good.
+//
+// The budget is spent in the kernel's TCP stack and bounds one question, never a business
+// decision — the same ProbeBudget the liveness probe carries on its own client.
+func (s *Supervisor) answering(ctx context.Context) bool {
+	probeCtx, cancel := ports.WithBudget(ctx, s.options.Clock, ProbeBudget)
+	defer cancel()
+	if !s.options.Alive(probeCtx) {
+		return false
+	}
+	s.answered = true
+	return true
 }
 
 // showOnce launches the browser once and returns when it has died — or when the
@@ -212,7 +280,7 @@ func (s *Supervisor) watch(ctx context.Context, process Process, exited <-chan s
 			s.logf("superviseur arrêté")
 			return stopped
 		case <-recheck:
-			if s.options.Alive(ctx) {
+			if s.answering(ctx) {
 				s.logf("le poste répond de nouveau : retour à l'écran client")
 				_ = process.Kill()
 				<-exited
@@ -234,13 +302,35 @@ func (s *Supervisor) target(ctx context.Context) (string, bool) {
 	if s.rescueMode {
 		return s.rescue, false
 	}
-	probeCtx, cancel := ports.WithBudget(ctx, s.options.Clock, ProbeBudget)
-	defer cancel()
-	if s.options.Alive(probeCtx) {
+	if s.answering(ctx) {
 		return s.options.URL, false
 	}
-	s.logf("le poste ne répond pas encore sur %s : page de secours", s.options.URL)
+	reason := RescueStarting
+	if s.answered {
+		reason = RescueWaiting
+	}
+	s.logf("le poste ne répond pas sur %s : %s", s.options.URL, rescueTitle(reason))
+	s.showRescue(reason)
 	return s.rescue, true
+}
+
+// showRescue rewrites the local page when what it has to say has changed.
+//
+// When it has changed, and not before every launch: the page is rewritten twice in the
+// life of an ordinary station — never, or once when a station that had answered goes
+// silent — and a file rewritten every second would be a disk woken up for nothing.
+func (s *Supervisor) showRescue(reason RescueReason) {
+	if s.rescueReason == reason {
+		return
+	}
+	page, err := WriteRescuePage(s.options.ProfileDir, reason, s.options.URL, s.crashes.ShortLives())
+	if err != nil {
+		// The page already on disk carries the other wording, which is still true enough
+		// to read: showing it beats showing the browser's own error page.
+		s.logf("la page locale n'a pas pu être réécrite : %v", err)
+		return
+	}
+	s.rescue, s.rescueReason = page, reason
 }
 
 // enterRescue rewrites the local page with the crash-loop wording of §15.2 and points
@@ -259,13 +349,7 @@ func (s *Supervisor) enterRescue() {
 	s.rescueMode = true
 	s.logf("%s : %d arrêts de moins de %s dans la dernière heure — page de secours",
 		CodeCrashLoop, s.crashes.ShortLives(), ShortLife)
-	page, err := WriteRescuePage(s.options.ProfileDir, RescueCrashLoop,
-		s.options.URL, s.crashes.ShortLives())
-	if err != nil {
-		s.logf("la page de secours n'a pas pu être écrite : %v", err)
-		return
-	}
-	s.rescue = page
+	s.showRescue(RescueCrashLoop)
 }
 
 // wipeProfile removes the dedicated browser profile.

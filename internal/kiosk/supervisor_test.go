@@ -119,6 +119,40 @@ func newBench(t *testing.T) *bench {
 	return b
 }
 
+// advance moves the fake clock in small steps, letting the supervisor run between
+// them.
+//
+// In small steps and not one jump: a jump delivers the whole grace period before the
+// supervisor has reached its first probe, and the test would then prove that a
+// supervisor which never looked at the clock waits correctly.
+func (b *bench) advance(d time.Duration) {
+	const step = 100 * time.Millisecond
+	for elapsed := time.Duration(0); elapsed < d; elapsed += step {
+		b.clock.Advance(step)
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// nothingLaunched reports whether the browser has stayed closed.
+func (b *bench) nothingLaunched() bool {
+	select {
+	case <-b.launched:
+		return false
+	default:
+		return true
+	}
+}
+
+// rescuePage is the local page as it stands on disk right now.
+func (b *bench) rescuePage(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(b.profile, RescueFileName))
+	if err != nil {
+		t.Fatalf("relecture de la page de secours : %v", err)
+	}
+	return string(raw)
+}
+
 // targetOf reads the URL out of a command line, which is the argument right after
 // --kiosk.
 func targetOf(arguments []string) string {
@@ -173,12 +207,13 @@ func TestTheClientScreenComesBackInUnderTwoSeconds(t *testing.T) {
 	}
 }
 
-// TestAStationThatDoesNotAnswerYetShowsTheWaitingPage is the ten seconds after a power
-// cut: the scheduled task fires at logon, the service is still opening its database, and
-// a customer must read a sentence instead of a browser error page.
+// TestAStationThatDoesNotAnswerYetShowsTheWaitingPage is what follows the grace period:
+// the service is taking longer than StartGrace, and a customer must read a sentence
+// instead of a browser error page.
 func TestAStationThatDoesNotAnswerYetShowsTheWaitingPage(t *testing.T) {
 	b := newBench(t)
 	b.alive.Store(false)
+	b.advance(StartGrace)
 
 	first, target := b.nextLaunch(t)
 	if !strings.HasPrefix(target, "file:///") {
@@ -199,6 +234,93 @@ func TestAStationThatDoesNotAnswerYetShowsTheWaitingPage(t *testing.T) {
 		t.Error("la page de secours n'a pas été refermée")
 	}
 	second.die()
+}
+
+// TestNothingIsShownWhileTheServiceIsStillStarting is the grace period of §15.2.
+//
+// At a cold boot the station is not DOWN, it is starting: the scheduled task fires five
+// seconds after logon and the service, on delayed automatic start, answers later. A page
+// that appears for those few seconds and is then replaced by a browser relaunch reads, to
+// whoever is standing in front of the screen, as a station that failed and recovered by
+// itself. Showing nothing at all is both truer and less alarming — the machine has just
+// booted, a black screen is what one expects.
+func TestNothingIsShownWhileTheServiceIsStillStarting(t *testing.T) {
+	b := newBench(t)
+	b.alive.Store(false)
+
+	b.advance(StartGrace / 2)
+	if !b.nothingLaunched() {
+		t.Fatal("un navigateur a été lancé pendant le délai de grâce")
+	}
+
+	// The service finishes starting inside the grace: the browser must then open ONCE,
+	// straight on the client screen, and the customer never sees a local page.
+	b.alive.Store(true)
+	process, target := b.nextLaunch(t)
+	if target != b.stationOK {
+		t.Fatalf("le poste a répondu pendant le délai de grâce, navigateur ouvert sur %q", target)
+	}
+	defer process.die()
+	if !b.nothingLaunched() {
+		t.Fatal("le navigateur a été lancé deux fois : le client verrait un redémarrage")
+	}
+}
+
+// TestTheGraceIsBoundedAndEndsOnTheStartingPage keeps the grace from becoming a black
+// screen nobody can read.
+//
+// A service that never comes up — a database that will not open, a port already taken —
+// must end on a sentence, not on the desktop of the station account.
+func TestTheGraceIsBoundedAndEndsOnTheStartingPage(t *testing.T) {
+	b := newBench(t)
+	b.alive.Store(false)
+	b.advance(StartGrace)
+
+	_, target := b.nextLaunch(t)
+	if !strings.HasPrefix(target, "file:///") {
+		t.Fatalf("après le délai de grâce, ouvert sur %q au lieu de la page locale", target)
+	}
+	if page := b.rescuePage(t); !strings.Contains(page, rescueTitle(RescueStarting)) {
+		t.Fatalf("la page ouverte ne dit pas %q", rescueTitle(RescueStarting))
+	}
+}
+
+// TestTheWordingChangesOnceTheStationHasAnswered is why there are two waiting reasons
+// rather than one.
+//
+// « Le poste redémarre… » describes a station that is COMING BACK, and at a cold boot it
+// is simply false: nothing has restarted. Once the station has answered at least once, it
+// becomes the true sentence, and the same page must say so.
+//
+// The second thing this proves: the grace period is served ONCE. A browser that dies
+// while the station is down comes back on the waiting page inside the two seconds §15.2
+// promises, and not after another grace period of black screen.
+func TestTheWordingChangesOnceTheStationHasAnswered(t *testing.T) {
+	b := newBench(t)
+
+	first, target := b.nextLaunch(t)
+	if target != b.stationOK {
+		t.Fatalf("premier lancement sur %q, attendu l'écran client", target)
+	}
+
+	b.alive.Store(false)
+	died := b.clock.Now()
+	first.die()
+
+	_, target = b.nextLaunch(t)
+	if !strings.HasPrefix(target, "file:///") {
+		t.Fatalf("poste devenu muet : ouvert sur %q, attendu la page locale", target)
+	}
+	if elapsed := b.clock.Now().Sub(died); elapsed >= 2*time.Second {
+		t.Fatalf("page d'attente revenue après %s : le délai de grâce a été resservi", elapsed)
+	}
+	page := b.rescuePage(t)
+	if !strings.Contains(page, rescueTitle(RescueWaiting)) {
+		t.Fatalf("un poste qui a déjà répondu doit lire %q", rescueTitle(RescueWaiting))
+	}
+	if strings.Contains(page, rescueTitle(RescueStarting)) {
+		t.Fatalf("la page dit encore %q alors que le poste avait répondu", rescueTitle(RescueStarting))
+	}
 }
 
 // TestTheTwentyFirstQuickDeathOpensTheRescuePage is the anti-flicker rule of §15.2, end

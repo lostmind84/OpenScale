@@ -3,14 +3,39 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
-**Les compteurs, mesurés le 29/07/2026 après la série de sept chantiers.** **2 562 tests
-Go** verts sur 31 paquets — 0 échec, 5 écartés, contre 2 352 avant la série — et **764 tests
+**Les compteurs, mesurés le 29/07/2026 après la série de sept chantiers.** **2 572 tests
+Go** verts sur 31 paquets — 0 échec, 5 écartés, contre 2 352 avant la série, dont 10
+viennent du correctif du démarrage à froid intégré depuis `main` — et **764 tests
 front** sur 34 fichiers, 0 échec, contre 686 sur 31 fichiers. `gofmt` propre, `go vet` vert,
 `svelte-check` sur 338 fichiers sans une erreur ni un avertissement, et les deux gardes du
 dépôt, `boundary` et `deps`, vertes. Le bundle de l'écran client reconstruit pèse **79 429
 octets gzip, soit 70,5 % du budget de 112 640** — 33 211 octets de marge. La passe `-race`
 **n'a pas pu être jouée sur ce poste** : elle exige cgo, le dépôt est en zéro cgo et il n'y
 a pas de gcc ici. La CI Linux est seule à la couvrir, et c'est d'elle qu'il faut l'exiger.
+
+**Le démarrage à froid de la v0.6 montrait une panne qui n'existait pas (29/07/2026).**
+Poste redémarré après l'installation : session `openscale` ouverte seule, puis une page
+blanche pendant deux minutes, puis un redémarrage du navigateur que personne n'avait
+demandé. Rien n'était cassé — c'est l'addition de deux mécanismes voulus. Le service est en
+démarrage automatique **différé** et Windows fixe ce différé à **120 s** par défaut
+(`AutoStartDelay` absent du registre) ; la tâche du kiosque, elle, part 5 s après
+l'ouverture de session. Mesuré : démarrage `17:47:54`, kiosque `17:48:15`, service
+`17:50:11`, navigateur relancé sur l'écran client `17:50:12`. Le « redémarrage » observé
+**était** le mécanisme de retour du superviseur, pas la panne.
+
+Ce qui a été fait, dans l'ordre où ça se voit à l'écran :
+
+| # | Correction | État |
+|---|---|---|
+| 1 | `AutoStartDelay = 20` posé par `install.ps1`, sauvegardé et restauré comme les autres réglages écrasés | ✅ |
+| 2 | Délai de grâce de 20 s : rien n'est affiché tant que le poste n'a jamais répondu | ✅ |
+| 3 | Deux formulations d'attente — « Application en cours de démarrage… » puis « Le poste redémarre… » — et trois points animés en CSS | ✅ |
+| 4 | `C:\ProgramData\OpenScale\kiosk.log` : la sortie du superviseur n'allait nulle part | ✅ |
+
+Le diagnostic a dû se faire à la pince — heures de création des processus, journal système —
+faute justement de ce journal. **Reste ouvert** : `kiosk.log` n'est pas dans
+`diagnostic.zip`, ce qui oblige `TROUBLESHOOTING.md` à demander un second fichier alors que
+la promesse était « le fichier de diagnostic, et lui seul ».
 
 **La mise à jour se déclenche depuis l'écran, et elle est livrée (29/07/2026).** ADR-040 :
 le poste sonde une fois par jour l'API des publications du dépôt suivi, porte une pastille
