@@ -326,15 +326,13 @@ func (w *corpusWriter) header(req captureRequest, start time.Time) error {
 func (w *corpusWriter) feed(p []byte, now time.Time) error {
 	w.pending = append(w.pending, p...)
 	for {
-		end := indexTerminator(w.pending)
-		if end < 0 {
+		// frame.FrameEnd and NOT a terminator search of our own: a GRAM XFOC PLUS
+		// delimits with control codes and sends no CR or LF at all, so a writer that
+		// looked for line endings wrote a file with no frames in it while the summary
+		// above it counted 194. The package that decodes decides where a frame ends.
+		consumed := frame.FrameEnd(w.pending)
+		if consumed < 0 {
 			return nil
-		}
-		consumed := end + 1
-		// CRLF counts as ONE terminator, as it does in frame.Accumulator: the two halves
-		// of a line ending must not become two lines.
-		if w.pending[end] == '\r' && consumed < len(w.pending) && w.pending[consumed] == '\n' {
-			consumed++
 		}
 		line := w.pending[:consumed]
 		w.pending = w.pending[consumed:]

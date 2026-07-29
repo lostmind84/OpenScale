@@ -467,3 +467,120 @@ func absGrams(g domain.Grams) domain.Grams {
 	}
 	return g
 }
+
+// --- The frames a real GRAM XFOC PLUS sends ---------------------------------
+//
+// Every literal below was captured on the L0 bench of 28/07/2026 from the scale on
+// COM7, and not one of them is what §9.2 described. The document had the grammar of
+// the CONTENT right and everything around it wrong, which is exactly what a bench is
+// for.
+
+// benchStable, benchZero and benchNegative are three real frames, byte for byte.
+//
+//	SOH STX  state sign weight(6) unit(2)  XOR  ETX EOT  flags     16 bytes
+//
+// The flags byte carries 0x80 when the mass is negative — 79 frames out of 79 in the
+// capture — and 0x10 near zero. It is READ BY NOTHING: the sign is already in the
+// payload, and a second source for the same fact is a second thing to keep in step.
+const (
+	benchZero     = "\x01\x02S  0,000KGs\x03\x04\x10"
+	benchStable   = "\x01\x02S  0,002KGq\x03\x04\x00"
+	benchNegative = "\x01\x02U- 0,002KGz\x03\x04\x90"
+)
+
+// TestTheBenchFramesDecodeAsTheScaleSentThem is the whole point of the L0 bench.
+func TestTheBenchFramesDecodeAsTheScaleSentThem(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		raw       string
+		grams     domain.Grams
+		stability domain.Stability
+	}{
+		{"plateau vide, stable", benchZero, 0, domain.Stable},
+		{"deux grammes, stable", benchStable, 2, domain.Stable},
+		{"deux grammes negatifs, instable", benchNegative, -2, domain.Unstable},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var a Accumulator
+			got := a.Feed([]byte(c.raw), t0)
+			if len(got) != 1 {
+				t.Fatalf("%d mesure(s) pour une trame entière : %q", len(got), c.raw)
+			}
+			if got[0].Gross != c.grams {
+				t.Errorf("masse = %d g, attendu %d", got[0].Gross, c.grams)
+			}
+			if got[0].Stability != c.stability {
+				t.Errorf("stabilité = %v, attendu %v", got[0].Stability, c.stability)
+			}
+		})
+	}
+}
+
+// TestTheStatusLetterNeedsNoComma pins the one thing §9.2 got wrong about the
+// content: it made the comma after the status MANDATORY, so « S  0,002KG » — what the
+// scale actually sends — was refused as having no number.
+func TestTheStatusLetterNeedsNoComma(t *testing.T) {
+	for _, c := range []struct {
+		raw       string
+		grams     domain.Grams
+		stability domain.Stability
+	}{
+		{"S  0,002KG", 2, domain.Stable},
+		{"U  1,724KG", 1_724, domain.Unstable},
+		{"U- 0,432KG", -432, domain.Unstable},
+		// The comma form of the document still works: two scales, one grammar.
+		{"ST,GS,+  1.236KG", 1_236, domain.Stable},
+	} {
+		t.Run(c.raw, func(t *testing.T) {
+			m, err := Parse([]byte(c.raw), t0)
+			if err != nil {
+				t.Fatalf("Parse(%q) : %v", c.raw, err)
+			}
+			if m.Gross != c.grams {
+				t.Errorf("masse = %d g, attendu %d", m.Gross, c.grams)
+			}
+			if m.Stability != c.stability {
+				t.Errorf("stabilité = %v, attendu %v", m.Stability, c.stability)
+			}
+		})
+	}
+}
+
+// TestAFrameWithAWrongChecksumIsDropped is « we do not guess » applied to the one
+// piece of evidence the scale hands us about its own transmission.
+//
+// The XOR of the payload travels in the frame, and the 668 frames of the bench
+// capture all agree with it. A frame that does not agree has been corrupted on the
+// wire, and a corrupted mass is a wrong price on a label.
+func TestAFrameWithAWrongChecksumIsDropped(t *testing.T) {
+	corrupted := []byte(benchStable)
+	corrupted[12] ^= 0xFF // the checksum byte, flipped
+
+	var a Accumulator
+	if got := a.Feed(corrupted, t0); len(got) != 0 {
+		t.Errorf("%d mesure(s) sur une somme de contrôle fausse : %v", len(got), got)
+	}
+}
+
+// TestBackToBackBenchFramesAllDecode replays what the port really delivers: frames
+// glued together with no separator, at 96 ms and 16 bytes apiece.
+func TestBackToBackBenchFramesAllDecode(t *testing.T) {
+	stream := strings.Repeat(benchStable, 50)
+
+	var a Accumulator
+	got := a.Feed([]byte(stream), t0)
+	if len(got) != 50 {
+		t.Fatalf("%d mesures sur 50 trames collées", len(got))
+	}
+	for i, m := range got {
+		if m.Gross != 2 {
+			t.Fatalf("trame %d : %d g, attendu 2", i, m.Gross)
+		}
+	}
+	// What is left is the EOT and the flag byte of the LAST frame, which the extractor
+	// deliberately leaves behind as noise for the next call. Two bytes, whatever the
+	// number of frames — the assertion that matters is that it does not grow.
+	if a.Pending() > 2 {
+		t.Errorf("%d octets en attente après 50 trames : le tampon accumule", a.Pending())
+	}
+}

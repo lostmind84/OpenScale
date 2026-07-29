@@ -59,9 +59,13 @@ func TestLivingCorpusDecodesAsRecorded(t *testing.T) {
 				t.Errorf("pending = %d > MaxBuffer", accumulator.Pending())
 			}
 
+			// Comments do not count, and the format says so: `openscale capture` writes
+			// a header explaining itself and states that a line beginning with # is a
+			// comment. A test that counted them would demand a measurement per line of
+			// prose, which is how the first real capture arrived here already red.
 			lines := 0
 			for _, line := range strings.Split(string(raw), "\n") {
-				if strings.TrimSpace(line) != "" {
+				if trimmed := strings.TrimSpace(line); trimmed != "" && !strings.HasPrefix(trimmed, "#") {
 					lines++
 				}
 			}

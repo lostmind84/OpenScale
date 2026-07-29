@@ -185,6 +185,19 @@ func (s *scanner) prefix() (domain.Stability, bool) {
 		// Over capacity. The mass that follows is meaningless, but the frame is
 		// still well-formed and the flag has to reach safeguard rule 1.
 		overload, _ = true, s.advance(2)
+
+	// A LONE STATUS LETTER, followed by the value rather than by a comma. This is
+	// what a GRAM XFOC PLUS really sends — « S  0,002KG », « U- 0,432KG », measured
+	// on the L0 bench of 28/07/2026 over 668 frames. §9.2 made the comma mandatory,
+	// so the real frame was refused for « having no usable number »: the status
+	// letter was offered to the number parser, which is not a digit.
+	case upper(s.peek(0)) == 'S' && startsAValue(s.peek(1)):
+		stability, _ = domain.Stable, s.advance(1)
+		return stability, overload
+	case upper(s.peek(0)) == 'U' && startsAValue(s.peek(1)):
+		stability, _ = domain.Unstable, s.advance(1)
+		return stability, overload
+
 	case upper(s.peek(0)) == 'S' && s.peek(1) == ',':
 		stability, _ = domain.Stable, s.advance(1)
 	case upper(s.peek(0)) == 'U' && s.peek(1) == ',':
@@ -221,6 +234,21 @@ func (s *scanner) prefix() (domain.Stability, bool) {
 func (s *scanner) advance(n int) bool {
 	s.at += n
 	return true
+}
+
+// startsAValue reports whether a byte can open the value that follows a lone status
+// letter: a sign, the blanks the GRAM right-aligns its number in, or a digit.
+//
+// It is what tells « S » the status from an « S » that would begin something else.
+// Nothing else in this grammar starts with a letter, so the test is generous on
+// purpose — a frame that is not one still fails on its number or on its unit, which
+// are the two places this package refuses rather than guesses.
+func startsAValue(b byte) bool {
+	switch b {
+	case ' ', '\t', '+', '-':
+		return true
+	}
+	return isDigit(b)
 }
 
 // sign consumes an optional sign and reports whether the value is negative.
@@ -357,6 +385,12 @@ func (a *Accumulator) Reset() { a.pending, a.Resyncs = nil, 0 }
 // It reports (measurement, bytes consumed, whether anything was consumed). A nil
 // measurement with consumed > 0 means "that was noise, dropped".
 func (a *Accumulator) extract(now time.Time) (*domain.Measurement, int, bool) {
+	// 0. The CONTROL FRAMING of the GRAM XFOC PLUS, and it comes first because it is
+	//    what the parc really puts on the wire.
+	if measurement, consumed, ok := a.extractFramed(now); ok {
+		return measurement, consumed, true
+	}
+
 	// 1. A terminator is the primary delimiter, because it is what the scales of
 	//    this parc actually send.
 	if end := indexAny(a.pending, '\r', '\n'); end >= 0 {
@@ -389,6 +423,125 @@ func (a *Accumulator) extract(now time.Time) (*domain.Measurement, int, bool) {
 		}
 	}
 	return nil, 0, false
+}
+
+// The control codes that frame one transmission of a GRAM XFOC PLUS.
+//
+// The whole frame is sixteen bytes and was read off a real scale on the L0 bench:
+//
+//	SOH STX  S|U  ' '|'-'  ' 0,000'  KG  XOR  ETX EOT  flags
+//	 01  02   1        1        6     2    1   03  04     1
+//
+// The XOR travels between the unit and ETX and covers everything from the status to
+// the unit. The byte after EOT is a flag field — 0x80 whenever the mass is negative,
+// 0x10 near zero — and NOTHING READS IT: the sign is already in the payload, and two
+// sources for one fact are two things to keep in step.
+const (
+	startOfHeading    = 0x01
+	startOfText       = 0x02
+	endOfText         = 0x03
+	endOfTransmission = 0x04
+)
+
+// FrameEnd reports how many bytes at the head of p make up the first COMPLETE frame,
+// or -1 when the frame is still arriving.
+//
+// It exists for `openscale capture`, which writes one frame per line and must cut the
+// stream at exactly the same places the Accumulator does. Duplicating that decision in
+// the command was how the first bench capture came back with a summary of 194 decoded
+// frames and a file containing none: the writer split on CR and LF, which a GRAM XFOC
+// PLUS never sends. ONE PLACE DECIDES WHAT A FRAME IS, and it is this package.
+//
+// It handles the two DELIMITED forms — control framing and terminator — and not the
+// back-to-back form the Accumulator also accepts, because a capture file with no
+// delimiter at all could not be read back line by line anyway.
+func FrameEnd(p []byte) int {
+	if start := indexByte(p, startOfText); start == 0 || (start > 0 && indexTerminatorByte(p[:start]) < 0) {
+		end := indexByte(p, endOfText)
+		if end < 0 {
+			return -1
+		}
+		// The frame ends on ETX, then EOT, then one byte of flags. They are consumed
+		// when they have arrived so that a capture file holds what the scale sent —
+		// the flags are evidence, 0x80 on every negative mass — and never counted as
+		// mandatory, so a firmware that stops sending them does not hang this.
+		end++
+		if end < len(p) && p[end] == endOfTransmission {
+			end++
+			if end < len(p) && p[end] != startOfHeading && p[end] != startOfText {
+				end++
+			}
+		}
+		return end
+	}
+	end := indexTerminatorByte(p)
+	if end < 0 {
+		return -1
+	}
+	end++
+	if p[end-1] == '\r' && end < len(p) && p[end] == '\n' {
+		end++
+	}
+	return end
+}
+
+func indexTerminatorByte(data []byte) int { return indexAny(data, '\r', '\n') }
+
+// extractFramed pulls one STX … ETX transmission out of the buffer.
+//
+// It answers the same triple as extract: the measurement, what to consume, and
+// whether anything was consumed at all. A frame whose checksum does not agree is
+// CONSUMED AND DROPPED — a corrupted mass is a wrong price on a label, and the one
+// thing this package refuses to do is guess.
+//
+// It consumes up to and including ETX and no further. EOT and the flag byte become
+// leading noise for the next call, which skips them looking for the next STX: two
+// bytes of noise cost nothing, and a parser that counts trailing bytes it does not
+// read is a parser that breaks the day a firmware adds one.
+func (a *Accumulator) extractFramed(now time.Time) (*domain.Measurement, int, bool) {
+	start := indexByte(a.pending, startOfText)
+	if start < 0 {
+		return nil, 0, false
+	}
+	end := indexByte(a.pending[start:], endOfText)
+	if end < 0 {
+		return nil, 0, false // the rest of the frame has not arrived yet
+	}
+	end += start
+
+	// Between STX and ETX: the payload, then the one byte of checksum.
+	body := a.pending[start+1 : end]
+	if len(body) < 2 {
+		return nil, end + 1, true // framing with nothing in it
+	}
+	payload, checksum := body[:len(body)-1], body[len(body)-1]
+	if xor(payload) != checksum {
+		return nil, end + 1, true
+	}
+	measurement, err := Parse(payload, now)
+	if err != nil {
+		return nil, end + 1, true
+	}
+	return &measurement, end + 1, true
+}
+
+// xor is the checksum the GRAM computes over the payload of a frame. Verified on the
+// 668 frames of the bench capture, and on the fourteen it took to find it.
+func xor(payload []byte) byte {
+	var sum byte
+	for _, b := range payload {
+		sum ^= b
+	}
+	return sum
+}
+
+func indexByte(data []byte, want byte) int {
+	for i, b := range data {
+		if b == want {
+			return i
+		}
+	}
+	return -1
 }
 
 // parseLongestSuffix finds the frame hidden at the end of a candidate line.
