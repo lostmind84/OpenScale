@@ -146,7 +146,11 @@ function configWithPort(port: string, modifiedAt = SERVED_STAMP): Record<string,
     network: { listen: '127.0.0.1:8080', admin_on_lan: false },
     scale: { type: 'gram_xfoc', present: true, options: { port, baud_rate: 9600 } },
     printer: { type: 'raster', options: { transport: 'local', queue: 'Étiqueteuse' } },
-    catalog: { source: 'webdav', options: { url: 'https://dav.local/flv', user: 'poste1' } },
+    catalog: {
+      source: 'webdav',
+      options: { url: 'https://dav.local/flv', username: 'poste1' },
+      images: { source: 'image_directory', path: 'D:\\photos' },
+    },
     limits: { min_weight_g: 10, max_weight_g: 15_000 },
   }
 }
@@ -161,7 +165,7 @@ function configWithPort(port: string, modifiedAt = SERVED_STAMP): Record<string,
 function configWithBlankedSecret(): Record<string, unknown> {
   const config = configWithPort('COM8')
   const catalog = config.catalog as Record<string, unknown>
-  catalog.options = { url: 'https://dav.local/flv', user: 'poste1', password: '' }
+  catalog.options = { url: 'https://dav.local/flv', username: 'poste1', password: '' }
   return config
 }
 
@@ -172,7 +176,7 @@ function configWithBlankedSecret(): Record<string, unknown> {
 function exportWithoutTheSecret(): Record<string, unknown> {
   const config = configWithPort('COM3', FILE_STAMP)
   const catalog = config.catalog as Record<string, unknown>
-  catalog.options = { url: 'https://dav.local/flv', user: 'poste1' }
+  catalog.options = { url: 'https://dav.local/flv', username: 'poste1' }
   return config
 }
 
@@ -192,9 +196,17 @@ function hardwareFreeExport(): Record<string, unknown> {
     modified_at: FILE_STAMP,
     station: { number: 2, name: '', coop: 'La Cagette' },
     network: { listen: '', admin_on_lan: false },
-    scale: { type: 'gram_xfoc', present: true, options: null },
-    printer: { type: 'raster', options: null },
-    catalog: { source: 'webdav', options: null },
+    // Les cartes d'options ne sont PLUS nulles : l'export garde ce que les quatre postes
+    // partagent — le débit, le décalage, le séparateur — et ne retire que les clés qui
+    // désignent un poste ou un site. C'est ce qui a fait taire l'avertissement le jour
+    // où il regardait les cartes entières.
+    scale: { type: 'gram_xfoc', present: true, options: { baud_rate: 9600 } },
+    printer: { type: 'raster', options: { transport: 'local', offset_x: 0 } },
+    catalog: {
+      source: 'webdav',
+      options: { separator: ';', poll_interval_s: 5 },
+      images: { source: 'csv', path: '' },
+    },
     limits: { min_weight_g: 10, max_weight_g: 15_000 },
   }
 }
@@ -589,29 +601,45 @@ describe('ce que l’export sans le matériel ne porte pas', () => {
     const said = collapse(warning?.textContent ?? '')
     expect(said).toContain('le nom du poste')
     expect(said).toContain("l'adresse d'écoute")
-    expect(said).toContain('les réglages de la balance')
-    expect(said).toContain("les réglages de l'imprimante")
-    // Le compte WebDAV part avec `catalog.options` : c'est le vide le plus coûteux.
-    expect(said).toContain('la source du catalogue, compte compris')
+    expect(said).toContain('le port de la balance')
+    expect(said).toContain("la file d'impression")
+    expect(said).toContain('le chemin des images')
+    // Le vide le plus coûteux, et celui que l'avertissement a failli cesser de nommer :
+    // depuis que l'export garde les clés partagées de `catalog.options`, la carte revient
+    // NON vide. Un avertissement qui regardait la carte entière se taisait donc pile sur
+    // le poste dont l'adresse de partage venait de disparaître.
+    expect(said).toContain("l'adresse du partage")
+    expect(said).toContain('le compte du partage')
   })
 
-  it('promet exactement ce que §11.5 retire, et pas trois éléments sur sept', async () => {
+  it('promet exactement ce que §11.5 retire, et nomme ce qui voyage', async () => {
     await open()
 
     const promise = pageText()
-    // Les SEPT choses que `Config.Export(false)` vide — le numéro et le nom comptent
-    // pour deux. Le chemin des images est la septième : il a rejoint la liste le jour où
-    // l'export a cessé de vider les cartes d'options en bloc, et une note qui n'en nomme
-    // que six promet moins que la vérité, ce qui est le défaut n° 8 de cette page.
+    // Ce qui RESTE, et la liste s'est resserrée : depuis que l'export a cessé de vider
+    // les cartes d'options en bloc, ce ne sont plus « les réglages de la balance » qui
+    // restent sur le poste, c'est son PORT. Une note qui annonce le bloc entier promet
+    // au bénévole l'inverse de ce que le fichier fait.
     for (const stripped of [
       'le numéro et le nom du poste',
-      'les réglages de la balance',
-      "ceux de l'imprimante",
-      'la source du catalogue',
+      'le port de la balance',
+      "la file d'impression",
+      "l'adresse du partage et son compte",
       'le chemin des images',
       'le réseau',
     ]) {
       expect(promise, `la note ne nomme pas « ${stripped} »`).toContain(stripped)
+    }
+    // Ce qui VOYAGE, et qui ne voyageait pas. Le taire coûte cher dans l'autre sens :
+    // le bénévole règle le décalage d'étiquette sur les quatre postes alors qu'il est
+    // déjà bon sur les trois derniers, et c'est l'étape qui fait dépasser le compte
+    // annoncé par INSTALLATION.md.
+    for (const carried of [
+      "le décalage d'étiquette",
+      'le noircissement',
+      'le débit de la balance',
+    ]) {
+      expect(promise, `la note ne dit pas que « ${carried} » voyage`).toContain(carried)
     }
   })
 })

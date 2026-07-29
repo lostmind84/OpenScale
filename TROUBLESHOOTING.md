@@ -190,8 +190,16 @@ pesée** : le prix au kilo lu dans le catalogue, le poids, le tarif appliqué, l
 ```
 
 Les quatre postes doivent afficher **la même chaîne de 8 caractères**. Si celui-ci
-diverge, sa grille de tarifs, ses garde-fous ou son gabarit ne sont pas ceux du parc :
-page **Poste** → l'aperçu du diff dit exactement quel réglage diffère.
+diverge, un des réglages que les quatre postes partagent n'est pas le même ici : la
+grille de tarifs, les garde-fous, le gabarit d'étiquette, les catégories, mais aussi les
+réglages du matériel qui voyagent avec la configuration clonée — le décalage
+d'étiquette, le noircissement, la vitesse, le débit de la balance. Page **Poste** →
+l'aperçu du diff dit exactement lequel.
+
+**Une chaîne différente ne veut donc pas dire « les prix sont faux ».** Si quelqu'un a
+monté le noircissement sur ce poste parce que l'étiquette sortait pâle, ce poste diverge
+et ses prix sont justes. Lisez le diff avant de conclure : c'est lui qui nomme le
+réglage, pas l'empreinte.
 
 3. **L'écran affiche « Le poste ne peut pas calculer les prix (ERR-CFG-01) »** → la
    configuration est invalide, le poste tourne en configuration d'usine. L'écran
