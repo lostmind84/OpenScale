@@ -1,0 +1,12 @@
+# openscale capture — protocole jouet example-scale
+# Une trame par ligne, comme « openscale capture » les écrit. Une ligne commençant
+# par un dièse est un commentaire et ne compte pas comme trame.
+# Ce fichier est NOMINAL : chacune de ses lignes doit être décodée, aucune perdue.
+[+00000S]
+[+01236S]
+[+01236S]
+[+00850M]
+[+00850S]
+[-00432M]
+[-00432S]
+[+99999S]

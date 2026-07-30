@@ -165,6 +165,28 @@ func TestRegisterPanicsOnACompositionMistake(t *testing.T) {
 			says:   "registered twice",
 			before: []Driver{valid},
 		},
+		{
+			// The catalogue of §8.6 is the vocabulary of a screen: the button wording, the
+			// access level and the sentence saying what the print settles all live in
+			// SelfTests(). A driver free to name a fourth would put a button on the
+			// Matériel page that no page was ever written for.
+			name: "auto-test hors catalogue",
+			driver: Driver{
+				Descriptor: domain.PrinterDescriptor{ID: "inventif", Label: "Inventif"},
+				SelfTests:  []SelfTest{"mire"},
+				New:        valid.New,
+			},
+			says: "catalogue",
+		},
+		{
+			name: "auto-test déclaré deux fois",
+			driver: Driver{
+				Descriptor: domain.PrinterDescriptor{ID: "bègue", Label: "Bègue"},
+				SelfTests:  []SelfTest{SelfTestLabel, SelfTestLabel},
+				New:        valid.New,
+			},
+			says: "twice",
+		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r := NewRegistry()
@@ -185,6 +207,46 @@ func TestRegisterPanicsOnACompositionMistake(t *testing.T) {
 			}()
 			r.Register(c.driver)
 		})
+	}
+}
+
+// TestTheSelfTestDeclarationTravelsToTheAdministrationScreen.
+//
+// The declaration of §8.6 rides the descriptor for the reason the option schema does: the
+// screen that draws the buttons reads THAT, and a screen holding the list of its own would
+// offer a volunteer buttons whose only possible answer is a refusal (ADR-025). A driver
+// that honours none says so with an empty declaration, and that is an assertion.
+func TestTheSelfTestDeclarationTravelsToTheAdministrationScreen(t *testing.T) {
+	r := NewRegistry()
+	r.Register(Driver{
+		Descriptor: domain.PrinterDescriptor{ID: domain.PrinterRaster, Label: "Rendu image"},
+		SelfTests:  []SelfTest{SelfTestLabel, SelfTestAlignment, SelfTestRuler},
+		New:        func(DriverConfig) (ports.Printer, error) { return nil, nil },
+	})
+	r.Register(Driver{
+		Descriptor: domain.PrinterDescriptor{ID: domain.PrinterPreview, Label: "Aperçu"},
+		SelfTests:  []SelfTest{SelfTestLabel},
+		New:        func(DriverConfig) (ports.Printer, error) { return nil, nil },
+	})
+	r.Register(entry(domain.PrinterSBPL, "SBPL direct"))
+
+	got := r.Descriptors()
+	for i, want := range [][]string{{"label", "alignment", "ruler"}, {"label"}, nil} {
+		if len(got[i].SelfTests) != len(want) {
+			t.Fatalf("driver %q déclare %v, attendu %v", got[i].ID, got[i].SelfTests, want)
+		}
+		for j, name := range want {
+			if got[i].SelfTests[j] != name {
+				t.Errorf("driver %q, auto-test %d = %q, attendu %q",
+					got[i].ID, j, got[i].SelfTests[j], name)
+			}
+		}
+	}
+	// A registry a caller can reach into has stopped describing the binary.
+	got[1].SelfTests[0] = "n'importe quoi"
+	if again := r.Descriptors(); again[1].SelfTests[0] != "label" {
+		t.Errorf("la déclaration du registre a été modifiée depuis l'extérieur : %q",
+			again[1].SelfTests[0])
 	}
 }
 

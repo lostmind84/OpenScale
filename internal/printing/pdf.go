@@ -1,4 +1,4 @@
-package preview
+package printing
 
 import (
 	"fmt"
@@ -88,7 +88,7 @@ func (d *document) opens(number int) bool {
 		return false
 	}
 	if number != len(d.offsets)+1 {
-		d.err = fmt.Errorf("preview: objet %d écrit à la place de %d : les objets d'un PDF "+
+		d.err = fmt.Errorf("printing: objet %d écrit à la place de %d : les objets d'un PDF "+
 			"s'écrivent dans l'ordre de leur numéro", number, len(d.offsets)+1)
 		return false
 	}

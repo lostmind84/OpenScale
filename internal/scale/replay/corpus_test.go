@@ -8,11 +8,13 @@ import (
 	"openscale/internal/domain"
 )
 
-// corpusDir is the LIVING CORPUS of §15.4: every frame that ever caused an unexplained
-// refusal on a station lands there and becomes a permanent test. This package is the one
-// that plays it back — `openscale replay` and the « Rejouer cette trame » button — so
-// this test is what makes the corpus more than a folder of files.
-const corpusDir = "../testdata/frames"
+// corpusDir is where the LIVING CORPUS of §15.4 files the captures of the GRAM models.
+//
+// The corpus is filed BY PROTOCOL — one directory per scale.type — and this test reaches
+// into the GRAM one on purpose: what it exercises is the replay DRIVER, and a driver is
+// exercised with a real capture and the decoder that goes with it. internal/scale/corpus
+// is what holds each protocol to its own files.
+const corpusDir = "../testdata/frames/gram-xfoc-rs"
 
 // TestTheLivingCorpusReplaysThroughTheDriver walks each capture through a whole driver
 // life: parsed, paced on the injected clock, decoded, published.

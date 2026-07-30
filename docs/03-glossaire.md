@@ -51,14 +51,17 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `internal/balance/gramxfoc/` | `internal/scale/gramxfoc/` | Nom de modèle matériel, inchangé. |
 | `internal/balance/absent/` | `internal/scale/absent/` | « absent » est un mot anglais et décrit exactement la source de poids vide. |
 | `internal/balance/rejeu/` | `internal/scale/replay/` | Direct. |
-| `internal/balance/conformite/` | `internal/scale/conformance/` | Suite de conformité imposée à tout driver. |
+| `internal/balance/conformite/` | `internal/scale/conformance/` | Suite de conformité imposée à tout driver de balance (ADR-048). |
+| — | `internal/scale/corpus/` | Paquet neuf (ADR-047) : rejoue le corpus vivant par le décodeur du protocole qui l'a enregistré. Nommé `corpus` et non `frames` — c'est le corpus qu'il fait tourner, pas les trames qu'il décrit. |
+| — | `internal/scale/example/` · `internal/printing/example/` | Paquets neufs (ADR-050) : les drivers **exemplaires**, complets, compilés, passés au banc, enregistrés nulle part. `example` et non `sample` ou `template` — le second est déjà le gabarit d'étiquette. |
 | `internal/impression/` | `internal/printing/` | `printing` (l'activité) plutôt que `print` (verbe) ou `printer` (l'appareil) : le paquet porte le rendu ET les drivers. |
 | `internal/impression/rendu.go` | `internal/printing/render.go` | Direct. |
 | `internal/impression/symbole.go` | `internal/printing/symbol.go` | Direct (symbole EAN-13). |
 | `internal/impression/raster/` | `internal/printing/raster/` | Déjà anglais. |
 | `internal/impression/sbpl/` | `internal/printing/sbpl/` | Acronyme constructeur, inchangé. |
 | `internal/impression/transport/` | `internal/printing/transport/` | Déjà anglais. |
-| `internal/impression/apercu/` | `internal/printing/preview/` | « aperçu » PDF/PNG = preview. Cohérent avec la valeur de configuration `printer.type = "preview"`. |
+| `internal/impression/apercu/` | `internal/printing/preview/` | « aperçu » PDF/PNG = preview. Cohérent avec la valeur de configuration `printer.type = "preview"`. Le paquet ne porte plus que le **driver** : les deux encodeurs en sont sortis pour `internal/printing/encode.go` et `pdf.go`, un encodeur n'étant pas un `ports.Printer` (coupe 2, ADR-047). |
+| — | `internal/printing/conformance/` | Paquet neuf (ADR-048) : la suite imposée à tout driver d'impression. Nom aligné sur `internal/scale/conformance` — deux familles, un mot. |
 | `internal/catalogue/` | `internal/catalog/` | Orthographe US, cohérente avec le reste du code. |
 | `internal/catalogue/depot_local/` | `internal/catalog/localdrop/` | Répertoire de dépôt local. Go : pas d'underscore dans un nom de paquet. La valeur de configuration correspondante est `local_drop` (snake_case). |
 | `internal/catalogue/webdav/` | `internal/catalog/webdav/` | Protocole, inchangé. |
@@ -79,9 +82,9 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `internal/web/dist` | `internal/web/dist` | Sortie Vite committée, inchangée. |
 | `web/` (front Svelte + TS) | `web/` | Déjà anglais. |
 | `web/testdata/normalisation.json` | `web/testdata/normalization.json` | Fixture partagée Go + Vitest : le nom doit être identique des deux côtés. |
-| `internal/balance/testdata/trames/` | `internal/scale/testdata/frames/` | Corpus vivant de trames. |
+| `internal/balance/testdata/trames/` | `internal/scale/testdata/frames/<scale.type>/` | Corpus vivant de trames, **classé par protocole** : une capture vit sous l'ID du driver qui l'a produite, et c'est ce driver qui la rejoue (ADR-047). À plat, le geste que le répertoire encourageait — « déposez une capture sans toucher au Go » — était celui qui rendait la suite rouge. |
 | `testdata/` · `deploy/{windows,linux}/` · `migrations/` | identiques | Déjà anglais. |
-| `tools/frontiere/verifier.sh` | `tools/boundary/check.sh` | « les cinq coupes » = frontières architecturales = boundaries. |
+| `tools/frontiere/verifier.sh` | `tools/boundary/` (`main.go`, lancé par `go run ./tools/boundary`) | « les cinq coupes » = frontières architecturales = boundaries. **Un programme Go et non un script shell** : la coupe 1 bis demande une marche d'AST, la coupe 2 aussi, et les machines de développement de ce projet sont sous Windows — un binaire Go tourne sur les trois cibles sans shell ni dépendance. |
 | cible Makefile `frontiere` | cible Makefile `boundary` | `make boundary` ; cohérent avec `tools/boundary/`. |
 | `tools/dependances/` | `tools/deps/` | Compare `go.mod` aux deux tables d'inventaire (§17.1, `THIRD-PARTY.md`), dans les deux sens. `deps` est l'abréviation qu'emploie déjà `go mod`, et elle nomme le répertoire comme la cible. |
 | cible Makefile `dependances` | cible Makefile `deps` | `make deps` ; cohérent avec `tools/deps/`, comme `make boundary` l'est avec `tools/boundary/` (ADR-039). |
@@ -413,7 +416,7 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `ArmementMax` (constante 10 s) | `MaxArmingTime` |
 | `BasculeMax` / `IHM.DelaiBascule` (constante 10 s) | `MaxSwitchIdle` / `UI.SwitchDelay` |
 | `Faute.Champ` / `Message` / `Valeurs` | `Fault.Field` / `Message` / `Values` |
-| `Capacites.Raster` / `Statut` / `Massicot` / `MaxExemplaires` / `DotsParMM` | `PrinterCapabilities.Raster` / `Status` / `Cutter` / `MaxCopies` / `DotsPerMM` |
+| `Capacites.Raster` / `Statut` / `Massicot` / `MaxExemplaires` / `DotsParMM` / `LargeurEncreeDots` / `HauteurEncreeDots` | `PrinterCapabilities.Raster` / `Status` / `Cutter` / `MaxCopies` / `DotsPerMM` / `InkedWidthDots` / `InkedHeightDots` |
 | `Descripteur.ID` / `Libelle` / `Capacites` | `PrinterDescriptor.ID` / `Label` / `Capabilities` — et `ScaleDescriptor.ID` / `Label` / `Capabilities` / `NominalRate` |
 | `DescripteurBalance.CadenceNominale` | `ScaleDescriptor.NominalRate` |
 | `Options.Port` / `Baud` / `Bits` / `Parite` / `Stop` / `Decodeur` / `TailleLecture` / `BackoffMin` / `BackoffMax` | `Options.Port` / `Baud` / `Bits` / `Parity` / `Stop` / `Decoder` / `ReadBufferSize` / `BackoffMin` / `BackoffMax` |
@@ -667,7 +670,9 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `PrepareInput` | Tout ce que `Prepare` a le droit de lire. Même intention que `CheckInput` pour `Evaluate` : la fonction ne va rien chercher. |
 | `Severity` | Qui doit agir sur un diagnostic. Constantes `Info` (affiché, imprime quand même) et `Blocking` (l'étiquette s'arrête). |
 | `ScaleStatus` | Ce qu'un driver dit de sa liaison — le type qui porte `StatusConnected` / `StatusDisconnected`. |
-| `PrinterCapabilities` | Voir la table des types : homonyme scindé de `Capabilities`, qui ne décrit plus que la balance. |
+| `PrinterCapabilities` | Voir la table des types : homonyme scindé de `Capabilities`, qui ne décrit plus que la balance. Porte aussi **la géométrie de la tête** — `DotsPerMM`, `InkedWidthDots`, `InkedHeightDots` —, que les règles dures 3 et 4 mesurent (ADR-045). **Zéro est la réponse honnête d'un driver qui n'encre rien** : les règles retombent alors sur `ReferenceHead` au lieu d'être suspendues. |
+| `ReferenceHead` · `ReferenceInkedWidthDots` · `ReferenceInkedHeightDots` · `ReferenceDotsPerMM` | La tête du parc — SATO WS408, 8 dots/mm, **280 × 200 dots** d'encre, mesurés au banc du 28/07/2026. **Repli et non autorité** : c'est ce sur quoi retombe un appelant sans descripteur en main. Un poste qui déclare sa propre tête est mesuré contre celle-là. |
+| `(Template).ValidateOn` | Les mêmes règles que `Validate`, mesurées **sur cette tête-ci**. `Validate` reste la forme courte, qui répond pour la WS408. |
 | `SymbolGeometry` | Où et de quelle taille le symbole EAN-13 est tracé, **en micromètres**, dans le gabarit. À ne pas confondre avec `SymbolOptions`, qui est l'entrée du rastériseur en dots (L4). |
 | `Import` | L'enregistrement d'UN import de catalogue — la ligne de la table `imports`. |
 | `Finding` | Le type annoncé par la décision « signalement » existe désormais : une chose qu'un import a à dire sur UNE ligne. |
@@ -741,7 +746,7 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `(Registries).ScaleTypes` · `PrinterTypes` · `TransportNames` · `CatalogSourceNames` · `TemplateNames` · `Template` | Ce qu'un bénévole a le droit de choisir, dans un ordre stable. C'est le registre qui décide, jamais une liste en dur dans un écran. |
 | `(DriverOptions).Has` · `Text` · `Int` · `Bool` · `Ratio` · `Group` · `Keys` | Lecture typée d'une option de driver, chacune rendant aussi « présente et de la bonne forme ? ». |
 | `(Weighing).Line` | La ligne archivée d'un code de tarif, ou `nil`. Pendant de `(Label).Find` côté calcul. |
-| `(Decoder).Feed` · `(Decoder).Reset` | Les deux méthodes du seul point de variation par modèle d'une balance série : livrer des octets, et oublier ce qui restait quand le port est rouvert. Homonymes assumés de `(Accumulator).Feed` / `Reset` — c'est le même contrat à un étage de plus. |
+| `(Decoder).Feed` · `Reset` · `FrameEnd` · `Resyncs` | Les **quatre** méthodes du seul point de variation par modèle d'une balance série : livrer des octets, oublier ce qui restait quand le port est rouvert, dire où finit une trame, dire combien de fois on a renoncé à un tampon. Homonymes assumés de `(Accumulator).Feed` / `Reset` / `FrameEnd` / `Resyncs` — c'est le même contrat à un étage de plus. Les deux dernières sont entrées au contrat parce que ce sont des chiffres et des décisions que **quatre outils hors poste** lisent : la détection, `capture`, `replay`, « Rejouer cette trame » (ADR-047). |
 | `(PathChecker).Readable` · `(PathChecker).Droppable` | Ce chemin est-il lisible ? Le service peut-il y créer **et supprimer** un fichier ? Toute l'I/O dont `Validate` a besoin, et la raison pour laquelle elle est injectée plutôt qu'appelée. Deux questions et non une : l'acquittement d'un import **est** une suppression (ADR-004), donc un répertoire qu'on ne peut que lire reboucle indéfiniment. |
 | `MarshalJSON` / `UnmarshalJSON` sur `Config`, `Category`, `WeighingLimits`, `RoundingPolicy`, `Duration` | La sérialisation de `config.json`. `UnmarshalJSON` **conserve ce que l'objet ne nomme pas** : un bloc partiellement écrit ne remet pas les autres clés à zéro. |
 
@@ -752,7 +757,8 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `MaxBuffer` | Combien d'octets l'accumulateur garde avant de se resynchroniser. |
 | `(Accumulator).Reset` | Jette le tampon quand le port est rouvert : une demi-trame d'avant la coupure ne doit pas se recoller à une demi-trame d'après. |
 | `(Accumulator).Pending` | Combien d'octets attendent la fin de leur trame — l'observation qui rend la resynchronisation testable. |
-| `Accumulator.Resyncs` | Combien de fois l'accumulateur a jeté un tampon saturé. Compteur exporté parce que c'est le chiffre que le corpus vivant surveille : une resynchronisation est normale, une cadence de resynchronisations ne l'est pas. |
+| `(Accumulator).Resyncs` | Combien de fois l'accumulateur a jeté un tampon saturé. **Méthode** et non champ, et portée par `domain.Decoder` : c'est le chiffre que le corpus vivant et `openscale capture` surveillent — une resynchronisation est normale, une **cadence** de resynchronisations est un problème de câblage et non de parseur (§15.4, ADR-047). Champ exporté, il était inatteignable à travers l'interface : le résumé de `capture` aurait affiché « 0 resynchronisation » en silence pour tout autre protocole. |
+| `(Accumulator).FrameEnd` | Combien d'octets en tête de `p` forment la première trame **complète**, ou `-1` tant qu'elle arrive encore. Portée par `domain.Decoder` : **un seul endroit décide de ce qu'est une trame, et c'est le protocole** (ADR-047). Un protocole sans délimiteur — longueur fixe, octet de longueur — répond ici, là où un appelant qui cherche un terminateur ne le pourrait pas. |
 
 ### `internal/scale` — le registre
 
@@ -760,9 +766,12 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | --- | --- |
 | `Registry` · `NewRegistry` | L'ensemble des drivers de balance avec lesquels ce binaire a été construit. |
 | `(Registry).Register` | Ajoute un driver. C'est **la ligne unique** promise par §5.2. |
-| `(Registry).New` · `Descriptors` | Instancie le driver que nomme `scale.type` ; liste ce dont l'écran d'administration a besoin pour sa liste déroulante. |
-| `Driver` | Un modèle de balance tel que le registre le connaît : `Driver.Descriptor` (identité et capacités), `Driver.Options` (schéma d'options), `Driver.New` (la fabrique). |
-| `Factory` | Construit une instance de driver à partir des options que porte une configuration. |
+| `(Registry).New` · `Descriptors` | Instancie le driver que nomme `scale.type` ; liste ce dont l'écran d'administration a besoin pour sa liste déroulante — **dans l'ordre où `drivers.go` a enregistré**, qui est donc l'ordre que lit un bénévole (ADR-043). |
+| `(Registry).NewDecoder` | Un décodeur **neuf** du protocole que nomme `id`. C'est ce que demandent `openscale capture`, `openscale replay` et « Rejouer cette trame » au lieu de bâtir la grammaire d'un modèle dans la racine de composition. Un protocole absent du binaire est refusé **en nommant ceux qui sont là**, jamais décodé avec un autre (ADR-047). |
+| `(Registry).Candidates` · `Candidate` | Un candidat par protocole qui déclare pouvoir être reconnu sur ce type de point d'accès, **chacun avec son propre décodeur**. Un résultat **vide est une réponse** et non un accident : aucun protocole de ce binaire ne sait se faire reconnaître là, et l'écran doit le dire au lieu d'offrir une détection dont la seule issue possible est le silence (ADR-046). |
+| `Driver` | Un modèle de balance tel que le registre le connaît : `Driver.Descriptor` (identité et capacités), `Driver.Options` (schéma d'options), `Driver.NewDecoder` (la fabrique de décodeur, **obligatoire**), `Driver.Endpoint` (où ce protocole sait se faire reconnaître), `Driver.New` (la fabrique). |
+| `Factory` · `DecoderFactory` | Construit une instance de driver à partir des options que porte une configuration ; construit **un** décodeur du protocole. Une fabrique et non une valeur : un décodeur retient les octets qui attendent la fin de leur trame, et deux appelants qui partageraient un tampon se compléteraient mutuellement leurs demi-trames. |
+| `Endpoint` · `EndpointNone` · `EndpointSerialPort` | La famille de points d'accès sur laquelle un protocole se cherche. `EndpointNone` est le **zéro du type** et une déclaration légitime — « choisissez-moi à la main » —, pas un oubli. |
 | `ErrUnknownDriver` | Un `scale.type` auquel aucun driver de ce binaire ne répond. |
 
 ### `internal/scale/serial`, `gramxfoc`, `absent`, `replay`, `conformance`
@@ -778,13 +787,15 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `absent.ID` · `absent.Label` | Le nom de la source de poids vide partout où une source est nommée, et **son libellé français** pour le bénévole. |
 | `absent.New` · `absent.Scale` · `absent.ErrNoScale` | La source vide de la saisie manuelle, et la cause portée par chacun de ses événements. |
 | `replay.ID` · `replay.Label` · `replay.DefaultCadence` | Idem pour le rejeu, plus le délai donné aux enregistrements qui n'en déclarent pas. |
-| `replay.Source` | Ce qu'il faut rejouer et à quelle vitesse : `Name`, `Frames`, `Decoder`, `Clock`, `Cadence`, `Speed`, `Repeat`. |
+| `replay.Source` | Ce qu'il faut rejouer et à quelle vitesse : `Name`, `Frames`, `Decoder`, `Clock`, `Cadence`, `Speed`, `Repeat`. **`Decoder` est OBLIGATOIRE** : ce paquet bâtissait un `frame.Accumulator` quand il était nul, c'est-à-dire rejouait la capture d'un modèle avec la grammaire d'un autre — en rendant zéro trame, en silence (ADR-047). |
 | `replay.Script` · `replay.Step` · `replay.Parse` | Une capture transformée en pas jouables : `Script.Steps`. Un pas = attendre `Step.Delay`, puis livrer `Step.Raw` au décodeur. |
 | `(replay.Script).Pace` | L'intervalle que le script **déclare** : la MÉDIANE de ses pas. C'est ce que `openscale replay` annonce. |
 | `(replay.Scale).Script` | La capture analysée, pour que la commande dise ce qu'elle va jouer avant de le jouer. |
-| `replay.ErrEmptyCapture` · `ErrNoClock` · `ErrScriptExhausted` | Une capture sans aucun enregistrement ; un rejeu câblé sans l'horloge injectée ; un rejeu arrivé au bout. |
+| `replay.ErrEmptyCapture` · `ErrNoClock` · `ErrNoDecoder` · `ErrScriptExhausted` | Une capture sans aucun enregistrement ; un rejeu câblé sans l'horloge injectée ; **un rejeu câblé sans le décodeur du protocole qu'il rejoue**, refusé par `Start` ; un rejeu arrivé au bout. |
 | `conformance.Subject` | Le driver soumis à la suite : `Name`, `New`, `Frames`, `Feed`, `Patience`, `Unstartable`, `RequireDisconnectCause`. |
 | `conformance.MaxExpressibleGrams` | La masse la plus lourde que la grammaire de trames de §9.2 sait exprimer. Borne du corpus, pas du métier — `MaxWeight` reste la borne métier. |
+| `corpus.Check` · `corpus.Unclaimed` | Rejoue `internal/scale/testdata/frames/<scale.type>/` **par le décodeur du driver qui réclame ce répertoire** ; signale un répertoire qu'aucun driver ne réclame, pour qu'une capture d'un protocole absent ne dorme pas sans être lue. L'attente est écrite dans le **nom du fichier** (`nominal-*` : toute ligne doit décoder). |
+| `example.ID` · `example.Driver` · `example.Descriptor` | Le paquet driver **exemplaire** de balance : complet, compilé, passé au banc, **enregistré nulle part** (ADR-050). Les points de variation portent un marqueur `TODO(driver)` et il n'y en a pas ailleurs. |
 
 ### `internal/store`
 
@@ -861,6 +872,14 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `(Library).Face` · `Parsed` · `FaceCount` · `Close` | Une face à une taille donnée ; la police analysée ; combien de faces sont mémoïsées (pour qu'un test puisse le vérifier) ; la libération. |
 | `Font` · `Carlito` · `DejaVuSansCondensed` | La famille avec laquelle le moteur sait rendre — la valeur de la clé `font` d'un gabarit. `Carlito` est le clone métrique de Calibri retenu par ADR-020 ; `DejaVuSansCondensed` sert les gabarits neutres et le repli. |
 | `ErrUnknownFont` | Un gabarit qui nomme une police que le binaire ne porte pas. Erreur **typée** et non sentinelle, parce qu'elle doit dire LAQUELLE : `ErrUnknownFont.Font`. |
+| `Registry` · `NewRegistry` · `(Registry).Register` · `New` · `Descriptors` | Le pendant du registre de balance, côté impression. Mêmes propriétés et pour les mêmes raisons : une **valeur** et non une variable de paquet, une panique sur toute faute de composition, un ordre de liste déroulante qui est celui de `drivers.go` (ADR-043). |
+| `Driver` | Un driver d'impression tel que le registre le connaît : `Descriptor` (identité, capacités **et géométrie de tête**), `Options` (schéma), `SelfTests` (les motifs de §8.6 qu'il **honore**, ADR-049), `New` (la fabrique). |
+| `DriverConfig` | Tout ce qu'un driver reçoit et rien qu'il puisse inventer : `Options`, `Transport` (**bâti et fermé par la racine de composition**, nul pour un driver qui ne déclare pas la clé `transport`), `OutputDir`, `Template`, `Clock`, `Log`, `DemoLabel`. |
+| `SelfTest` · `SelfTestLabel` · `SelfTestAlignment` · `SelfTestRuler` | Les trois motifs de §8.6, typés : une constante plutôt qu'une chaîne, parce que la valeur voyage depuis un paramètre d'URL (`?what=alignment`) jusqu'à un driver. |
+| `SelfTests` · `SelfTestExists` · `LookupSelfTest` | Le catalogue, l'appartenance, et la recherche par le nom que porte une route. Les deux auto-tests supprimés par A2 gardent leur nom et le motif de leur suppression : une configuration qui les nomme encore lit « cet auto-test a été supprimé : … » et non « auto-test inconnu ». |
+| `EncodePNG` · `EncodePDF` | Les deux encodeurs d'un rendu — PNG au pas de la tête, PDF grandeur nature. **Ils ne vivent pas dans un paquet driver** : un encodeur n'est pas un `ports.Printer`, et trois appelants les demandent — le driver `preview`, la route d'aperçu et `openscale label` — dont un seul est un driver. Tenus dans le paquet de `preview`, ils forçaient les deux autres à **importer un driver**, c'est-à-dire à violer la coupe 2 dans deux fichiers de production. |
+| `conformance.Suite` · `conformance.Subject` · `conformance.DemoLabel` | Le banc imposé à tout driver d'impression enregistré (ADR-048) : **dix-huit contrôles pour dix-sept clauses**, chacun un mode de panne — la clause de langue est vérifiée dans les deux sens. Le banc de balance en compte **neuf**. Ne s'appelle jamais sous `t.Parallel` — le contrôle de fuite compare un compte de goroutines à l'échelle du processus. |
+| `example.Driver` · `example.OptionSchema` · `example.ParseOptions` | Le paquet driver **exemplaire** d'impression : complet, compilé, passé au banc, **enregistré nulle part** (ADR-050). Il n'ouvre aucun périphérique — c'est à quoi ressemble un driver dont la sortie est un fichier ; celui qui atteint un appareil déclare la clé `transport` et reçoit un `ports.Transport`, et c'est `raster` qu'il faut copier. |
 
 ### `internal/update`
 

@@ -9,14 +9,15 @@ conception est **terminée et validée** ; l'implémentation n'a pas commencé.
 
 ## À lire avant toute intervention
 
-| Document | Rôle |
-|---|---|
-| `docs/02-architecture.md` | **La référence.** Tout en découle. 22 sections, 41 ADR |
-| `docs/03-glossaire.md` | **Autorité de nommage.** Ne jamais s'en écarter |
-| `docs/04-parametrage-sato.md` | **Ce que l'imprimante a en mémoire.** Fait foi sur la géométrie |
-| `docs/01-etat-des-lieux.md` | Ce que faisait l'ancienne application, et pourquoi |
-| `SUIVI.md` | Où en est le projet, quel lot est en cours |
-| `docs/reference-existant/` | Analyse détaillée du legacy — à consulter, pas à lire en entier |
+| Document                         | Rôle                                                                                                                                                             |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/02-architecture.md`        | **La référence.** Tout en découle. 22 sections, 50 ADR                                                                                                           |
+| `docs/03-glossaire.md`           | **Autorité de nommage.** Ne jamais s'en écarter                                                                                                                  |
+| `docs/04-parametrage-sato.md`    | **Ce que l'imprimante a en mémoire.** Fait foi sur la géométrie                                                                                                  |
+| `docs/07-ajouter-un-materiel.md` | **À lire AVANT de brancher un matériel** — balance, imprimante, transport. Les deux paquets `internal/{scale,printing}/example/` en sont la version Go, à copier |
+| `docs/01-etat-des-lieux.md`      | Ce que faisait l'ancienne application, et pourquoi                                                                                                               |
+| `SUIVI.md`                       | Où en est le projet, quel lot est en cours                                                                                                                       |
+| `docs/reference-existant/`       | Analyse détaillée du legacy — à consulter, pas à lire en entier                                                                                                  |
 
 ## Conventions non négociables
 
@@ -32,7 +33,7 @@ ErrScaleDisconnected = Error{Code: "ERR-SCALE-01", UserMessage: "La balance ne r
 
 **Style.** Clean Code (Robert C. Martin) : noms révélateurs d'intention, fonctions
 courtes faisant une seule chose, pas de paramètre booléen de commande, commentaires
-qui expliquent le *pourquoi* et jamais le *quoi*. **Quand Clean Code entre en conflit
+qui expliquent le _pourquoi_ et jamais le _quoi_. **Quand Clean Code entre en conflit
 avec le Go idiomatique, le Go idiomatique gagne** (noms courts en portée courte, pas
 de préfixe `I` sur les interfaces, interfaces définies côté consommateur).
 
@@ -53,12 +54,12 @@ Ces points ont été tranchés après analyse ; les rouvrir demande une décisio
 
 - **L'étiquette est reproduite à l'identique**, code-barres compris. Son symbole EAN-13
   est volontairement tronqué — ce n'est pas un défaut mais un compromis assumé (un
-  symbole conforme n'entre pas sur 40 × 25 mm avec les cinq champs texte). **Ne pas
-  proposer de le corriger.**
+  symbole conforme n'entre pas sur 40 × 25 mm avec les cinq champs texte). Rouvert le 30/07/2026 à la
+  demande du commanditaire : la géométrie du symbole est en cours de réexamen.
 - **Le driver raster est le chemin de production**, pas le SBPL : à 203 dpi, aucun
   module entier ne reproduit le grandissement actuel.
 - **Le catalogue arrive en un fichier CSV par poste**, supprimé après lecture — la
-  suppression *est* l'acquittement. Ne pas proposer de fichier partagé unique.
+  suppression _est_ l'acquittement. Ne pas proposer de fichier partagé unique.
 - **Le préfixe du code-barres fait foi** pour le mode de vente, pas le champ `unite`
   du CSV, qui n'est qu'un libellé d'affichage.
 - **La largeur des champs du code-barres est déclarée par préfixe**, jamais déduite

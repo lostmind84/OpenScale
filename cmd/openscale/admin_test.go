@@ -20,6 +20,7 @@ import (
 	"golang.org/x/crypto/argon2"
 
 	"openscale/internal/domain"
+	"openscale/internal/scale/gramxfoc"
 )
 
 // THE ADMINISTRATION ROUTES, DRIVEN AGAINST THE REAL THING.
@@ -467,8 +468,14 @@ func TestTheLabelPreviewIsThePNGOfTheRenderer(t *testing.T) {
 // frame that caused an unexplained refusal into a permanent test — without a trip to the
 // shop and without a scale. A frame the grammar of §9.2 refuses is a 422 that SAYS SO,
 // because « ça ne se décode pas » is the answer, not a failure of the button.
+//
+// It is decoded with the grammar THIS STATION declares, which is why the bench declares
+// one: a frame from the journal of this station was emitted by the scale of this station,
+// and replaying it through another protocol would answer « la balance a émis quelque chose
+// que la grammaire refuse » — a lie about the hardware, and an invitation to go and look
+// at a scale that is fine.
 func TestReplayingAFrameGoesThroughTheDecoder(t *testing.T) {
-	bench := newServeBench(t, withPassword)
+	bench := newServeBench(t, withPassword, declaringScaleType(gramxfoc.IDRS))
 	bench.start()
 	bench.login(t)
 
@@ -487,6 +494,45 @@ func TestReplayingAFrameGoesThroughTheDecoder(t *testing.T) {
 	}
 	if body := readBody(t, refused); !strings.Contains(body, "décode") {
 		t.Fatalf("le refus ne dit pas que la trame ne se décode pas : %s", body)
+	}
+}
+
+// TestAStationThatDeclaresNoProtocolCannotReplayAFrame is the refusal that replaces a
+// silent wrong answer.
+//
+// This route used to build the grammar of §9.2 whatever scale.type said. On a station
+// declaring no protocol — or another one — it therefore answered about a grammar nobody
+// chose, and « cette trame ne se décode pas » would have been said of the wrong one. The
+// refusal now names the setting to fill in, and names a page that exists.
+func TestAStationThatDeclaresNoProtocolCannotReplayAFrame(t *testing.T) {
+	bench := newServeBench(t, withPassword)
+	bench.start()
+	bench.login(t)
+
+	refused := bench.post(t, "/admin/api/replay", `{"frame":"ST,GS,+  1.236KG"}`)
+	defer refused.Body.Close()
+	if refused.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("POST /admin/api/replay = %d sur un poste sans protocole, attendu 422 : %s",
+			refused.StatusCode, readBody(t, refused))
+	}
+	body := readBody(t, refused)
+	if !strings.Contains(body, "scale.type") {
+		t.Fatalf("le refus ne nomme pas le réglage à renseigner : %s", body)
+	}
+}
+
+// declaringScaleType makes the bench a station that NAMES a weighing protocol without
+// opening a port: scale.present stays false, so no serial handle is taken.
+//
+// It is a real configuration and not a contrivance — it is what a station looks like
+// between the moment « Détecter automatiquement » proposed a protocol and the moment the
+// scale is plugged in — and the port has to be there because serial.OptionSchema declares
+// it Required, so a type with no options would be a fault and the station would fall back
+// on the neutral profile, which names no hardware at all.
+func declaringScaleType(id string) func(*domain.Config) {
+	return func(cfg *domain.Config) {
+		cfg.Scale.Type = id
+		cfg.Scale.Options = domain.DriverOptions{"port": json.RawMessage(`"COM8"`)}
 	}
 }
 

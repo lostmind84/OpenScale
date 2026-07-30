@@ -32,6 +32,26 @@ func (s *stubScale) Start(_ context.Context, _ chan<- domain.ScaleEvent, done ch
 
 func (s *stubScale) Close() error { return nil }
 
+// stubDecoder is a domain.Decoder that decodes nothing.
+//
+// The registry has no business knowing what a grammar recognises: what it must guarantee
+// is that every entry HANDS ONE OVER, and a fresh one per call. It counts its own
+// instances so that a test can prove the second is not the first.
+type stubDecoder struct {
+	fed []byte
+}
+
+func (d *stubDecoder) Feed(p []byte, _ time.Time) []domain.Measurement {
+	d.fed = append(d.fed, p...)
+	return nil
+}
+
+func (d *stubDecoder) Reset()              { d.fed = nil }
+func (d *stubDecoder) FrameEnd([]byte) int { return -1 }
+func (d *stubDecoder) Resyncs() int        { return 0 }
+
+var _ domain.Decoder = (*stubDecoder)(nil)
+
 // serialSchema is the shape of a serial link, as the model packages declare it.
 var serialSchema = []domain.OptionSchema{
 	{Key: "port", Kind: domain.OptionText, Required: true},
@@ -50,6 +70,8 @@ func stubDriver(id, label string) Driver {
 	return Driver{
 		Descriptor: descriptor,
 		Options:    serialSchema,
+		NewDecoder: func() domain.Decoder { return &stubDecoder{} },
+		Endpoint:   EndpointSerialPort,
 		New: func(o domain.DriverOptions, clk ports.Clock, _ ports.TechnicalLog) (ports.Scale, error) {
 			return &stubScale{descriptor: descriptor, options: o, clock: clk}, nil
 		},
@@ -206,6 +228,13 @@ func TestRegisterRefusesACompositionMistake(t *testing.T) {
 			New: gramRS().New}, "label"},
 		{"no factory", Driver{Descriptor: domain.ScaleDescriptor{
 			ID: "sans-fabrique", Label: "Sans fabrique"}}, "factory"},
+		// A driver with no decoder factory could be configured and never captured, never
+		// detected and never replayed — and the omission would only surface on the morning
+		// somebody needed a capture, as zero frames and no error.
+		{"no decoder factory", Driver{
+			Descriptor: domain.ScaleDescriptor{ID: "sans-decodeur", Label: "Sans décodeur"},
+			New:        gramRS().New,
+		}, "decoder factory"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requirePanic(t, tc.mentions, func() { NewRegistry().Register(tc.driver) })
@@ -217,6 +246,84 @@ func TestRegisterRefusesACompositionMistake(t *testing.T) {
 		registry.Register(gramRS())
 		requirePanic(t, "twice", func() { registry.Register(gramRS()) })
 	})
+}
+
+// TestEveryDecoderIsItsOwn is the reason NewDecoder is a FACTORY and not a value.
+//
+// A decoder holds the bytes waiting for the rest of their frame. Two callers sharing one
+// — two stations, or two entries of the same registry — means half a frame read on one
+// port completed by the bytes of another, which is a mass nobody ever weighed on a label
+// somebody sticks on a bag. The registry must be unable to hand the same one out twice.
+func TestEveryDecoderIsItsOwn(t *testing.T) {
+	registry := NewRegistry()
+	registry.Register(gramRS())
+	registry.Register(gramPlus())
+
+	first, err := registry.NewDecoder("gram-xfoc-rs")
+	if err != nil {
+		t.Fatalf("NewDecoder : %v", err)
+	}
+	second, err := registry.NewDecoder("gram-xfoc-rs")
+	if err != nil {
+		t.Fatalf("NewDecoder : %v", err)
+	}
+	if first == second {
+		t.Fatal("deux appels ont rendu LE MÊME décodeur : une demi-trame d'un port serait " +
+			"complétée par les octets d'un autre")
+	}
+
+	// And the same holds across the entries of one detection: the two GRAM models share a
+	// grammar, never a buffer.
+	candidates := registry.Candidates(EndpointSerialPort)
+	if len(candidates) != 2 {
+		t.Fatalf("%d candidat(s), attendu les deux protocoles série", len(candidates))
+	}
+	if candidates[0].Decoder == candidates[1].Decoder {
+		t.Fatal("les deux candidats d'une détection partagent un décodeur")
+	}
+}
+
+// TestAnUnknownProtocolHasNoDecoderAndSaysWhichExist: a tool asked to decode a protocol
+// this binary does not carry must refuse, never decode with another one.
+func TestAnUnknownProtocolHasNoDecoderAndSaysWhichExist(t *testing.T) {
+	registry := NewRegistry()
+	registry.Register(gramRS())
+
+	_, err := registry.NewDecoder("balance-inventee")
+	if !errors.Is(err, ErrUnknownDriver) {
+		t.Fatalf("erreur %v, attendu %v", err, ErrUnknownDriver)
+	}
+	if !strings.Contains(err.Error(), "gram-xfoc-rs") {
+		t.Errorf("message %q, il doit nommer les protocoles disponibles", err)
+	}
+}
+
+// TestADriverThatCannotBeDetectedIsNotACandidate is the legitimate declaration of §9.3: a
+// protocol that only speaks when it is polled cannot be found by listening, and saying so
+// is more useful than a detection whose only possible answer is silence.
+func TestADriverThatCannotBeDetectedIsNotACandidate(t *testing.T) {
+	silent := stubDriver("balance-muette", "Balance muette")
+	silent.Endpoint = EndpointNone
+
+	registry := NewRegistry()
+	registry.Register(silent)
+	registry.Register(gramRS())
+
+	candidates := registry.Candidates(EndpointSerialPort)
+	if len(candidates) != 1 || candidates[0].Descriptor.ID != "gram-xfoc-rs" {
+		t.Fatalf("candidats %+v, attendu le seul protocole qui déclare un port série", candidates)
+	}
+	// And the declaration travels to whoever reads a descriptor instead of a registry:
+	// `openscale doctor` asks it before checking « le port série ».
+	descriptors := registry.Descriptors()
+	if descriptors[0].Endpoint != domain.EndpointNone {
+		t.Errorf("descripteur %q : endpoint %q, attendu %q",
+			descriptors[0].ID, descriptors[0].Endpoint, domain.EndpointNone)
+	}
+	if descriptors[1].Endpoint != domain.EndpointSerialPort {
+		t.Errorf("descripteur %q : endpoint %q, attendu %q",
+			descriptors[1].ID, descriptors[1].Endpoint, domain.EndpointSerialPort)
+	}
 }
 
 // stubClock is a clock nobody advances: the registry never reads it, it only has to

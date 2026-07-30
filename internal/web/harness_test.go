@@ -84,6 +84,10 @@ type benchOptions struct {
 	// paths is the filesystem probe controls 44 and 46 run through. Nil is the default
 	// and is what a bench standing on no disk honestly is: « we cannot know ».
 	paths domain.PathChecker
+	// printers are the printer drivers this bench declares its binary was built with, as
+	// cmd/openscale hands them over. Empty by default: a bench wires no driver registry,
+	// which is exactly the case §14.5 has to answer without inventing anything.
+	printers []domain.DriverDescriptor
 }
 
 // newBench starts a station, wires the routes over it and stops both when the test
@@ -138,7 +142,7 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		Dashboard:  o.dashboard,
 		Update:     o.update,
 		Binder:     o.binder,
-		Registries: domain.Registries{Paths: o.paths},
+		Registries: domain.Registries{Paths: o.paths, Printers: o.printers},
 		Version:    "test",
 	}
 	if !o.noStore {

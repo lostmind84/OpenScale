@@ -169,8 +169,8 @@ func TestABabblingScaleYieldsNoMeasurement(t *testing.T) {
 	if got := stuck.Feed(prefixes, b.clock.Now()); len(got) != 0 {
 		t.Fatalf("%d mesure(s) sorties de préfixes jamais terminés", len(got))
 	}
-	if stuck.Resyncs != 1 {
-		t.Fatalf("%d resynchronisation(s), attendu 1 : le tampon a grandi sans se recaler", stuck.Resyncs)
+	if stuck.Resyncs() != 1 {
+		t.Fatalf("%d resynchronisation(s), attendu 1 : le tampon a grandi sans se recaler", stuck.Resyncs())
 	}
 	if got := stuck.Pending(); got > 64 {
 		t.Fatalf("%d octets conservés après resynchronisation, attendu au plus 64", got)

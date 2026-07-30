@@ -1,4 +1,4 @@
-package preview
+package printing
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ import (
 	"openscale/internal/domain"
 )
 
-// The tests of the preview driver of §8.1.
+// The tests of the two encoders of a render (§8.1, §15.1).
 //
 // NOTHING HERE TRUSTS THE FILE IT JUST WROTE. Every assertion goes through a reader:
 // the PDF is parsed back, its page is measured, its cross-reference table is

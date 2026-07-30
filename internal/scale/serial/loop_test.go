@@ -231,7 +231,7 @@ func TestTheLivingCorpusTraversesTheLoopSlicedAtEighteenBytes(t *testing.T) {
 	// The non-regression test of §9.2, run through the WHOLE loop this time: the nominal
 	// capture, replayed in the 18-byte slices of CommRead(NumPort, strData, 18, …), must
 	// yield every frame where the legacy implementation lost or truncated one in two.
-	raw, err := os.ReadFile(filepath.Join("..", "testdata", "frames", "nominal-gram-xfoc.txt"))
+	raw, err := os.ReadFile(filepath.Join("..", "testdata", "frames", "gram-xfoc-rs", "nominal-gram-xfoc.txt"))
 	if err != nil {
 		t.Fatalf("lecture du corpus : %v", err)
 	}

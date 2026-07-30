@@ -26,6 +26,13 @@ import (
 // PACKAGE and ONE LINE below, with zero modification anywhere else: the
 // administration screen discovers the driver through the registry and generates its
 // form from the option schema the driver itself declares (§9.3, §11.3).
+//
+// It names them and NOTHING ELSE. A driver is a value its own package hands over,
+// complete — identity, capabilities, option schema and factory — and the two registries
+// below are lists of such values. What a driver needs from a configuration is the
+// driver's business: a composition root that spelled the option keys of a printer would
+// have to be edited for every option that printer ever gains, and a bound written here
+// would go stale in silence the day the hardware changes.
 
 // scaleRegistry is the set of weighing PROTOCOLS this binary was built with.
 //
@@ -57,185 +64,44 @@ func scaleRegistry() *scale.Registry {
 // list that no station can honour.
 func printerRegistry() *printing.Registry {
 	registry := printing.NewRegistry()
-	registry.Register(rasterDriver())
-	registry.Register(previewDriver())
+	registry.Register(raster.Driver())
+	registry.Register(preview.Driver())
 	return registry
 }
 
-// previewDriver is the registry entry of the driver that prints nothing.
+// The keys of printer.options THIS ROOT READS FOR ITSELF, spelled as config.json carries
+// them (§11.2). The driver's own schema is the authority on the spelling; what is listed
+// here is the short list of keys whose value never reaches the driver as an option.
 //
-// IT DECLARES NO OPTION, and that is the requirement rather than an omission. The neutral
-// profile carries no `printer.options` block — darkness, speed and the number of copies are
-// settled on a real print run, and a factory profile has no business inventing three
-// figures nobody measured — so the driver such a station falls back on must ask for none of
-// them. An empty schema is also what tells the composition root there is no transport to
-// build here.
-func previewDriver() printing.Driver {
-	return printing.Driver{
-		Descriptor: domain.PrinterDescriptor{
-			ID:    preview.ID,
-			Label: preview.Label,
-			Capabilities: domain.PrinterCapabilities{
-				Raster:    true,
-				Status:    false,
-				Cutter:    false,
-				MaxCopies: 1,
-			},
-		},
-		New: func(c printing.DriverConfig) (ports.Printer, error) {
-			return preview.New(preview.Options{
-				Dir:       c.OutputDir,
-				Clock:     c.Clock,
-				Log:       c.Log,
-				Template:  c.Template,
-				DemoLabel: c.DemoLabel,
-			})
-		},
-	}
-}
-
-// rasterDriver is the registry entry of the production printer driver.
+//	transport, queue, path, address  build the byte layer (§8.4) — a driver that opened a
+//	                                 device itself would lose « one frame, four
+//	                                 destinations »
+//	offset_x, offset_y               shift the TEMPLATE, which is the only one of the two
+//	                                 offsets the preview screen shows (raster.ParseOptions)
+//	roll_capacity                    sizes the roll counter, which counts labels for a
+//	                                 station and not for a printer
 //
-// The head is a WS408 — 8 dots/mm, 104 bytes of <G> block — because that is the whole
-// parc, and raster.WS408 is where the two figures come from rather than from here.
-func rasterDriver() printing.Driver {
-	head := raster.WS408()
-	return printing.Driver{
-		Descriptor: domain.PrinterDescriptor{
-			ID:    raster.ID,
-			Label: raster.Label,
-			Capabilities: domain.PrinterCapabilities{
-				Raster:    true,
-				Status:    true,
-				Cutter:    false,
-				MaxCopies: raster.MaxCopies,
-				DotsPerMM: head.DotsPerMM,
-			},
-		},
-		Options: printerOptionSchema(),
-		New: func(c printing.DriverConfig) (ports.Printer, error) {
-			settings, err := rasterSettings(c.Options)
-			if err != nil {
-				return nil, err
-			}
-			return raster.New(raster.Options{
-				Transport: c.Transport,
-				Clock:     c.Clock,
-				Log:       c.Log,
-				Template:  c.Template,
-				Settings:  settings,
-				Head:      head,
-				DemoLabel: c.DemoLabel,
-			})
-		},
-	}
-}
-
-// The keys of printer.options, spelled exactly as config.json carries them (§11.2).
+// Everything else in printer.options is read by raster.ParseOptions, in the package that
+// declares it.
 const (
 	optionTransport    = "transport"
 	optionQueue        = "queue"
 	optionPath         = "path"
 	optionAddress      = "address"
-	optionFallback     = "fallback"
-	optionEnabled      = "enabled"
-	optionDarkness     = "darkness"
-	optionSpeed        = "speed"
 	optionOffsetX      = "offset_x"
 	optionOffsetY      = "offset_y"
-	optionInvertBits   = "invert_bits"
-	optionCopies       = "copies"
 	optionRollCapacity = "roll_capacity"
 )
 
-// printerOptionSchema declares printer.options, which is what lets the administration
-// screen GENERATE its form and control 7 of Config.Validate check the OPTIONS of the
-// driver instead of only its type name (§11.3).
+// newTransport reads the keys above and lets the byte layer build itself (§8.4).
 //
-// darkness, speed and copies are REQUIRED, and that is the rule raster.Settings states
-// in its own words: the zero value is not a configuration, a darkness of zero is not a
-// shade of grey. Declaring them required is what makes a file that forgot one produce a
-// fault in the ALL-AT-ONCE list of §11.3, next to the field that carries it, instead of
-// a refusal with a customer standing at the scale.
+// WHICH transports exist, and how each one is built, belong to the package that owns the
+// list — this root would otherwise hold a fourth copy of it, next to the administration
+// screen, the option schema of the driver and control 8 of Config.Validate. What stays
+// here is the one thing only a composition root can do: it BUILDS the transport and it
+// CLOSES it, and no printer driver ever opens a device (transport.New says why that
+// clause is load-bearing).
 //
-// queue, path and address are NOT required: each belongs to one transport and is empty
-// for the other three. Which one is needed is the transport's business, and each says so
-// in French when it is built.
-func printerOptionSchema() []domain.OptionSchema {
-	fallback := []domain.OptionSchema{
-		{Key: optionEnabled, Kind: domain.OptionBool},
-		{Key: optionTransport, Kind: domain.OptionEnum, Values: transportNames()},
-		{Key: optionQueue, Kind: domain.OptionText},
-		{Key: optionPath, Kind: domain.OptionText},
-		{Key: optionAddress, Kind: domain.OptionHostPort},
-	}
-	return []domain.OptionSchema{
-		{Key: optionTransport, Kind: domain.OptionEnum, Required: true, Values: transportNames()},
-		{Key: optionQueue, Kind: domain.OptionText},
-		{Key: optionPath, Kind: domain.OptionText},
-		{Key: optionAddress, Kind: domain.OptionHostPort},
-		{Key: optionFallback, Kind: domain.OptionGroup, Options: fallback},
-		{Key: optionDarkness, Kind: domain.OptionInt, Required: true,
-			Min: raster.MinDarkness, Max: raster.MaxDarkness},
-		{Key: optionSpeed, Kind: domain.OptionInt, Required: true,
-			Min: raster.MinSpeed, Max: raster.MaxSpeed},
-		// The offsets are bounded HERE by the four digits of the <A3> field and by
-		// control 38 against the geometry of the template, which is the bound that
-		// really matters — beyond it the inked content leaves the label.
-		{Key: optionOffsetX, Kind: domain.OptionInt, Min: -raster.MaxOffsetDots, Max: raster.MaxOffsetDots},
-		{Key: optionOffsetY, Kind: domain.OptionInt, Min: -raster.MaxOffsetDots, Max: raster.MaxOffsetDots},
-		{Key: optionInvertBits, Kind: domain.OptionBool},
-		{Key: optionCopies, Kind: domain.OptionInt, Required: true, Min: 1, Max: 10},
-		{Key: optionRollCapacity, Kind: domain.OptionInt, Min: 50, Max: 100_000},
-	}
-}
-
-// transportNames reports the byte transports a volunteer may choose from, in the order
-// the transport package declares them.
-func transportNames() []string {
-	descriptors := transport.Descriptors()
-	names := make([]string, 0, len(descriptors))
-	for _, d := range descriptors {
-		names = append(names, d.ID)
-	}
-	return names
-}
-
-// rasterSettings reads the three adjustments of §8.2 out of printer.options.
-//
-// IT DELIBERATELY LEAVES THE OFFSET AT ZERO, and that is the whole point of the guard
-// raster.checkTheOffsetIsAppliedOnce documents. printer.options.offset_x feeds the
-// TEMPLATE, because the template is the only one of the two the preview screen shows:
-// a volunteer pressing the ±1 dot arrow must see the label move on the screen they are
-// adjusting against. Wired naively, one key would feed both the layout and the <A3>
-// command and the label would move twice — and nobody would find out until a roll had
-// been spoiled.
-func rasterSettings(o domain.DriverOptions) (raster.Settings, error) {
-	settings := raster.Settings{}
-	for _, field := range []struct {
-		key  string
-		into *int
-	}{
-		{optionDarkness, &settings.Darkness},
-		{optionSpeed, &settings.Speed},
-		{optionCopies, &settings.Copies},
-	} {
-		value, ok := o.Int(field.key)
-		if !ok {
-			return raster.Settings{}, fmt.Errorf(
-				"printer.options.%s : cette valeur se règle sur un tirage réel et le fichier doit la porter",
-				field.key)
-		}
-		*field.into = int(value)
-	}
-	settings.InvertBits, _ = o.Bool(optionInvertBits)
-	return settings, nil
-}
-
-// newTransport builds the byte layer printer.options.transport names (§8.4).
-//
-// It lives in the composition root and not in the printer driver, and that is what lets
-// ONE frame reach four destinations: `raster` carries a frame, it never opens a device.
 // labelDir is <data>/labels, where the `file` transport drops one copy per label — a
 // directory the service owns, so that « envoyez-moi le fichier de la dernière
 // étiquette » is a sentence a volunteer can act on.
@@ -244,21 +110,13 @@ func newTransport(o domain.DriverOptions, clk ports.Clock, labelDir string) (por
 	queue, _ := o.Text(optionQueue)
 	path, _ := o.Text(optionPath)
 	address, _ := o.Text(optionAddress)
-	switch name {
-	case domain.TransportWinspool:
-		return transport.NewWinspool(transport.WinspoolOptions{Queue: queue})
-	case domain.TransportDevfile:
-		return transport.NewDevfile(transport.DevfileOptions{Path: path, Clock: clk})
-	case domain.TransportTCP:
-		return transport.NewTCP(transport.TCPOptions{Address: address, Clock: clk})
-	case domain.TransportFile:
-		if path == "" {
-			path = labelDir
-		}
-		return transport.NewFile(transport.FileOptions{Dir: path, Clock: clk})
-	}
-	return nil, fmt.Errorf("printer.options.transport : transport inconnu %q ; transports disponibles : %s",
-		name, strings.Join(transportNames(), ", "))
+	return transport.New(name, transport.Config{
+		Queue:    queue,
+		Path:     path,
+		Address:  address,
+		Clock:    clk,
+		LabelDir: labelDir,
+	})
 }
 
 // catalogSources is the set of catalog sources this binary was built with.

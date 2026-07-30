@@ -1,11 +1,7 @@
-// Package printing turns a label into the dots a print head burns.
-//
-// One render, four consumers (§7.3): the preview screen, the PDF export, the raster
-// driver and the SBPL encapsulation all read the SAME image.Gray. The symbol is drawn
-// into that bitmap like everything else (ADR-019), which is what makes the fractional
-// module of §7.4 expressible at all — no printer language can declare a module of
-// 2.344 dots.
 package printing
+
+// The package comment lives in doc.go, which is where a contributor arriving in this
+// tree looks first — and where the three gestures that add a printer are written.
 
 import (
 	"embed"

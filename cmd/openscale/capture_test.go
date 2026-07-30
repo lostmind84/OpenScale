@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"openscale/internal/domain"
 	"openscale/internal/fake"
 	"openscale/internal/scale/serial"
 )
@@ -131,12 +132,28 @@ func refusingOpener(err error) serial.Opener {
 
 // --- the bench --------------------------------------------------------------------
 
+// benchProtocol is the grammar these tests capture with, resolved THROUGH THE REGISTRY
+// exactly as the command line resolves it.
+//
+// Naming a literal here would make the bench decode with a grammar the binary might not
+// even carry; going through decoderOf is what makes these tests exercise the path
+// `openscale capture --type` takes, default included.
+func benchProtocol(t *testing.T) (string, domain.Decoder) {
+	t.Helper()
+	protocol, decoder, err := decoderOf(scaleRegistry(), "")
+	if err != nil {
+		t.Fatalf("protocole de banc : %v", err)
+	}
+	return protocol, decoder
+}
+
 // runCaptureOnScript captures a scripted port into a temporary file and returns what
 // the operator saw and what the file holds.
 func runCaptureOnScript(t *testing.T, stream *scriptedStream, clock *fake.Clock,
 	duration time.Duration, quiet bool) (screen string, file string, path string) {
 	t.Helper()
 	path = filepath.Join(t.TempDir(), "frames.txt")
+	protocol, decoder := benchProtocol(t)
 	var out bytes.Buffer
 	err := capture(captureRequest{
 		link: serial.Options{
@@ -144,6 +161,8 @@ func runCaptureOnScript(t *testing.T, stream *scriptedStream, clock *fake.Clock,
 		},
 		duration: duration,
 		path:     path,
+		protocol: protocol,
+		decoder:  decoder,
 		quiet:    quiet,
 	}, &out)
 	if err != nil {
@@ -360,11 +379,14 @@ func TestCaptureNeverReconnects(t *testing.T) {
 	stream.endErr = errors.New("le port a disparu")
 
 	path := filepath.Join(t.TempDir(), "frames.txt")
+	protocol, decoder := benchProtocol(t)
 	var out bytes.Buffer
 	err := capture(captureRequest{
 		link:     serial.Options{Port: "COM8", Baud: 9600, Clock: clock, Open: stream.opener()},
 		duration: 30 * time.Minute,
 		path:     path,
+		protocol: protocol,
+		decoder:  decoder,
 		quiet:    true,
 	}, &out)
 	if err != nil {
@@ -410,6 +432,7 @@ func TestCaptureSaysSoWhenNothingCameOutOfTheCable(t *testing.T) {
 func TestCaptureRefusesWhatItCannotDo(t *testing.T) {
 	t.Run("port introuvable", func(t *testing.T) {
 		clock := fake.NewClock(captureStart)
+		protocol, decoder := benchProtocol(t)
 		var out bytes.Buffer
 		err := capture(captureRequest{
 			link: serial.Options{
@@ -418,6 +441,8 @@ func TestCaptureRefusesWhatItCannotDo(t *testing.T) {
 			},
 			duration: 30 * time.Second,
 			path:     filepath.Join(t.TempDir(), "frames.txt"),
+			protocol: protocol,
+			decoder:  decoder,
 		}, &out)
 		if err == nil {
 			t.Fatal("un port introuvable a été accepté")
@@ -430,11 +455,14 @@ func TestCaptureRefusesWhatItCannotDo(t *testing.T) {
 
 	t.Run("fichier de trames impossible à écrire", func(t *testing.T) {
 		clock := fake.NewClock(captureStart)
+		protocol, decoder := benchProtocol(t)
 		var out bytes.Buffer
 		err := capture(captureRequest{
 			link:     serial.Options{Port: "COM8", Baud: 9600, Clock: clock, Open: emitting(clock, 1).opener()},
 			duration: 30 * time.Second,
 			path:     filepath.Join(t.TempDir(), "repertoire-absent", "frames.txt"),
+			protocol: protocol,
+			decoder:  decoder,
 		}, &out)
 		if err == nil {
 			t.Fatal("un chemin d'écriture impossible a été accepté")
@@ -450,11 +478,14 @@ func TestCaptureRefusesWhatItCannotDo(t *testing.T) {
 		if err := os.WriteFile(path, []byte("# une capture de trente minutes\n"), 0o600); err != nil {
 			t.Fatalf("préparation : %v", err)
 		}
+		protocol, decoder := benchProtocol(t)
 		var out bytes.Buffer
 		err := capture(captureRequest{
 			link:     serial.Options{Port: "COM8", Baud: 9600, Clock: clock, Open: emitting(clock, 1).opener()},
 			duration: 30 * time.Second,
 			path:     path,
+			protocol: protocol,
+			decoder:  decoder,
 		}, &out)
 		if err == nil {
 			t.Fatal("la capture précédente a été écrasée")
@@ -632,8 +663,8 @@ func TestCaptureDoesNotSplitACRLFAcrossTwoLines(t *testing.T) {
 	screen, file, _ := runCaptureOnScript(t, stream, clock, 5*time.Second, true)
 
 	requireLine(t, screen, "2 trames décodées sur 2 lignes, 0 resynchronisation")
-	if got := strings.Count(file, "\n"); got != 8 {
-		t.Errorf("%d lignes dans le fichier, 6 de commentaire + 2 de trame attendues :\n%s", got, file)
+	if got := strings.Count(file, "\n"); got != 9 {
+		t.Errorf("%d lignes dans le fichier, 7 de commentaire + 2 de trame attendues :\n%s", got, file)
 	}
 	if !strings.Contains(file, "@0 ST,GS,+  1.236KG\r\n") {
 		t.Errorf("la trame coupée n'a pas été recollée :\n%q", file)
@@ -650,7 +681,8 @@ func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
 // cadence measured from it would be a fiction -- the exact failure the living corpus
 // exists to make impossible.
 func TestCorpusWriterGivesUpLoudlyWhenItCannotWrite(t *testing.T) {
-	writer := &corpusWriter{to: failingWriter{err: errors.New("disque plein")}}
+	_, decoder := benchProtocol(t)
+	writer := &corpusWriter{to: failingWriter{err: errors.New("disque plein")}, cut: decoder}
 	if err := writer.feed([]byte(nominalFrame), captureStart); err == nil {
 		t.Error("une trame perdue n'a pas été signalée")
 	}

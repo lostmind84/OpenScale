@@ -119,6 +119,23 @@ func SelfTests() []SelfTestInfo {
 	return append([]SelfTestInfo(nil), selfTests...)
 }
 
+// SelfTestExists reports that what is one of the three names the catalogue carries.
+//
+// It is what the driver registry checks a declaration against, and the reason the
+// catalogue stays HERE while each driver only says which of its entries it honours: these
+// three names are the vocabulary of a screen, frozen by the glossary. A driver free to
+// invent a fourth would put a button nobody wrote a page for in front of a volunteer —
+// and the wording, the access level and the sentence explaining what the print settles
+// all live in this table, not in a driver.
+func SelfTestExists(what SelfTest) bool {
+	for _, t := range selfTests {
+		if t.ID == what {
+			return true
+		}
+	}
+	return false
+}
+
 // LookupSelfTest finds a self-test by the value a route carries.
 //
 // The error is FRENCH and it NAMES what exists, never a bare « inconnu » — and for the

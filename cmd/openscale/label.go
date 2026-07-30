@@ -13,7 +13,6 @@ import (
 
 	"openscale/internal/domain"
 	"openscale/internal/printing"
-	"openscale/internal/printing/preview"
 )
 
 // The demonstration label, and not one figure of it is invented.
@@ -207,7 +206,7 @@ func writePreviews(g domain.Template, img *image.Gray, pdf, png string, out io.W
 	fmt.Fprintf(out, "\nFichiers écrits :\n")
 	if pdf != "" {
 		var buffer bytes.Buffer
-		if err := preview.EncodePDF(&buffer, img, g.Media); err != nil {
+		if err := printing.EncodePDF(&buffer, img, g.Media); err != nil {
 			return err
 		}
 		if err := writePreviewFile(pdf, buffer.Bytes()); err != nil {
@@ -219,7 +218,7 @@ func writePreviews(g domain.Template, img *image.Gray, pdf, png string, out io.W
 	}
 	if png != "" {
 		var buffer bytes.Buffer
-		if err := preview.EncodePNG(&buffer, img); err != nil {
+		if err := printing.EncodePNG(&buffer, img); err != nil {
 			return err
 		}
 		if err := writePreviewFile(png, buffer.Bytes()); err != nil {

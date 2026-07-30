@@ -39,10 +39,16 @@ func loadDelivered(t *testing.T) Config {
 // testRegistries declares the drivers the shipped configuration names, with the
 // schema each of them would declare.
 //
-// The bounds of the options a NUMBERED CONTROL already owns -- copies,
-// roll_capacity, the two offsets, poll_interval_s, the two ratios, the two size
-// ceilings -- are deliberately left open here: the control names the field and the
-// reason, and declaring the same bound twice would report one mistake as two faults.
+// The bounds of the options a NUMBERED CONTROL already owns -- roll_capacity, the two
+// offsets, poll_interval_s, the two ratios, the two size ceilings -- are deliberately
+// left open here: the control names the field and the reason, and declaring the same
+// bound twice would report one mistake as two faults.
+//
+// `copies` is the exception, and it is the one option whose bound NO control owns any
+// more: it belongs to the driver, raster.MaxConfiguredCopies, and the schema is the only
+// place it is stated. What is declared here is that same [1, 10], as the real driver
+// declares it -- a bound left open here would make control 7 look toothless on the one
+// key it is now solely responsible for.
 func testRegistries() Registries {
 	serial := []OptionSchema{
 		{Key: "port", Kind: OptionText, Required: true},
@@ -70,7 +76,7 @@ func testRegistries() Registries {
 		{Key: "offset_x", Kind: OptionInt},
 		{Key: "offset_y", Kind: OptionInt},
 		{Key: "invert_bits", Kind: OptionBool},
-		{Key: "copies", Kind: OptionInt},
+		{Key: "copies", Kind: OptionInt, Min: 1, Max: 10},
 		{Key: "roll_capacity", Kind: OptionInt},
 	}
 	commonCatalog := []OptionSchema{
@@ -104,8 +110,11 @@ func testRegistries() Registries {
 			{ID: "gram-xfoc-plus", Label: "GRAM XFOC +", Options: serial},
 		},
 		Printers: []DriverDescriptor{
-			{ID: PrinterRaster, Label: "Raster", Options: printerOptions},
-			{ID: PrinterSBPL, Label: "SBPL", Options: printerOptions},
+			// The raster driver declares the head of the parc, exactly as
+			// cmd/openscale does: it is what rules 3 and 4 measure a template against.
+			// `preview` declares nothing, because it inks no paper.
+			{ID: PrinterRaster, Label: "Raster", Options: printerOptions, Capabilities: ReferenceHead()},
+			{ID: PrinterSBPL, Label: "SBPL", Options: printerOptions, Capabilities: ReferenceHead()},
 			{ID: PrinterPreview, Label: "Aperçu"},
 		},
 		Transports: []DriverDescriptor{
@@ -335,7 +344,9 @@ func brokenConfigurations() []brokenConfiguration {
 			mutate: func(_ *testing.T, c *Config) { c.Scale.Type = "gram-xfoc-turbo" },
 			field:  "scale.type",
 		}, {
-			control: "3", name: "poste avec balance sans port série",
+			// Control 6 and no longer 3: the key is named by the schema the GRAM driver
+			// declares, not by the core.
+			control: "6", name: "poste avec balance sans port série",
 			mutate: func(_ *testing.T, c *Config) { delete(c.Scale.Options, "port") },
 			field:  "scale.options.port",
 		}, {
@@ -517,7 +528,7 @@ func brokenConfigurations() []brokenConfiguration {
 			},
 			field: "catalog.options.poll_interval_s",
 		}, {
-			control: "37", name: "onze exemplaires",
+			control: "7", name: "onze exemplaires, hors des bornes que le driver déclare",
 			mutate: func(t *testing.T, c *Config) {
 				setOption(t, c.Printer.Options, "copies", 11)
 			},
@@ -658,6 +669,12 @@ func TestValidateNamesTheRightField(t *testing.T) {
 // Controls 17 to 19 bear on the COMPILED plan and 20 on the RAW file: neither can be
 // provoked from a Config structure, so both have their own test and neither belongs
 // to this corpus.
+//
+// 37 is a GAP in the numbering and not a control that stopped being tested: the copy
+// count is bounded by the schema the printer driver declares, and the eleven copies that
+// used to provoke it are still in the corpus, under control 7. The number is left unused
+// rather than reassigned — the numbering is what docs/02-architecture.md §11.3 refers to,
+// and a renumbering would silently change what a paragraph names.
 func TestTheCorpusCoversTheControls(t *testing.T) {
 	const wrongConfigurationsFloor = 26
 
@@ -672,7 +689,7 @@ func TestTheCorpusCoversTheControls(t *testing.T) {
 	for _, control := range []string{
 		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
 		"16", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32",
-		"33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45",
+		"33", "34", "35", "36", "38", "39", "40", "41", "42", "43", "44", "45",
 		"46", "47", "48",
 	} {
 		if !covered[control] {
@@ -929,7 +946,7 @@ func TestValidateReportsEveryFaultAtOnce(t *testing.T) {
 	config.Admin.PasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$b3BlbnNjYWxlLXNhbHQxMg$Zm9yLXRoZS1kZWxpdmVyZWQtY29uZmlndXJhdGlvbmc"
 	config.Catalog.FallbackCategory = "divers"         // 32
 	config.Catalog.Categories[0].Color = "vert"        // 35
-	setOption(t, config.Printer.Options, "copies", 99) // 37
+	setOption(t, config.Printer.Options, "copies", 99) // 7, sur les bornes du driver
 	setOption(t, config.Printer.Options, "offset_y", 9)
 
 	faults := config.Validate(testRegistries())
@@ -1405,7 +1422,7 @@ func TestExportStripsSecretsAtAnyDepth(t *testing.T) {
 // TestExportStripsStationKeysAtAnyDepth applies the strip list to the whole option
 // tree, not to its first floor and to one group called « fallback ».
 //
-// The default of the lot does not move: a driver option is a setting the fleet SHARES
+// The default of the lot does not move: a driver option is a setting the parc SHARES
 // until stationSpecificOptions proves otherwise. What moves is the REACH of that proof.
 func TestExportStripsStationKeysAtAnyDepth(t *testing.T) {
 	config := hostileConfig(t)
@@ -1425,7 +1442,7 @@ func TestExportStripsStationKeysAtAnyDepth(t *testing.T) {
 		}
 	}
 
-	// Only the NAMED keys leave. A group emptied whole would drop what the fleet
+	// Only the NAMED keys leave. A group emptied whole would drop what the parc
 	// shares, which is the defect this lot was opened to repair.
 	exported := config.Export(false)
 	gateway, ok := exported.Scale.Options.Group("gateway")
@@ -1781,6 +1798,178 @@ func TestRequiredOptionIsNamedWhenAbsent(t *testing.T) {
 	// has written yet would be a second source of truth.
 	if faults := validateOptions("scale.options", DriverOptions{}, nil); len(faults) != 0 {
 		t.Fatalf("un driver non enregistré ne produit aucune faute, obtenu %v", fieldsOf(faults))
+	}
+}
+
+// TestARequiredOptionLeftEmptyIsAsAbsentAsAMissingKey.
+//
+// A required option is required to CARRY something. `"port": ""` parses as a text
+// value, so the schema check was happy with it and only control 3 — which named the
+// key `port` in the core — refused it. Now that the driver's own schema is the single
+// voice on the subject, the empty string has to be refused there.
+func TestARequiredOptionLeftEmptyIsAsAbsentAsAMissingKey(t *testing.T) {
+	descriptor := DriverDescriptor{ID: "gram-xfoc-plus", Options: []OptionSchema{
+		{Key: "port", Kind: OptionText, Required: true},
+	}}
+	options := DriverOptions{}
+	setOption(t, options, "port", "")
+
+	faults := validateOptions("scale.options", options, &descriptor)
+	if findFault(faults, "scale.options.port") == nil {
+		t.Fatalf("une option exigée laissée vide est acceptée ; obtenu :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
+// TestAnOptionalOptionMayStayEmpty is the other half: `address` is empty on every
+// station whose transport is winspool, and emptiness is how an unused option is
+// spelled.
+func TestAnOptionalOptionMayStayEmpty(t *testing.T) {
+	descriptor := DriverDescriptor{ID: "raster", Options: []OptionSchema{
+		{Key: "address", Kind: OptionHostPort},
+		{Key: "queue", Kind: OptionText},
+	}}
+	options := DriverOptions{}
+	setOption(t, options, "address", "")
+	setOption(t, options, "queue", "")
+
+	if faults := validateOptions("printer.options", options, &descriptor); len(faults) != 0 {
+		t.Fatalf("une option facultative vide est refusée :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
+// --- Control 3: what a scale needs is what its DRIVER declares -------------------
+
+// TestAScaleReachedByAnAddressNeedsNoPortKey.
+//
+// Control 3 demanded the literal key `scale.options.port` of every station declaring
+// a scale, WHATEVER its protocol. A driver reached by an address — TCP, USB — was
+// therefore refused before it was ever asked, on a key its own schema does not carry.
+// What is required is what the chosen driver declares required, and nothing else.
+func TestAScaleReachedByAnAddressNeedsNoPortKey(t *testing.T) {
+	const overIP = "gram-over-ip"
+
+	config := loadDelivered(t)
+	config.Scale.Type = overIP
+	config.Scale.Options = DriverOptions{}
+	setOption(t, config.Scale.Options, "address", "192.168.1.50:4001")
+
+	registries := testRegistries()
+	registries.Scales = append(registries.Scales, DriverDescriptor{
+		ID: overIP, Label: "GRAM sur IP",
+		Options: []OptionSchema{{Key: "address", Kind: OptionHostPort, Required: true}},
+	})
+
+	if faults := config.Validate(registries); len(faults) != 0 {
+		t.Fatalf("un driver atteint par adresse est refusé :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
+// TestAScaleDriverStillGetsTheOptionsItDeclaresRequired: the same seam in the
+// direction that protects the parc. The GRAM declares `port` required in its own
+// schema, so a station that does not name one is still refused.
+func TestAScaleDriverStillGetsTheOptionsItDeclaresRequired(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		mutate func(*testing.T, *Config)
+	}{
+		{"la clé manque", func(_ *testing.T, c *Config) { delete(c.Scale.Options, "port") }},
+		{"la clé est vide", func(t *testing.T, c *Config) { setOption(t, c.Scale.Options, "port", "") }},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			config := loadDelivered(t)
+			testCase.mutate(t, &config)
+
+			faults := config.Validate(testRegistries())
+			var named []Fault
+			for _, fault := range faults {
+				if fault.Field == "scale.options.port" {
+					named = append(named, fault)
+				}
+			}
+			if len(named) == 0 {
+				t.Fatalf("un poste GRAM sans port est accepté ; obtenu :\n%s",
+					strings.Join(fieldsOf(faults), "\n"))
+			}
+			// ONE line and not two. A volunteer in front of the screen does not count
+			// broken rules, they count FIELDS TO FILL IN, and `scale.options.port`
+			// counted double — once for control 3, once for the schema (SUIVI,
+			// 29/07/2026).
+			if len(named) != 1 {
+				t.Errorf("%d fautes sur un seul champ à remplir :\n%s",
+					len(named), strings.Join(fieldsOf(named), "\n"))
+			}
+			// And the remaining line says WHO is asking, which is what tells a
+			// volunteer that changing the protocol is the other way out.
+			if !strings.Contains(named[0].Message, config.Scale.Type) {
+				t.Errorf("le message ne nomme pas le driver qui exige la clé : %q", named[0].Message)
+			}
+		})
+	}
+}
+
+// --- Control 29: the geometry is the head's, not the core's ----------------------
+
+// TestControl29ValidatesTheTemplateOnTheHeadTheDriverDeclares.
+//
+// The two figures rules 3 and 4 bear on were constants of the core, counted at
+// 8 dots/mm. Any station whose printer is not the WS408 of the parc therefore failed
+// its own validation AT START-UP — §11.3 puts it out of service — on a template nobody
+// could make it accept: at 12 dots/mm the very same label is 420 dots wide.
+func TestControl29ValidatesTheTemplateOnTheHeadTheDriverDeclares(t *testing.T) {
+	config := loadDelivered(t)
+	finer := twelveDotTemplate()
+	finer.Name = config.Printer.Template
+
+	registries := testRegistries()
+	registries.Templates = map[string]Template{finer.Name: finer}
+
+	// On the WS408 the parc runs, the pairing is refused, in French, naming the two
+	// figures — a volunteer has to know which of the two to change.
+	fault := findFault(config.Validate(registries), "printer.template.media.dots_per_mm")
+	if fault == nil {
+		t.Fatalf("un gabarit mesuré pour une autre tête est accepté ; obtenu :\n%s",
+			strings.Join(fieldsOf(config.Validate(registries)), "\n"))
+	}
+	for _, figure := range []string{"12 dots/mm", "8 dots/mm"} {
+		if !strings.Contains(fault.Message, figure) {
+			t.Errorf("le message ne nomme pas %s : %q", figure, fault.Message)
+		}
+	}
+
+	// Declare the head that goes with it and the same station validates.
+	for i := range registries.Printers {
+		if registries.Printers[i].ID == config.Printer.Type {
+			registries.Printers[i].Capabilities = ws412Head()
+		}
+	}
+	if faults := config.Validate(registries); len(faults) != 0 {
+		t.Fatalf("un poste à 12 dots/mm avec un gabarit mesuré pour 12 dots/mm est refusé :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
+// TestTheDeliveredStationIsValidatedOnTheWS408: the recette criterion of E0 — the
+// shipped template and the head of the parc produce EXACTLY the figures they produced
+// before, whether the head is declared or left unsaid.
+func TestTheDeliveredStationIsValidatedOnTheWS408(t *testing.T) {
+	config := loadDelivered(t)
+
+	declared := testRegistries()
+	silent := testRegistries()
+	for i := range silent.Printers {
+		silent.Printers[i].Capabilities = PrinterCapabilities{}
+	}
+
+	if faults := config.Validate(declared); len(faults) != 0 {
+		t.Fatalf("le poste livré est refusé par la tête qu'il déclare :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+	if faults := config.Validate(silent); len(faults) != 0 {
+		t.Fatalf("le poste livré est refusé quand aucune tête ne se déclare :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
 	}
 }
 

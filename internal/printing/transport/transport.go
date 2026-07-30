@@ -50,6 +50,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"openscale/internal/domain"
@@ -91,6 +92,91 @@ func Descriptors() []domain.DriverDescriptor {
 		{ID: domain.TransportTCP, Label: "Imprimante réseau, port 9100"},
 		{ID: domain.TransportFile, Label: "Fichier — développement, tests, support à distance"},
 	}
+}
+
+// Names reports the IDs of Descriptors, in the same order.
+//
+// Two places need the enumeration and neither needs the labels: the option schema of a
+// printer driver, whose `transport` key is an enum a volunteer picks from, and the
+// refusal a composition root produces on a name nobody registered (§11.3). Both derived
+// it with a loop of their own, and two loops over one list are two chances for the screen
+// and the refusal to end up offering different words.
+func Names() []string {
+	descriptors := Descriptors()
+	names := make([]string, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		names = append(names, descriptor.ID)
+	}
+	return names
+}
+
+// Config is what a composition root hands New: the values of the printer.options keys
+// that DESIGNATE A DEVICE (§8.4), and nothing about the label that will travel on it.
+//
+// Each transport reads the one field that concerns it and ignores the other three, which
+// is why none of them is required here: which key a station has to fill is the business
+// of the transport it named, and each of the four says so IN FRENCH when it is built.
+type Config struct {
+	// Queue is printer.options.queue: the name Windows knows the printer by, « SATO
+	// WS408_2 ». Read by `winspool`.
+	Queue string
+	// Path is printer.options.path, and the two transports that read it mean different
+	// things by it: a print node for `devfile`, a directory for `file`.
+	Path string
+	// Address is printer.options.address: « 192.168.1.50:9100 », or the same without the
+	// port. Read by `tcp`.
+	Address string
+	// Clock is the injected clock every delay of this package is measured on. There is NO
+	// default, here or in any of the four constructors: a transport that read the wall
+	// clock would put its own timeout out of reach of a test, and `go run ./tools/boundary`
+	// would say so (§5.3).
+	Clock ports.Clock
+	// LabelDir is where `file` drops its copies when printer.options.path says nothing:
+	// <data>/labels, a directory the service owns, so that « envoyez-moi le fichier de la
+	// dernière étiquette » is a sentence a volunteer can act on (§8.4).
+	LabelDir string
+}
+
+// New builds the transport a name denotes, and refuses an unknown one by NAMING the ones
+// that exist — the requirement §11.3 makes of every key an operator types.
+//
+// It lives here because this package already owns the list: Descriptors feeds the
+// administration screen and control 8 of Config.Validate, Names feeds the option schema
+// of a printer driver, and a switch spelled anywhere else would be a fourth reading of
+// one list — the screen offering a name nothing can build, or a build refusing a name the
+// screen offers.
+//
+// # THE TRANSPORT IS BUILT AND CLOSED BY THE COMPOSITION ROOT, NEVER BY A DRIVER
+//
+// That is §8.4 — « une trame, quatre destinations » — and it is a clause, not an
+// accident of the current wiring. `raster` and `sbpl` emit the SAME bytes and differ only
+// by the last link; they can, because NEITHER OF THEM OPENS A DEVICE. A driver that
+// called New for itself would hold a handle the root cannot release on a configuration
+// reload (§11.4), and the second driver to do it would carry its own copy of the switch
+// below.
+//
+// So cmd/openscale calls New, hands the open transport to the driver, and closes it.
+// Whether there is one to open at all is decided by the driver's OWN option schema — a
+// driver that declares no `transport` key gets none, which is how `preview` produces a
+// PNG with no device behind it. That is the whole extensibility mechanism of §5.2, and
+// « simplifying » it by giving the opening of the device to the driver would remove it.
+func New(name string, c Config) (ports.Transport, error) {
+	switch name {
+	case domain.TransportWinspool:
+		return NewWinspool(WinspoolOptions{Queue: c.Queue})
+	case domain.TransportDevfile:
+		return NewDevfile(DevfileOptions{Path: c.Path, Clock: c.Clock})
+	case domain.TransportTCP:
+		return NewTCP(TCPOptions{Address: c.Address, Clock: c.Clock})
+	case domain.TransportFile:
+		dir := c.Path
+		if dir == "" {
+			dir = c.LabelDir
+		}
+		return NewFile(FileOptions{Dir: dir, Clock: c.Clock})
+	}
+	return nil, fmt.Errorf("printer.options.transport : transport inconnu %q ; transports disponibles : %s",
+		name, strings.Join(Names(), ", "))
 }
 
 // state is the little a transport remembers between two jobs.

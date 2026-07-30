@@ -205,8 +205,8 @@ func TestEighteenByteChunkingLosesNothing(t *testing.T) {
 	if accumulator.Pending() != 0 {
 		t.Errorf("%d bytes still pending after a complete stream", accumulator.Pending())
 	}
-	if accumulator.Resyncs != 0 {
-		t.Errorf("%d resyncs on a clean stream", accumulator.Resyncs)
+	if accumulator.Resyncs() != 0 {
+		t.Errorf("%d resyncs on a clean stream", accumulator.Resyncs())
 	}
 }
 
@@ -270,7 +270,7 @@ func TestAccumulatorDropsNoiseAndKeepsGoing(t *testing.T) {
 	if accumulator.Pending() > resyncKeep {
 		t.Errorf("pending = %d, want at most %d after a resync", accumulator.Pending(), resyncKeep)
 	}
-	if accumulator.Resyncs == 0 {
+	if accumulator.Resyncs() == 0 {
 		t.Error("the resync must be counted: a line that resyncs constantly is a cabling problem")
 	}
 

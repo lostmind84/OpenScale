@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"openscale/internal/domain"
-	"openscale/internal/domain/frame"
 	"openscale/internal/station/ports"
 )
 
@@ -53,6 +52,24 @@ var ErrAlreadyStarted = errors.New("replay: driver already started")
 // station test that reproduces a morning of weighings costs nothing (§16.1).
 var ErrNoClock = errors.New("replay: aucune horloge n'est fournie")
 
+// ErrNoDecoder reports a replay wired without the decoder of the protocol it replays.
+//
+// # Why there is no fallback on the grammar of §9.2
+//
+// This package used to build a frame.Accumulator when Source.Decoder was nil, and that
+// default was a trap of exactly the shape this application spends its time refusing.
+// Handed the capture of another protocol, the GRAM grammar recognises nothing in it and
+// answers ZERO MEASUREMENTS AND NO ERROR — the same answer as an unplugged scale. A
+// diagnostic tool exists to tell one cause from another, and this is the one place it
+// may never blur them.
+//
+// The decoder is therefore supplied by the CALLER, which knows the protocol: the driver
+// registry for `openscale replay`, the scale.type of the station for the « Rejouer cette
+// trame » button, the driver under test for a test. It is refused like ErrNoClock —
+// reported by Start, in French, where an operator can read it.
+var ErrNoDecoder = errors.New("replay: aucun décodeur n'est fourni ; un rejeu décode avec " +
+	"la grammaire du protocole capturé, jamais avec celle d'un autre")
+
 // Source describes what to replay, and how fast.
 type Source struct {
 	// Name is what the journal calls this replay: the path of the file, or « journal »
@@ -71,9 +88,10 @@ type Source struct {
 	// driving a real binary with --scale replay needs: a station whose weight source
 	// died after seven frames would prove nothing about the eighth screen.
 	Repeat bool
-	// Decoder turns bytes into measurements. nil means the accumulator of
-	// internal/domain/frame, the grammar of §9.2 — replaying the capture of another
-	// model is done by handing that model's decoder, and nothing else changes.
+	// Decoder turns bytes into measurements, and it is MANDATORY: replaying a capture
+	// is done with the grammar of the protocol that produced it, and there is no
+	// default (see ErrNoDecoder). Replaying the capture of another model is done by
+	// handing that model's decoder, and nothing else changes.
 	Decoder domain.Decoder
 	// Clock is where every delay is measured. There is NO default (see ErrNoClock).
 	Clock ports.Clock
@@ -102,10 +120,14 @@ type Scale struct {
 
 // New returns the driver that replays s. A nil log is replaced by ports.NopTechnicalLog.
 //
-// It fills in every field the caller left out — a 400 ms cadence, a speed of 1, the frame
-// grammar as decoder — and it PARSES the capture, so that the descriptor can report the
-// cadence the capture itself declares. A capture that does not parse is reported by
-// Start; a caller that wants to refuse one early calls Parse itself.
+// It fills in every field the caller left out — a 400 ms cadence, a speed of 1 — and it
+// PARSES the capture, so that the descriptor can report the cadence the capture itself
+// declares. A capture that does not parse is reported by Start; a caller that wants to
+// refuse one early calls Parse itself.
+//
+// It fills in NO decoder and no clock: those two are the protocol and the timeline of
+// the replay, and a diagnostic tool that guessed either would answer a question nobody
+// asked (ErrNoDecoder, ErrNoClock).
 func New(s Source, log ports.TechnicalLog) *Scale {
 	if log == nil {
 		log = ports.NopTechnicalLog{}
@@ -131,11 +153,6 @@ func (s Source) withDefaults() Source {
 	}
 	if s.Speed <= 0 {
 		s.Speed = 1
-	}
-	if s.Decoder == nil {
-		// One accumulator per instance, never a shared one: half a frame from one capture
-		// completed by the bytes of another would fabricate a mass nobody weighed.
-		s.Decoder = &frame.Accumulator{}
 	}
 	return s
 }
@@ -218,6 +235,9 @@ func (s *Scale) Start(ctx context.Context, out chan<- domain.ScaleEvent, done ch
 func (s *Scale) validate() error {
 	if s.scriptErr != nil {
 		return s.scriptErr
+	}
+	if s.source.Decoder == nil {
+		return ErrNoDecoder
 	}
 	if s.source.Clock == nil {
 		return ErrNoClock

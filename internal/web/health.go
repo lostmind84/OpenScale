@@ -157,6 +157,22 @@ type adminHealthDTO struct {
 	// scale light OFF instead of drawing it red on a station that has no scale. Without
 	// it the screen would have to read the configuration, which needs a password.
 	ScalePresent bool `json:"scale_present"`
+	// PrinterSelfTests are the patterns of §8.6 the driver IN SERVICE honours, by the name
+	// the self-test route takes: "label", "alignment", "ruler".
+	//
+	// It travels HERE and not in the snapshot, for the reason the field above travels
+	// here: it is a DECLARATION about how this station is set up, not something the
+	// supervisor observed, and it changes only when a configuration is reloaded. The
+	// snapshot goes out ten times a second to a screen that has no self-test button on it.
+	//
+	// What it buys is one screen telling the truth. The Matériel page drew all three
+	// buttons whatever the driver, and on `preview` two of them answered a refusal on the
+	// click — in front of somebody already looking for why nothing prints. A button whose
+	// only possible answer is a refusal is not a choice (ADR-025).
+	//
+	// It is a LIST AND NEVER `null`, like every list of §14.5: the TypeScript contract
+	// declares an array and the page filters it the instant it has read it.
+	PrinterSelfTests []string `json:"printer_self_tests"`
 
 	Counters countersDTO `json:"counters"`
 	// Events is the ten last technical lines, which is what §14.4 puts on the
@@ -280,15 +296,16 @@ func (s *Server) adminHealth(w http.ResponseWriter, r *http.Request) {
 	cfg := s.hub.Config()
 	snap := s.hub.State()
 	body := adminHealthDTO{
-		Version:      s.version,
-		Fingerprint:  cfg.Fingerprint(),
-		Station:      cfg.Station.Number,
-		StationName:  cfg.Station.Name,
-		Coop:         cfg.Station.Coop,
-		Alive:        s.alive(),
-		State:        s.stateOf(snap),
-		ScalePresent: cfg.Scale.Present,
-		Counters:     countersDTO{Unlogged: snap.UnloggedWeighings, Journal: -1},
+		Version:          s.version,
+		Fingerprint:      cfg.Fingerprint(),
+		Station:          cfg.Station.Number,
+		StationName:      cfg.Station.Name,
+		Coop:             cfg.Station.Coop,
+		Alive:            s.alive(),
+		State:            s.stateOf(snap),
+		ScalePresent:     cfg.Scale.Present,
+		PrinterSelfTests: s.selfTestsOf(cfg.Printer.Type),
+		Counters:         countersDTO{Unlogged: snap.UnloggedWeighings, Journal: -1},
 		// The three lists are EMPTY and not nil, because that is the difference between
 		// « there is none » and `null`. A station with no journal (ADR-013) reads none of
 		// them, a station installed this morning has no import to break down, and the
@@ -302,6 +319,26 @@ func (s *Server) adminHealth(w http.ResponseWriter, r *http.Request) {
 	s.fillHealthFromStore(r.Context(), &body)
 	s.fillHealthFromPlatform(r.Context(), &body, cfg)
 	writeJSON(w, http.StatusOK, body)
+}
+
+// selfTestsOf reports the self-tests the driver named by printer.type honours, as its
+// registry entry declared them (§8.6).
+//
+// EMPTY when no descriptor answers to that name, and that answer is exact on a station
+// that is running: printer.type is read from the configuration IN FORCE, which is either
+// one this binary validated against its own registry or the neutral profile of §11.3 —
+// both name a driver this binary carries. What is left is a server built with no printer
+// registry at all: `openscale config validate` on a laptop and the HTTP bench of this
+// package, neither of which has a printer to launch anything on either.
+func (s *Server) selfTestsOf(driver string) []string {
+	for _, descriptor := range s.registries.Printers {
+		if descriptor.ID == driver {
+			// A COPY: this slice leaves for a JSON encoder, and the registry it comes from
+			// describes the binary for as long as the process runs.
+			return append([]string{}, descriptor.SelfTests...)
+		}
+	}
+	return []string{}
 }
 
 // fillHealthFromPlatform adds the three facts only the composition root can answer, and

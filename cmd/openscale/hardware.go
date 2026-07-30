@@ -11,10 +11,9 @@ import (
 	"time"
 
 	"openscale/internal/domain"
-	"openscale/internal/domain/frame"
 	"openscale/internal/platform"
 	"openscale/internal/printing"
-	"openscale/internal/printing/preview"
+	"openscale/internal/scale"
 	"openscale/internal/scale/serial"
 	"openscale/internal/station"
 	"openscale/internal/station/ports"
@@ -47,15 +46,33 @@ const captureCeiling = 60 * time.Second
 // bites on a scale that babbles — and there, twenty lines is already the diagnosis.
 const framesKept = 20
 
+// bytesKept bounds the raw stream a listening window holds on to before it is cut into
+// frames.
+//
+// The cut happens at the END and not read by read, because which protocol's cut applies
+// is only known once something has been recognised. Sixty-four kibibytes is more than a
+// minute at 9600 bauds — the whole of captureCeiling — so on the hardware of this parc
+// nothing is ever dropped; what the bound really covers is a device babbling on a wrong
+// bitrate, and there the TAIL is what a diagnosis wants anyway.
+const bytesKept = 64 * 1024
+
 // adminHardware is everything the administration screens ask of the machine itself.
 type adminHardware struct {
 	clock ports.Clock
 	// hub is read for the label in flight and written for a replayed frame. It is the
 	// station's own loop: nothing here decides anything about a weighing.
 	hub *station.Hub
-	// registries is what this binary actually carries, which is what a detection names
-	// when frames decode: adding a scale model changes the sentence with no edit here.
+	// registries is what this binary actually carries: the label catalogue the preview
+	// reads, and the driver descriptors a refusal names.
 	registries domain.Registries
+	// scales is the SCALE registry itself and not only its descriptors, because a
+	// detection needs what a descriptor cannot carry: the decoder of each protocol, built
+	// fresh, and the declaration of whether that protocol can be recognised at all.
+	//
+	// A nil registry is a binary with no weighing protocol in it, and the detection says
+	// so rather than listening to a port for three seconds with nothing to recognise it
+	// with.
+	scales *scale.Registry
 	// technical is where an administrative action is recorded — a replayed frame is one.
 	technical ports.TechnicalLog
 	// config reports the configuration IN FORCE, because a detection listens with the
@@ -151,25 +168,38 @@ func (h adminHardware) DetectScale(ctx context.Context, port string) (web.ScaleD
 	if strings.TrimSpace(port) == "" {
 		return web.ScaleDetection{}, errors.New("indiquez le port à écouter : COM8, /dev/balance-serial")
 	}
-	frames, measurements, read, err := h.listen(ctx, port, detectWindow)
+	candidates := h.serialCandidates()
+	if len(candidates) == 0 {
+		// Nothing to recognise WITH, so nothing is opened: a serial port is exclusive, and
+		// holding one for three seconds to hand back silence is the answer that sends a
+		// volunteer looking for a cable. The screen says what to do instead.
+		return web.ScaleDetection{Port: port, Message: h.nothingDetectable(port)}, nil
+	}
+
+	reading, err := h.listen(ctx, port, detectWindow, candidates)
 	if err != nil {
 		return web.ScaleDetection{}, err
 	}
+	recognised := reading.recognised()
 
 	report := web.ScaleDetection{
-		Port: port, ValidCount: len(measurements), Frames: frames,
+		Port: port, ValidCount: reading.validCount(), Frames: reading.frames(),
 	}
 	switch {
-	case len(measurements) > 0:
-		report.Driver = h.firstScaleType()
+	case len(recognised) > 0:
+		// The protocol the FRAMES named, never the first entry of a registry. What goes
+		// into the form is the driver that recognised what came out of the cable, and the
+		// sentence names every model that recognised the same stream — which is what the
+		// two GRAM entries do, since they share one grammar and differ only by the sticker.
+		report.Driver = recognised[0].Descriptor.ID
 		report.Message = fmt.Sprintf("%s : %d trame(s) valide(s) en %s — %s.",
-			port, len(measurements), detectWindow, h.scaleModels())
-	case read > 0:
+			port, report.ValidCount, detectWindow, modelsRecognising(recognised))
+	case reading.read > 0:
 		// Bytes, but no frame: something is talking on that port and it is not a scale
 		// this binary understands. That is a different remedy — bitrate, or another
 		// device on the same cable — and it must not be reported as silence.
 		report.Message = fmt.Sprintf("%s : %d octet(s) reçus, aucune trame reconnue. "+
-			"Vérifiez la vitesse de la liaison, ou l'appareil branché sur ce port.", port, read)
+			"Vérifiez la vitesse de la liaison, ou l'appareil branché sur ce port.", port, reading.read)
 	default:
 		report.Message = fmt.Sprintf("%s : aucun octet reçu en %s. La balance est-elle "+
 			"allumée, et le câble branché sur ce port ?", port, detectWindow)
@@ -183,25 +213,174 @@ func (h adminHardware) CaptureFrames(ctx context.Context, port string, d time.Du
 	if strings.TrimSpace(port) == "" {
 		return nil, errors.New("indiquez le port à écouter : COM8, /dev/balance-serial")
 	}
+	candidates := h.serialCandidates()
+	if len(candidates) == 0 {
+		// Where a frame ENDS is a fact about a protocol, so a binary with no protocol has
+		// no way to cut a stream into frames. Saying so is the honest answer; handing back
+		// an empty list would look like a silent cable.
+		return nil, errors.New(h.nothingDetectable(port))
+	}
 	if d <= 0 || d > captureCeiling {
 		d = detectWindow
 	}
-	frames, _, _, err := h.listen(ctx, port, d)
-	return frames, err
+	reading, err := h.listen(ctx, port, d, candidates)
+	if err != nil {
+		return nil, err
+	}
+	return reading.frames(), nil
 }
 
-// listen opens the port, reads for one window and reports the raw frames and what they
-// decoded to.
+// serialCandidates is one fresh decoder per protocol that declares it can be recognised
+// on a serial port.
+//
+// THE ENUMERATION IS OURS, THE RECOGNITION IS THEIRS. Which ports this machine has is a
+// question for the operating system and it is answered by Ports above; what a frame of a
+// given protocol looks like is a question for the driver, and it answers it by handing
+// over a decoder. Between the two there is nothing left here that has to change when a
+// model is added.
+func (h adminHardware) serialCandidates() []scale.Candidate {
+	if h.scales == nil {
+		return nil
+	}
+	return h.scales.Candidates(scale.EndpointSerialPort)
+}
+
+// nothingDetectable is what the screen reads when no protocol of this binary knows how to
+// be recognised by listening to a port.
+//
+// It is a LEGITIMATE outcome and not a fault: a scale that only speaks when it is polled
+// cannot be found by listening, and a driver saying so is more useful than a button whose
+// only possible answer is silence (§9.3, ADR-025). The sentence therefore ends on what to
+// do — choose the protocol by hand — and names the ones that exist, because « aucun » with
+// no list is how a volunteer concludes the machine is broken.
+func (h adminHardware) nothingDetectable(port string) string {
+	labels := make([]string, 0, len(h.registries.Scales))
+	for _, descriptor := range h.registries.Scales {
+		labels = append(labels, descriptor.Label)
+	}
+	if len(labels) == 0 {
+		return fmt.Sprintf("%s : aucun protocole n'est embarqué dans ce binaire, il n'y a "+
+			"rien à détecter.", port)
+	}
+	return fmt.Sprintf("%s : aucun protocole de ce binaire ne sait se détecter en écoutant "+
+		"un port série. Choisissez-le à la main dans la liste : %s.",
+		port, strings.Join(labels, ", "))
+}
+
+// portReading is everything one listening window observed on a port.
+type portReading struct {
+	// read is how many bytes arrived, all of them, which is what tells silence from a
+	// device talking a language nobody here speaks.
+	read int
+	// raw is the tail of the stream, kept verbatim so that it can be cut into frames once
+	// it is known WHICH protocol's cut applies. Bounded by bytesKept.
+	raw []byte
+	// candidates are the protocols that were tried, in registration order, each holding
+	// the decoder it was tried with and what that decoder made of the stream.
+	candidates []candidateReading
+}
+
+// candidateReading is what one protocol made of the stream.
+type candidateReading struct {
+	scale.Candidate
+	// count is how many measurements this protocol's decoder yielded. Zero means it did
+	// not recognise the stream, which is an answer about the stream and not about the
+	// driver.
+	count int
+}
+
+// recognised reports the protocols whose decoder yielded at least one measurement, in
+// registration order.
+//
+// SEVERAL is the normal case of this parc and not an ambiguity to resolve: the GRAM XFOC
+// RS and the GRAM XFOC + share one grammar, so both recognise the same bytes, and the
+// choice between them is read off the sticker (§9.3). Picking one and staying quiet about
+// the other is what the screen may not do.
+func (r portReading) recognised() []candidateReading {
+	var out []candidateReading
+	for _, candidate := range r.candidates {
+		if candidate.count > 0 {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
+// validCount is how many frames the detection announces, which is the count of the
+// protocol that recognised the most.
+func (r portReading) validCount() int {
+	best := 0
+	for _, candidate := range r.candidates {
+		if candidate.count > best {
+			best = candidate.count
+		}
+	}
+	return best
+}
+
+// frames cuts the stream into the raw frames the viewer of §14.4 shows.
+//
+// It is cut by the decoder that RECOGNISED, and by the first candidate when none did.
+// That second case is a presentation choice and claims nothing: the bytes are shown so
+// that somebody can read them out on the telephone, and slicing them on a grammar that
+// refused them is still more legible than one line of 3 000 characters.
+//
+// It asks the decoder rather than searching for CR or LF, and that is the whole point of
+// the method being on the decoder: a GRAM XFOC PLUS delimits with control codes and sends
+// no line ending at all, so this viewer showed NOTHING on the very hardware of the bench
+// while announcing twelve valid frames beside it — the defect that cost the capture of
+// 29/07, one storey up.
+func (r portReading) frames() []string {
+	decoder := r.cutter()
+	if decoder == nil {
+		return nil
+	}
+	var frames []string
+	for pending := r.raw; len(pending) > 0; {
+		end := decoder.FrameEnd(pending)
+		if end < 0 {
+			break // the rest of this frame never arrived
+		}
+		line := trimTerminator(pending[:end])
+		pending = pending[end:]
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		frames = append(frames, string(line))
+		if len(frames) > framesKept {
+			frames = frames[len(frames)-framesKept:]
+		}
+	}
+	return frames
+}
+
+// cutter is the decoder whose cut the frame viewer shows.
+func (r portReading) cutter() domain.Decoder {
+	if recognised := r.recognised(); len(recognised) > 0 {
+		return recognised[0].Decoder
+	}
+	if len(r.candidates) > 0 {
+		return r.candidates[0].Decoder
+	}
+	return nil
+}
+
+// listen opens the port, reads for one window and reports what every candidate protocol
+// made of what came out of it.
 //
 // It NEVER RECONNECTS, exactly like `openscale capture` and for the same reason: a
 // cadence measured across an outage describes the outage. A link that drops ends the
 // listening, and everything read up to then is still reported — the frames ARE the
 // diagnosis, and a lost cable is not a failure of this function.
-func (h adminHardware) listen(ctx context.Context, port string, window time.Duration) (
-	[]string, []domain.Measurement, int, error) {
+//
+// Every candidate is fed the SAME bytes, each into its own decoder. Feeding them one
+// after another would need the port opened once per protocol, on a link that is exclusive
+// and a scale that is not repeating itself.
+func (h adminHardware) listen(ctx context.Context, port string, window time.Duration,
+	candidates []scale.Candidate) (portReading, error) {
 	link, err := h.linkFor(port)
 	if err != nil {
-		return nil, nil, 0, err
+		return portReading{}, err
 	}
 	stream, err := link.Open(link)
 	if err != nil {
@@ -210,20 +389,18 @@ func (h adminHardware) listen(ctx context.Context, port string, window time.Dura
 		// system — and that is what makes the two causes below the only two. Whoever adds a
 		// check upstream of this call must name its own refusal there, or a settings mistake
 		// will once again reach a volunteer as a port that somebody else is holding.
-		return nil, nil, 0, fmt.Errorf("le port %s n'a pas pu être ouvert : %w. Deux causes "+
+		return portReading{}, fmt.Errorf("le port %s n'a pas pu être ouvert : %w. Deux causes "+
 			"possibles : un autre programme le tient — la balance de ce poste en premier, "+
 			"un port série est EXCLUSIF sous Windows — ou bien ce port n'existe plus sur "+
 			"cette machine", port, err)
 	}
 	defer stream.Close()
 
-	var (
-		decoder      = &frame.Accumulator{}
-		measurements []domain.Measurement
-		frames       []string
-		pending      []byte
-		read         int
-	)
+	reading := portReading{candidates: make([]candidateReading, 0, len(candidates))}
+	for _, candidate := range candidates {
+		reading.candidates = append(reading.candidates, candidateReading{Candidate: candidate})
+	}
+
 	deadline := h.clock.Now().Add(window)
 	buffer := make([]byte, defaultReadBuffer)
 	for h.clock.Now().Before(deadline) {
@@ -238,16 +415,29 @@ func (h adminHardware) listen(ctx context.Context, port string, window time.Dura
 		// make this loop spin.
 		n, readErr := stream.Read(buffer)
 		if n > 0 {
-			read += n
 			now := h.clock.Now()
-			measurements = append(measurements, decoder.Feed(buffer[:n], now)...)
-			pending, frames = cutFrames(append(pending, buffer[:n]...), frames)
+			reading.read += n
+			reading.raw = keepTail(append(reading.raw, buffer[:n]...), bytesKept)
+			for i := range reading.candidates {
+				reading.candidates[i].count += len(reading.candidates[i].Decoder.Feed(buffer[:n], now))
+			}
 		}
 		if readErr != nil {
 			break
 		}
 	}
-	return frames, measurements, read, nil
+	return reading, nil
+}
+
+// keepTail bounds a growing buffer by dropping from the FRONT.
+//
+// From the front because the viewer shows the LAST frames: on a device that babbles, what
+// is worth reading is what it is saying now.
+func keepTail(data []byte, limit int) []byte {
+	if len(data) <= limit {
+		return data
+	}
+	return append([]byte(nil), data[len(data)-limit:]...)
 }
 
 // linkFor is the link a detection listens on: the settings THIS station declares,
@@ -299,6 +489,36 @@ func (h adminHardware) declaredLink() (serial.Options, error) {
 	return link.Complete()
 }
 
+// stationDecoder builds a decoder of the protocol THIS station declares.
+//
+// A fresh one per call, never a field of this struct: the « Rejouer cette trame » button
+// can be pressed twice, and a decoder that kept half of the first frame would complete it
+// with the beginning of the second — the fabricated mass the grammar exists to refuse.
+//
+// A station that declares no protocol is refused by name. It is the case of a station
+// running without a scale, and « rejouer une trame » there is a question with no grammar
+// to answer it; saying so is more useful than decoding with somebody else's.
+func (h adminHardware) stationDecoder() (domain.Decoder, error) {
+	if h.scales == nil {
+		return nil, errors.New("aucun protocole de balance n'est embarqué dans ce binaire : " +
+			"il n'y a pas de grammaire pour lire cette trame")
+	}
+	var declared string
+	if h.config != nil {
+		declared = h.config().Scale.Type
+	}
+	if strings.TrimSpace(declared) == "" {
+		return nil, errors.New("ce poste ne déclare aucun protocole de balance (scale.type) : " +
+			"une trame se rejoue dans la grammaire du protocole qui l'a émise, jamais dans " +
+			"une autre. Renseignez scale.type sur la page Matériel")
+	}
+	decoder, err := h.scales.NewDecoder(declared)
+	if err != nil {
+		return nil, err
+	}
+	return decoder, nil
+}
+
 // defaultReadBuffer is how many bytes one read may hand back.
 //
 // The same 4 KiB as the production loop, and NOT the 16 of the legacy SetupComm: a queue
@@ -306,54 +526,22 @@ func (h adminHardware) declaredLink() (serial.Options, error) {
 // half frames (§9.1).
 const defaultReadBuffer = 4096
 
-// cutFrames splits what has arrived on the frame terminator and keeps the last ones.
+// modelsRecognising names the models whose decoder recognised the frames that were read.
 //
-// It reports the bytes still waiting for their terminator, so that a frame cut across two
-// reads is one frame and not two halves — the defect the living corpus was built to
-// reproduce.
-func cutFrames(pending []byte, frames []string) ([]byte, []string) {
-	for {
-		end := indexTerminator(pending)
-		if end < 0 {
-			return pending, frames
-		}
-		line := trimTerminator(pending[:end+1])
-		pending = pending[end+1:]
-		if len(bytes.TrimSpace(line)) == 0 {
-			continue
-		}
-		frames = append(frames, string(line))
-		if len(frames) > framesKept {
-			frames = frames[len(frames)-framesKept:]
-		}
-	}
-}
-
-// firstScaleType is the registry key a detection proposes for scale.type.
+// It is built from WHAT ANSWERED and no longer from the whole registry, and the two are
+// the same sentence only as long as one grammar exists. The moment a second protocol is
+// registered, « même décodeur » becomes false of the pair — and the honest list is the
+// one the bytes themselves drew.
 //
-// It is the first entry of the registry rather than a literal: the two GRAM models share
-// one decoder (§9.3), so the frames cannot tell them apart, and the sentence names both.
-// What this value does is fill the form with something that WORKS.
-func (h adminHardware) firstScaleType() string {
-	if len(h.registries.Scales) == 0 {
-		return ""
+// Several models is the normal case here: the GRAM XFOC RS and the GRAM XFOC + are one
+// grammar and two stickers, the frames cannot tell them apart, and the sentence says so
+// instead of picking one (§9.3).
+func modelsRecognising(recognised []candidateReading) string {
+	labels := make([]string, 0, len(recognised))
+	for _, candidate := range recognised {
+		labels = append(labels, candidate.Descriptor.Label)
 	}
-	return h.registries.Scales[0].ID
-}
-
-// scaleModels names the models that share the decoder which recognised the frames.
-//
-// Built from the registry so that adding a model changes this sentence with no edit here,
-// which is the point of cut 2 of §5.2.
-func (h adminHardware) scaleModels() string {
-	labels := make([]string, 0, len(h.registries.Scales))
-	for _, descriptor := range h.registries.Scales {
-		labels = append(labels, descriptor.Label)
-	}
-	switch len(labels) {
-	case 0:
-		return "aucun protocole n'est embarqué dans ce binaire"
-	case 1:
+	if len(labels) == 1 {
 		return labels[0]
 	}
 	return strings.Join(labels, " ou ") + " : même décodeur, le choix se lit sur l'étiquette " +
@@ -387,7 +575,7 @@ func (h adminHardware) LabelPreview(_ context.Context, q web.PreviewQuery) ([]by
 		return nil, err
 	}
 	var out bytes.Buffer
-	if err := preview.EncodePNG(&out, image); err != nil {
+	if err := printing.EncodePNG(&out, image); err != nil {
 		return nil, fmt.Errorf("aperçu non encodé : %w", err)
 	}
 	return out.Bytes(), nil
@@ -436,19 +624,30 @@ func (h adminHardware) previewImage(cfg domain.Config, template domain.Template,
 // The decoded measurement is handed to the Hub exactly as a driver would hand it over, so
 // the station reacts as it really would: the safeguards run, the banner appears, the state
 // moves. A decoder called in isolation would answer the easy half of the question.
+//
+// # It decodes with THIS station's protocol
+//
+// The frame comes from the journal of this station, so the grammar that has to read it is
+// the one scale.type names — not whichever the registry holds first. A frame replayed
+// through the wrong grammar decodes to nothing and says « la balance a émis quelque chose
+// que la grammaire refuse », which would be a lie about the scale and an invitation to go
+// and look at it.
 func (h adminHardware) Replay(ctx context.Context, raw string) error {
-	// The terminator is what closes a frame in the grammar of §9.2, and a frame copied
-	// from a screen has lost it. Adding it back is not tolerance about the format: it is
-	// the one byte a copy-paste cannot carry.
-	if !strings.HasSuffix(raw, "\r") && !strings.HasSuffix(raw, "\n") {
+	decoder, err := h.stationDecoder()
+	if err != nil {
+		return err
+	}
+	// A frame copied from a screen has lost whatever closed it. Adding a terminator back
+	// is not tolerance about the format: it is the byte a copy-paste cannot carry, and it
+	// is added ONLY when the protocol says the frame is still incomplete — a transmission
+	// that closes on its own control codes needs nothing and must not be padded.
+	if decoder.FrameEnd([]byte(raw)) < 0 {
 		raw += "\r\n"
 	}
-	decoder := &frame.Accumulator{}
 	measurements := decoder.Feed([]byte(raw), h.clock.Now())
 	if len(measurements) == 0 {
-		return fmt.Errorf("cette trame ne se décode pas : %d resynchronisation(s), aucune mesure. "+
-			"C'est la réponse — la balance a émis quelque chose que la grammaire de §9.2 refuse",
-			decoder.Resyncs)
+		return errors.New("cette trame ne se décode pas : aucune mesure. C'est la réponse — " +
+			"la balance a émis quelque chose que la grammaire de ce protocole refuse")
 	}
 
 	h.technical.Technical(domain.LevelInfo, "scale", "",

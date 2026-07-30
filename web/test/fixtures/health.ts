@@ -114,6 +114,8 @@ export function nominalHealth(overrides: Partial<HealthDTO> = {}): HealthDTO {
     alive: true,
     state: nominalState(),
     scale_present: true,
+    // Un poste nominal tourne sur `raster`, qui honore les trois auto-tests de §8.6.
+    printer_self_tests: ['label', 'alignment', 'ruler'],
     counters: { unlogged_weighings_count: 0, journal_rows_count: 1236 },
     events: [],
     catalog: FLV_IMPORT,

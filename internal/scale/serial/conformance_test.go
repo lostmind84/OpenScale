@@ -22,7 +22,7 @@ import (
 // THIS package beyond ports.Scale — the cause of a scale loss must always remain
 // loggable — and a promise nothing checks is not a promise.
 func TestConformance(t *testing.T) {
-	frames, err := os.ReadFile(filepath.Join("..", "testdata", "frames", "nominal-gram-xfoc.txt"))
+	frames, err := os.ReadFile(filepath.Join("..", "testdata", "frames", "gram-xfoc-rs", "nominal-gram-xfoc.txt"))
 	if err != nil {
 		t.Fatalf("lecture du corpus : %v", err)
 	}

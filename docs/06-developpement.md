@@ -10,6 +10,7 @@ d'autre — pas de chaîne C, pas de Docker.
 | Cible | Ce qu'elle fait |
 |---|---|
 | `make test` | `go vet`, les deux passes de `go test`, puis `make boundary` et `make deps` |
+| `make driver` | Vérifie qu'un **driver** est complet, sans matériel ni réseau : les bancs de conformité, les tests de registre, la coupe 2. Voir [`07-ajouter-un-materiel.md`](07-ajouter-un-materiel.md) |
 | `make build` | `bin/openscale` pour la machine courante |
 | `make front` | Construit l'écran client vers `internal/web/dist` |
 | `make front-check` | En plus : types, tests du front, et le **budget de poids** mesuré |
@@ -60,6 +61,11 @@ les tient sur la durée :
 - `internal/station` ne connaît aucun driver concret. Ajouter un modèle de balance est
   **un paquet et une ligne** dans `cmd/openscale/drivers.go`, le seul fichier qui nomme
   du matériel.
+
+La marche à suivre complète — capturer avant d'écrire, le banc de conformité, les pièges
+déjà payés — est dans [`07-ajouter-un-materiel.md`](07-ajouter-un-materiel.md), et les deux
+paquets `internal/scale/example/` et `internal/printing/example/` en sont la version Go,
+compilée et testée.
 
 ## Fabriquer les archives d'installation
 

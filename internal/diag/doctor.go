@@ -781,8 +781,29 @@ func (d *Doctor) checkMigrations(base Database, openErr error) Control {
 
 const codePortUnavailable = "ERR-SCL-03"
 
-// optionPort is the key scale.options carries the port name under (§11.2).
+// optionPort is the key a SERIAL scale.options carries the port name under (§11.2).
+//
+// It is a literal and it is allowed to be one, now that the control runs only for a
+// protocol that declares itself on a serial port: `port` is the key
+// internal/scale/serial declares in its own option schema, and it exists exactly when
+// this control applies. What it may no longer do — and did — is assume that every scale
+// of every protocol is reached through it.
 const optionPort = "port"
+
+// scaleEndpoint reports what kind of access point the protocol id names is reached on,
+// as the driver itself declared it, and whether this binary knows that protocol at all.
+//
+// An UNKNOWN protocol is not answered with a guess: control 8 already reports a
+// scale.type no driver of this binary carries, and this control then does what it always
+// did rather than adding a second, differently worded verdict on the same fault.
+func (d *Doctor) scaleEndpoint(id string) (string, bool) {
+	for _, descriptor := range d.o.Registries.Scales {
+		if descriptor.ID == id {
+			return descriptor.Endpoint, true
+		}
+	}
+	return "", false
+}
 
 func (d *Doctor) checkSerialPort(ctx context.Context, loaded loadedConfig) Control {
 	control := Control{ID: ControlSerialPort, Checked: "Port série présent et ouvrable"}
@@ -792,6 +813,17 @@ func (d *Doctor) checkSerialPort(ctx context.Context, loaded loadedConfig) Contr
 		control.Status = StatusNotApplicable
 		control.Observed = "ce poste est déclaré sans balance (scale.present = false) : la saisie du " +
 			"poids à la main est le mode nominal"
+		return control
+	}
+	if endpoint, known := d.scaleEndpoint(loaded.Config.Scale.Type); known &&
+		endpoint != domain.EndpointSerialPort {
+		// A protocol that is not reached through a serial port has no scale.options.port,
+		// and this control would report a missing key as a fault on a station that is
+		// perfectly configured. The light goes OFF, like the one of a station with no
+		// scale, and says why.
+		control.Status = StatusNotApplicable
+		control.Observed = fmt.Sprintf("le protocole %s ne passe pas par un port série : "+
+			"il n'y a pas de scale.options.port à vérifier sur ce poste", loaded.Config.Scale.Type)
 		return control
 	}
 	declared, _ := loaded.Config.Scale.Options.Text(optionPort)

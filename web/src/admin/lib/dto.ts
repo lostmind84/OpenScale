@@ -162,6 +162,18 @@ export interface HealthDTO {
   state: StateDTO
   /** Le poste déclare-t-il une balance ? Sinon le feu s'ÉTEINT (§11.2). */
   scale_present: boolean
+  /**
+   * Les auto-tests de §8.6 que le driver EN SERVICE honore, par leur jeton de route.
+   *
+   * C'est là-dessus, et sur rien d'autre, que la page Matériel dessine ses boutons. Elle
+   * portait la liste des trois elle-même : un poste sur `preview` proposait « Mire
+   * d'alignement » et « Réglette millimétrée », qui répondaient un refus au clic. Un
+   * bouton dont la seule réponse possible est un refus n'est pas un choix (ADR-025).
+   *
+   * Toujours une liste, jamais `null` — comme toute liste de §14.5. Vide quand le binaire
+   * ne déclare aucun driver d'impression, ce qui n'arrive pas sur un poste en service.
+   */
+  printer_self_tests: string[]
   counters: {
     unlogged_weighings_count: number
     /** -1 quand ce poste n'a pas de journal (ADR-013). */

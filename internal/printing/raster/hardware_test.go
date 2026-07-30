@@ -10,6 +10,7 @@ import (
 
 	"openscale/internal/domain"
 	"openscale/internal/fake"
+	"openscale/internal/printing"
 	"openscale/internal/station/ports"
 )
 
@@ -142,7 +143,7 @@ func TestBenchPolarityOfTheGraphicBlock(t *testing.T) {
 			s.InvertBits = inverted
 			o.Settings = s
 		})
-		if err := printer.SelfTest(context.Background(), SelfTestAlignment); err != nil {
+		if err := printer.SelfTest(context.Background(), string(printing.SelfTestAlignment)); err != nil {
 			t.Fatalf("invert_bits=%v : %v", inverted, err)
 		}
 		t.Logf("étiquette imprimée avec invert_bits=%v — carré NOIR sur étiquette nue attendu "+
@@ -163,7 +164,7 @@ func TestBenchOneDotIsOneDot(t *testing.T) {
 			s.OffsetXDots = offset
 			o.Settings = s
 		})
-		if err := printer.SelfTest(context.Background(), SelfTestRuler); err != nil {
+		if err := printer.SelfTest(context.Background(), string(printing.SelfTestRuler)); err != nil {
 			t.Fatalf("offset_x=%d : %v", offset, err)
 		}
 		t.Logf("réglette imprimée à offset_x=%d dots — les deux tirages doivent être à 1 mm l'un de l'autre",
@@ -183,7 +184,7 @@ func TestBenchJobsDoNotLeakTheirSettings(t *testing.T) {
 		{Darkness: 5, Speed: 2, Copies: 1},
 	} {
 		printer := benchPrinter(t, func(o *Options) { o.Settings = settings })
-		if err := printer.SelfTest(context.Background(), SelfTestAlignment); err != nil {
+		if err := printer.SelfTest(context.Background(), string(printing.SelfTestAlignment)); err != nil {
 			t.Fatalf("tirage %d : %v", i+1, err)
 		}
 	}

@@ -753,7 +753,49 @@ type DriverDescriptor struct {
 	// Label is what the drop-down list shows, in French: "GRAM XFOC +".
 	Label   string
 	Options []OptionSchema
+	// Capabilities is what a PRINTER driver declares about the head it drives, and it
+	// is what controls 29 and 38 measure a template against.
+	//
+	// The zero value is what every other kind of driver leaves here, and also what a
+	// printer that inks no paper declares: the rules then bear on ReferenceHead, the
+	// WS408 of the parc.
+	Capabilities PrinterCapabilities
+	// SelfTests are the built-in patterns of §8.6 a PRINTER driver honours, by the name
+	// the troubleshooting route sends: "label", "alignment", "ruler".
+	//
+	// Plain strings, and not a type of their own: the catalogue of the three lives in
+	// internal/printing, which is where their wording, their access level and what each
+	// print settles are written. What crosses into the domain is WHICH ONES a driver
+	// honours, so that the administration screen offers no button whose only possible
+	// answer is a refusal (ADR-025).
+	//
+	// Nil means « this binary cannot say », which is the honest answer of a validation
+	// run with no driver registry at all; an EMPTY slice is the assertion « none ».
+	SelfTests []string
+	// Endpoint is the kind of access point a SCALE driver is reached and recognised on:
+	// EndpointSerialPort, or empty for a protocol that names none.
+	//
+	// It travels with the descriptor for the same reason SelfTests does — a screen and a
+	// diagnosis must read what the DRIVER declares instead of assuming. `openscale
+	// doctor` checked « le port série est présent et ouvrable » on every station that
+	// declares a scale, reading scale.options.port whatever the protocol was: on a scale
+	// reached any other way that control was a red light on a key that does not exist.
+	Endpoint string
 }
+
+// The kinds of access point a scale protocol can be reached on, spelled once.
+//
+// They live in the domain because a descriptor carries them across to `openscale doctor`
+// and to the administration screen, and a second spelling on the far side is how a
+// declaration and its reader stop meaning the same thing.
+const (
+	// EndpointSerialPort is one serial port of the machine, as the platform enumerates
+	// them.
+	EndpointSerialPort = "serial-port"
+	// EndpointNone is a protocol that declares no access point of a kind this
+	// application enumerates: it is chosen by hand and never detected.
+	EndpointNone = "none"
+)
 
 // PathChecker answers the questions a pure validation cannot: what can this path do
 // FROM THE CONTEXT OF THE SERVICE?
@@ -803,6 +845,19 @@ func (r Registries) TransportNames() []string { return descriptorIDs(r.Transport
 
 // CatalogSourceNames reports the catalog sources a volunteer may choose from.
 func (r Registries) CatalogSourceNames() []string { return descriptorIDs(r.CatalogSources) }
+
+// PrinterHead reports the geometry the driver printer.type names declares about its
+// head.
+//
+// An unknown driver — and an EMPTY registry, which `openscale config validate` on a
+// laptop legitimately is — answers a head that declares nothing, and the rules then
+// fall back on the label of the parc rather than on nothing at all.
+func (r Registries) PrinterHead(id string) PrinterCapabilities {
+	if descriptor := descriptorByID(r.Printers, id); descriptor != nil {
+		return descriptor.Capabilities
+	}
+	return PrinterCapabilities{}
+}
 
 // TemplateNames reports the label layouts this binary can load, in a stable order.
 func (r Registries) TemplateNames() []string { return sortedKeys(r.templates()) }
@@ -880,8 +935,18 @@ func (c *Config) Validate(reg Registries) []Fault {
 		fail("network.listen", "%q n'est pas une adresse hôte:port valide (%s)", c.Network.Listen, err)
 	}
 
-	// 3. scale.type known -- EXACTLY the protocols of the registry (§9.3) -- and the
-	//    serial options are only required when scale.present.
+	// 3. scale.type known -- EXACTLY the protocols of the registry (§9.3). WHICH
+	//    OPTIONS IT NEEDS IS NOT DECIDED HERE: control 6 asks the schema the chosen
+	//    driver declares.
+	//
+	//    This control used to demand the literal key `scale.options.port` of every
+	//    station whose scale.present was raised, whatever its scale.type. A driver
+	//    reached by an ADDRESS -- TCP, USB -- was therefore refused before it was ever
+	//    asked, on a key its own schema does not carry, and adding one would have meant
+	//    editing this function: exactly the coupling §5.2 removes. Nothing moves for the
+	//    parc, whose serial drivers declare `port` Required in serial.OptionSchema, and
+	//    the volunteer gains a line -- the field counted DOUBLE, once for this rule and
+	//    once for the schema.
 	switch {
 	case c.Scale.Type == "" && c.Scale.Present:
 		failWith("scale.type", reg.ScaleTypes(), "aucun protocole n'est déclaré alors que le poste déclare une balance")
@@ -895,14 +960,6 @@ func (c *Config) Validate(reg Registries) []Fault {
 			failWith("scale.type", available, "protocole inconnu %q", c.Scale.Type)
 		}
 	}
-	if c.Scale.Present {
-		if port, ok := c.Scale.Options.Text("port"); !ok || port == "" {
-			// Only the port cannot be guessed: baud, bits, parity and stop come from
-			// the model defaults the driver declares (§9.3).
-			fail("scale.options.port", "un poste qui déclare une balance doit nommer son port")
-		}
-	}
-
 	// 4. printer.type known -- exactly the three registered descriptors, raster by
 	//    default, sbpl and preview (§8.1, §8.2).
 	if c.Printer.Type == "" {
@@ -1078,13 +1135,18 @@ func (c *Config) Validate(reg Registries) []Fault {
 
 	// 29. The template EXISTS and Template.Validate() passes -- the nine hard rules
 	//     of §7.5, on the geometry RECOMPOSED with the operator's offsets.
+	//     They bear on the head THE DRIVER DECLARES: held as constants of the core, the
+	//     inked width and height were counted at 8 dots/mm, so a station whose printer
+	//     is not the WS408 of the parc failed this very control at start-up — §11.3
+	//     puts it out of service — on a template nobody could make it accept.
+	head := reg.PrinterHead(c.Printer.Type).orReference()
 	if !templateExists {
 		failWith("printer.template", reg.TemplateNames(), "gabarit inconnu %q", c.Printer.Template)
 	} else if resolutionUsable {
 		shifted := template
 		shifted.OffsetXDots, _ = intOption(c.Printer.Options, "offset_x")
 		shifted.OffsetYDots, _ = intOption(c.Printer.Options, "offset_y")
-		for _, fault := range shifted.Validate(len(c.Pricing.Tiers)) {
+		for _, fault := range shifted.ValidateOn(head, len(c.Pricing.Tiers)) {
 			fault.Field = "printer.template." + fault.Field
 			faults = append(faults, fault)
 		}
@@ -1171,17 +1233,34 @@ func (c *Config) Validate(reg Registries) []Fault {
 		fail("catalog.options.poll_interval_s", "%d est sous le plancher d'une seconde", interval)
 	}
 
-	// 37. copies ∈ [1,10].
-	if copies, ok := c.Printer.Options.Int("copies"); ok && (copies < 1 || copies > 10) {
-		fail("printer.options.copies", "%d hors bornes [1, 10]", copies)
-	}
+	// 37. copies: NO LONGER A CONTROL OF ITS OWN. The bound is declared by the driver
+	//     that owns the key and applied by control 7, which checks printer.options
+	//     against the schema THAT driver declares.
+	//
+	//     Held here, it named a key of a driver the core cannot see, and it was one of
+	//     THREE bounds on one figure: this rule and the option schema said [1, 10], while
+	//     raster.Settings.Validate accepted anything up to the six digits of the <Q>
+	//     field. The same number therefore got two different answers depending on whether
+	//     it was checked as a configuration or as a setting, and the disagreement could
+	//     only be found by reading all three. There is now one constant,
+	//     raster.MaxConfiguredCopies, declared beside the other bounds of the manual, and
+	//     nothing moves for the parc.
+	//
+	//     What is given up is what control 3 gave up on `port`: on an EMPTY registry --
+	//     `openscale config validate` on a laptop -- the schema check is skipped
+	//     altogether, so the bound is no longer applied at validation time. It is still
+	//     applied where it decides something, at the construction of the driver, and a
+	//     bound that only a printer's own package can state is worth more than one the
+	//     core repeats (§5.2, E1).
 
 	// 38. offset_x/y RECOMPOSED with the geometry of the template (mineur-2): the ±1
 	//     dot arrows of the admin screen invite that adjustment, so it must be bounded
 	//     by the geometry and not merely by ±99. The message names the admissible
 	//     maximum instead of just saying no.
-	if templateExists && resolutionUsable {
-		maxX, maxY := template.MaxOffsetDots(len(c.Pricing.Tiers))
+	//     The margin is the one THIS head leaves: a bound counted at another pitch would
+	//     refuse an adjustment the printer would have accepted.
+	if templateExists && resolutionUsable && head.DotsPerMM == template.Media.DotsPerMM {
+		maxX, maxY := template.MaxOffsetDotsOn(head, len(c.Pricing.Tiers))
 		if offset, ok := intOption(c.Printer.Options, "offset_x"); ok && (offset < 0 || offset > maxX) {
 			fail("printer.options.offset_x",
 				"%d dots hors bornes [0, %d] pour le gabarit %q : au-delà, le contenu encré sortirait de l'étiquette",
@@ -1371,7 +1450,7 @@ func validateOptions(field string, options DriverOptions, descriptor *DriverDesc
 	for _, schema := range descriptor.Options {
 		path := field + "." + schema.Key
 		raw, ok := options[schema.Key]
-		if !ok {
+		if !ok || (schema.Required && isEmptyText(raw)) {
 			if schema.Required {
 				faults = append(faults, Fault{
 					Field:   path,
@@ -1392,6 +1471,19 @@ func validateOptions(field string, options DriverOptions, descriptor *DriverDesc
 		}
 	}
 	return faults
+}
+
+// isEmptyText reports whether a raw option value is the empty string, which is how a
+// file spells a field nobody filled in.
+//
+// It is what makes a REQUIRED option refuse `"port": ""` the way it refuses a missing
+// key: the two are the same thing for whoever is standing in front of the station, and
+// the schema check alone would accept the empty string as a perfectly good text value.
+// An optional option, on the contrary, is legitimately empty — `address` is empty on
+// every station whose transport is winspool.
+func isEmptyText(raw json.RawMessage) bool {
+	value, ok := DriverOptions{"": raw}.Text("")
+	return ok && value == ""
 }
 
 // check reports the faults one raw value breaks against this schema entry.
@@ -1812,14 +1904,14 @@ func IsSecretOptionKey(key string) bool {
 // it is meant to seed ANOTHER station.
 //
 // Everything else in the three option maps travels, and that default is deliberate: a
-// driver option is a setting the fleet SHARES until somebody proves otherwise, and the
+// driver option is a setting the parc SHARES until somebody proves otherwise, and the
 // proof is written here. Dropping the maps whole was the opposite default, and it made
 // INSTALLATION.md lie -- it promises the label offset travels with the cloned
 // configuration, and printer.options went out with it.
 //
 // Two kinds of key are named, and only those two: what designates ONE station (a
 // serial port, a Windows queue), and what designates ONE SITE's infrastructure (a
-// host, an account, a path). A value that is neither belongs to the fleet.
+// host, an account, a path). A value that is neither belongs to the parc.
 //
 // It names KEYS OF A MAP, and it can name nothing else. A site value that lives in a
 // TYPED field -- catalog.images.path -- is out of reach of withoutKeys and is dropped
