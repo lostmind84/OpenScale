@@ -57,10 +57,19 @@ var knownAlignments = []string{AlignLeft, AlignRight}
 
 // Geometry bounds of rule 9, and the reason each one exists.
 const (
-	// MinModuleMilliDots and MaxModuleMilliDots bound the barcode module. Below
-	// 1500 no scanner reads it; above 6000 nothing fits on a 40 mm label.
-	MinModuleMilliDots = 1500
-	MaxModuleMilliDots = 6000
+	// GS1MinModuleUM and GS1MaxModuleUM bound the barcode module: they are the
+	// X-dimension the GS1 General Specifications allow an EAN-13 at general retail
+	// POS, 80 % to 200 % of the 0.330 mm nominal.
+	//
+	// They replaced a [1500, 6000] MILLI-DOT pair on 30/07/2026. That pair had no
+	// origin, and being written in units of resolution it meant two different things
+	// on two heads: 0.1875-0.750 mm at 8 dots/mm, 0.125-0.500 mm at 12. It therefore
+	// accepted a module below the GS1 floor on one head and refused a conforming one
+	// on the other. The module is a physical length; the rule that bounds it has to
+	// be physical too, which means reading it against the pitch the HEAD declares
+	// (ADR-045).
+	GS1MinModuleUM = 264
+	GS1MaxModuleUM = 660
 	// MinFontSizeUM is a HARD floor, 14.4 dots at 8 dots/mm. It is not an
 	// "em >= 20 dots" invariant -- there is none, and the shipped template goes
 	// down to 19.8 dots on the secondary price (§7.2, mineur-1).
@@ -199,6 +208,24 @@ type SymbolGeometry struct {
 // 113 modules -- 11 left, 95 bars, 7 right.
 func (s SymbolGeometry) TotalWidthMilliDots() int64 {
 	return int64(113 * s.ModuleMilliDots)
+}
+
+// ModuleUM is the X-dimension in micrometres, read at the pitch of a given head.
+//
+// This is the ONE place where a template's one resolution-relative length becomes a
+// physical one, and it takes the head as an argument rather than the template's own
+// media because that is the whole point of ADR-045: 2 344 milli-dots are 293 um on a
+// WS408 and 195 um on a WS412, and only the head knows which.
+func (s SymbolGeometry) ModuleUM(dotsPerMM float64) Micrometers {
+	if dotsPerMM <= 0 {
+		return 0
+	}
+	return Micrometers(float64(s.ModuleMilliDots)/dotsPerMM + 0.5)
+}
+
+// Magnification is the module as a fraction of the 0.330 mm GS1 nominal (SC2, 100 %).
+func (s SymbolGeometry) Magnification(dotsPerMM float64) float64 {
+	return float64(s.ModuleUM(dotsPerMM)) / 330.0
 }
 
 // HeightUM is where the symbol block ENDS, and there is only ONE definition of it.
@@ -340,9 +367,20 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
 	// Rule 9, checked first: a template with an absurd module or an unreadable type
 	// size produces cascades of geometric faults, and naming the cause is kinder
 	// than naming ten consequences.
-	if s := shifted.Symbol.ModuleMilliDots; s < MinModuleMilliDots || s > MaxModuleMilliDots {
-		fail("symbol.module_milli_dots", "%d hors bornes [%d, %d] : en deçà aucune douchette ne lit le symbole, au-delà il ne tient plus sur 40 mm",
-			s, MinModuleMilliDots, MaxModuleMilliDots)
+	//
+	// The module is measured against the pitch the HEAD declares, so a template whose
+	// module is legal here is legal in millimetres, not merely in dots. Skipped when
+	// the two pitches disagree: the module would then be read at a resolution this
+	// template was never measured for, and naming ten consequences of a cause already
+	// named helps nobody.
+	if pitchAgrees {
+		if um := shifted.Symbol.ModuleUM(head.DotsPerMM); um < GS1MinModuleUM || um > GS1MaxModuleUM {
+			fail("symbol.module_milli_dots",
+				"%d milli-dots valent %d µm à %g dots/mm, soit un grandissement de %.1f %% : "+
+					"hors de la plage GS1 [%d ; %d] µm (80 %% à 200 %% de la nominale de 330 µm)",
+				shifted.Symbol.ModuleMilliDots, um, head.DotsPerMM,
+				shifted.Symbol.Magnification(head.DotsPerMM)*100, GS1MinModuleUM, GS1MaxModuleUM)
+		}
 	}
 	for i, e := range shifted.Elements {
 		if e.Field == FieldBarcode {

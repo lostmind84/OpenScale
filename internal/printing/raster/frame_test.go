@@ -289,8 +289,18 @@ func checkerboard(t domain.Template) *image.Gray {
 // Changing this constant stays a deliberate act with a paper trail. A change to the
 // drawing of §7.3 legitimately moves it — and then it moves with the render goldens,
 // in the same commit, and the commit says so.
+// # 30/07/2026 — IT MOVED AGAIN, AND THIS TIME NO PRINTER HAS SEEN IT
+//
+// Reopening A1 raised the bars from 10 875 to 11 375 um and cut the HRI band from
+// 2 930 to 2 700. The ink moved, so the hash moved; the byte count did not, because
+// the bitmap is still 280 x 200 dots padded to 26 byte rows.
+//
+// The constant therefore pins a COMPUTED frame, not a printed one. What the bench
+// bought — STX … ETX and <G> counting in bytes — is still in it; the drawing is new.
+// Reprinting it is a criterion of L5 (§21). The value is identical to the one
+// internal/printing/sbpl holds, and that identity IS the assertion of §8.1.
 const (
-	benchFrameSHA256 = "6ea6870c5b98b457535c30179c94d54565b4de4333cecce04c9a540dba752e04"
+	benchFrameSHA256 = "308e33a47366fe2c8dfca2aa283dbaea4e5d650ec382a1db5601da3aa40067bb"
 	benchFrameBytes  = 14_072
 )
 

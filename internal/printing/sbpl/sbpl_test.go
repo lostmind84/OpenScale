@@ -1427,8 +1427,20 @@ func TestTheOffsetReachesTheFrameSignAndAxisIncluded(t *testing.T) {
 // regenerated golden agrees with whatever produced it. Changing this constant stays a
 // deliberate act with a paper trail. internal/printing/raster asserts the same two
 // numbers from the other side of the border.
+// # 30/07/2026 — THIS FINGERPRINT IS NO LONGER A BENCH READING, AND THAT MATTERS
+//
+// The commissioning party reopened A1. The bar height went from 10 875 to 11 375 um
+// and the HRI band from 2 930 to 2 700, so the ink moved and the fingerprint with it.
+// The BYTE COUNT did not: the bitmap is still 280 x 200 dots padded to 26 byte rows,
+// which is why 14 072 survives the change untouched — a useful reminder that this
+// constant and the hash answer different questions.
+//
+// What the constant below now pins is a frame this repository COMPUTED, not one a
+// SATO WS408 printed. The two framing findings the bench bought — STX … ETX, and <G>
+// counting its height in bytes — are still in it and still hold; the drawing they
+// carry is new and unprinted. Reprinting it is a criterion of L5 (§21).
 const (
-	benchFrameSHA256 = "6ea6870c5b98b457535c30179c94d54565b4de4333cecce04c9a540dba752e04"
+	benchFrameSHA256 = "308e33a47366fe2c8dfca2aa283dbaea4e5d650ec382a1db5601da3aa40067bb"
 	benchFrameBytes  = 14_072
 )
 

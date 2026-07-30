@@ -27,9 +27,13 @@ package domain
 //     across the full width.
 //
 // ADR-029 answers point 2 by stacking the text and putting the symbol below it. The
-// bars become uniform AND taller in usable terms — 10 875 um against 8 341 — so
+// bars become uniform AND taller in usable terms — 11 375 um against 8 341 — so
 // point 1 becomes moot: the symbol is placed by its own measured top, not by a
 // control box.
+//
+// The 10 875 um ADR-029 settled on became 11 375 on 30/07/2026, when the commissioning
+// party reopened A1: with the over-all width no longer a number to preserve, the
+// leading and the HRI band stopped being untouchable too. See IdenticalTemplate.
 func neutralSingleGeometry() Template {
 	return Template{
 		Name: "weighing_neutral_single",
@@ -87,7 +91,7 @@ func neutralSingleGeometry() Template {
 			},
 			{
 				Field: FieldBarcode,
-				XUM:   0, YUM: 10_950, WidthUM: 34_978, HeightUM: 13_805,
+				XUM:   0, YUM: 10_950, WidthUM: 34_978, HeightUM: 11_125 + 2_700,
 				Align: AlignLeft,
 			},
 		},
@@ -97,9 +101,12 @@ func neutralSingleGeometry() Template {
 			// 0.293 mm. Keeping it here means the neutral template exercises the one
 			// case no printer language can express (A2).
 			ModuleMilliDots: 2_344,
-			BarHeightUM:     10_875,
-			GuardDescentUM:  1_465,
-			HRIHeightUM:     2_930,
+			// 89 dots exactly. The neutral profile reproduces nothing, so it has even
+			// less reason than the production template to carry a bar height and an HRI
+			// band inherited from an Access font: it takes the same 30/07/2026 budget.
+			BarHeightUM:    11_125,
+			GuardDescentUM: 1_465,
+			HRIHeightUM:    2_700,
 		},
 	}
 }
@@ -129,16 +136,29 @@ func NeutralSingleTemplate() Template { return neutralSingleGeometry() }
 //	  minus the member price (11 pt)             3 381 um
 //	bars clean across the WHOLE width            8 341 um   -- 71 % of the declared
 //
-// Stacking the three text lines with a 350 um leading and placing the symbol BELOW
-// them yields 10 875 um of bars — uniform over the full width, +30 % of usable
-// height, and 54 % of the standard bar height at this magnification against 41 %
-// today. The conformity improves.
+// Stacking the three text lines and placing the symbol BELOW them yields 11 375 um of
+// bars — uniform over the full width, +36 % of usable height, and 56 % of the standard
+// bar height at this magnification against 41 % today. The conformity improves.
 //
-// Nothing A1 freezes moves: the module stays at 0.293 mm (2 344 milli-dots) and the
-// over-all width at 33.109 mm. ADR-003 forbids three specific remedies — changing
-// the consumable, going to 305 dpi, altering the magnification — and this touches
-// none of them. The bar height was already declared deliberately truncated; it is
-// truncated differently, and better.
+// # WHAT CHANGED ON 30/07/2026, AND WHY THE MODULE DID NOT
+//
+// The commissioning party reopened A1. ADR-003 had forbidden three remedies by name —
+// changing the consumable, going to 305 dpi, altering the magnification — and that
+// interdiction is lifted. What followed was NOT a free-for-all:
+//
+//   - the MODULE and the over-all width did not move, and no longer because A1 froze
+//     them: no INTEGER module lands inside the GS1 range at this pitch either, at 203,
+//     300 or 305 dpi, so the fractional 0.293 mm is not inherited but necessary
+//     (ADR-002, amendment). The number outlived its justification;
+//   - the TEXT did not move: the solidarity price had just been raised to 11 pt for
+//     legibility at arm's length, one day earlier;
+//   - the LEADING and the HRI BAND did move, because both were inherited numbers with
+//     nothing behind them, and together they were worth 500 um of bars.
+//
+// A fully conforming symbol is out of reach on this stock by arithmetic and not by
+// decision: 22 850 um of bars at 100 % against a budget that tops out near 11 400
+// leaves the truncation exactly where it was. Only a taller consumable moves that
+// (§7.7), and that is a decision, not a calculation.
 //
 // Three technical consequences, all of them wanted:
 //   - hard rule 5 becomes SATISFIABLE, so the nine rules finally apply to the
@@ -162,19 +182,24 @@ func IdenticalTemplate() Template {
 		// the bench needed them on the very first evening; a template that filled the
 		// label exactly would leave that adjustment nowhere to go, and hard rule 6
 		// applies the offset BEFORE validating.
-		leading = 277
+		// 150 and not 277 since 30/07/2026, when the commissioning party reopened A1
+		// and the bar height stopped being a number to preserve. 277 was itself the
+		// residue of a budget that had to give 93 um back to the paper; 150 is the floor
+		// ADR-029 had already named as its fallback, and the 381 um it frees go to the
+		// bars rather than back to the paper.
+		leading = 150
 		body9   = 3_175 //  9 pt
 		body11  = 3_888 // 11 pt, measured on the PDF
 	)
-	// The four numbers below were commented as 3 525 / 7 050 / 10 938 / 11 288 until
-	// 30/07/2026: those were the values at leading = 350, and the bench had lowered it
-	// to 277 without the comments following. Section 7.4 of the architecture had copied
-	// the stale origin, and from it derived an inked bottom of 200.7 dots — a template
-	// hard rule 3 rejects. The code was right the whole time; only the comments lied.
-	line2 := Micrometers(body9 + leading)          //  3 452
-	line3 := line2 + Micrometers(body9+leading)    //  6 904
-	textBottom := line3 + Micrometers(body11)      // 10 792
-	symbolTop := textBottom + Micrometers(leading) // 11 069 — inked bottom 24 874
+	// These four were commented as 3 525 / 7 050 / 10 938 / 11 288 until 30/07/2026:
+	// those were the values at leading = 350, and the bench had lowered it to 277
+	// without the comments following. Section 7.4 of the architecture had copied the
+	// stale origin, and from it derived an inked bottom of 200.7 dots — a template hard
+	// rule 3 rejects. The code was right the whole time; only the comments lied.
+	line2 := Micrometers(body9 + leading)          //  3 325
+	line3 := line2 + Micrometers(body9+leading)    //  6 650
+	textBottom := line3 + Micrometers(body11)      // 10 538
+	symbolTop := textBottom + Micrometers(leading) // 10 688
 
 	// The two prices of line 3 share a BODY since 29/07/2026, on the commissioning
 	// party's request: the solidarity price was 7 pt against 11 for the member price,
@@ -236,51 +261,64 @@ func IdenticalTemplate() Template {
 			},
 			{
 				Field: FieldBarcode,
-				XUM:   0, YUM: symbolTop, WidthUM: 34_978, HeightUM: 10_875 + 2_930,
+				XUM:   0, YUM: symbolTop, WidthUM: 34_978, HeightUM: 11_375 + 2_700,
 				Align: AlignLeft,
 			},
 		},
 		Symbol: SymbolGeometry{
 			XUM: 0, YUM: symbolTop,
 			// UNCHANGED, and this is the point: 2.344 dots = 0.293 mm, 88.8 %
-			// magnification, inside the GS1 range. A1 is respected where A1 speaks.
+			// magnification, inside the GS1 range. Reopening A1 did not move it,
+			// because no INTEGER module lands in that range at this pitch either
+			// (ADR-002, amendment of 30/07/2026) — the fractional module is not
+			// inherited, it is necessary.
 			ModuleMilliDots: 2_344,
-			// 87 dots exactly at 8 dots/mm. Uniform over the full width, against
-			// 8 341 um clean today.
-			BarHeightUM: 10_875,
+			// 91 dots exactly at 8 dots/mm, against 87 until 30/07/2026. The extra 500 um
+			// came from the leading (381) and the HRI band (230) — inherited numbers both
+			// — and NOT from the text: the commissioning party raised the solidarity
+			// price to 11 pt on 29/07 for legibility at arm's length, and that decision
+			// is a day old.
+			BarHeightUM: 11_375,
 			// 5 modules, unchanged.
 			GuardDescentUM: 1_465,
-			// Measured on the PDF: 0.244 em at 34 pt. The HRI exists on the current
-			// label and is never dropped — the cashier keeps her fallback.
-			HRIHeightUM: 2_930,
+			// 2 700 and not 2 930 since 30/07/2026. The old value was the DESCENT OF A
+			// FONT — 0.244 em of "Code EAN13" at 34 pt — inherited exactly like the
+			// module, and GS1 fixes no numeric height for the HRI, only that it be
+			// legible. So the band was reopened with the rest, and MEASURED rather than
+			// argued, which is what stopped it here:
+			//
+			//	band 2 930 (23 dots) -> em 3 699, ink 21 dots, 2 dots of clearance
+			//	band 2 700 (22 dots) -> em 3 699, ink 21 dots, 1 dot  of clearance
+			//	band 2 625 (21 dots) -> em 3 699, ink 21 dots, 0 — digits touch the bars
+			//	band 2 200 (18 dots) -> em 3 261, ink 18 dots, 0 — and 12 % smaller
+			//
+			// FitHRIFace is bound by the CELL (14 dots wide) and not by the band, so
+			// shrinking the band buys nothing until 22 dots and then costs the clearance
+			// row, then the digit size. Only 2 of the 23 dots were ever free, and one of
+			// them has to stay: a cashier reading 13 digits welded to the bar bottoms is
+			// the fallback made worse. The band must also stay above GuardDescentUM, or
+			// HeightUM's max() swings back to the descent and the gain evaporates.
+			HRIHeightUM: 2_700,
 		},
 	}
 }
 
-// IntegerModuleTemplate is gabarit B of §7.6: the same layout with a module of
-// exactly 2 dots.
+// ShippedTemplates are the two templates the binary knows, by name.
 //
-// Its purpose is a measurement, not a delivery. At an integer module every bar is
-// exactly 2 dots wide, so the bars are rigorously uniform — and that uniformity
-// comes from the MODULE, not from the printer language, which is why the hypothesis
-// needs no special code, only a second template.
+// There were three until 30/07/2026. "weighing_integer_module" — gabarit B of §7.6 —
+// carried a module of exactly 2 dots to test the hypothesis that rigorously uniform
+// bars scan better than the 2/3 alternation of a fractional module. It is retired,
+// and not because the hypothesis was disproved: because the price of testing it was
+// a module at 75.8 % magnification, BELOW the 80 % GS1 floor, and rule 9 now refuses
+// exactly that. A test whose winning arm cannot be adopted is not a test.
 //
-// It is 75.8 % magnification, BELOW the 80 % GS1 floor. Whatever the field count
-// says, adopting it would be two explicit decisions of the commissioning party, not
-// a conclusion drawn by a test (§7.6).
-func IntegerModuleTemplate() Template {
-	t := neutralSingleGeometry()
-	t.Name = "weighing_integer_module"
-	t.Symbol.ModuleMilliDots = 2_000
-	return t
-}
-
-// ShippedTemplates are the three templates the binary knows, by name.
+// What the hypothesis was really about survives, and moved: the uniformity comes from
+// the MODULE, not from the printer language, and the drawing invariant it exercised
+// is kept as a unit test of DrawEAN13 rather than as a shippable template.
 func ShippedTemplates() map[string]Template {
 	return map[string]Template{
 		"weighing_identical":      IdenticalTemplate(),
 		"weighing_neutral_single": NeutralSingleTemplate(),
-		"weighing_integer_module": IntegerModuleTemplate(),
 	}
 }
 

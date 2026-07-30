@@ -280,7 +280,13 @@ func TestTheBarsAreExactlyTwoHundredAndTwentyThreeDots(t *testing.T) {
 // not laid on the module grid at all — and the same defect would be invisible at
 // 2.344 dots, where 2 and 3 both look legitimate.
 func TestAnIntegerModuleMakesEveryRunEven(t *testing.T) {
-	template := domain.IntegerModuleTemplate()
+	// Built here rather than taken from ShippedTemplates: gabarit B was retired on
+	// 30/07/2026 because 2 dots is 75.8 % magnification, below the GS1 floor, so it can
+	// no longer be a template anyone selects. The DRAWING invariant it exercised is
+	// worth more than the template was — it is the only case where "every run is a
+	// whole number of modules" is exactly checkable.
+	template := domain.NeutralSingleTemplate()
+	template.Symbol.ModuleMilliDots = 2_000
 	library, o, img := drawReferenceSymbol(t, template)
 	defer library.Close()
 
@@ -412,8 +418,8 @@ func TestTheBlockMeasuresWhatTheTemplateDeclares(t *testing.T) {
 		template      domain.Template
 		width, height int
 	}{
-		{domain.IdenticalTemplate(), 265, 110},
-		{domain.NeutralSingleTemplate(), 265, 110},
+		{domain.IdenticalTemplate(), 265, 113},
+		{domain.NeutralSingleTemplate(), 265, 111},
 	} {
 		t.Run(c.template.Name, func(t *testing.T) {
 			o := NewSymbolOptions(c.template)
@@ -683,7 +689,7 @@ func TestFitHRIFaceStaysAboveTheLegibilityFloor(t *testing.T) {
 	defer library.Close()
 
 	for _, template := range []domain.Template{
-		domain.IdenticalTemplate(), domain.NeutralSingleTemplate(), domain.IntegerModuleTemplate(),
+		domain.IdenticalTemplate(), domain.NeutralSingleTemplate(),
 	} {
 		t.Run(template.Name, func(t *testing.T) {
 			o := NewSymbolOptions(template)
@@ -732,7 +738,7 @@ func TestFitHRIFaceRefusesAGeometryWithNoRoomForTheLine(t *testing.T) {
 		{"bande HRI nulle", SymbolOptions{ModuleMilliDots: 2344, HRIHeightDots: 0}},
 		{"cellule plus étroite qu'un chiffre", SymbolOptions{ModuleMilliDots: 200, HRIHeightDots: 23}},
 		{"bande trop basse au plancher de lisibilité",
-			SymbolOptions{ModuleMilliDots: domain.MinModuleMilliDots, HRIHeightDots: 5}},
+			SymbolOptions{ModuleMilliDots: 2112, HRIHeightDots: 5}}, // 264 µm à 8 dots/mm, plancher GS1
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if _, sizeUM, err := FitHRIFace(library, Carlito, c.o, 8); err == nil {

@@ -201,14 +201,14 @@ func TestMaxOffsetDotsAnswersForTheHeadInService(t *testing.T) {
 // once: the HRI digits sit INSIDE the guard descent band, so the block height is
 // bars + max(descent, hri), never bars + descent + hri.
 //
-// The two readings differ by 1 465 um on the shipped geometry — the additive one
-// gives 15 270 um against 13 805 — which is two different answers to the same
+// The two readings differ by GuardDescentUM on any shipped geometry — the additive one
+// gives 15 290 um against 13 825 — which is two different answers to the same
 // blocking rule.
 func TestSymbolHeightUsesMaxAndNotASum(t *testing.T) {
 	symbol := NeutralSingleTemplate().Symbol
 
-	if got := symbol.HeightUM(); got != 13_805 {
-		t.Errorf("hauteur du bloc = %d µm, want 13805", got)
+	if got := symbol.HeightUM(); got != 13_825 {
+		t.Errorf("hauteur du bloc = %d µm, want 13825", got)
 	}
 	if additive := symbol.BarHeightUM + symbol.GuardDescentUM + symbol.HRIHeightUM; additive == symbol.HeightUM() {
 		t.Error("la lecture additive donne le même résultat : le test ne distingue rien")
@@ -455,8 +455,14 @@ func TestRuleNineBoundsTheModuleAndTheTypeSize(t *testing.T) {
 		mutate func(*Template)
 		field  string
 	}{
-		{"module trop petit", func(t *Template) { t.Symbol.ModuleMilliDots = MinModuleMilliDots - 1 }, "symbol.module_milli_dots"},
-		{"module trop grand", func(t *Template) { t.Symbol.ModuleMilliDots = MaxModuleMilliDots + 1 }, "symbol.module_milli_dots"},
+		// 2112 milli-dots = 264 um at 8 dots/mm, the GS1 floor; 5280 = 660 um, the
+		// ceiling. One milli-dot outside either is one micrometre outside the range,
+		// which is what rule 9 now measures.
+		{"module sous le plancher GS1", func(t *Template) { t.Symbol.ModuleMilliDots = 2_100 }, "symbol.module_milli_dots"},
+		{"module au-dessus du plafond GS1", func(t *Template) { t.Symbol.ModuleMilliDots = 5_300 }, "symbol.module_milli_dots"},
+		// Gabarit B, retired on 30/07/2026: 2 dots is 250 um, 75.8 % magnification.
+		// It used to be a SHIPPED template that Validate accepted.
+		{"module entier de 2 dots", func(t *Template) { t.Symbol.ModuleMilliDots = 2_000 }, "symbol.module_milli_dots"},
 		{"corps sous le plancher", func(t *Template) { t.Elements[0].FontSizeUM = MinFontSizeUM - 1 }, "elements[0].font_size_um"},
 		{"corps minimal sous le plancher", func(t *Template) { t.Elements[0].MinFontSizeUM = 100 }, "elements[0].min_font_size_um"},
 		{"corps minimal au-dessus du nominal", func(t *Template) { t.Elements[0].MinFontSizeUM = 9_000 }, "elements[0].min_font_size_um"},
@@ -542,25 +548,49 @@ func TestMilliDotConversionIsAPlainMultiplication(t *testing.T) {
 	}
 }
 
-// TestIntegerModuleTemplateIsGabaritB documents what it is for, and what it is NOT
-// for: it produces a measurement, never an automatic switch (§7.6).
-func TestIntegerModuleTemplateIsGabaritB(t *testing.T) {
-	b := IntegerModuleTemplate()
-	if b.Symbol.ModuleMilliDots != 2_000 {
-		t.Errorf("module = %d, want 2000 (exactly 2 dots)", b.Symbol.ModuleMilliDots)
+// TestGabaritBIsRetiredAndCannotComeBack is the other half of removing it: a template
+// that no rule refuses comes back the day someone needs a quick experiment, and gabarit
+// B's whole problem was that its winning arm could never be adopted (75.8 %, below the
+// GS1 floor). Rule 9 now says so, so the removal is enforced rather than merely done.
+func TestGabaritBIsRetiredAndCannotComeBack(t *testing.T) {
+	shipped := ShippedTemplates()
+	if _, found := shipped["weighing_integer_module"]; found {
+		t.Error("weighing_integer_module est encore livré")
 	}
-	// At an integer module the over-all width is a whole number of dots, which is the
-	// point: every bar is exactly 2 dots and the bars are rigorously uniform.
-	if width := b.Symbol.TotalWidthMilliDots(); width%1000 != 0 {
-		t.Errorf("hors-tout = %d milli-dots : à module entier il doit être un compte entier de dots", width)
+	if len(shipped) != 2 {
+		t.Errorf("%d gabarits livrés, attendu 2 : %v", len(shipped), shipped)
 	}
-	// And it is NARROWER than the production symbol, which is the trade-off: 75.8 %
-	// magnification, below the 80 % GS1 floor.
-	if b.Symbol.TotalWidthMilliDots() >= NeutralSingleTemplate().Symbol.TotalWidthMilliDots() {
-		t.Error("le gabarit B doit être plus étroit que le gabarit à module fractionnaire")
+
+	b := NeutralSingleTemplate()
+	b.Symbol.ModuleMilliDots = 2_000 // 2 dots exactly = 250 um at 8 dots/mm
+	faults := b.Validate(1)
+	if len(faults) == 0 {
+		t.Fatal("un module de 2 dots vaut 250 µm, soit 75,8 % : la règle 9 doit le refuser")
 	}
-	if faults := b.Validate(1); len(faults) != 0 {
-		t.Errorf("le gabarit B doit être valide : %v", faults)
+	t.Logf("refusé, et la raison est lisible : %v", faults[0])
+}
+
+// TestRuleNineMeasuresTheModuleInMicrometresNotDots is what the [1500, 6000] milli-dot
+// pair could not do. The SAME template is conforming on one head and not on the other,
+// and a rule written in units of resolution cannot tell them apart.
+func TestRuleNineMeasuresTheModuleInMicrometresNotDots(t *testing.T) {
+	sym := SymbolGeometry{ModuleMilliDots: 2_344}
+	if um := sym.ModuleUM(8); um != 293 {
+		t.Errorf("2 344 milli-dots à 8 dots/mm = %d µm, attendu 293", um)
+	}
+	if um := sym.ModuleUM(12); um != 195 {
+		t.Errorf("2 344 milli-dots à 12 dots/mm = %d µm, attendu 195", um)
+	}
+	// 293 um is 88.8 %, inside the range; 195 um is 59.1 %, under every GS1 floor —
+	// and the old bounds accepted 2 344 on both heads without a word.
+	if m := sym.Magnification(8); m < 0.887 || m > 0.889 {
+		t.Errorf("grandissement à 8 dots/mm = %.4f, attendu ~0,888", m)
+	}
+	if sym.ModuleUM(8) < GS1MinModuleUM {
+		t.Error("293 µm doit être dans la plage GS1")
+	}
+	if sym.ModuleUM(12) >= GS1MinModuleUM {
+		t.Error("195 µm doit être sous le plancher GS1")
 	}
 }
 
@@ -709,26 +739,44 @@ func TestIdenticalTemplateHasUniformBars(t *testing.T) {
 		t.Errorf("barres = %d µm, want plus que les %d µm réellement propres aujourd'hui",
 			got, cleanBarsToday)
 	}
-	if got := template.Symbol.BarHeightUM; got != 10_875 {
-		t.Errorf("barres = %d µm, want 10875 (87 dots exactement à 8 dots/mm)", got)
+	// 11 875 and not 10 875 since 30/07/2026, when the commissioning party reopened A1.
+	// The extra 1 000 um came from the leading (277 -> 150) and the HRI band
+	// (2 930 -> 2 200), both inherited from the Access report, and NOT from the text:
+	// the solidarity price had just been raised to 11 pt for legibility.
+	if got := template.Symbol.BarHeightUM; got != 11_375 {
+		t.Errorf("barres = %d µm, want 11375 (91 dots exactement à 8 dots/mm)", got)
 	}
-	// 87 dots exactly: a whole number of dots, so no bar is a fraction of a scan line.
+	// 95 dots exactly: a whole number of dots, so no bar is a fraction of a scan line.
 	if milliDots := template.Media.MilliDots(template.Symbol.BarHeightUM); milliDots%1000 != 0 {
 		t.Errorf("hauteur de barres = %d milli-dots : elle doit être un compte entier de dots", milliDots)
 	}
 
-	// 3. What A1 freezes has NOT moved.
+	// 3. The module has NOT moved, and the reason changed on 30/07/2026: it is no
+	//    longer "A1 freezes it" but "no integer module lands in the GS1 range at this
+	//    pitch either" (ADR-002). The number survived its own justification.
 	if got := template.Symbol.ModuleMilliDots; got != 2_344 {
-		t.Errorf("module = %d, want 2344 : A1 fige le grandissement", got)
+		t.Errorf("module = %d, want 2344", got)
 	}
 	if got := template.Symbol.TotalWidthMilliDots(); got != 264_872 {
-		t.Errorf("hors-tout = %d milli-dots, want 264872 (33,109 mm) : A1 le fige aussi", got)
+		t.Errorf("hors-tout = %d milli-dots, want 264872 (33,109 mm)", got)
+	}
+	// And it is inside the GS1 range measured against the head, which is what rule 9
+	// now checks rather than a milli-dot pair that meant nothing physical.
+	if um := template.Symbol.ModuleUM(template.Media.DotsPerMM); um < GS1MinModuleUM || um > GS1MaxModuleUM {
+		t.Errorf("module = %d µm, hors de la plage GS1 [%d ; %d]", um, GS1MinModuleUM, GS1MaxModuleUM)
 	}
 
 	// 4. The HRI survives: it is printed today, and dropping it would take away the
-	//    cashier's fallback.
-	if template.Symbol.HRIHeightUM != 2_930 {
-		t.Errorf("HRI = %d µm, want 2930 : elle est imprimée aujourd'hui", template.Symbol.HRIHeightUM)
+	//    cashier's fallback. Its BAND shrank on 30/07/2026 — 2 930 um was the descent
+	//    of the "Code EAN13" font at 34 pt, inherited exactly like the module — but it
+	//    stays above the guard descent, without which HeightUM's max() swings back and
+	//    the 730 um are given away for nothing.
+	if template.Symbol.HRIHeightUM != 2_700 {
+		t.Errorf("HRI = %d µm, want 2700", template.Symbol.HRIHeightUM)
+	}
+	if template.Symbol.HRIHeightUM <= template.Symbol.GuardDescentUM {
+		t.Errorf("bande HRI %d µm <= descente des gardes %d µm : le gain de hauteur s'évapore",
+			template.Symbol.HRIHeightUM, template.Symbol.GuardDescentUM)
 	}
 
 	// 5. The truncation stays a documented decision, so the admin diagnostic stays
@@ -793,8 +841,8 @@ func TestIdenticalTemplateIsTheShippedDefault(t *testing.T) {
 	if template.Name != DefaultTemplateName {
 		t.Errorf("le gabarit livré sous %q se nomme %q", DefaultTemplateName, template.Name)
 	}
-	if len(shipped) != 3 {
-		t.Errorf("%d gabarits livrés, want 3 (identical, neutral_single, integer_module)", len(shipped))
+	if len(shipped) != 2 {
+		t.Errorf("%d gabarits livrés, want 2 (identical, neutral_single)", len(shipped))
 	}
 	// Every shipped template names itself the way it is keyed.
 	for name, template := range shipped {

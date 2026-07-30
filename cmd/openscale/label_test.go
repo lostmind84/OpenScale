@@ -75,7 +75,7 @@ func TestDemonstrationCriterionOfWorkPackageFour(t *testing.T) {
 	for _, c := range []struct{ what, got, want string }{
 		{"module", ruler[1], "0,293"},
 		{"hors-tout du symbole", ruler[2], "33,125"},
-		{"barres (ADR-029, contre les 11,7 de §18)", ruler[3], "10,875"},
+		{"barres (30/07/2026, contre les 10,875 d'ADR-029)", ruler[3], "11,375"},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s = %s mm, %s attendu", c.what, c.got, c.want)
