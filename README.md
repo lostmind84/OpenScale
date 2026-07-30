@@ -91,7 +91,7 @@ binaire — est dans [`docs/05-demarrage-rapide.md`](docs/05-demarrage-rapide.md
 
 | Fichier | Contenu |
 |---|---|
-| [`docs/02-architecture.md`](docs/02-architecture.md) | La référence : 22 sections, 50 ADR, le code des interfaces |
+| [`docs/02-architecture.md`](docs/02-architecture.md) | La référence : 22 sections, 51 ADR, le code des interfaces |
 | [`docs/03-glossaire.md`](docs/03-glossaire.md) | Le lexique de nommage, qui fait autorité |
 | [`docs/04-parametrage-sato.md`](docs/04-parametrage-sato.md) | Ce que l'imprimante a en mémoire, et la géométrie de l'étiquette |
 | [`docs/05-demarrage-rapide.md`](docs/05-demarrage-rapide.md) | La démonstration pas à pas, et les commandes du binaire |

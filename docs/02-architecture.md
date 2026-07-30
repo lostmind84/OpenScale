@@ -50,7 +50,7 @@ Conventions : les montants sont en **centimes entiers**, les masses en **grammes
 | # | Arbitrage | Où il s'applique |
 |---|---|---|
 | **A1** | ~~L'étiquette est reproduite à l'identique~~ — **retiré le 30/07/2026, remplacé par A1 bis.** | — |
-| **A1 bis** | **Ce qui est tenu, c'est le contrat de caisse, pas le dessin.** L'étiquette porte un **EAN-13** au plan de numérotation d'ADR-028, **zones de silence intactes** et **HRI imprimée**. La mise en page, la hauteur des barres, l'interligne et la bande HRI sont des **variables de conception**, arbitrées par le budget vertical du support. **Le support reste 38 × 25 mm** — la conformité pleine du symbole y est arithmétiquement hors d'atteinte, et c'est un constat, pas une décision. | §7 entier, ADR-003, ADR-051 |
+| **A1 bis** | **Ce qui est tenu, c'est le contrat de caisse, pas le dessin.** L'étiquette porte un **EAN-13** au plan de numérotation d'ADR-028, **zones de silence intactes** et **HRI imprimée**. La mise en page, la hauteur des barres, l'interligne et la bande HRI sont des **variables de conception**. **Ni l'imprimante ni le consommable ne changent** — décision du 30/07/2026, faute de budget et parce que les étiquettes passent en caisse depuis des années. La conformité pleine du symbole est donc hors d'atteinte : par **arbitrage économique**, pas par impossibilité. Condition de réouverture nommée : une dégradation du taux de lecture en caisse. | §7 entier, §7.7, ADR-051 |
 | **A2** | **Le driver raster est le défaut.** Il dessine **l'intégralité** de l'étiquette, code-barres compris, dans un bitmap. La commande SBPL `<BD>` disparaît, ainsi que la table de caractères, CP858, l'octet euro, le sélecteur de type de code-barres et le champ `WithBarcode`. | §7, §8, ADR-002 |
 | **A3** | **La stabilité n'est pas bloquante par défaut.** Détection implémentée, rendu **informatif**. Mode bloquant disponible en configuration. Péremption **dérivée de la cadence réellement observée**, affichée en diagnostic. | §6.5, §13, ADR-005 |
 | **A4** | **Import manuel de CSV au périmètre V1** (glisser-déposer dans l'admin). | §10.4, ADR-011 |
@@ -1684,9 +1684,27 @@ vieille de vingt-quatre heures, et ne sont donc pas listés ici comme acquis.
 | O1″ | Bande → 2 625 µm | 11 450 | 56,4 % | chiffres **soudés** aux barres | écarté |
 | O1‴ | Bande → 2 200 µm | 11 875 | 58,5 % | chiffres −12 % **et** soudés | écarté |
 | O1⁗ | Bande → 1 800 µm | 12 250 | 60,4 % | chiffres **−31 %** et soudés | écarté |
-| **O5** | Support 38 × 32 | 18 486 | **conforme à 80,9 %** | rouleau à sourcer | ouvert |
-| **O5′** | Support 38 × 34 | 20 486 | **conforme à 89,7 %** | rouleau à sourcer | ouvert |
-| **O5″** | Support 40 × 40 | 26 486 | **conforme, module inchangé** | rouleau standard, papier +60 % | ouvert |
+| **O5** | Support 38 × 32 | 18 486 | **conforme à 80,9 %** | rouleau à sourcer | **écarté — budget** |
+| **O5′** | Support 38 × 34 | 20 486 | **conforme à 89,7 %** | rouleau à sourcer | **écarté — budget** |
+| **O5″** | Support 40 × 40 | 26 486 | **conforme, module inchangé** | rouleau standard, papier +60 % | **écarté — budget** |
+
+> **Les trois lignes O5 sont écartées le 30/07/2026, et il faut dire par quoi.** Pas par
+> un argument technique — elles sont toutes les trois valides et chiffrées — mais par
+> **l'absence de budget** et par un constat d'exploitation : *« on ne changera ni
+> l'imprimante ni les étiquettes si tout fonctionne comme ça »*. Les étiquettes passent
+> en caisse depuis des années, et ce fait pèse plus qu'un pourcentage de conformité.
+>
+> **Ce n'est donc pas une décision définitive, c'est une décision datée**, et sa
+> condition de réouverture est nommée : **si le taux de lecture en caisse se dégrade**
+> — tête usée, nouvelle douchette, nouveau lot de papier. Le jour où cela arrive, le
+> dossier n'a pas à refaire l'analyse : les trois chiffres sont là, et O5′ (38 × 34,
+> conforme à 89,7 %, mise en page intacte) est le candidat désigné.
+>
+> **Ce qui reste à faire d'ici là, et qui ne coûte rien : O4.** Le balayage
+> noircissement × vitesse (§21 n° 8 bis) est le seul levier restant, il ne demande ni
+> papier ni imprimante, et son rendement est inconnu — donc c'est le seul qui puisse
+> encore surprendre. Il devient **le premier remède** en cas de dégradation, avant tout
+> arbitrage de consommable.
 
 > **La première version de cette table était fausse, et il faut dire comment.** Elle
 > annonçait 12 386 µm de barres pour un cumul « HRI à 1 800 + interligne à 150 », soit
@@ -4851,6 +4869,21 @@ millimètres de jeu — sur du papier qui n'existait pas. Élargir cette plage e
 rétrécir le dessin ; la question reste ouverte.
 **Risque assumé.** Si le taux de lecture en caisse se dégrade un jour (tête usée, nouvelle douchette), le remède géométrique a été écarté par décision. Le remède qui reste est le gabarit B (§7.6) et le réglage du noircissement. Aucune mesure ISO/IEC 15416 n'est au plan.
 
+> **Mis à jour le 30/07/2026 — c'est le paragraphe qu'on relira ce jour-là, il doit
+> nommer des remèdes qui existent.** Le gabarit B n'existe plus (ADR-051). L'ordre des
+> remèdes est désormais celui-ci, du gratuit au coûteux :
+>
+> 1. **Le balayage noircissement × vitesse** (§21 n° 8 bis) — une heure, 100 étiquettes,
+>    aucun achat, et son rendement est inconnu donc potentiellement le meilleur ;
+> 2. **le reste du budget vertical** — la bande HRI peut encore descendre à 2 200 µm au
+>    prix de 12 % de la taille des chiffres, ce qui rendrait 500 µm de barres (§7.7) ;
+> 3. **le consommable** — 38 × 34 mm rend le symbole conforme à 89,7 % sans toucher à la
+>    mise en page. Écarté faute de budget le 30/07/2026, **pas pour une raison
+>    technique** : c'est le remède réel, et il est chiffré et prêt.
+>
+> Le risque, lui, ne change pas de nature : la conformité pleine est hors du périmètre
+> V1 par arbitrage économique, et aucune mesure ISO/IEC 15416 n'est au plan.
+
 ### ADR-004 — L'acquittement est la suppression du fichier
 **Contexte.** Une application distante dépose `flv_<n>.csv` dans un répertoire surveillé, **un fichier par poste**. Le protocole est imposé et ne se renégocie pas.
 **Décision.** `Next()` lit et valide **sans toucher au fichier** ; `Acknowledge()` **copie** vers `archives/` (ou `rejected/` + `.reason.txt`), `fsync`, **puis `os.Remove`**. La suppression **est** l'acquittement. Jamais d'`os.Rename` : entre un partage réseau et le disque local il échoue en `EXDEV`/`ERROR_NOT_SAME_DEVICE`, ce qui reboucterait l'import indéfiniment.
@@ -5305,9 +5338,17 @@ séparation demandée a montré que le dossier confondait trois choses :
 **Décision.** **Ce qui est tenu est le contrat de caisse, pas le dessin** : un EAN-13 au
 plan de numérotation d'ADR-028, zones de silence intactes, HRI imprimée. La mise en
 page, la hauteur des barres, l'interligne et la bande HRI deviennent des **variables de
-conception**, arbitrées par le budget vertical du support. **Le support reste 38 × 25 mm**
-au périmètre V1 ; les options 38 × 32, 38 × 34 et 40 × 40 restent ouvertes et chiffrées
-(§7.7), et leur adoption serait une décision distincte.
+conception**, arbitrées par le budget vertical du support.
+
+**Le support et l'imprimante ne changent pas, et c'est une décision, pas un oubli.** Les
+options 38 × 32, 38 × 34 et 40 × 40 rendraient le symbole pleinement conforme ; elles
+sont **écartées le 30/07/2026 faute de budget**, et sur un constat d'exploitation que le
+dossier doit respecter : *« on ne changera ni l'imprimante ni les étiquettes si tout
+fonctionne comme ça »*. Les étiquettes passent en caisse depuis des années. **La
+conformité pleine reste donc hors d'atteinte au périmètre V1, par arbitrage économique
+et non par impossibilité** — la distinction compte, parce qu'elle nomme la condition de
+réouverture : une **dégradation du taux de lecture en caisse**. Les trois chiffres
+restent au dossier (§7.7) pour que ce jour-là personne ne refasse l'analyse.
 
 **Trois nombres hérités ont été rouverts, et un seul n'a pas bougé.**
 

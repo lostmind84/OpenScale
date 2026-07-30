@@ -11,7 +11,7 @@ conception est **terminée et validée** ; l'implémentation n'a pas commencé.
 
 | Document                         | Rôle                                                                                                                                                             |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/02-architecture.md`        | **La référence.** Tout en découle. 22 sections, 50 ADR                                                                                                           |
+| `docs/02-architecture.md`        | **La référence.** Tout en découle. 22 sections, 51 ADR                                                                                                           |
 | `docs/03-glossaire.md`           | **Autorité de nommage.** Ne jamais s'en écarter                                                                                                                  |
 | `docs/04-parametrage-sato.md`    | **Ce que l'imprimante a en mémoire.** Fait foi sur la géométrie                                                                                                  |
 | `docs/07-ajouter-un-materiel.md` | **À lire AVANT de brancher un matériel** — balance, imprimante, transport. Les deux paquets `internal/{scale,printing}/example/` en sont la version Go, à copier |
@@ -52,12 +52,24 @@ triviale vers Windows, Linux et linux-arm64. SQLite via `modernc.org/sqlite`, ja
 
 Ces points ont été tranchés après analyse ; les rouvrir demande une décision explicite.
 
-- **L'étiquette est reproduite à l'identique**, code-barres compris. Son symbole EAN-13
-  est volontairement tronqué — ce n'est pas un défaut mais un compromis assumé (un
-  symbole conforme n'entre pas sur 40 × 25 mm avec les cinq champs texte). Rouvert le 30/07/2026 à la
-  demande du commanditaire : la géométrie du symbole est en cours de réexamen.
-- **Le driver raster est le chemin de production**, pas le SBPL : à 203 dpi, aucun
-  module entier ne reproduit le grandissement actuel.
+- **Ce qui est tenu sur l'étiquette est le contrat de caisse, pas le dessin** (ADR-051,
+  30/07/2026, remplace ADR-003). Un EAN-13 au plan d'ADR-028, zones de silence intactes,
+  HRI imprimée. La mise en page, la hauteur des barres, l'interligne et la bande HRI
+  sont des variables de conception. « L'étiquette est reproduite à l'identique » **n'est
+  plus une règle** : c'était l'état d'un formulaire Access, pas un arbitrage.
+- **Le symbole reste tronqué, et c'est un CALCUL, pas une décision.** Sur 25 mm de
+  hauteur, un EAN-13 de hauteur normative laisse 1,8 mm pour cinq champs texte au
+  grandissement retenu, 4,3 mm au plancher GS1. Ne pas le présenter comme un compromis
+  qu'on pourrait rouvrir par la volonté : il faut du papier plus haut.
+- **Ni l'imprimante ni le consommable ne changent** — décision du 30/07/2026, faute de
+  budget, et parce que les étiquettes passent en caisse depuis des années. 38 × 34 mm
+  rendrait le symbole conforme à 89,7 % ; c'est chiffré en §7.7 et écarté. **Ne pas le
+  reproposer** tant que le taux de lecture en caisse ne se dégrade pas.
+- **Le driver raster est le chemin de production**, pas le SBPL. L'argument n'est plus
+  « aucun module entier ne reproduit le grandissement actuel » — ça défendait un nombre
+  hérité : la fenêtre des modules à la fois conformes GS1 et tenant dans 35 mm est
+  **vide à 203, 300 et 305 dpi**. Le module fractionnaire est nécessaire, pas hérité,
+  et une tête 305 dpi n'y changerait rien.
 - **Le catalogue arrive en un fichier CSV par poste**, supprimé après lecture — la
   suppression _est_ l'acquittement. Ne pas proposer de fichier partagé unique.
 - **Le préfixe du code-barres fait foi** pour le mode de vente, pas le champ `unite`
