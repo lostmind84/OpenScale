@@ -224,6 +224,13 @@ export interface WeighingDTO {
 export interface FindingDTO {
   csv_line: number
   product_id: string
+  /**
+   * Le nom commercial TEL QUE CET IMPORT L'A LU, instantané d'affichage.
+   *
+   * Vide dans les deux cas où le fichier n'en donne pas : un signalement qui ne porte sur
+   * aucun produit, et une ligne trop abîmée pour porter un nom.
+   */
+  product_name: string
   code: string
   issue: string
   message: string

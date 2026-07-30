@@ -352,14 +352,17 @@ func importOf(record domain.Import) importDTO {
 // findingDTO is one row an import had something to say about.
 //
 // CSVLine is what makes the report usable: it names the row to fix IN ODOO, which is
-// the only place anybody can fix it.
+// the only place anybody can fix it. ProductName is what makes it readable: it is the
+// name the import itself read, and the screen shows it rather than send whoever corrects
+// the file looking up an Odoo id first.
 type findingDTO struct {
-	CSVLine   int    `json:"csv_line"`
-	ProductID string `json:"product_id"`
-	Code      string `json:"code"`
-	Issue     string `json:"issue"`
-	Message   string `json:"message"`
-	Value     string `json:"value"`
+	CSVLine     int    `json:"csv_line"`
+	ProductID   string `json:"product_id"`
+	ProductName string `json:"product_name"`
+	Code        string `json:"code"`
+	Issue       string `json:"issue"`
+	Message     string `json:"message"`
+	Value       string `json:"value"`
 }
 
 // findingsOf converts what one import reported.
@@ -367,8 +370,8 @@ func findingsOf(findings []domain.Finding) []findingDTO {
 	out := make([]findingDTO, 0, len(findings))
 	for _, f := range findings {
 		out = append(out, findingDTO{
-			CSVLine: f.CSVLine, ProductID: f.ProductID, Code: f.Code,
-			Issue: f.Issue, Message: f.Message, Value: f.Value,
+			CSVLine: f.CSVLine, ProductID: f.ProductID, ProductName: f.ProductName,
+			Code: f.Code, Issue: f.Issue, Message: f.Message, Value: f.Value,
 		})
 	}
 	return out

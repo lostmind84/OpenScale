@@ -1,0 +1,20 @@
+-- 0002 — le nom du produit dans les signalements d'import.
+--
+-- Les trois listes de la page Catalogue — anomalies, unités divergentes, produits non
+-- pesables — ne nommaient les produits que par leur identifiant Odoo. Corriger « 4412 »
+-- demande de chercher d'abord de quel produit il s'agit ; corriger « TOMATE GRAPPE »
+-- commence tout de suite. Le nom est ce qui fait la différence entre une liste de codes
+-- et un plan de travail (§10.3 bis).
+--
+-- C'est un INSTANTANÉ D'AFFICHAGE, comme weighings.product_name et pour la même raison :
+-- le nom bouge dans Odoo, la ligne qui décrit un import de mars ne bouge pas. Un affichage
+-- qui irait chercher le nom courant dans products montrerait, des signalements d'un import
+-- passé, un fait que cet import n'a pas dit — et n'en montrerait aucun pour un lot refusé,
+-- dont aucun produit n'est jamais entré en base.
+--
+-- DEFAULT '' et non NULL : le champ est vide dans les deux cas où le fichier ne donne pas
+-- de nom — un signalement qui ne porte sur aucun produit (UNEXPECTED_HEADER), et une ligne
+-- si abîmée qu'elle n'en a pas, ce qu'UNREADABLE_ROW dit déjà. Les signalements écrits
+-- avant cette migration prennent la même valeur vide : l'écran l'annonce plutôt que
+-- d'inventer un nom.
+ALTER TABLE findings ADD COLUMN product_name TEXT NOT NULL DEFAULT '';

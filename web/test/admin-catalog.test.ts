@@ -18,7 +18,7 @@ import { FLV_1_IMPORT, FLV_IMPORT, nominalHealth } from './fixtures/health'
 /**
  * La page Catalogue dit-elle la vérité, et le mot de passe est-il demandé au bon moment ?
  *
- * Onze choses sont tenues ici, et chacune est un écart constaté à §14.4 ou un défaut :
+ * Douze choses sont tenues ici, et chacune est un écart constaté à §14.4 ou un défaut :
  *
  *  1. aucune liste sans plafond, et aucun plafond muet — la troncature à vingt de la
  *     recherche ne disait rien, et un fichier de 116 anomalies affichait « 20 » sans un
@@ -45,7 +45,10 @@ import { FLV_1_IMPORT, FLV_IMPORT, nominalHealth } from './fixtures/health'
  *  9. les signalements sont RELUS quand le poste change d'import ;
  * 10. aucun bouton n'est armé pour un refus certain : le motif est exigé par le service ;
  * 11. la zone de dépôt obéit au même verrou que le reste de la page, et le sélecteur de
- *     fichier se réarme, sans quoi le MÊME fichier ne peut pas être redéposé.
+ *     fichier se réarme, sans quoi le MÊME fichier ne peut pas être redéposé ;
+ * 12. les trois listes de signalements NOMMENT les produits : « 4412 » est un numéro qu'il
+ *     faut chercher dans Odoo avant de commencer, et le nom vient de l'import lui-même, pas
+ *     du catalogue en service.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -346,11 +349,33 @@ function manyAnomalies(count: number): FindingDTO[] {
   return Array.from({ length: count }, (_unused, index) => ({
     csv_line: index + 2,
     product_id: `id-${String(index)}`,
+    product_name: `TOMATE ${String(index)}`,
     code: 'INVALID_BARCODE',
     issue: 'anomaly',
     message: 'Corrigez ce code dans Odoo.',
     value: '0493100100006',
   }))
+}
+
+/** Un signalement, dans la forme exacte que la route d'imports sert. */
+function finding(overrides: Partial<FindingDTO> = {}): FindingDTO {
+  return {
+    csv_line: 42,
+    product_id: '4412',
+    product_name: 'AIL VIOLET SAF',
+    code: 'RESERVED_ZONE_NOT_EMPTY',
+    issue: 'anomaly',
+    message: 'Corrigez le code-barres dans Odoo.',
+    value: '0493021012365',
+    ...overrides,
+  }
+}
+
+/** Les noms que dessine une des listes de signalements. */
+function namesIn(list: string): string[] {
+  return [...host.querySelectorAll(`[data-rows="${list}"] [data-name]`)].map(
+    (span) => span.textContent ?? '',
+  )
 }
 
 /** Une décision humaine en vigueur. */
@@ -404,13 +429,66 @@ describe('aucune liste sans plafond, et aucun plafond muet', () => {
     // ET un code faux, c'est deux signalements sur la ligne 42. Une boucle clée par
     // `csv_line` lèverait `each_key_duplicate` et emporterait tout l'écran.
     findings = [
-      { csv_line: 42, product_id: 'x', code: 'ZERO_PRICE', issue: 'anomaly', message: 'a', value: '0' },
-      { csv_line: 42, product_id: 'x', code: 'INVALID_BARCODE', issue: 'anomaly', message: 'b', value: '1' },
+      finding({ code: 'ZERO_PRICE', message: 'a', value: '0' }),
+      finding({ code: 'INVALID_BARCODE', message: 'b', value: '1' }),
     ]
     open()
     await settle()
 
     expect(host.querySelectorAll('[data-rows="anomalies"] li')).toHaveLength(2)
+  })
+})
+
+describe('les listes de signalements nomment les produits', () => {
+  it('nomme le produit dans les trois listes, et pas seulement son identifiant Odoo', async () => {
+    // « 4412 » est un numéro qu'il faut d'abord chercher dans Odoo ; « AIL VIOLET SAF » est
+    // le produit que celui qui corrige le fichier reconnaît. Les trois listes sont dessinées
+    // par le MÊME extrait, et c'est pour ça qu'elles sont vérifiées ensemble : une seule
+    // d'entre elles qui nommerait le produit serait un extrait dupliqué quelque part.
+    findings = [
+      finding({ product_name: 'AIL VIOLET SAF' }),
+      finding({
+        code: 'UNIT_MISMATCH',
+        issue: 'info',
+        product_id: '5209',
+        product_name: 'OEUFS PLEIN AIR',
+        message: 'Corrigez l’unité dans Odoo.',
+      }),
+      finding({
+        code: 'PREPACKAGED_PRODUCT',
+        issue: 'info',
+        product_id: '77',
+        product_name: 'BOULGOUR GROS 5 KG',
+        message: 'Rien à corriger : c’est un code fournisseur.',
+      }),
+    ]
+    open()
+    await settle()
+
+    expect(namesIn('anomalies')).toEqual(['AIL VIOLET SAF'])
+    expect(namesIn('mismatches')).toEqual(['OEUFS PLEIN AIR'])
+    expect(namesIn('not-weighable')).toEqual(['BOULGOUR GROS 5 KG'])
+    // Le nom N'A PAS remplacé l'identifiant : c'est lui qui ouvre la fiche dans Odoo.
+    expect(host.querySelector('[data-rows="anomalies"] .id')?.textContent).toBe('4412')
+  })
+
+  it('n’invente aucun libellé pour un signalement sans nom', async () => {
+    // Deux signalements ne portent pas de nom : celui qui ne porte sur aucun produit, et une
+    // ligne trop abîmée pour en avoir un — ce qu'UNREADABLE_ROW dit déjà dans son message.
+    // Un « nom inconnu » écrit à leur place serait un fait que cette page n'a pas lu.
+    findings = [
+      finding({
+        code: 'UNREADABLE_ROW',
+        product_id: '90',
+        product_name: '',
+        message: 'Corrigez la ligne : elle doit porter un identifiant et un nom.',
+      }),
+    ]
+    open()
+    await settle()
+
+    expect(host.querySelectorAll('[data-rows="anomalies"] li')).toHaveLength(1)
+    expect(namesIn('anomalies')).toEqual([])
   })
 })
 

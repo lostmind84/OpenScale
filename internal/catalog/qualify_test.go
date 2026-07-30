@@ -305,7 +305,8 @@ func TestEveryMessageIsFrenchImperativeAndNamesTheConsequence(t *testing.T) {
 		func(r *catalog.Row) { r.Magnitude = catalog.Discrete },
 		func(r *catalog.Row) { r.Magnitude = catalog.MagnitudeUnknown },
 	} {
-		_, findings, _ := catalog.Qualify(row(broken))
+		faulty := row(broken)
+		_, findings, _ := catalog.Qualify(faulty)
 		if len(findings) != 1 {
 			t.Fatalf("%d signalements", len(findings))
 		}
@@ -315,6 +316,13 @@ func TestEveryMessageIsFrenchImperativeAndNamesTheConsequence(t *testing.T) {
 			t.Errorf("%s : ligne %d, attendu 42 — le OÙ", f.Code, f.CSVLine)
 		case f.ProductID == "" && f.Code != domain.FindingUnexpectedHeader:
 			t.Errorf("%s : sans identifiant Odoo — le OÙ", f.Code)
+		// The name is part of the WHERE, and it is the row's own: « 4412 » is a number
+		// somebody looks up before starting, « AIL VIOLET SAF » is the product they know.
+		// Comparing against the row also covers the one case where it is legitimately
+		// empty — a line so damaged it carries no name, which is UNREADABLE_ROW itself.
+		case f.ProductName != faulty.Name:
+			t.Errorf("%s : nom %q, attendu %q — le OÙ nomme aussi le produit",
+				f.Code, f.ProductName, faulty.Name)
 		case !strings.HasSuffix(f.Message, "."):
 			t.Errorf("%s : « %s » n'est pas une phrase", f.Code, f.Message)
 		case len(strings.Fields(f.Message)) < 12:
