@@ -449,11 +449,31 @@ func TestTheSameJobEncodesToTheSameBytes(t *testing.T) {
 // test is what keeps that true tomorrow: it fails on the introduction of a map into
 // the production sources, at which point whoever added it has to show that nothing
 // ORDERED comes out of ranging it — and say so here.
+//
+// ONE source says so, and it is exempted UNDER CONDITION rather than by name: the
+// exemption holds only as long as that file ranges nothing at all. An allow-list that
+// merely spelled a file name would let a `range` slip into it later, which is the exact
+// failure this test exists to catch.
 func TestNothingInThePackageIteratesAMap(t *testing.T) {
+	// status.go carries the fault table of the STATUS frame (§8.5), which is a different
+	// direction of the wire: it is INDEXED by the status byte, what comes out of it is a
+	// French sentence for the troubleshooting screen, and NO PATH FROM Encode REACHES IT.
+	// The determinism this test protects is the determinism of a frame going OUT, and
+	// that table produces no byte of one.
+	readsOnlyByKey := map[string]bool{"status.go": true}
+
 	for _, file := range productionSources(t) {
 		source, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("lecture de %s : %v", file, err)
+		}
+		if readsOnlyByKey[filepath.Base(file)] {
+			if bytes.Contains(source, []byte("range ")) {
+				t.Errorf("%s est exempté parce que sa table est LUE PAR CLÉ et jamais parcourue, "+
+					"et il contient un `range` : ou bien ce parcours ne produit aucun octet de "+
+					"trame et il faut le dire ici, ou bien l'exemption ne tient plus", file)
+			}
+			continue
 		}
 		if bytes.Contains(source, []byte("map[")) {
 			t.Errorf("%s déclare une map : l'ordre de parcours d'une map Go est ALÉATOIRE et "+
@@ -548,16 +568,25 @@ func TestNoExportedIdentifierCanEmitACommandOnItsOwn(t *testing.T) {
 		"Setup", "NewSetup",
 		// The job, and the ONE function that writes.
 		"Job", "NewJob", "Encode",
+		// The OTHER direction of the wire: what a station sends to ask this printer how
+		// it is, and the reading of what comes back (§8.5, level N3). None of the three
+		// is a command or a piece of the <A>…<Z> sequence, and none of them writes: they
+		// live here because the status frame is SBPL, so both drivers of §8.1 read it
+		// with these and neither keeps a copy of a table measured on a bench.
+		"Enquiry", "StatusFault", "FaultOfStatusFrame",
 	}
 
 	exported, writers := exportedSurface(t)
 	sort.Strings(frozen)
-	if diff := missing(frozen, exported); len(diff) > 0 {
+	// missing(want, got) reports what is in want and absent from got, so each diff is
+	// read in the direction of its first argument. Spelled the other way round, the two
+	// messages below told whoever added an export that a frozen name had disappeared.
+	if diff := missing(exported, frozen); len(diff) > 0 {
 		t.Errorf("identifiant(s) exporté(s) que ce test ne connaît pas : %s — si c'est une "+
 			"commande ou un morceau de séquence, la propriété « une trame sans <A> ni <Z> est "+
 			"inexprimable » vient de mourir ; sinon, ajoutez-les à la liste gelée", strings.Join(diff, ", "))
 	}
-	if diff := missing(exported, frozen); len(diff) > 0 {
+	if diff := missing(frozen, exported); len(diff) > 0 {
 		t.Errorf("identifiant(s) gelé(s) qui n'existent plus : %s", strings.Join(diff, ", "))
 	}
 	if len(writers) != 1 || writers[0] != "Encode" {

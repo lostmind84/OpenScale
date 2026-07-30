@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"openscale/internal/domain"
 	"openscale/internal/fake"
+	"openscale/internal/scale"
+	"openscale/internal/station/ports"
 )
 
 // The detection of §14.4 is the sentence « COM8 : 12 trames valides, GRAM XFOC », and it is
@@ -25,7 +28,7 @@ func TestTheDetectionCountsTheFramesAndNamesTheProtocol(t *testing.T) {
 	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
 	stream := emitting(clock, 8)
 	hardware := adminHardware{
-		clock: clock, registries: benchRegistries(), open: stream.opener(),
+		clock: clock, registries: benchRegistries(), scales: scaleRegistry(), open: stream.opener(),
 	}
 
 	report, err := hardware.DetectScale(context.Background(), "COM8")
@@ -35,8 +38,13 @@ func TestTheDetectionCountsTheFramesAndNamesTheProtocol(t *testing.T) {
 	if report.ValidCount != 8 {
 		t.Fatalf("%d trame(s) valide(s), attendu 8", report.ValidCount)
 	}
-	if report.Driver != "gram-xfoc-rs" {
-		t.Fatalf("driver proposé %q, attendu la première entrée du registre", report.Driver)
+	// The protocol the FRAMES named, and the assertion is on that and not on a literal:
+	// what the detection proposes is a driver that RECOGNISED the stream, so any entry of
+	// the registry whose decoder answered is a correct answer, and the order the
+	// composition root registers them in must not be able to make this test lie.
+	if !registered(report.Driver) {
+		t.Fatalf("driver proposé %q : la détection doit proposer un protocole qui a reconnu "+
+			"les trames, parmi %v", report.Driver, registeredIDs())
 	}
 	if !strings.Contains(report.Message, "COM8") || !strings.Contains(report.Message, "8 trame") {
 		t.Fatalf("le message ne dit pas ce qui a été observé : %q", report.Message)
@@ -68,7 +76,7 @@ func TestTheDetectionCountsTheFramesAndNamesTheProtocol(t *testing.T) {
 func TestBytesWithoutAFrameIsADifferentAnswerFromSilence(t *testing.T) {
 	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
 	noise := newScriptedStream(clock, scriptedRead{after: cadence, data: "\x00\xff\x13garbage"})
-	hardware := adminHardware{clock: clock, registries: benchRegistries(), open: noise.opener()}
+	hardware := adminHardware{clock: clock, registries: benchRegistries(), scales: scaleRegistry(), open: noise.opener()}
 
 	report, err := hardware.DetectScale(context.Background(), "COM8")
 	if err != nil {
@@ -103,7 +111,7 @@ func TestBytesWithoutAFrameIsADifferentAnswerFromSilence(t *testing.T) {
 func TestAPortThatCannotBeOpenedSaysWhyItMightBeTaken(t *testing.T) {
 	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
 	hardware := adminHardware{
-		clock: clock, registries: benchRegistries(),
+		clock: clock, registries: benchRegistries(), scales: scaleRegistry(),
 		open: refusingOpener(errAccessDenied{}),
 	}
 	_, err := hardware.DetectScale(context.Background(), "COM8")
@@ -129,7 +137,7 @@ func TestAPortThatCannotBeOpenedSaysWhyItMightBeTaken(t *testing.T) {
 func TestTheDetectionOpensThePortWithUsableLinkSettings(t *testing.T) {
 	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
 	stream := emitting(clock, 4)
-	hardware := adminHardware{clock: clock, registries: benchRegistries(), open: stream.opener()}
+	hardware := adminHardware{clock: clock, registries: benchRegistries(), scales: scaleRegistry(), open: stream.opener()}
 
 	if _, err := hardware.DetectScale(context.Background(), "COM8"); err != nil {
 		t.Fatalf("détection : %v", err)
@@ -159,7 +167,7 @@ func TestTheDetectionListensWithTheSettingsThisStationDeclares(t *testing.T) {
 	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
 	stream := emitting(clock, 4)
 	hardware := adminHardware{
-		clock: clock, registries: benchRegistries(), open: stream.opener(),
+		clock: clock, registries: benchRegistries(), scales: scaleRegistry(), open: stream.opener(),
 		config: stationDeclaring(t, map[string]any{
 			"port": "COM3", "baud": 19200, "parity": "E",
 		}),
@@ -192,7 +200,7 @@ func TestAPortRefusedByItsSettingsIsNotReportedAsTaken(t *testing.T) {
 	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
 	stream := emitting(clock, 4)
 	hardware := adminHardware{
-		clock: clock, registries: benchRegistries(), open: stream.opener(),
+		clock: clock, registries: benchRegistries(), scales: scaleRegistry(), open: stream.opener(),
 		config: stationDeclaring(t, map[string]any{"port": "COM3", "parity": "K"}),
 	}
 
@@ -233,7 +241,7 @@ func stationDeclaring(t *testing.T, pairs map[string]any) func() domain.Config {
 // TestTheDetectionRefusesAnEmptyPortByName keeps the message useful: a form submitted with
 // an empty field gets told what to type.
 func TestTheDetectionRefusesAnEmptyPortByName(t *testing.T) {
-	hardware := adminHardware{clock: fake.NewClock(time.Now()), registries: benchRegistries()}
+	hardware := adminHardware{clock: fake.NewClock(time.Now()), registries: benchRegistries(), scales: scaleRegistry()}
 	if _, err := hardware.DetectScale(context.Background(), "  "); err == nil {
 		t.Fatal("une détection sans port a été acceptée")
 	}
@@ -256,7 +264,7 @@ func TestAFrameCutAcrossTwoReadsIsOneFrame(t *testing.T) {
 		scriptedRead{after: 100 * time.Millisecond, data: "36KG\r\n"},
 		scriptedRead{after: 100 * time.Millisecond, data: nominalFrame},
 	)
-	hardware := adminHardware{clock: clock, registries: benchRegistries(), open: stream.opener()}
+	hardware := adminHardware{clock: clock, registries: benchRegistries(), scales: scaleRegistry(), open: stream.opener()}
 
 	frames, err := hardware.CaptureFrames(context.Background(), "COM8", time.Second)
 	if err != nil {
@@ -273,12 +281,67 @@ func TestAFrameCutAcrossTwoReadsIsOneFrame(t *testing.T) {
 	}
 }
 
+// TestTheFrameViewerCutsWithTheProtocolAndNotOnALineEnding is the defect of 29/07 found
+// one storey up, on the Matériel page.
+//
+// A GRAM XFOC PLUS delimits its transmissions with control codes and sends NO CR or LF at
+// all. The viewer of §14.4 cut what it read on a line ending of its own, so on the very
+// hardware of the L0 bench it showed an EMPTY list of raw frames while the line above it
+// announced twelve valid ones — and a support call then has the count and not the bytes,
+// which is the one thing it needed. Where a frame ends is now asked of the decoder.
+func TestTheFrameViewerCutsWithTheProtocolAndNotOnALineEnding(t *testing.T) {
+	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
+	stream := newScriptedStream(clock,
+		scriptedRead{after: cadence, data: framedPlus("S  1,236KG")},
+		scriptedRead{after: cadence, data: framedPlus("U- 0,432KG")},
+	)
+	hardware := adminHardware{
+		clock: clock, registries: benchRegistries(), scales: scaleRegistry(),
+		open: stream.opener(),
+	}
+
+	report, err := hardware.DetectScale(context.Background(), "COM7")
+	if err != nil {
+		t.Fatalf("détection : %v", err)
+	}
+	if report.ValidCount != 2 {
+		t.Fatalf("%d trame(s) valide(s), attendu 2 : la grammaire lit le tramage de contrôle",
+			report.ValidCount)
+	}
+	if len(report.Frames) != 2 {
+		t.Fatalf("%d trame(s) brute(s) rendue(s) pour %d décodées : le visualiseur découpe sur "+
+			"un terminateur que ce protocole n'envoie jamais — %q",
+			len(report.Frames), report.ValidCount, report.Frames)
+	}
+	for rank, shown := range report.Frames {
+		if !strings.Contains(shown, "KG") {
+			t.Errorf("trame n° %d = %q : ce n'est pas la trame telle qu'elle est arrivée",
+				rank+1, shown)
+		}
+	}
+}
+
+// framedPlus wraps a payload in the control framing a GRAM XFOC PLUS really emits, read
+// off the L0 bench of 28/07/2026 and frozen in the living corpus:
+//
+//	SOH STX  payload  XOR  ETX EOT  flags
+//
+// The checksum is COMPUTED and not written down, so that a test cannot pass on a frame no
+// scale would have sent.
+func framedPlus(payload string) string {
+	var checksum byte
+	for i := 0; i < len(payload); i++ {
+		checksum ^= payload[i]
+	}
+	return "\x01\x02" + payload + string(checksum) + "\x03\x04\x00"
+}
+
 // TestTheCaptureKeepsOnlyTheLastTwentyFrames is the « visualiseur des 20 dernières trames
 // brutes » of §14.4: a scale that babbles must not hand a screen a thousand lines.
 func TestTheCaptureKeepsOnlyTheLastTwentyFrames(t *testing.T) {
 	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
 	stream := emitting(clock, 30)
-	hardware := adminHardware{clock: clock, registries: benchRegistries(), open: stream.opener()}
+	hardware := adminHardware{clock: clock, registries: benchRegistries(), scales: scaleRegistry(), open: stream.opener()}
 
 	frames, err := hardware.CaptureFrames(context.Background(), "COM8", 20*time.Second)
 	if err != nil {
@@ -298,7 +361,7 @@ func TestACaptureBeyondTheCeilingFallsBackOnTheDetectionWindow(t *testing.T) {
 	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
 	started := clock.Now()
 	stream := emitting(clock, 200)
-	hardware := adminHardware{clock: clock, registries: benchRegistries(), open: stream.opener()}
+	hardware := adminHardware{clock: clock, registries: benchRegistries(), scales: scaleRegistry(), open: stream.opener()}
 
 	if _, err := hardware.CaptureFrames(context.Background(), "COM8", time.Hour); err != nil {
 		t.Fatalf("capture : %v", err)
@@ -309,35 +372,143 @@ func TestACaptureBeyondTheCeilingFallsBackOnTheDetectionWindow(t *testing.T) {
 	}
 }
 
-// TestTheDetectionNamesEveryModelThatSharesTheDecoder is what keeps the sentence true when
-// a model is added: it is built from the REGISTRY, not from a literal.
+// TestTheDetectionNamesEveryModelThatRecognisedTheFrames is what keeps the sentence true
+// when a model is added: it is built from WHAT ANSWERED, not from the whole registry and
+// not from a literal.
 //
 // The two GRAM entries differ by the name on the sticker and by nothing on the wire (§9.3),
-// so the frames cannot tell them apart and the message says so instead of picking one.
-func TestTheDetectionNamesEveryModelThatSharesTheDecoder(t *testing.T) {
-	hardware := adminHardware{registries: benchRegistries()}
-	message := hardware.scaleModels()
-	for _, model := range []string{"GRAM XFOC RS", "GRAM XFOC +"} {
-		if !strings.Contains(message, model) {
-			t.Fatalf("le message ne nomme pas %s : %q", model, message)
-		}
-	}
-	if !strings.Contains(message, "même décodeur") {
-		t.Fatalf("le message ne dit pas pourquoi les deux sont nommés : %q", message)
+// so both recognise the same stream, the frames cannot tell them apart, and the message
+// says so instead of picking one. The day a THIRD protocol is registered with a grammar of
+// its own, the sentence must stop naming it — which is exactly what listing the whole
+// registry could not do.
+func TestTheDetectionNamesEveryModelThatRecognisedTheFrames(t *testing.T) {
+	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
+	stream := emitting(clock, 8)
+	hardware := adminHardware{
+		clock: clock, registries: benchRegistries(), scales: scaleRegistry(),
+		open: stream.opener(),
 	}
 
-	empty := adminHardware{}
-	if got := empty.firstScaleType(); got != "" {
-		t.Fatalf("un binaire sans protocole propose %q", got)
+	report, err := hardware.DetectScale(context.Background(), "COM8")
+	if err != nil {
+		t.Fatalf("détection : %v", err)
 	}
-	if !strings.Contains(empty.scaleModels(), "aucun protocole") {
-		t.Fatalf("un binaire sans protocole doit le dire : %q", empty.scaleModels())
+	for _, model := range []string{"GRAM XFOC RS", "GRAM XFOC +"} {
+		if !strings.Contains(report.Message, model) {
+			t.Fatalf("le message ne nomme pas %s : %q", model, report.Message)
+		}
+	}
+	if !strings.Contains(report.Message, "même décodeur") {
+		t.Fatalf("le message ne dit pas pourquoi les deux sont nommés : %q", report.Message)
 	}
 }
+
+// TestABinaryWithNoDetectableProtocolSaysSoAndOpensNothing is the case the driver is
+// ALLOWED to declare: a protocol that cannot be recognised by listening.
+//
+// The remedy is a sentence and not a silence — « choisissez-le à la main » — and the port
+// is never opened, because a serial port is exclusive and taking one for three seconds to
+// hand back nothing is how a volunteer concludes the cable is at fault.
+func TestABinaryWithNoDetectableProtocolSaysSoAndOpensNothing(t *testing.T) {
+	clock := fake.NewClock(time.Date(2026, 7, 26, 9, 0, 0, 0, time.UTC))
+	stream := emitting(clock, 8)
+	registry := scale.NewRegistry()
+	registry.Register(undetectableDriver())
+	hardware := adminHardware{
+		clock: clock, scales: registry, open: stream.opener(),
+		registries: domain.Registries{Scales: registry.Descriptors()},
+	}
+
+	report, err := hardware.DetectScale(context.Background(), "COM8")
+	if err != nil {
+		t.Fatalf("détection : %v", err)
+	}
+	if !strings.Contains(report.Message, "à la main") {
+		t.Fatalf("le message ne dit pas quoi faire à la place : %q", report.Message)
+	}
+	if !strings.Contains(report.Message, "Balance muette") {
+		t.Fatalf("le message ne nomme pas le protocole à choisir : %q", report.Message)
+	}
+	if report.Driver != "" || report.ValidCount != 0 {
+		t.Fatalf("un protocole a été proposé sans qu'aucune trame ne soit reconnue : %+v", report)
+	}
+	if stream.opens != 0 {
+		t.Fatalf("le port a été ouvert %d fois alors qu'aucun protocole ne sait s'y "+
+			"reconnaître : un port série est EXCLUSIF", stream.opens)
+	}
+
+	if _, err := hardware.CaptureFrames(context.Background(), "COM8", time.Second); err == nil {
+		t.Fatal("une capture a été rendue alors qu'aucune grammaire ne sait découper une trame")
+	}
+}
+
+// TestABinaryWithNoProtocolAtAllSaysThat keeps the two « rien » apart: a binary carrying
+// no weighing protocol is a different sentence from one whose protocols cannot be
+// detected, and the second one names what to choose.
+func TestABinaryWithNoProtocolAtAllSaysThat(t *testing.T) {
+	hardware := adminHardware{
+		clock: fake.NewClock(time.Now()), scales: scale.NewRegistry(),
+	}
+	report, err := hardware.DetectScale(context.Background(), "COM8")
+	if err != nil {
+		t.Fatalf("détection : %v", err)
+	}
+	if !strings.Contains(report.Message, "aucun protocole n'est embarqué dans ce binaire") {
+		t.Fatalf("un binaire sans protocole doit le dire : %q", report.Message)
+	}
+}
+
+// undetectableDriver is a protocol that declares it cannot be recognised by listening —
+// EndpointNone — which is the zero value and therefore what a driver says by saying
+// nothing.
+//
+// Its decoder is a stub and NOT the accumulator of the GRAM: this bench exists to prove
+// that the detection speaks to whatever grammar a driver hands over, and reaching for the
+// one grammar of the parc here would prove the opposite.
+func undetectableDriver() scale.Driver {
+	return scale.Driver{
+		Descriptor: domain.ScaleDescriptor{
+			ID: "silent-protocol", Label: "Balance muette", NominalRate: time.Second,
+		},
+		NewDecoder: func() domain.Decoder { return stubDecoder{} },
+		New: func(domain.DriverOptions, ports.Clock, ports.TechnicalLog) (ports.Scale, error) {
+			return nil, errors.New("ce driver n'est là que pour déclarer qu'il ne se détecte pas")
+		},
+	}
+}
+
+// stubDecoder is a grammar that recognises nothing at all.
+type stubDecoder struct{}
+
+func (stubDecoder) Feed([]byte, time.Time) []domain.Measurement { return nil }
+func (stubDecoder) Reset()                                      {}
+func (stubDecoder) FrameEnd([]byte) int                         { return -1 }
+func (stubDecoder) Resyncs() int                                { return 0 }
 
 // benchRegistries is what this binary really carries, which is what the detection names.
 func benchRegistries() domain.Registries {
 	return domain.Registries{Scales: scaleRegistry().Descriptors()}
+}
+
+// registeredIDs is the set of protocols this binary carries, for an assertion that must
+// not depend on the order the composition root registers them in.
+func registeredIDs() []string {
+	descriptors := scaleRegistry().Descriptors()
+	ids := make([]string, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		ids = append(ids, descriptor.ID)
+	}
+	return ids
+}
+
+// registered reports whether id is one of them.
+func registered(id string) bool {
+	for _, known := range registeredIDs() {
+		if known == id {
+			return true
+		}
+	}
+	return false
 }
 
 // errAccessDenied is what Windows answers on a port another process holds.

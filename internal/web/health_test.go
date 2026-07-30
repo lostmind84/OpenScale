@@ -152,6 +152,61 @@ func TestTheDashboardStillDrawsWithoutADatabase(t *testing.T) {
 	}
 }
 
+// TestTheDashboardCarriesTheSelfTestsTheDriverInServiceHonours.
+//
+// The Matériel page draws its three self-test buttons from this list and from nothing
+// else. It used to hold them itself, so a station running `preview` — the driver a
+// factory configuration falls back on (§11.3) — offered « Mire d'alignement » and
+// « Réglette millimétrée » to a volunteer, and both answered a refusal on the click. A
+// button whose only possible answer is a refusal is not a choice (ADR-025).
+//
+// The declaration comes from the registry entry of the driver printer.type names, which
+// is why this bench declares two drivers and the shipped configuration picks one.
+func TestTheDashboardCarriesTheSelfTestsTheDriverInServiceHonours(t *testing.T) {
+	binary := []domain.DriverDescriptor{
+		{ID: domain.PrinterRaster, Label: "Rendu image",
+			SelfTests: []string{"label", "alignment", "ruler"}},
+		{ID: domain.PrinterPreview, Label: "Aperçu", SelfTests: []string{"label"}},
+	}
+	for _, c := range []struct {
+		driver string
+		want   []string
+	}{
+		{domain.PrinterRaster, []string{"label", "alignment", "ruler"}},
+		{domain.PrinterPreview, []string{"label"}},
+	} {
+		t.Run(c.driver, func(t *testing.T) {
+			b := newBench(t, func(o *benchOptions) {
+				o.printers = binary
+				o.config = func(cfg *domain.Config) { cfg.Printer.Type = c.driver }
+			})
+			got := decodeStatus[adminHealthDTO](t, b.get("/admin/api/health"), http.StatusOK)
+			if !reflect.DeepEqual(got.PrinterSelfTests, c.want) {
+				t.Fatalf("auto-tests annoncés = %v, attendu %v : l'écran Matériel n'affiche "+
+					"que ces boutons-là", got.PrinterSelfTests, c.want)
+			}
+		})
+	}
+}
+
+// TestAStationWithNoDriverRegistryAnnouncesNoSelfTest is the other end, and it is the
+// state of a binary nobody wired a printer registry into — `openscale config validate` on
+// a laptop, this bench.
+//
+// An EMPTY list and never `null`: the TypeScript contract declares an array and the page
+// filters it the instant it has read it (see TestNoListEverComesBackAsNull).
+func TestAStationWithNoDriverRegistryAnnouncesNoSelfTest(t *testing.T) {
+	b := newBench(t)
+	got := decodeStatus[adminHealthDTO](t, b.get("/admin/api/health"), http.StatusOK)
+	if got.PrinterSelfTests == nil {
+		t.Fatal("auto-tests annoncés = null : toute liste de §14.5 s'écrit []")
+	}
+	if len(got.PrinterSelfTests) != 0 {
+		t.Fatalf("auto-tests annoncés = %v alors qu'aucun driver n'est déclaré dans ce binaire",
+			got.PrinterSelfTests)
+	}
+}
+
 // stubDashboard is the four facts of §14.4 a station gets from its composition root.
 type stubDashboard struct{ facts DashboardFacts }
 

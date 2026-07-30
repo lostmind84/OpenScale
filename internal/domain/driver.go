@@ -31,6 +31,30 @@ type Decoder interface {
 	// Reset drops the pending bytes. Called when the port is reopened, so that half a
 	// frame from before a reconnection cannot be completed by bytes from after it.
 	Reset()
+	// FrameEnd reports how many bytes at the head of p make up the first COMPLETE
+	// frame, or -1 while that frame is still arriving.
+	//
+	// It is on the DECODER and not in a helper of some capture command, and that is
+	// the whole point. `openscale capture` writes the living corpus one frame per
+	// line and must cut the stream at exactly the places the decoder does; the
+	// « 20 dernières trames brutes » viewer of §14.4 shows the same cut. A command
+	// that decided for itself split on CR and LF, which a GRAM XFOC PLUS never
+	// sends, and the first bench capture came back with a summary of 194 decoded
+	// frames and a file holding none. ONE PLACE DECIDES WHAT A FRAME IS, and it is
+	// the protocol.
+	//
+	// A protocol whose frames carry no delimiter at all — fixed length, or a length
+	// byte — answers here too; a caller searching for a terminator could not.
+	FrameEnd(p []byte) int
+	// Resyncs reports how many times this decoder gave up on what it was holding and
+	// skipped ahead.
+	//
+	// It is part of the contract rather than a field of one implementation because it is
+	// the figure the living corpus and `openscale capture` print, and the sentence they
+	// print it in is a diagnosis: ONE resynchronisation is normal, a CADENCE of them is a
+	// cabling problem and not a parser problem (§15.4). A decoder that never gives up on
+	// a buffer answers zero, and answering zero is a statement.
+	Resyncs() int
 }
 
 // Capabilities describes what a scale driver honestly supports.
@@ -79,7 +103,8 @@ type PrinterDescriptor struct {
 	Capabilities PrinterCapabilities
 }
 
-// PrinterCapabilities describes what a printer driver supports.
+// PrinterCapabilities describes what a printer driver supports, and the geometry of
+// the head it drives.
 type PrinterCapabilities struct {
 	Raster    bool
 	Status    bool
@@ -88,6 +113,25 @@ type PrinterCapabilities struct {
 	// DotsPerMM is 8 on a WS408, 12 on a WS412. It is compared against
 	// template.media.dots_per_mm, which remains the SINGLE SOURCE of resolution.
 	DotsPerMM float64
+	// InkedWidthDots and InkedHeightDots are the area this head puts ink on, in dots
+	// at its own DotsPerMM. They are what hard rules 3 and 4 measure a template
+	// against (§7.5).
+	//
+	// # THE BENCH MEASURED A PRINTER, NOT A LAW
+	//
+	// 280 x 200 dots comes from the bench of 28/07/2026 and remains exactly as true as
+	// it was: the driver of the parc holds 35 x 25 mm of printable area and the stock
+	// is 25 mm tall. What has moved is WHO SAYS IT. It is true OF THE WS408, and the
+	// WS408 declares it here -- the core held it as a constant, and therefore failed the
+	// validation of any station whose head is not 8 dots/mm, at START-UP, on a template
+	// nobody could make it accept.
+	//
+	// Zero is the honest answer of a driver that inks no paper at all: it declares no
+	// geometry, and the rules then fall back on the reference head of the parc
+	// (ReferenceHead) rather than being suspended. A preview that accepted everything
+	// would let a volunteer settle on a +-1 dot offset the production driver refuses,
+	// and the preview screen is exactly where that adjustment is made.
+	InkedWidthDots, InkedHeightDots int
 }
 
 // ScaleStatus is what a driver says about its link.

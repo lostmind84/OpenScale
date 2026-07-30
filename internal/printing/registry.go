@@ -38,12 +38,22 @@ type DriverConfig struct {
 	// is: it writes files and opens nothing. The composition root builds a transport only
 	// for the drivers whose own schema asks for one.
 	Transport ports.Transport
-	// OutputDir is where a driver that PRODUCES FILES writes them, and it is empty for a
-	// driver that hands its bytes to a device.
+	// OutputDir is where a driver that PRODUCES FILES writes them.
 	//
 	// It comes from the composition root for the same reason the transport does: a driver
 	// never picks a path of its own, because the data directory is a fact about the
 	// station and not about the driver.
+	//
+	// IT IS ALWAYS FILLED, and that is the difference with Transport — which is built only
+	// for a driver whose own schema names the `transport` key. The root has no schema to
+	// consult here: a directory costs nothing to hand over and opens nothing, where a
+	// transport opens a device that would then have to be closed. A driver that produces no
+	// file simply ignores it.
+	//
+	// This comment said the opposite until an agent writing a driver from the guide went
+	// looking for the condition and found none (cmd/openscale/serve.go). The field a
+	// file-producing driver depends on is exactly the one whose contract must not be
+	// guessed.
 	OutputDir string
 	// Template is the label layout in service (printer.template).
 	Template domain.Template
@@ -74,8 +84,42 @@ type Driver struct {
 	// one Config.Validate checks printer.options against (control 7). A driver with no
 	// option at all leaves it nil.
 	Options []domain.OptionSchema
+	// SelfTests are the patterns of §8.6 this driver HONOURS — the ones that really
+	// produce something when a volunteer presses their button.
+	//
+	// DECLARED HERE, AND NOT REFUSED AT PRINT TIME. That is ADR-025 applied to a screen:
+	// a control exists only where a legitimate choice exists, and a button whose only
+	// possible answer is a refusal is not a choice. `preview` used to answer a
+	// well-written French sentence to `alignment` and `ruler` while the Matériel page went
+	// on offering all three buttons — two of which failed on the click, in front of
+	// somebody who was already looking for why nothing comes out. A declaration is what
+	// lets the screen not draw them at all.
+	//
+	// What travels here is WHICH ONES, never the list itself: the three names are the
+	// vocabulary of a screen and stay in SelfTests(). Register refuses a fourth.
+	//
+	// AN EMPTY LIST IS AN ASSERTION and not an omission — « this driver prints no
+	// self-test at all » — and it is a legitimate thing for a driver to say. What no
+	// driver may do is stay silent about a pattern it does not produce, because silence
+	// is what put the two failing buttons on the screen.
+	SelfTests []SelfTest
 	// New builds an instance of this driver.
 	New Factory
+}
+
+// selfTestNames reports the declaration as the descriptor and the screen carry it.
+//
+// A COPY, and plain strings: the value crosses into internal/domain, where the catalogue
+// of §8.6 has no business being spelled a second time.
+func (d Driver) selfTestNames() []string {
+	if len(d.SelfTests) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(d.SelfTests))
+	for _, what := range d.SelfTests {
+		out = append(out, string(what))
+	}
+	return out
 }
 
 // Registry is the set of printer drivers this binary was built with.
@@ -113,6 +157,19 @@ func (r *Registry) Register(d Driver) {
 	if _, exists := r.lookup(d.Descriptor.ID); exists {
 		panic("printing: driver " + d.Descriptor.ID + " is registered twice")
 	}
+	seen := map[SelfTest]bool{}
+	for _, what := range d.SelfTests {
+		switch {
+		case !SelfTestExists(what):
+			panic("printing: driver " + d.Descriptor.ID + " declares the self-test " +
+				string(what) + ", which the catalogue of §8.6 does not carry; a name no screen " +
+				"has a button for is a self-test nobody can launch")
+		case seen[what]:
+			panic("printing: driver " + d.Descriptor.ID + " declares the self-test " +
+				string(what) + " twice")
+		}
+		seen[what] = true
+	}
 	r.drivers = append(r.drivers, d)
 }
 
@@ -133,6 +190,16 @@ func (r *Registry) Descriptors() []domain.DriverDescriptor {
 			ID:      driver.Descriptor.ID,
 			Label:   driver.Descriptor.Label,
 			Options: append([]domain.OptionSchema(nil), driver.Options...),
+			// The declaration of §8.6 travels with the descriptor for the reason the head
+			// geometry does: the administration screen reads THIS, and a screen that had to
+			// hold the list itself would offer a volunteer buttons the driver in service
+			// answers with a refusal (ADR-025).
+			SelfTests: driver.selfTestNames(),
+			// The head geometry travels with the descriptor because controls 29 and 38
+			// measure a template against it. Dropped here, the core had to hold the
+			// figures of the WS408 as constants of its own, and every station with
+			// another head failed its validation at start-up.
+			Capabilities: driver.Descriptor.Capabilities,
 		})
 	}
 	return out

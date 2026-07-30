@@ -47,18 +47,153 @@ func TestNeutralTemplateInkedExtentHasMargin(t *testing.T) {
 
 	bottomDots, rightDots := bottom/1000, right/1000
 	t.Logf("contenu encré : %d dots de haut, %d dots de large (limites %d et %d)",
-		bottomDots, rightDots, InkedHeightDots, InkedWidthDots)
+		bottomDots, rightDots, ReferenceInkedHeightDots, ReferenceInkedWidthDots)
 
-	if bottomDots > InkedHeightDots {
-		t.Errorf("hauteur encrée %d > %d", bottomDots, InkedHeightDots)
+	if bottomDots > ReferenceInkedHeightDots {
+		t.Errorf("hauteur encrée %d > %d", bottomDots, ReferenceInkedHeightDots)
 	}
-	if rightDots > InkedWidthDots {
-		t.Errorf("largeur encrée %d > %d", rightDots, InkedWidthDots)
+	if rightDots > ReferenceInkedWidthDots {
+		t.Errorf("largeur encrée %d > %d", rightDots, ReferenceInkedWidthDots)
 	}
 	// The bottom is dominated by the symbol block, as on the production label.
 	symbolBottom := template.Media.MilliDots(template.Symbol.YUM + template.Symbol.HeightUM())
 	if bottom != symbolBottom {
 		t.Errorf("le bas encré (%d) devrait être celui du symbole (%d)", bottom, symbolBottom)
+	}
+}
+
+// --- The head declares the geometry, the core reads it ---------------------------
+
+// ws412Head is a print head this parc does not own: 12 dots/mm, and the SAME label —
+// 35 × 25 mm — which at that pitch is 420 × 300 dots of ink.
+func ws412Head() PrinterCapabilities {
+	return PrinterCapabilities{Raster: true, DotsPerMM: 12, InkedWidthDots: 420, InkedHeightDots: 300}
+}
+
+// twelveDotTemplate is the shipped layout MEASURED for a 12 dots/mm head.
+//
+// Every length of a template is in micrometres and therefore untouched; the module
+// alone is expressed in units of resolution, so 0.293 mm reads 2 344 milli-dots at
+// 8 dots/mm and 3 516 at 12. That single figure is the whole reason a template has to
+// say which head it was measured for (A2).
+func twelveDotTemplate() Template {
+	template := NeutralSingleTemplate()
+	template.Name = "weighing_neutral_single_412"
+	template.Media.DotsPerMM = 12
+	template.Symbol.ModuleMilliDots = 3_516
+	return template
+}
+
+// TestRulesThreeAndFourBearOnTheHeadAndNotOnAConstant: a station whose printer is not
+// the WS408 of the parc used to fail its own validation AT START-UP, on a template
+// nobody could make it accept — the two figures rules 3 and 4 compare to were held by
+// the core.
+func TestRulesThreeAndFourBearOnTheHeadAndNotOnAConstant(t *testing.T) {
+	template := twelveDotTemplate()
+	if faults := template.ValidateOn(ws412Head(), 2); len(faults) != 0 {
+		t.Fatalf("un gabarit à 12 dots/mm sur une tête à 12 dots/mm est refusé :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+	// The same layout is 419,736 dots wide at that pitch, so a head that inks 280 dots
+	// refuses it — which is the proof that the DECLARATION is what is read.
+	if faults := template.ValidateOn(ReferenceHead(), 2); len(faults) == 0 {
+		t.Fatal("un gabarit à 12 dots/mm passe sur une WS408")
+	}
+}
+
+// TestRuleThreeMeasuresTheInkAgainstTheDeclaredHead: a head that inks a smaller area
+// refuses a template the WS408 accepts, and it does so without a line of the core
+// naming a number of dots.
+func TestRuleThreeMeasuresTheInkAgainstTheDeclaredHead(t *testing.T) {
+	narrow := PrinterCapabilities{DotsPerMM: 8, InkedWidthDots: 200, InkedHeightDots: 200}
+	template := NeutralSingleTemplate()
+
+	if faults := template.Validate(2); len(faults) != 0 {
+		t.Fatalf("le gabarit livré doit passer sur la tête du parc : %v", faults)
+	}
+	faults := template.ValidateOn(narrow, 2)
+	if !hasFault(faults, "inked_content") && !hasFault(faults, "symbol.module_milli_dots") {
+		t.Fatalf("une tête plus étroite accepte le gabarit : %v", faultFields(faults))
+	}
+	for _, fault := range faults {
+		if strings.Contains(fault.Message, "200 dots") {
+			return
+		}
+	}
+	t.Errorf("aucun message ne nomme la largeur encrée déclarée par la tête :\n%s",
+		strings.Join(fieldsOf(faults), "\n"))
+}
+
+// TestATemplateAndAHeadOfDifferentPitchesAreRefusedByName.
+//
+// A template that does not say which head it was measured for changes magnification in
+// SILENCE: the module is the one length expressed in dots, so the same 2 344 milli-dots
+// print 0.293 mm on a WS408 and 0.195 mm on a WS412 — under every GS1 floor, and no
+// byte of the frame says so. The refusal names both figures, because a volunteer has to
+// know which of the two to change.
+func TestATemplateAndAHeadOfDifferentPitchesAreRefusedByName(t *testing.T) {
+	template := twelveDotTemplate()
+	faults := template.ValidateOn(ReferenceHead(), 2)
+
+	fault := findFault(faults, "media.dots_per_mm")
+	if fault == nil {
+		t.Fatalf("l'attelage gabarit/tête n'est pas refusé : %v", faultFields(faults))
+	}
+	for _, figure := range []string{"12 dots/mm", "8 dots/mm"} {
+		if !strings.Contains(fault.Message, figure) {
+			t.Errorf("le message ne nomme pas %s : %q", figure, fault.Message)
+		}
+	}
+	// And it stands INSTEAD of the geometric cascade it would cause: rules 3 and 4
+	// compare dots counted at two different pitches, so their verdict would be noise.
+	if hasFault(faults, "inked_content") {
+		t.Errorf("les conséquences sont énumérées avec la cause :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
+// TestAHeadThatDeclaresNothingIsMeasuredAgainstTheParc: `preview` inks no paper, so it
+// declares no geometry. The rules must not be suspended for it — the preview screen is
+// where a volunteer sets the ±1 dot offsets, and one that accepted everything would let
+// them settle on an adjustment the production driver refuses.
+func TestAHeadThatDeclaresNothingIsMeasuredAgainstTheParc(t *testing.T) {
+	inksNothing := PrinterCapabilities{Raster: true}
+	template := NeutralSingleTemplate()
+	template.Symbol.YUM = 20_000 // squarely past the bottom of the label
+
+	silent := template.ValidateOn(inksNothing, 2)
+	parc := template.ValidateOn(ReferenceHead(), 2)
+	if len(silent) != len(parc) || len(silent) == 0 {
+		t.Fatalf("un driver qui n'imprime rien ne valide pas comme la tête du parc :\n%s\n--- contre ---\n%s",
+			strings.Join(fieldsOf(silent), "\n"), strings.Join(fieldsOf(parc), "\n"))
+	}
+	for i := range silent {
+		if silent[i].String() != parc[i].String() {
+			t.Errorf("faute %d : %s\nattendu : %s", i, silent[i], parc[i])
+		}
+	}
+}
+
+// TestMaxOffsetDotsAnswersForTheHeadInService: the ±1 dot arrows are bounded by the
+// geometry, and on a taller head there is more room. A margin computed against a
+// constant would refuse an adjustment the printer would have accepted.
+func TestMaxOffsetDotsAnswersForTheHeadInService(t *testing.T) {
+	finer := twelveDotTemplate()
+	_, tallMargin := finer.MaxOffsetDotsOn(ws412Head(), 2)
+
+	shipped := NeutralSingleTemplate()
+	_, parcMargin := shipped.MaxOffsetDots(2)
+	if tallMargin <= parcMargin {
+		t.Errorf("marge verticale : %d dots sur la WS412 contre %d sur la WS408 — "+
+			"la même étiquette à un pas plus fin laisse plus de dots", tallMargin, parcMargin)
+	}
+
+	// A head that declares nothing answers exactly what the no-argument form answers.
+	fallbackX, fallbackY := shipped.MaxOffsetDotsOn(PrinterCapabilities{}, 2)
+	referenceX, referenceY := shipped.MaxOffsetDots(2)
+	if fallbackX != referenceX || fallbackY != referenceY {
+		t.Errorf("marge sans tête = (%d, %d), avec la tête de référence = (%d, %d)",
+			fallbackX, fallbackY, referenceX, referenceY)
 	}
 }
 
@@ -467,13 +602,13 @@ func TestMeasuredProductionGeometry(t *testing.T) {
 	if inked != 194 {
 		t.Errorf("contenu encré mesuré = %d dots, want 194", inked)
 	}
-	if inked > InkedHeightDots {
+	if inked > ReferenceInkedHeightDots {
 		t.Errorf("le contenu encré mesuré (%d dots) dépasse la hauteur encrée de l'étiquette (%d)",
-			inked, InkedHeightDots)
+			inked, ReferenceInkedHeightDots)
 	}
 	t.Logf("géométrie de production mesurée : symbole de %d à %d µm, contenu encré %d dots, "+
 		"marge %d dots sous les %d dots de l'étiquette",
-		measuredBarTopUM, measuredHRIBottom, inked, InkedHeightDots-int(inked), InkedHeightDots)
+		measuredBarTopUM, measuredHRIBottom, inked, ReferenceInkedHeightDots-int(inked), ReferenceInkedHeightDots)
 }
 
 // TestFaultStringNamesItsField: a fault reaches a volunteer through the admin
@@ -604,7 +739,7 @@ func TestIdenticalTemplateHasUniformBars(t *testing.T) {
 
 	bottom, right := template.inkedExtent(2)
 	t.Logf("contenu encré : %d,%03d dots de haut, %d,%03d de large (limites %d et %d)",
-		bottom/1000, bottom%1000, right/1000, right%1000, InkedHeightDots, InkedWidthDots)
+		bottom/1000, bottom%1000, right/1000, right%1000, ReferenceInkedHeightDots, ReferenceInkedWidthDots)
 	t.Logf("barres uniformes : %d µm contre %d µm propres aujourd'hui (+%.0f %%)",
 		template.Symbol.BarHeightUM, cleanBarsToday,
 		100*float64(int(template.Symbol.BarHeightUM)-cleanBarsToday)/cleanBarsToday)

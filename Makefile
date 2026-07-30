@@ -26,12 +26,12 @@ LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.dat
 
 TARGETS := windows/amd64 linux/amd64 linux/arm64
 
-.PHONY: all test vet boundary deps build dist release front front-check clean cover help
+.PHONY: all test vet boundary deps driver build dist release front front-check clean cover help
 
 all: test build
 
 help:
-	@echo "Cibles : test · vet · boundary · deps · build · dist · release · cover · front · front-check · clean"
+	@echo "Cibles : test · driver · vet · boundary · deps · build · dist · release · cover · front · front-check · clean"
 
 # front construit l'écran client vers internal/web/dist, qui est COMMITÉ : `go
 # build` doit fonctionner sur une machine sans Node (§14.1).
@@ -59,6 +59,26 @@ boundary:
 # comparé aux deux tables de l'inventaire, dans les deux sens (§17.1, ADR-039).
 deps:
 	go run ./tools/deps
+
+# driver est la commande à lancer avant de dire qu'un driver est terminé, et elle ne
+# demande NI MATÉRIEL NI RÉSEAU (docs/07-ajouter-un-materiel.md §8).
+#
+# Elle couvre les trois endroits où un driver incomplet se voit, et pas un de plus :
+#
+#   internal/scale/…      les bancs de conformité des balances, et le corpus vivant
+#   internal/printing/…   ceux des imprimantes et des transports
+#   cmd/openscale         les tests de REGISTRE — ce qu'un driver DÉCLARE, que nul banc
+#                         ne voit : un libellé vide, un schéma d'options absent, un point
+#                         d'accès qui promet une détection que rien ne peut faire
+#   boundary              la coupe 2 : un seul fichier de l'arbre nomme un driver concret
+#
+# CE QU'ELLE NE COUVRE PAS, et il faut le savoir : la passe `-race`, l'écran client, et
+# `make deps` — une dépendance nouvelle impose quatre écritures (ADR-039). C'est
+# `make test` qui les couvre, et c'est lui que la CI exécute.
+driver: vet
+	CGO_ENABLED=0 go test ./internal/scale/... ./internal/printing/... ./cmd/openscale -count=1
+	$(MAKE) boundary
+	@echo "driver : conformite, registre et coupe 2 au vert — reste « make test » avant de livrer"
 
 test: vet
 	CGO_ENABLED=1 go test ./... -race -count=1

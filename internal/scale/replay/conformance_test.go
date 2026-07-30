@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"openscale/internal/domain/frame"
 	"openscale/internal/fake"
 	"openscale/internal/scale/conformance"
 	"openscale/internal/station/ports"
@@ -65,6 +66,7 @@ func (b *conformanceBench) newDriver(t *testing.T, clk ports.Clock) ports.Scale 
 		Name:    "nominal-gram-xfoc.txt",
 		Frames:  b.capture,
 		Cadence: 400 * time.Millisecond,
+		Decoder: &frame.Accumulator{},
 		Clock:   clk,
 	}, nil)
 
@@ -82,7 +84,9 @@ func (b *conformanceBench) newDriver(t *testing.T, clk ports.Clock) ports.Scale 
 // anyway (§11.4, failure test 1 ter b).
 func (b *conformanceBench) newUnstartableDriver(t *testing.T, clk ports.Clock) ports.Scale {
 	t.Helper()
-	return New(Source{Name: "journal", Clock: clk}, nil)
+	// The decoder is supplied so that the refusal comes from the EMPTY CAPTURE and not
+	// from a missing decoder: this bench asserts one clause at a time.
+	return New(Source{Name: "journal", Decoder: &frame.Accumulator{}, Clock: clk}, nil)
 }
 
 // feed lets the script run.

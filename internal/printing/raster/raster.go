@@ -26,9 +26,10 @@
 // The `sbpl` driver of §8.1 shares this entire sequence and changes only the last
 // link — a direct write to the device instead of the print queue of the system. The
 // two therefore emit THE SAME BYTES for the same label, and they do so because they
-// call THE SAME ENCODER: internal/printing/sbpl owns the encapsulation, this package
-// owns the output path, and frame.go is the whole of the border between them (§5.1,
-// §8.1).
+// call THE SAME ENCODER: internal/printing/sbpl owns THE PROTOCOL — the encapsulation
+// of a job and the reading of a status frame — while this package owns the output path,
+// the settings, the self-tests and the lifecycle (§5.1, §8.1). frame.go and the call to
+// sbpl.FaultOfStatusFrame are the whole of the border between them.
 //
 // # The three adjustments, and where they live
 //
@@ -52,6 +53,7 @@ import (
 
 	"openscale/internal/domain"
 	"openscale/internal/printing"
+	"openscale/internal/printing/sbpl"
 	"openscale/internal/station/ports"
 )
 
@@ -63,30 +65,24 @@ const ID = "raster"
 // everything a volunteer reads (§8.2).
 const Label = "Imprimante d'étiquettes (rendu image)"
 
-// The three self-tests of §8.6, spelled as the troubleshooting route sends them.
-const (
-	// SelfTestLabel prints a complete demonstration label. It is the button
-	// « Imprimer une étiquette de test », and the gesture that goes with it is to lay
-	// the result over a current label on a light table.
-	SelfTestLabel = "label"
-	// SelfTestAlignment prints a filled square and a cross in each corner of the
-	// printable area. It lifts the polarity of <G> (invert_bits), the registration of
-	// the media and the area the head really reaches.
-	SelfTestAlignment = "alignment"
-	// SelfTestRuler prints a millimetre scale on two edges plus the frame of the
-	// printable area. It lifts the real pitch of the head against the declared media.
-	SelfTestRuler = "ruler"
-)
+// The three self-tests of §8.6 are NOT re-spelled here.
+//
+// They were, in three constants of this package, and that was the THIRD spelling of the
+// same three words: the catalogue of internal/printing carries the names, the wording of
+// each button, the screen each one belongs to and the sentence saying what the print
+// settles, and `preview` had already dropped its own copy. A driver says WHICH of the
+// three it honours — see Driver — and spells none of them.
+//
+// Three copies is how a fourth diverges: one of them is renamed, the other two keep
+// answering the old word, and the button on the screen stops reaching the driver.
 
 // statusBudget is how long a status probe waits for the printer to say something
 // (§8.5, level N3). It bounds a transport that answers, never a weighing.
+//
+// It stays HERE, next to the driver that spends it, where the ENQ byte and the reading
+// of the answer have gone to internal/printing/sbpl: how long a station is willing to
+// wait is a policy of the station, and the SATO reference states no such delay.
 const statusBudget = 500 * time.Millisecond
-
-// enquiry is the SBPL status request: ENQ, one byte (§8.5). ANY non-empty answer
-// means the printer is alive; the fine decoding of the frame is deliberately off
-// until one has been captured on the bench, and the raw bytes travel back in
-// PrinterStatus.Raw so that decoding can be completed without going to the shop.
-var enquiry = []byte{0x05}
 
 // Options is everything the driver needs, and nothing it could invent.
 type Options struct {
@@ -251,6 +247,15 @@ func (p *Printer) Descriptor() domain.PrinterDescriptor {
 // they consume: two retries at 300 ms then 1 s, inside the 8 s of the injected clock
 // (§8.2). A driver that retried on its own would multiply the two.
 func (p *Printer) Print(ctx context.Context, job ports.PrintJob) (ports.PrintReceipt, error) {
+	// Closure is checked BEFORE composing, and send checks it again. Composing first
+	// draws through a font library Close has already shut, so the render fails and the
+	// job comes back as KindTemplate — naming printer.template for a template that has
+	// nothing wrong, and carrying an English developer sentence into a French one the
+	// volunteer reads. The check in send stays: it is what covers a Close landing
+	// between here and the write.
+	if err := p.refuseWhenClosed("raster.Print"); err != nil {
+		return ports.PrintReceipt{}, err
+	}
 	img, copies, err := p.compose(job)
 	if err != nil {
 		return ports.PrintReceipt{}, err
@@ -311,6 +316,20 @@ func (p *Printer) copiesFor(job ports.PrintJob) (int, error) {
 }
 
 // send hands one finished frame to the transport and times it on the injected clock.
+// refuseWhenClosed reports the refusal a closed printer owes its caller, or nil.
+//
+// It exists so that Print can answer that refusal before it draws anything, while send
+// keeps answering it under the lock it already holds.
+func (p *Printer) refuseWhenClosed(op string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return &ports.PrintError{Kind: ports.KindInternal, Op: op,
+			Message: "l'imprimante a été fermée : ce poste ne peut plus imprimer sans redémarrer"}
+	}
+	return nil
+}
+
 func (p *Printer) send(ctx context.Context, op, jobID string, frame []byte) (ports.PrintReceipt, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -354,7 +373,7 @@ func (p *Printer) Status(ctx context.Context) ports.PrinterStatus {
 			Detail: "l'imprimante a été fermée par le poste."}
 	}
 
-	answer, err := p.transport.Query(ctx, enquiry, statusBudget)
+	answer, err := p.transport.Query(ctx, sbpl.Enquiry(), statusBudget)
 	switch {
 	case errors.Is(err, ports.ErrUnsupported):
 		return ports.PrinterStatus{Health: ports.PrinterUnknown,
@@ -369,15 +388,15 @@ func (p *Printer) Status(ctx context.Context) ports.PrinterStatus {
 				p.transport.Describe(), statusBudget)}
 	}
 	// The frame IS decoded now — the L0 bench captured it — but only far enough to name
-	// a FAULT. Read faultOfStatusFrame for why readiness is still never claimed.
-	if fault, named := faultOfStatusFrame(answer); named {
-		return ports.PrinterStatus{Health: fault.health, Raw: answer,
-			Detail: fmt.Sprintf("%s (%s).", fault.reason, p.transport.Describe())}
+	// a FAULT. Read sbpl.FaultOfStatusFrame for why readiness is still never claimed.
+	if fault, named := sbpl.FaultOfStatusFrame(answer); named {
+		return ports.PrinterStatus{Health: fault.Health, Raw: answer,
+			Detail: fmt.Sprintf("%s (%s).", fault.Reason, p.transport.Describe())}
 	}
 
 	// Any non-empty answer means the printer is ALIVE (§8.5) — and alive is not ready.
 	// PrinterReady means « answered and has NOTHING TO REPORT » (ports), and this
-	// printer does not answer that question when it is idle: see faultOfStatusFrame.
+	// printer does not answer that question when it is idle: see sbpl.FaultOfStatusFrame.
 	// Claiming ready here would be a green light on /readyz over an empty roll (§14.5).
 	//
 	// The detail names the TRANSPORT and stops there. What the answer means is the
@@ -387,69 +406,6 @@ func (p *Printer) Status(ctx context.Context) ports.PrinterStatus {
 		Detail: p.transport.Describe()}
 }
 
-// statusFrameLength is the eleven bytes of the answer to ENQ:
-//
-//	STX  <job id, 2 bytes>  <status, 1 byte>  <labels remaining, 6 digits>  ETX
-//
-// Measured on the WS408 of the L0 bench, and identical to what the SATO programming
-// reference describes: two SPACES for the job id when no <ID> was declared, and six
-// ZEROS when nothing is printing.
-const statusFrameLength = 11
-
-// statusFault is one row of the fault table: what to conclude, and what to say.
-type statusFault struct {
-	health ports.PrinterHealth
-	reason string
-}
-
-// statusFaults are the status bytes that name a fault, from the « Return Status of
-// Status3 » table of the SATO programming reference. Lower case is where the errors
-// live; digits and upper case are the online, waiting and printing states.
-//
-// PAPER END IS NOT A FAULT, and that is important-9 rather than an oversight: the last
-// label did come out, and turning the end of a roll into a red screen once sent a
-// customer away holding a valid label and a message telling them to fetch a volunteer —
-// so they stuck two on, or weighed again, and the till counted twice (§8.5).
-var statusFaults = map[byte]statusFault{
-	'0': {ports.PrinterFaulted, "l'imprimante est hors ligne"},
-	'a': {ports.PrinterFaulted, "la mémoire de réception de l'imprimante est saturée"},
-	'b': {ports.PrinterFaulted, "la tête de l'imprimante est ouverte"},
-	'c': {ports.PrinterConsumable, "plus d'étiquettes : le rouleau est à changer"},
-	'd': {ports.PrinterFaulted, "l'imprimante n'a plus de ruban"},
-	'e': {ports.PrinterFaulted, "l'imprimante refuse le média ou l'impression"},
-	'f': {ports.PrinterFaulted, "bourrage papier, ou le capteur ne trouve plus l'étiquette"},
-	'g': {ports.PrinterFaulted, "la tête de l'imprimante est en erreur"},
-	'h': {ports.PrinterFaulted, "le capot de l'imprimante est ouvert"},
-}
-
-// faultOfStatusFrame names the fault a status frame reports, if it reports one.
-//
-// # WHY THIS NAMES FAULTS AND NEVER READINESS
-//
-// The obvious other half — « the status byte says online, therefore the printer is
-// ready » — was tried at the bench on 29/07/2026 and MEASURED FALSE. With the print
-// head latched open and the printer showing its error lamp, three consecutive ENQ
-// requests came back with the very same byte as on a healthy idle printer: 'A'. The
-// reference explains it in passing — the status is described for a printer that is
-// PRINTING, « including QTY is not 0, offline and error » — and it forbids the other
-// route in as many words: « Please do not send ENQ while sending print data ».
-//
-// So an idle WS408 answers 'A' whatever its condition, and a health check built on
-// that byte would have reported READY over an open head. That is precisely the failure
-// this driver refuses (§14.5), and it would have been written in the belief that a
-// measurement backed it.
-//
-// A fault code, on the other hand, is information: nothing but a real condition puts
-// one there. Naming it costs nothing and turns « l'imprimante est vivante » into
-// « elle n'a plus de papier » on the troubleshooting screen.
-func faultOfStatusFrame(answer []byte) (fault statusFault, named bool) {
-	if len(answer) < statusFrameLength || answer[0] != 0x02 {
-		return statusFault{}, false
-	}
-	fault, named = statusFaults[answer[3]]
-	return fault, named
-}
-
 // SelfTest prints one built-in pattern (§8.6).
 //
 // `alignment` and `ruler` are drawn HERE, from the geometry of the template in
@@ -457,17 +413,17 @@ func faultOfStatusFrame(answer []byte) (fault statusFault, named bool) {
 // exist. `label` is a real label and therefore needs a real Label, which only the
 // station can build.
 func (p *Printer) SelfTest(ctx context.Context, what string) error {
-	switch what {
-	case SelfTestLabel:
+	switch printing.SelfTest(what) {
+	case printing.SelfTestLabel:
 		return p.printDemoLabel(ctx)
-	case SelfTestAlignment:
+	case printing.SelfTestAlignment:
 		return p.printPattern(ctx, "raster.SelfTest.alignment", alignmentPattern(p.template))
-	case SelfTestRuler:
+	case printing.SelfTestRuler:
 		return p.printPattern(ctx, "raster.SelfTest.ruler", rulerPattern(p.template))
 	}
 	return &ports.PrintError{Kind: ports.KindConfig, Op: "raster.SelfTest",
 		Message: fmt.Sprintf("auto-test inconnu %q : les auto-tests disponibles sont %s, %s et %s",
-			what, SelfTestLabel, SelfTestAlignment, SelfTestRuler)}
+			what, printing.SelfTestLabel, printing.SelfTestAlignment, printing.SelfTestRuler)}
 }
 
 // printDemoLabel prints the demonstration label of the `label` self-test.

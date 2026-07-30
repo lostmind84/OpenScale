@@ -515,6 +515,28 @@ describe('les actes protégés de l’imprimante', () => {
     await waitFor(() => !button('Auto-test : réglette').disabled)
   })
 
+  it('n’offre que les auto-tests que le driver en service honore', async () => {
+    // La page portait les trois quel que soit le driver. Sur un poste en `preview` — celui
+    // sur lequel une configuration d'usine se replie (§11.3) — « alignement » et
+    // « réglette » répondaient un refus APRÈS le clic, devant quelqu'un qui cherchait déjà
+    // pourquoi rien ne sort. Un bouton dont la seule réponse possible est un refus n'est
+    // pas un choix (ADR-025).
+    await open(nominalHealth({ printer_self_tests: ['label'] }))
+
+    expect(button('Auto-test : étiquette')).toBeDefined()
+    expect(() => button('Auto-test : alignement')).toThrow()
+    expect(() => button('Auto-test : réglette')).toThrow()
+    // Et le bouton absent se lit comme une déclaration, jamais comme une panne.
+    expect(text()).toContain('ne les imprime pas')
+  })
+
+  it('dit qu’un poste sans auto-test n’en a aucun, au lieu de se taire', async () => {
+    await open(nominalHealth({ printer_self_tests: [] }))
+
+    expect(() => button('Auto-test :')).toThrow()
+    expect(text()).toContain('n’imprime aucun auto-test')
+  })
+
   it('ne sert JAMAIS trente files d’impression en toutes lettres', async () => {
     // `Field` imprime `allowed` en entier — « Valeurs acceptées : … » — dès qu'un
     // contrôle de §11.3 refuse la clé, et un poste porte PDF, OneNote, télécopie…

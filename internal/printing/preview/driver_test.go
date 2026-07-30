@@ -6,6 +6,8 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,12 +17,17 @@ import (
 	"openscale/internal/station/ports"
 )
 
-// The tests of the `preview` DRIVER — the ports.Printer of §8.1, as opposed to the
-// encoders the rest of this package tests.
+// The tests of the `preview` DRIVER — the ports.Printer of §8.1.
 //
 // What they establish is the contract a station operates through: one job produces the two
 // files anybody can measure, the driver opens no device and claims no readiness for one,
 // and closing it releases nothing because it holds nothing.
+//
+// WHAT IS IN THE FILES is settled next door, by the tests of printing.EncodePNG and
+// printing.EncodePDF: they parse the PDF back, follow its cross-reference table and
+// inflate its bitmap. What is left to verify HERE is the one thing only the driver
+// decides — that the media it hands the encoder is the media of the job — which the page
+// size of the file reports in four numbers.
 
 // previewStart is the instant the fake clock is frozen at. Fixed, so that a file name is
 // the same from one run to the next.
@@ -81,14 +88,62 @@ func TestUnJobDApercuEcritUnPNGEtUnPDFDansLeRepertoireDonne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lecture du PDF : %v", err)
 	}
-	document := parsePDF(t, raw)
-	if !within(micrometres(document.pageWidth), float64(template.Media.WidthUM)) ||
-		!within(micrometres(document.pageHeight), float64(template.Media.HeightUM)) {
+	pageWidth, pageHeight := pageMicrometres(t, raw)
+	if !within(pageWidth, float64(template.Media.WidthUM)) ||
+		!within(pageHeight, float64(template.Media.HeightUM)) {
 		t.Fatalf("la page fait %.0f × %.0f µm, attendu le média de %d × %d µm",
-			micrometres(document.pageWidth), micrometres(document.pageHeight),
-			template.Media.WidthUM, template.Media.HeightUM)
+			pageWidth, pageHeight, template.Media.WidthUM, template.Media.HeightUM)
 	}
 }
+
+// mediaDots is the size in dots the media of a template amounts to.
+func mediaDots(m domain.Media) (width, height int) {
+	return int((m.MilliDots(m.WidthUM) + 500) / 1000), int((m.MilliDots(m.HeightUM) + 500) / 1000)
+}
+
+// mediaBox reads the page of a one-page PDF, which is the only field of the file this
+// package has an opinion about.
+var mediaBox = regexp.MustCompile(`/MediaBox \[0 0 ([0-9.]+) ([0-9.]+)\]`)
+
+// pageMicrometres reports the page of the written PDF in the unit a template speaks.
+//
+// It reads the file with a regular expression and NOT with the reader the encoder's own
+// tests use: what is being checked here is that the driver handed over the right media,
+// and a second copy of a PDF parser in this package would be a hundred lines maintained
+// for four numbers.
+func pageMicrometres(t *testing.T, raw []byte) (width, height float64) {
+	t.Helper()
+	found := mediaBox.FindSubmatch(raw)
+	if found == nil {
+		t.Fatalf("le PDF écrit ne déclare pas de /MediaBox : %s", head(raw))
+	}
+	return points(t, found[1]), points(t, found[2])
+}
+
+// points parses one length of the /MediaBox and converts it to micrometres.
+func points(t *testing.T, p []byte) float64 {
+	t.Helper()
+	value, err := strconv.ParseFloat(string(p), 64)
+	if err != nil {
+		t.Fatalf("longueur %q illisible dans le /MediaBox : %v", p, err)
+	}
+	return value * micrometresPerPoint
+}
+
+// micrometresPerPoint is the definition of the typographic point, spelled here for the
+// same reason printing spells it: 72 points to the inch, 25 400 µm to the inch.
+const micrometresPerPoint = 25_400.0 / 72.0
+
+// within compares two lengths in micrometres at the 0.1 mm a ruler reads (§18).
+func within(got, want float64) bool {
+	if got < want {
+		got, want = want, got
+	}
+	return got-want <= 100
+}
+
+// head is the beginning of a file, for a failure message that has to show something.
+func head(p []byte) []byte { return p[:min(len(p), 40)] }
 
 // TestUnApercuNeSignaleAucunePanneMaterielle.
 //

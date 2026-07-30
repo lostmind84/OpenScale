@@ -93,20 +93,75 @@ const (
 // The two bounds now coincide with the media on both axes, and that is the honest
 // reading rather than a lost distinction — ink may not exceed paper, and nothing else
 // was ever measured well enough to say otherwise.
+//
+// # WHOSE FIGURES THESE ARE
+//
+// The WS408's. A print head declares its own inked geometry (PrinterCapabilities), and
+// what rules 3 and 4 read is that declaration; these three constants are the REFERENCE
+// a caller with no head in hand falls back on — Validate, MaxOffsetDots, and any driver
+// that inks nothing. The parc is a WS408, so refusing to check a template for want of
+// a descriptor would refuse every template this binary ships.
 const (
-	InkedWidthDots  = 280
-	InkedHeightDots = 200
+	ReferenceInkedWidthDots  = 280
+	ReferenceInkedHeightDots = 200
+	// ReferenceDotsPerMM is the pitch the two figures above are counted at. It is what
+	// makes them comparable to a template at all.
+	ReferenceDotsPerMM = 8
 )
+
+// ReferenceHead is the print head of the parc: a SATO WS408, 8 dots/mm, 280 × 200 dots
+// of ink.
+//
+// It is what every rule bears on when no driver has said otherwise, and it is a
+// FALLBACK and not an authority: a station that declares its own head is measured
+// against that one.
+func ReferenceHead() PrinterCapabilities {
+	return PrinterCapabilities{
+		DotsPerMM:       ReferenceDotsPerMM,
+		InkedWidthDots:  ReferenceInkedWidthDots,
+		InkedHeightDots: ReferenceInkedHeightDots,
+	}
+}
+
+// orReference fills in every figure a head left unsaid with the one of the parc.
+//
+// Unsaid and not "unlimited": a driver that inks nothing constrains nothing of its own,
+// but the label it is previewing is still the label of the parc, and that is what the
+// volunteer is adjusting against.
+func (c PrinterCapabilities) orReference() PrinterCapabilities {
+	reference := ReferenceHead()
+	if c.DotsPerMM <= 0 {
+		c.DotsPerMM = reference.DotsPerMM
+	}
+	if c.InkedWidthDots <= 0 {
+		c.InkedWidthDots = reference.InkedWidthDots
+	}
+	if c.InkedHeightDots <= 0 {
+		c.InkedHeightDots = reference.InkedHeightDots
+	}
+	return c
+}
 
 // Media describes the label stock, for the life-size preview and for nothing else.
 //
-// No validation rule depends on its exact value (see InkedWidthDots): it aligns the
-// preview, it validates nothing.
+// No validation rule depends on its exact value (see ReferenceInkedWidthDots): it
+// aligns the preview, it validates nothing.
 type Media struct {
 	WidthUM  Micrometers `json:"width_um"`
 	HeightUM Micrometers `json:"height_um"`
 	// DotsPerMM is the SINGLE SOURCE of resolution in the whole application
 	// (mineur-3): barcode.resolution_dpi is gone. 8 on a WS408, 12 on a WS412.
+	//
+	// It is also, and this is what makes it load-bearing, THE HEAD THIS TEMPLATE WAS
+	// MEASURED FOR. Every other length of a layout is in micrometres and means the same
+	// thing on any printer; SymbolGeometry.ModuleMilliDots alone is expressed in units
+	// of RESOLUTION — deliberately, 0.293 mm being 2.344 dots, and that fractional
+	// module is the whole technical point of arbitration A2. The unit stays, so the
+	// AMBIGUITY has to go: a template that did not say which head it was measured for
+	// would change magnification in SILENCE, the same 2 344 milli-dots printing 0.195 mm
+	// on a 12 dots/mm head — under every GS1 floor, with no byte of the frame saying so.
+	// ValidateOn refuses that pairing by name rather than letting the label come out
+	// wrong.
 	DotsPerMM float64 `json:"dots_per_mm"`
 }
 
@@ -221,13 +276,29 @@ type Template struct {
 	TruncationAccepted bool `json:"truncation_accepted"`
 }
 
-// Validate reports every hard rule the template breaks; an empty slice means the
-// template may be loaded.
+// Validate reports every hard rule the template breaks ON THE HEAD OF THE FLEET; an
+// empty slice means the template may be loaded.
 //
 // tierCount decides which conditional elements are active, because rules 3, 5 and 8
 // are about what is actually INKED: a mono-tarif station must not be refused a
 // template because of a field that will never be drawn on it.
+//
+// A station validates against the head ITS OWN DRIVER declares (ValidateOn); this form
+// is for every caller that has no descriptor in hand, and it answers for the WS408.
 func (t *Template) Validate(tierCount int) []Fault {
+	return t.ValidateOn(ReferenceHead(), tierCount)
+}
+
+// ValidateOn reports every hard rule the template breaks ON THIS HEAD.
+//
+// Rules 3 and 4 are the two that need one: they bound the ink by what the head can
+// print, and holding that bound as a constant of the core made every station whose
+// printer is not the WS408 of the parc fail its own validation at start-up.
+//
+// A head that declares nothing is measured against ReferenceHead, so a caller with no
+// descriptor in hand — a test, a preview — validates exactly what it validated before.
+func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
+	head = head.orReference()
 	var faults []Fault
 	fail := func(field, format string, args ...any) {
 		faults = append(faults, Fault{Field: field, Message: fmt.Sprintf(format, args...)})
@@ -246,8 +317,25 @@ func (t *Template) Validate(tierCount int) []Fault {
 	// geometry and not merely by ±99.
 	shifted := t.withOffset()
 
-	inkedWidth := int64(InkedWidthDots) * 1000
-	inkedHeight := int64(InkedHeightDots) * 1000
+	// The template and the head must count dots at the SAME pitch, and this is where a
+	// template measured for another one is caught.
+	//
+	// Symbol.ModuleMilliDots is the ONE length of a template expressed in units of
+	// resolution, deliberately: 0.293 mm is 2.344 dots, and that fractional module is
+	// the whole technical point of arbitration A2. The unit stays, so the AMBIGUITY has
+	// to go — the same 2 344 milli-dots print 0.293 mm on a WS408 and 0.195 mm on a
+	// WS412, under every GS1 floor, and no byte of the frame says so. The label simply
+	// comes out wrong.
+	pitchAgrees := head.DotsPerMM == t.Media.DotsPerMM
+	if !pitchAgrees {
+		fail("media.dots_per_mm",
+			"le gabarit est mesuré pour une tête de %g dots/mm et la tête d'impression en fait "+
+				"%g dots/mm : à ce module le symbole sortirait à un autre grandissement",
+			t.Media.DotsPerMM, head.DotsPerMM)
+	}
+
+	inkedWidth := int64(head.InkedWidthDots) * 1000
+	inkedHeight := int64(head.InkedHeightDots) * 1000
 
 	// Rule 9, checked first: a template with an absurd module or an unreadable type
 	// size produces cascades of geometric faults, and naming the cause is kinder
@@ -328,22 +416,28 @@ func (t *Template) Validate(tierCount int) []Fault {
 		}
 	}
 
-	// Rule 3: THE INKED CONTENT FITS THE GEOMETRY OF THE EXISTING LABEL.
-	bottom, right := shifted.inkedExtent(tierCount)
-	if bottom > inkedHeight {
-		fail("inked_content", "le contenu encré descend à %s dots, au-delà des %d dots de hauteur encrée de l'étiquette de production",
-			formatMilliDots(bottom), InkedHeightDots)
-	}
-	if right > inkedWidth {
-		fail("inked_content", "le contenu encré s'étend à %s dots, au-delà des %d dots de largeur encrée de l'étiquette de production",
-			formatMilliDots(right), InkedWidthDots)
-	}
+	// Rules 3 and 4 compare dots to dots, so they only mean anything once the two
+	// pitches agree. Enumerating them on top of a mismatch would name ten consequences
+	// of a cause already named, which is the reasoning the zero resolution above
+	// follows.
+	if pitchAgrees {
+		// Rule 3: THE INKED CONTENT FITS THE GEOMETRY OF THE EXISTING LABEL.
+		bottom, right := shifted.inkedExtent(tierCount)
+		if bottom > inkedHeight {
+			fail("inked_content", "le contenu encré descend à %s dots, au-delà des %d dots de hauteur encrée de l'étiquette",
+				formatMilliDots(bottom), head.InkedHeightDots)
+		}
+		if right > inkedWidth {
+			fail("inked_content", "le contenu encré s'étend à %s dots, au-delà des %d dots de largeur encrée de l'étiquette",
+				formatMilliDots(right), head.InkedWidthDots)
+		}
 
-	// Rule 4: the over-all width of the symbol, quiet zones included.
-	if width := shifted.Symbol.TotalWidthMilliDots(); width > inkedWidth {
-		fail("symbol.module_milli_dots",
-			"le hors-tout du symbole (113 modules = %s dots) dépasse les %d dots de largeur encrée",
-			formatMilliDots(width), InkedWidthDots)
+		// Rule 4: the over-all width of the symbol, quiet zones included.
+		if width := shifted.Symbol.TotalWidthMilliDots(); width > inkedWidth {
+			fail("symbol.module_milli_dots",
+				"le hors-tout du symbole (113 modules = %s dots) dépasse les %d dots de largeur encrée",
+				formatMilliDots(width), head.InkedWidthDots)
+		}
 	}
 
 	// Rule 5: nothing may intersect the symbol, QUIET ZONES INCLUDED. A field
@@ -387,9 +481,19 @@ func (t *Template) Validate(tierCount int) []Fault {
 // This is what turns "ce décalage rognerait la zone de silence du code-barres" into
 // a message that names the admissible maximum instead of just saying no.
 func (t *Template) MaxOffsetDots(tierCount int) (x, y int) {
+	return t.MaxOffsetDotsOn(ReferenceHead(), tierCount)
+}
+
+// MaxOffsetDotsOn reports the same margin ON THIS HEAD.
+//
+// A margin computed against a constant would refuse, on a taller head, an adjustment
+// the printer would have accepted — and the ±1 dot arrows are how a volunteer corrects
+// a roll that sits a hair off.
+func (t *Template) MaxOffsetDotsOn(head PrinterCapabilities, tierCount int) (x, y int) {
+	head = head.orReference()
 	bottom, right := t.inkedExtent(tierCount)
-	remainingX := (int64(InkedWidthDots)*1000 - right) / 1000
-	remainingY := (int64(InkedHeightDots)*1000 - bottom) / 1000
+	remainingX := (int64(head.InkedWidthDots)*1000 - right) / 1000
+	remainingY := (int64(head.InkedHeightDots)*1000 - bottom) / 1000
 	if remainingX < 0 {
 		remainingX = 0
 	}

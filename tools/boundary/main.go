@@ -6,10 +6,9 @@
 // development machines of this project are Windows. A Go program runs on the three
 // targets with no shell, no bash and no extra dependency.
 //
-// Three checks today. Cut 2 (only cmd/openscale/drivers.go imports a concrete
-// driver) turns itself on as soon as the first driver package exists; cuts 3, 4
-// and 5 belong to review, to a frozen JSON golden and to cross-compilation, and
-// none of the three is an AST question.
+// Three checks today: cuts 1, 1 bis and 2. Cuts 3, 4 and 5 belong to review, to a
+// frozen JSON golden and to cross-compilation, and none of the three is an AST
+// question.
 package main
 
 import (
@@ -19,7 +18,9 @@ import (
 	"go/token"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -61,6 +62,7 @@ func main() {
 
 	checkDomainImports(report)
 	checkNoClockReads(root, report)
+	checkDriverImports(root, report)
 
 	if failures > 0 {
 		fmt.Fprintf(os.Stderr, "\nboundary: %d violation(s) — voir docs/02-architecture.md §5.2\n", failures)
@@ -234,4 +236,284 @@ func allowListNames() string {
 		names = append(names, path)
 	}
 	return strings.Join(names, " et ")
+}
+
+// checkDriverImports is cut 2: ONE file of the tree names a concrete driver, and it is
+// the composition root.
+//
+// WHAT A DRIVER PACKAGE IS, AND WHY IT IS NOT A LIST OF NAMES. The cut bears on what is
+// REGISTRABLE: a package that offers a value the registry of §9.3 or §8.1 accepts —
+// scale.Driver, printing.Driver — is a driver package, and every other package under
+// internal/ is not. That definition is what the walk below computes, so the check needs
+// no maintenance when a model is added and cannot be widened by adding a name to a list.
+//
+// It also settles, without an exception, the four packages a path-based rule would have
+// had to argue about:
+//
+//   - internal/scale/serial is the READER LOOP shared by every serial model — the byte
+//     layer, exactly like internal/printing/transport on the other side, which the
+//     composition root builds and hands over. It registers nothing;
+//   - internal/scale/replay parses the corpus format. §9.3 keeps `replay` out of the
+//     registry BY NAME: it is a diagnostic tool, not a weighing protocol;
+//   - internal/scale/absent is the STATE a station enters when scale.present is false,
+//     and scale.Registry.Register panics on a driver that tried to call itself that;
+//   - internal/printing/preview IS a driver package, and the two encoders that used to
+//     live in it are now printing.EncodePNG and printing.EncodePDF. They were called by
+//     the aperçu route and by `openscale label`, neither of which prints anything, and
+//     an encoder held inside a driver's package is what forced those two files to import
+//     a driver (internal/printing/encode.go says it again).
+//
+// TEST FILES ARE OUT, deliberately, and the reason is the same one directImports gives
+// for excluding them from cut 1: they are not the production path. What cut 2 protects
+// is the wiring of the BINARY — that a model can be removed by deleting one package and
+// one line — and a _test.go file is in no binary. Forbidding them would also cost
+// something real: cmd/openscale/admin_test.go declares scale.type as gramxfoc.IDRS
+// rather than as the literal "gram-xfoc-rs", which is a test that breaks the day the ID
+// moves instead of one that goes on passing against a protocol nobody carries any more.
+func checkDriverImports(root string, report func(string, ...any)) {
+	drivers, err := driverPackages(root)
+	if err != nil {
+		report("%v", err)
+		return
+	}
+	// A check that finds nothing to protect is a check that has stopped running, and
+	// this one spent six lots switched off saying nothing. If the registry types are
+	// ever renamed, this is what says so rather than a silent pass.
+	if len(drivers) == 0 {
+		report("coupe 2 : aucun paquet driver trouvé sous internal/.\n"+
+			"       Un paquet driver est un paquet qui expose une entrée de registre — une déclaration\n"+
+			"       exportée de type %s.Driver ou %s.Driver. Si ces types ont été renommés,\n"+
+			"       renommez-les aussi dans tools/boundary/main.go : sans cela la coupe 2 passe au vert\n"+
+			"       sur n'importe quoi.",
+			shortName(scaleRegistryPackage), shortName(printerRegistryPackage))
+		return
+	}
+
+	err = walkGoFiles(root, func(relative, path string) error {
+		if relative == compositionRoot {
+			return nil
+		}
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly|parser.SkipObjectResolution)
+		if err != nil {
+			report("%s : %v", relative, err)
+			return nil
+		}
+		for _, spec := range file.Imports {
+			imported, err := strconv.Unquote(spec.Path.Value)
+			if err != nil {
+				continue
+			}
+			if entry, isDriver := drivers[imported]; isDriver {
+				report(cut2Violation, relative, fset.Position(spec.Pos()).Line, imported,
+					imported, entry, compositionRoot)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		report("parcours des sources Go : %v", err)
+	}
+}
+
+// cut2Violation is written to be acted upon by somebody — or something — that arrives
+// with no other context: what is forbidden, what to do instead, and a file to imitate.
+const cut2Violation = "%s:%d importe %s — coupe 2 : un seul fichier de l'arbre nomme un driver concret.\n" +
+	"       %s est un paquet driver parce qu'il expose une entrée de registre (%s).\n" +
+	"       Selon ce dont ce fichier a besoin :\n" +
+	"        1. un driver INSTANCIÉ — il ne le construit pas. Il reçoit un ports.Scale ou un\n" +
+	"           ports.Printer que la racine de composition lui passe ; cmd/openscale/serve.go\n" +
+	"           montre le câblage.\n" +
+	"        2. une fonction que ce paquet héberge SANS QU'ELLE SOIT LE DRIVER — elle n'a rien à\n" +
+	"           faire là. Remontez-la dans internal/printing ou internal/scale, qui ne sont pas\n" +
+	"           des paquets drivers, et importez celui-là. printing.EncodePNG a fait exactement\n" +
+	"           ce trajet : internal/printing/encode.go dit pourquoi.\n" +
+	"        3. ENREGISTRER un driver de plus — la ligne va dans scaleRegistry ou printerRegistry\n" +
+	"           de %s, et nulle part ailleurs. C'est la « ONE LINE » de §5.2.\n" +
+	"       La liste des paquets drivers n'est écrite nulle part et ne s'allonge pas à la main :\n" +
+	"       c'est tout paquet qui expose une valeur scale.Driver ou printing.Driver."
+
+// The two packages that DEFINE what a driver is. Neither can match itself: inside them
+// the type is spelled Driver, and what is looked for is the QUALIFIED name a package
+// from outside has to write.
+const (
+	scaleRegistryPackage   = modulePath + "/internal/scale"
+	printerRegistryPackage = modulePath + "/internal/printing"
+)
+
+// modulePath is the module of go.mod, which is what turns a directory into an import
+// path.
+const modulePath = "openscale"
+
+// compositionRoot is the ONE file §5.2 allows to name a driver package.
+const compositionRoot = "cmd/openscale/drivers.go"
+
+// goTrees are the directories of the module that hold Go source. Named rather than
+// walked from the root so that neither web/node_modules nor testdata is parsed.
+var goTrees = []string{"cmd", "internal", "tools"}
+
+// driverPackages maps each driver package to the declaration that makes it one.
+//
+// The declaration is carried along because it is what the failure message shows: a
+// developer told « preview is a driver package » looks for the reason, and « func
+// Driver() printing.Driver » is the whole of it.
+func driverPackages(root string) (map[string]string, error) {
+	found := make(map[string]string)
+	err := walkGoFiles(root, func(relative, path string) error {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return fmt.Errorf("%s : %v", relative, err)
+		}
+		aliases := importAliases(file)
+		for _, decl := range file.Decls {
+			entry, offers := registryEntry(decl, aliases)
+			if !offers {
+				continue
+			}
+			pkg := packagePath(relative)
+			if _, already := found[pkg]; !already {
+				found[pkg] = entry
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return found, nil
+}
+
+// registryEntry reports the declaration by which a package OFFERS a registry entry.
+//
+// Exported only, and a RESULT rather than a parameter: internal/scale/corpus takes a
+// scale.Driver to run a corpus against it, which makes it a bench and not a driver.
+func registryEntry(decl ast.Decl, aliases map[string]string) (string, bool) {
+	switch d := decl.(type) {
+	case *ast.FuncDecl:
+		if d.Recv != nil || !d.Name.IsExported() || d.Type.Results == nil {
+			return "", false
+		}
+		for _, result := range d.Type.Results.List {
+			if named, is := registryType(result.Type, aliases); is {
+				return "func " + d.Name.Name + "() " + named, true
+			}
+		}
+	case *ast.GenDecl:
+		if d.Tok != token.VAR && d.Tok != token.CONST {
+			return "", false
+		}
+		for _, spec := range d.Specs {
+			value, isValue := spec.(*ast.ValueSpec)
+			if !isValue || !anyExported(value.Names) {
+				continue
+			}
+			if named, is := registryType(value.Type, aliases); is {
+				return "var " + value.Names[0].Name + " " + named, true
+			}
+			for _, assigned := range value.Values {
+				literal, isLiteral := assigned.(*ast.CompositeLit)
+				if !isLiteral {
+					continue
+				}
+				if named, is := registryType(literal.Type, aliases); is {
+					return "var " + value.Names[0].Name + " = " + named + "{…}", true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// registryType reports the registry type an expression names, slices and pointers
+// unwrapped — gramxfoc.Drivers returns []scale.Driver, and two entries in one slice are
+// two registry entries.
+func registryType(expr ast.Expr, aliases map[string]string) (string, bool) {
+	prefix := ""
+	for {
+		switch node := expr.(type) {
+		case *ast.ArrayType:
+			prefix, expr = prefix+"[]", node.Elt
+		case *ast.StarExpr:
+			prefix, expr = prefix+"*", node.X
+		case *ast.SelectorExpr:
+			qualifier, named := node.X.(*ast.Ident)
+			if !named || node.Sel.Name != "Driver" {
+				return "", false
+			}
+			switch aliases[qualifier.Name] {
+			case scaleRegistryPackage, printerRegistryPackage:
+				return prefix + qualifier.Name + ".Driver", true
+			}
+			return "", false
+		default:
+			return "", false
+		}
+	}
+}
+
+// importAliases maps the name a file calls each import by to its path, so that an
+// aliased import is read for what it is rather than for what it is spelled.
+func importAliases(file *ast.File) map[string]string {
+	aliases := make(map[string]string, len(file.Imports))
+	for _, spec := range file.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			continue
+		}
+		name := shortName(path)
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		aliases[name] = path
+	}
+	return aliases
+}
+
+// anyExported reports whether a declaration puts at least one name outside its package.
+func anyExported(names []*ast.Ident) bool {
+	for _, name := range names {
+		if name.IsExported() {
+			return true
+		}
+	}
+	return false
+}
+
+// packagePath turns the path of a file, relative to the root and slash-separated, into
+// the import path of the package holding it.
+func packagePath(relative string) string {
+	return modulePath + "/" + path.Dir(relative)
+}
+
+// shortName is the last element of an import path, which is what a file calls it by
+// when it declares no alias.
+func shortName(importPath string) string {
+	return importPath[strings.LastIndex(importPath, "/")+1:]
+}
+
+// walkGoFiles calls visit for every production Go file of the module, relative path
+// first, in a deterministic order.
+//
+// TESTS EXCLUDED, for the reason checkDriverImports states: they are in no binary.
+func walkGoFiles(root string, visit func(relative, path string) error) error {
+	for _, tree := range goTrees {
+		err := filepath.WalkDir(filepath.Join(root, tree), func(p string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+				return nil
+			}
+			relative, err := filepath.Rel(root, p)
+			if err != nil {
+				return err
+			}
+			return visit(filepath.ToSlash(relative), p)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

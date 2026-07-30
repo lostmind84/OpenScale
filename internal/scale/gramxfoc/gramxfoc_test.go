@@ -355,7 +355,9 @@ func TestOptionsOfTheWrongTypeAreRefusedBeforeAnyPortIsOpened(t *testing.T) {
 // (§15.4).
 func readCorpus(t *testing.T, name string) []byte {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "testdata", "frames", name))
+	// The corpus is filed by protocol, and these captures are the RS ones: a capture is
+	// read back by the grammar that produced it (internal/scale/corpus).
+	raw, err := os.ReadFile(filepath.Join("..", "testdata", "frames", IDRS, name))
 	if err != nil {
 		t.Fatalf("lecture du corpus : %v", err)
 	}

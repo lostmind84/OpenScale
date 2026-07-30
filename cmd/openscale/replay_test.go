@@ -12,10 +12,12 @@ import (
 	"openscale/internal/fake"
 )
 
-// corpusDir is the LIVING CORPUS of §15.4, seen from cmd/openscale. Replaying the
-// real files matters more than any synthetic one: they are what a station actually
-// sent, and they were written before this file format existed.
-const corpusDir = "../../internal/scale/testdata/frames"
+// corpusDir is the GRAM XFOC RS drawer of the LIVING CORPUS of §15.4, seen from
+// cmd/openscale. Replaying the real files matters more than any synthetic one: they are
+// what a station actually sent, and they were written before this file format existed —
+// before the corpus was filed by protocol, so they carry no « # protocole : » header and
+// the command falls back on the protocol it announces.
+const corpusDir = "../../internal/scale/testdata/frames/gram-xfoc-rs"
 
 // writeFrames drops a capture file in a temporary directory and returns its path.
 func writeFrames(t *testing.T, content string) string {
@@ -35,6 +37,51 @@ func replayed(t *testing.T, args ...string) string {
 		t.Fatalf("runReplay(%v) : %v", args, err)
 	}
 	return out.String()
+}
+
+// TestACaptureSaysWhichGrammarCutItAndAReplayReadsItBack closes the round trip of the two
+// commands.
+//
+// `openscale capture` writes the protocol into the header of the file, and `openscale
+// replay` reads it from there rather than from the memory of whoever ran the capture.
+// Without that line the two commands would agree only by accident: a capture of one
+// protocol replayed through another decodes to nothing AND reports no error, which is the
+// answer of an unplugged scale.
+func TestACaptureSaysWhichGrammarCutItAndAReplayReadsItBack(t *testing.T) {
+	clock := fake.NewClock(captureStart)
+	_, file, path := runCaptureOnScript(t, emitting(clock, 3), clock, 5*time.Second, true)
+
+	protocol, _ := benchProtocol(t)
+	if !strings.Contains(file, "# protocole : "+protocol) {
+		t.Fatalf("le fichier ne dit pas avec quelle grammaire il a été découpé :\n%s", file)
+	}
+
+	screen := replayed(t, path)
+	if !strings.Contains(screen, "décodé en "+protocol) {
+		t.Fatalf("le rejeu n'annonce pas la grammaire lue dans l'en-tête :\n%s", screen)
+	}
+
+	// And the flag still wins over the file: a capture cut by one protocol may have to be
+	// offered to another, which is exactly what a support call does when the header is
+	// wrong.
+	forced := replayed(t, path, "--type", "gram-xfoc-plus", "--quiet")
+	if !strings.Contains(forced, "décodé en gram-xfoc-plus") {
+		t.Fatalf("--type n'a pas primé sur l'en-tête :\n%s", forced)
+	}
+}
+
+// TestAReplayRefusesAProtocolThisBinaryDoesNotCarry: a tool asked for a grammar that does
+// not exist must name the ones that do, never fall back on another and answer « 0 trame ».
+func TestAReplayRefusesAProtocolThisBinaryDoesNotCarry(t *testing.T) {
+	path := writeFrames(t, "ST,GS,+  1.236KG\r\n")
+	var out bytes.Buffer
+	err := runReplay([]string{path, "--type", "balance-de-cuisine"}, &out)
+	if err == nil {
+		t.Fatal("un protocole inexistant a été accepté")
+	}
+	if !strings.Contains(err.Error(), "gram-xfoc-rs") {
+		t.Fatalf("le refus ne nomme pas les protocoles disponibles : %v", err)
+	}
 }
 
 // TestReplayReadsTheCorpusWrittenBeforeThisFormatExisted is the compatibility claim of

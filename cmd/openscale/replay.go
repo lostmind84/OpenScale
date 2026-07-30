@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"openscale/internal/domain"
-	"openscale/internal/domain/frame"
 	"openscale/internal/scale/replay"
 )
 
@@ -37,17 +37,19 @@ var replayEpoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 func runReplay(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("replay", flag.ContinueOnError)
 	fs.SetOutput(out)
+	registry := scaleRegistry()
 	var (
 		x10      = fs.Bool("x10", false, "rejouer dix fois plus vite")
 		readSize = fs.Int("read-size", 0, "rejouer en lectures de N octets fixes ; 18 reproduit l'ancienne application")
+		protocol = fs.String("type", "", "protocole à décoder : "+protocolList(registry))
 		quiet    = fs.Bool("quiet", false, "n'afficher que le résumé")
 	)
 	fs.Usage = func() {
-		fmt.Fprint(out, `Usage : openscale replay <fichier de trames> [--x10]
+		fmt.Fprintf(out, `Usage : openscale replay <fichier de trames> [--x10]
 
 Rejoue un fichier produit par « openscale capture », ou l'un des fichiers du corpus
-vivant (internal/scale/testdata/frames/), et réaffiche les poids décodés avec leur
-état de figeage et la cadence médiane mesurée.
+vivant (internal/scale/testdata/frames/<protocole>/), et réaffiche les poids décodés
+avec leur état de figeage et la cadence médiane mesurée.
 
 Options :
   --x10                rejouer dix fois plus vite : les instants sont rapprochés
@@ -56,8 +58,10 @@ Options :
   --read-size <n>      rejouer en lectures de n octets FIXES. « --read-size 18 »
                        reproduit le CommRead(…, 18, …) de l'ancienne application,
                        qui perdait une trame sur deux
+  --type <protocole>   grammaire de décodage : %s. Par défaut celle que le fichier
+                       déclare dans son en-tête, sinon %s
   --quiet              n'afficher que le résumé
-`)
+`, protocolList(registry), defaultProtocol(registry))
 	}
 	positional, err := parseMixed(fs, args)
 	if err != nil {
@@ -74,14 +78,56 @@ Options :
 	if err != nil {
 		return fmt.Errorf("le fichier de trames %s est illisible : %w", positional[0], err)
 	}
+	requested := *protocol
+	if requested == "" {
+		requested = protocolDeclaredBy(raw)
+	}
+	chosen, decoder, err := decoderOf(registry, requested)
+	if err != nil {
+		return fmt.Errorf("%s : %w", positional[0], err)
+	}
 
 	speed := 1
 	if *x10 {
 		speed = 10
 	}
 	return playCapture(replayRequest{
-		name: positional[0], raw: raw, speed: speed, readSize: *readSize, quiet: *quiet,
+		name: positional[0], raw: raw, speed: speed, readSize: *readSize,
+		protocol: chosen, decoder: decoder, quiet: *quiet,
 	}, out)
+}
+
+// protocolDeclaredBy reads the protocol a capture file names in its own header.
+//
+// A capture written by `openscale capture` says which grammar cut it, and reading that
+// back is what closes the round trip: replaying what one has just captured must not
+// depend on remembering a flag. The marker is a COMMENT, so a file that carries none —
+// a corpus file written by hand, a capture from before this existed — simply declares
+// nothing and the caller falls back on --type or on the announced default.
+//
+// It reads the header only: the scan stops at the first line that is not a comment,
+// because a protocol declared halfway through a file would mean the first half was cut
+// by something else.
+func protocolDeclaredBy(capture []byte) string {
+	for at := 0; at < len(capture); {
+		end := at
+		for end < len(capture) && capture[end] != '\n' {
+			end++
+		}
+		line := strings.TrimSpace(string(trimTerminator(capture[at:end])))
+		at = end + 1
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "#") {
+			return ""
+		}
+		comment := strings.TrimSpace(strings.TrimPrefix(line, "#"))
+		if declared, found := strings.CutPrefix(comment, protocolMarker); found {
+			return strings.TrimSpace(declared)
+		}
+	}
+	return ""
 }
 
 // replayRequest is one run of the replay: the bytes of a capture file and how to feed
@@ -98,7 +144,14 @@ type replayRequest struct {
 	// readSize, when positive, feeds the stream in fixed-size slices instead of frame
 	// by frame.
 	readSize int
-	quiet    bool
+	// protocol is the scale.type whose grammar this capture is replayed through, and it
+	// is printed in the header of the re-display: a replay that decoded with an unnamed
+	// grammar would answer « 0 trame » on a capture of another model, which is the same
+	// answer as an unplugged scale.
+	protocol string
+	// decoder is that protocol's own decoder, built by the registry.
+	decoder domain.Decoder
+	quiet   bool
 }
 
 // playCapture decodes the capture and writes the re-display and the summary.
@@ -107,6 +160,10 @@ type replayRequest struct {
 // offset that goes backwards, a file with no frame in it -- because that error already
 // names the line number of the file as an editor shows it.
 func playCapture(req replayRequest, out io.Writer) error {
+	if req.decoder == nil {
+		return errors.New("rejeu : aucun décodeur n'est fourni ; une capture se rejoue dans la " +
+			"grammaire du protocole qui l'a produite, jamais dans celle d'un autre")
+	}
 	script, err := replay.Parse(req.raw, nominalRate)
 	if err != nil {
 		return fmt.Errorf("%s : %w", req.name, err)
@@ -115,12 +172,13 @@ func playCapture(req replayRequest, out io.Writer) error {
 	instants := instantsOf(script, req.speed)
 	policy := domain.DefaultStabilityPolicy()
 
-	fmt.Fprintf(out, "%s — %d ligne%s de trame, %s\n\n",
-		req.name, len(script.Steps), plural(len(script.Steps)), timestampsLabel(timed, req.speed))
+	fmt.Fprintf(out, "%s — %d ligne%s de trame, %s, décodé en %s\n\n",
+		req.name, len(script.Steps), plural(len(script.Steps)),
+		timestampsLabel(timed, req.speed), req.protocol)
 
 	report := frameReport{lines: len(script.Steps), measured: timed}
 	latch := domain.NewWeightLatch(policy)
-	decoder := &frame.Accumulator{}
+	decoder := req.decoder
 	show := func(m domain.Measurement) {
 		report.observe(m)
 		// The latch is fed EVERY measurement, in order: it anchors a weight and reports
@@ -140,7 +198,7 @@ func playCapture(req replayRequest, out io.Writer) error {
 			}
 		}
 	}
-	report.resyncs = decoder.Resyncs
+	report.resyncs = decoder.Resyncs()
 
 	if !req.quiet && report.frames > 0 {
 		fmt.Fprintln(out)

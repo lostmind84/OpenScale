@@ -1,0 +1,13 @@
+# openscale capture — protocole jouet example-scale, ligne bruitée
+# Ce fichier est DÉGRADÉ : il mêle des trames légales et des trames abîmées.
+# Rien ne doit paniquer, et aucune ligne ne doit produire une masse que la grammaire
+# ne saurait exprimer. Une trame fausse est JETÉE, jamais réparée : une masse fausse
+# est un prix faux sur une étiquette collée sur un sac.
+[+01236S]
++01236S]
+[+0123S]
+[+012 6S]
+[+01236X]
+[?01236S]
+[+01236S
+[-00432M]

@@ -1,3 +1,16 @@
+// Package preview is the printer driver that prints nothing: it writes the two files
+// anybody can measure without owning a printer (§8.1).
+//
+// The three values of printer.type share the whole rendering and differ only by where
+// the bitmap goes: `raster` hands it to the print queue of the system, `sbpl` writes it
+// straight to the device, and this one writes a PNG at the pitch of the head and a PDF
+// at exact physical scale — for acceptance, for the ±1 dot adjustment, and for support
+// at a distance.
+//
+// The ENCODING of those two files is not here. printing.EncodePNG and printing.EncodePDF
+// are shared with the aperçu route of the administration screen and with
+// `openscale label`, neither of which is a driver, and a package under cut 2 of §5.2 is
+// a package the rest of the tree may not import.
 package preview
 
 import (
@@ -26,17 +39,66 @@ const ID = domain.PrinterPreview
 // production path is `raster` (ADR-002).
 const Label = "Aperçu — écrit un fichier, n'imprime rien"
 
-// The three self-tests of §8.6, spelled as the troubleshooting route sends them.
-const (
-	// SelfTestLabel writes the demonstration label, which is exactly what this driver
-	// exists to produce.
-	SelfTestLabel = "label"
-	// SelfTestAlignment settles the polarity of the <G> command and the registration of
-	// the media under the head. Both are facts about a machine this driver never drives.
-	SelfTestAlignment = "alignment"
-	// SelfTestRuler settles the pitch the head really prints at, which is the same case.
-	SelfTestRuler = "ruler"
-)
+// selfTests are the patterns of §8.6 this driver HONOURS, and the list is one name long.
+//
+// `label` writes the demonstration label, which is exactly what this driver exists to
+// produce. The two that are ABSENT are absent for one reason, stated in §8.6: `alignment`
+// settles the polarity of the <G> command and the registration of the media, `ruler` the
+// pitch the head really prints at — all three are read off PAPER, and this driver never
+// drives a head. A file that claimed to answer them would answer about itself.
+//
+// They are spelled from the catalogue of internal/printing and never re-spelled here: a
+// driver says WHICH of the three it honours, never what the three are.
+var selfTests = []printing.SelfTest{printing.SelfTestLabel}
+
+// Driver is the registry entry of the driver that prints nothing, and the ONE value
+// cmd/openscale registers for this package.
+//
+// IT DECLARES NO OPTION, and that is the requirement rather than an omission. The neutral
+// profile carries no `printer.options` block — darkness, speed and the number of copies are
+// settled on a real print run, and a factory profile has no business inventing three figures
+// nobody measured — so the driver such a station falls back on must ask for none of them. An
+// empty schema is also what tells the composition root there is no transport to build here.
+//
+// IT DECLARES NO HEAD GEOMETRY EITHER, for the same reason and with a consequence worth
+// stating. This driver inks no paper, so it has neither a resolution nor a printable area of
+// its own to declare, and the hard rules of §7.5 then bear on the reference head of the parc
+// (domain.ReferenceHead). They are NOT suspended for it: the preview screen is exactly where
+// a volunteer sets the ±1 dot offsets, and a preview that accepted anything would let them
+// settle on an adjustment the production driver refuses.
+//
+// The resolution (*Printer).Descriptor reports is a different answer to a different question:
+// an INSTANCE has a template, and it declares the pitch that template is drawn at.
+//
+// IT DECLARES ONE SELF-TEST OUT OF THREE, and that declaration replaces a refusal a
+// volunteer could reach. SelfTest still answers `alignment` and `ruler` with the sentence
+// that says why they need paper — a route can be called from outside the screen — but the
+// Matériel page now reads this list and draws the two buttons no longer. A button whose
+// only possible answer is a refusal is not a choice (ADR-025).
+func Driver() printing.Driver {
+	return printing.Driver{
+		Descriptor: domain.PrinterDescriptor{
+			ID:    ID,
+			Label: Label,
+			Capabilities: domain.PrinterCapabilities{
+				Raster:    true,
+				Status:    false,
+				Cutter:    false,
+				MaxCopies: maxCopies,
+			},
+		},
+		SelfTests: selfTests,
+		New: func(c printing.DriverConfig) (ports.Printer, error) {
+			return New(Options{
+				Dir:       c.OutputDir,
+				Clock:     c.Clock,
+				Log:       c.Log,
+				Template:  c.Template,
+				DemoLabel: c.DemoLabel,
+			})
+		},
+	}
+}
 
 // maxCopies is what this driver honestly accepts: ONE.
 //
@@ -181,6 +243,15 @@ func (p *Printer) Descriptor() domain.PrinterDescriptor {
 // over a number no file can honour would take a station in factory configuration out of the
 // one thing it can still do.
 func (p *Printer) Print(ctx context.Context, job ports.PrintJob) (ports.PrintReceipt, error) {
+	// Closure is checked BEFORE composing, and write checks it again. Composing first
+	// draws through a font library Close has already shut, so the render fails and the
+	// job comes back as KindTemplate — naming printer.template for a template that has
+	// nothing wrong, and carrying an English developer sentence into a French one the
+	// volunteer reads. The check in write stays: it is what covers a Close landing
+	// between here and the two files.
+	if err := p.refuseWhenClosed("preview.Print"); err != nil {
+		return ports.PrintReceipt{}, err
+	}
 	img, err := p.compose(job)
 	if err != nil {
 		return ports.PrintReceipt{}, err
@@ -214,6 +285,20 @@ func (p *Printer) compose(job ports.PrintJob) (*image.Gray, error) {
 // The PNG goes down FIRST and the PDF second, and both are written before the receipt is
 // returned: the pair is what a volunteer is asked to send, and half of it is a support
 // request that has to be made twice.
+// refuseWhenClosed reports the refusal a closed preview owes its caller, or nil.
+//
+// It exists so that Print can answer that refusal before it draws anything, while write
+// keeps answering it under the lock it already holds.
+func (p *Printer) refuseWhenClosed(op string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return &ports.PrintError{Kind: ports.KindInternal, Op: op,
+			Message: "l'aperçu a été fermé : ce poste ne peut plus écrire d'étiquette sans redémarrer"}
+	}
+	return nil
+}
+
 func (p *Printer) write(ctx context.Context, op, jobID string, img *image.Gray, media domain.Media) (ports.PrintReceipt, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -238,8 +323,8 @@ func (p *Printer) write(ctx context.Context, op, jobID string, img *image.Gray, 
 		path   string
 		encode func(*os.File) error
 	}{
-		{base + imageExtension, func(f *os.File) error { return EncodePNG(f, img) }},
-		{base + documentExtension, func(f *os.File) error { return EncodePDF(f, img, media) }},
+		{base + imageExtension, func(f *os.File) error { return printing.EncodePNG(f, img) }},
+		{base + documentExtension, func(f *os.File) error { return printing.EncodePDF(f, img, media) }},
 	} {
 		bytes, err := writeFile(target.path, target.encode)
 		if err != nil {
@@ -346,11 +431,17 @@ func (p *Printer) Status(context.Context) ports.PrinterStatus {
 // command and the registration of the media, `ruler` the pitch the head really prints at:
 // both are read off PAPER, and a file that claimed to answer them would answer about
 // itself.
+//
+// IT IS THE SECOND LINE, AND IT STAYS. Driver declares the one pattern this driver
+// honours, so the Matériel page no longer draws the other two buttons and a volunteer
+// cannot reach this refusal by pressing anything. What can still reach it is
+// POST /admin/api/printer/test?what=alignment, typed by hand or replayed from a script,
+// and a route that is reachable is a route that gets an answer.
 func (p *Printer) SelfTest(ctx context.Context, what string) error {
-	switch what {
-	case SelfTestLabel:
+	switch printing.SelfTest(what) {
+	case printing.SelfTestLabel:
 		return p.writeDemoLabel(ctx)
-	case SelfTestAlignment, SelfTestRuler:
+	case printing.SelfTestAlignment, printing.SelfTestRuler:
 		return &ports.PrintError{Kind: ports.KindConfig, Op: "preview.SelfTest",
 			Message: fmt.Sprintf("l'auto-test « %s » se lit sur une étiquette imprimée : il "+
 				"règle la tête d'impression, et ce poste écrit un fichier sans rien imprimer. "+
@@ -358,7 +449,7 @@ func (p *Printer) SelfTest(ctx context.Context, what string) error {
 	}
 	return &ports.PrintError{Kind: ports.KindConfig, Op: "preview.SelfTest",
 		Message: fmt.Sprintf("auto-test inconnu %q : les auto-tests disponibles sont %s, %s et %s",
-			what, SelfTestLabel, SelfTestAlignment, SelfTestRuler)}
+			what, printing.SelfTestLabel, printing.SelfTestAlignment, printing.SelfTestRuler)}
 }
 
 // writeDemoLabel writes the demonstration label of the `label` self-test.

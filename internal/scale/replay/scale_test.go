@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"openscale/internal/domain"
+	"openscale/internal/domain/frame"
 	"openscale/internal/fake"
 	"openscale/internal/station/ports"
 )
@@ -59,10 +60,18 @@ type started struct {
 }
 
 // start builds a replay, starts it, and guarantees it is stopped before the test returns.
+//
+// It supplies the two things Source has no default for — the clock and the decoder — so
+// that a test naming neither still runs. The captures of this file are all GRAM frames,
+// so the grammar of §9.2 is the right one to hand over; a test that means to exercise
+// another protocol, or the refusal of a missing decoder, sets the field itself.
 func start(t *testing.T, source Source, log ports.TechnicalLog) *started {
 	t.Helper()
 	if source.Clock == nil {
 		source.Clock = newRunningClock()
+	}
+	if source.Decoder == nil {
+		source.Decoder = &frame.Accumulator{}
 	}
 	s := &started{
 		scale: New(source, log),
@@ -354,7 +363,8 @@ func TestACancelledReplayGivesTheFloorBackWhileNobodyIsReading(t *testing.T) {
 	// drains any more (§13.4). The capture declares three instants that are all zero, so
 	// the driver never waits on the clock and is always inside a send.
 	instant := "@0 ST,GS,+  1.236KG\n@0 ST,GS,+  0.850KG\n@0 US,GS,+  1.240KG\n"
-	scale := New(Source{Name: "instantané", Frames: []byte(instant), Clock: fake.NewClock(t0)}, nil)
+	scale := New(Source{Name: "instantané", Frames: []byte(instant),
+		Decoder: &frame.Accumulator{}, Clock: fake.NewClock(t0)}, nil)
 
 	out := make(chan domain.ScaleEvent, 1) // one slot, and nobody empties it
 	done := make(chan struct{})
@@ -440,9 +450,18 @@ func TestStartRefusesWhatItCannotReplayAndStillClosesDone(t *testing.T) {
 		source Source
 		wants  error
 	}{
-		{"capture vide", Source{Clock: newRunningClock()}, ErrEmptyCapture},
-		{"capture illisible", Source{Frames: []byte("@ nope\n"), Clock: newRunningClock()}, nil},
-		{"aucune horloge", Source{Frames: []byte(nominalCapture)}, ErrNoClock},
+		{"capture vide", Source{Decoder: &frame.Accumulator{}, Clock: newRunningClock()},
+			ErrEmptyCapture},
+		{"capture illisible", Source{Frames: []byte("@ nope\n"),
+			Decoder: &frame.Accumulator{}, Clock: newRunningClock()}, nil},
+		{"aucune horloge", Source{Frames: []byte(nominalCapture),
+			Decoder: &frame.Accumulator{}}, ErrNoClock},
+		// A capture with no decoder is refused for the same reason as one with no clock,
+		// and it is the reason this package no longer falls back on the grammar of §9.2:
+		// handed the capture of another protocol, that grammar answers zero measurements
+		// and NO error, which is the answer of an unplugged scale.
+		{"aucun décodeur", Source{Frames: []byte(nominalCapture), Clock: newRunningClock()},
+			ErrNoDecoder},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

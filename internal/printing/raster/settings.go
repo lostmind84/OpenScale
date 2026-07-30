@@ -29,11 +29,28 @@ const (
 
 	// MaxCopies is the width of the <Q> field: six digits.
 	//
-	// It is the bound of the language and NOT a shop policy. How many labels a
-	// self-service station should ever print in one go is a business question, and this
-	// document does not answer it; putting an invented ceiling here would look like a
-	// measured one.
+	// It is the bound of the language and NOT a shop policy, and it bounds what ONE JOB
+	// may ask for. How many labels a self-service station should ever print in one go is
+	// a business question the manual does not answer; putting an invented ceiling here
+	// would look like a measured one.
 	MaxCopies = 999_999
+
+	// MinConfiguredCopies and MaxConfiguredCopies bound printer.options.copies, which is
+	// the count a job that names none falls back on.
+	//
+	// TEN, and unlike every bound above it that figure is a STATION POLICY rather than a
+	// measurement — said out loud here so that nobody reads it as one. It is the ceiling
+	// the administration form already offered and the one Config.Validate already
+	// applied, and both disagreed with this file: the schema refused eleven copies while
+	// Settings.Validate accepted five hundred, so the same number got two answers
+	// depending on whether it was typed in the screen or in the file.
+	//
+	// The convergence goes towards TEN and not towards the six digits of <Q>: a customer
+	// sticks ONE label on ONE bag, `"copies": 100` is a typing accident, and the accident
+	// costs a roll and a queue at the scale. What the wire accepts is the other question,
+	// and MaxCopies goes on answering it.
+	MinConfiguredCopies = 1
+	MaxConfiguredCopies = 10
 )
 
 // Settings are the adjustments a volunteer makes ON A REAL PRINT RUN, plus the two
@@ -112,10 +129,11 @@ func (s Settings) Validate() []domain.Fault {
 			"décalage vertical de %d dots : la commande SBPL <A3> porte quatre chiffres, "+
 				"soit -%d à %d dots", s.OffsetYDots, MaxOffsetDots, MaxOffsetDots)
 	}
-	if s.Copies < 1 || s.Copies > MaxCopies {
+	if s.Copies < MinConfiguredCopies || s.Copies > MaxConfiguredCopies {
 		fail("printer.options.copies",
-			"%d exemplaires : le nombre d'exemplaires va de 1 à %d (commande SBPL <Q>, six chiffres)",
-			s.Copies, MaxCopies)
+			"%d exemplaires : le nombre d'exemplaires va de %d à %d sur un poste libre-service, "+
+				"où un client colle une étiquette sur un sac",
+			s.Copies, MinConfiguredCopies, MaxConfiguredCopies)
 	}
 	return faults
 }

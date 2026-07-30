@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"openscale/internal/domain"
-	"openscale/internal/domain/frame"
 	"openscale/internal/platform"
+	"openscale/internal/scale"
 	"openscale/internal/scale/serial"
 )
 
@@ -61,15 +61,17 @@ const (
 func runCapture(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("capture", flag.ContinueOnError)
 	fs.SetOutput(out)
+	registry := scaleRegistry()
 	var (
 		port     = fs.String("port", "", "port série de la balance : COM8, /dev/balance-serial")
 		baud     = fs.Int("baud", captureBaud, "vitesse de la liaison")
 		duration = fs.String("duration", defaultCaptureDuration.String(), "durée de la capture : 30s, 5m, 30m")
 		path     = fs.String("out", defaultCorpusFile, "fichier de trames à écrire")
+		protocol = fs.String("type", "", "protocole à décoder : "+protocolList(registry))
 		quiet    = fs.Bool("quiet", false, "n'afficher que le résumé, sans le dump")
 	)
 	fs.Usage = func() {
-		fmt.Fprint(out, `Usage : openscale capture --port COM8 --duration 30m
+		fmt.Fprintf(out, `Usage : openscale capture --port COM8 --duration 30m
 
 Écoute le port série, affiche ce qui arrive en hexadécimal et en texte, décode les
 trames, et écrit un fichier rejouable par « openscale replay ».
@@ -83,9 +85,11 @@ Options :
   --port <port>        COM8 sur Windows, /dev/balance-serial sur Linux
   --duration <durée>   30s, 5m, 30m — 30s par défaut
   --out <fichier>      fichier de trames à écrire — frames.txt par défaut
+  --type <protocole>   grammaire de décodage et de découpage : %s
+                       %s par défaut ; le fichier écrit porte le protocole utilisé
   --baud <vitesse>     9600 par défaut, comme toutes les balances du parc
   --quiet              n'afficher que le résumé
-`)
+`, protocolList(registry), defaultProtocol(registry))
 	}
 	positional, err := parseMixed(fs, args)
 	if err != nil {
@@ -103,6 +107,10 @@ Options :
 	if err != nil {
 		return fmt.Errorf("durée %q illisible : écrivez 30s, 5m ou 30m", *duration)
 	}
+	chosen, decoder, err := decoderOf(registry, *protocol)
+	if err != nil {
+		return err
+	}
 
 	return capture(captureRequest{
 		link: serial.Options{
@@ -115,20 +123,87 @@ Options :
 		},
 		duration: requested,
 		path:     *path,
+		protocol: chosen,
+		decoder:  decoder,
 		quiet:    *quiet,
 	}, out)
+}
+
+// protocolList is the French tail of every sentence that offers a choice of grammar.
+func protocolList(r *scale.Registry) string {
+	descriptors := r.Descriptors()
+	if len(descriptors) == 0 {
+		return "aucun protocole n'est embarqué dans ce binaire"
+	}
+	ids := make([]string, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		ids = append(ids, descriptor.ID)
+	}
+	return strings.Join(ids, ", ")
+}
+
+// defaultProtocol is the protocol these two diagnostic commands decode with when nobody
+// says otherwise: the first the composition root registered.
+//
+// # Why a default is legitimate HERE and not in the detection
+//
+// The detection answers « y a-t-il une balance ? » and its answer goes into a
+// configuration file: naming the first entry of a registry there is a GUESS presented as
+// a finding, and it stops being true the day a second grammar is registered. These two
+// commands answer a different question. Somebody is standing in front of the hardware,
+// they know which scale it is, and both commands PRINT the protocol they used — in the
+// summary and, for a capture, in the header of the file it writes. A default that is
+// announced is a convenience; a default that is silent is the defect of 29/07.
+//
+// An empty registry yields an empty string, and decoderOf turns that into a refusal that
+// names the situation rather than a nil decoder three frames deeper.
+func defaultProtocol(r *scale.Registry) string {
+	descriptors := r.Descriptors()
+	if len(descriptors) == 0 {
+		return ""
+	}
+	return descriptors[0].ID
+}
+
+// decoderOf resolves the --type flag into a protocol and a decoder of its own.
+//
+// It returns the ID as well as the decoder because both commands SAY which grammar they
+// used: a capture writes it into the file it produces, so that `openscale replay` never
+// has to guess, and a replay prints it above the frames it re-displays.
+func decoderOf(r *scale.Registry, requested string) (string, domain.Decoder, error) {
+	chosen := strings.TrimSpace(requested)
+	if chosen == "" {
+		chosen = defaultProtocol(r)
+	}
+	if chosen == "" {
+		return "", nil, errors.New("aucun protocole de balance n'est embarqué dans ce binaire : " +
+			"il n'y a aucune grammaire pour décoder ces octets")
+	}
+	decoder, err := r.NewDecoder(chosen)
+	if err != nil {
+		return "", nil, err
+	}
+	return chosen, decoder, nil
 }
 
 // captureRequest is one run of the capture, with the two seams that make it testable
 // without a scale on the bench: link.Open hands back a byte stream, and link.Clock is
 // the injected clock every instant comes from.
 type captureRequest struct {
-	// link carries Port, Baud, the link settings, the clock and the opener. Decoder is
-	// wired by capture itself: what a capture decodes with is not a choice.
+	// link carries Port, Baud, the link settings, the clock and the opener.
 	link     serial.Options
 	duration time.Duration
 	path     string
-	quiet    bool
+	// protocol is the scale.type whose grammar decodes and cuts this capture. It is
+	// written into the header of the file, so that the capture says which grammar reads
+	// it back instead of leaving `openscale replay` to guess.
+	protocol string
+	// decoder is that protocol's own decoder, built by the registry. It decodes the
+	// stream AND decides where each frame of the corpus file ends — one grammar for the
+	// two, because a writer that cut somewhere else produced a file with no frames in it
+	// while the summary above it counted 194.
+	decoder domain.Decoder
+	quiet   bool
 }
 
 // capture reads the port until the requested duration has elapsed on the injected
@@ -149,6 +224,10 @@ func capture(req captureRequest, out io.Writer) error {
 	}
 	if req.link.Clock == nil {
 		return errors.New("capture : aucune horloge n'est fournie")
+	}
+	if req.decoder == nil {
+		return errors.New("capture : aucun décodeur n'est fourni ; une capture se décode et se " +
+			"découpe dans la grammaire du protocole capturé, jamais dans celle d'un autre")
 	}
 	open := req.link.Open
 	if open == nil {
@@ -175,17 +254,17 @@ func capture(req captureRequest, out io.Writer) error {
 
 	clock := req.link.Clock
 	start := clock.Now()
-	corpus := &corpusWriter{to: file}
+	corpus := &corpusWriter{to: file, cut: req.decoder}
 	if err := corpus.header(req, start); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Capture de %s pendant %s, écrite dans %s\n\n",
-		req.link.Port, req.duration, req.path)
+	fmt.Fprintf(out, "Capture de %s pendant %s, décodée en %s, écrite dans %s\n\n",
+		req.link.Port, req.duration, req.protocol, req.path)
 
 	// measured is true: the instants come from the clock and from the bytes arriving,
 	// which is the whole point of capturing rather than replaying.
 	report := frameReport{measured: true}
-	decoder := &frame.Accumulator{}
+	decoder := req.decoder
 	buffer := make([]byte, captureBufferSize)
 	deadline := start.Add(req.duration)
 
@@ -222,7 +301,7 @@ func capture(req captureRequest, out io.Writer) error {
 	if err := corpus.finish(); err != nil {
 		return err
 	}
-	report.lines, report.resyncs = corpus.lines, decoder.Resyncs
+	report.lines, report.resyncs = corpus.lines, decoder.Resyncs()
 
 	if !req.quiet {
 		fmt.Fprintln(out)
@@ -257,8 +336,10 @@ func writeCaptureOutcome(out io.Writer, req captureRequest, report frameReport, 
 	fmt.Fprintf(out, "\n%s écrit — %d trame%s. Le relire avec « openscale replay %s ».\n",
 		req.path, report.lines, plural(report.lines), req.path)
 	fmt.Fprintf(out, "Pour le verser au corpus vivant (§15.4) : le déposer dans\n"+
-		"  internal/scale/testdata/frames/ sous un nom commençant par « nominal- » si\n"+
-		"  toutes ses lignes doivent décoder, « degraded- » sinon.\n")
+		"  internal/scale/testdata/frames/%s/ sous un nom commençant par « nominal- » si\n"+
+		"  toutes ses lignes doivent décoder, « degraded- » sinon. Le corpus est classé par\n"+
+		"  protocole : chaque capture est relue par la grammaire qui l'a produite.\n",
+		req.protocol)
 }
 
 // corpusWriter writes the LIVING CORPUS format of §15.4:
@@ -290,7 +371,12 @@ func writeCaptureOutcome(out io.Writer, req captureRequest, report frameReport, 
 // becomes CR LF so the file stays line-oriented. No scale of this parc sends one.
 type corpusWriter struct {
 	to io.Writer
-	// pending holds the bytes of a frame whose terminator has not arrived yet.
+	// cut is the decoder of the captured protocol, asked ONE question: where does the
+	// frame at the head of these bytes end. It is the same decoder the summary decodes
+	// with, which is the point — a file cut by one grammar and counted by another is how
+	// a capture came back announcing 194 frames over a file holding none.
+	cut domain.Decoder
+	// pending holds the bytes of a frame whose end has not arrived yet.
 	pending []byte
 	// origin is the instant of the FIRST line, which is t = 0 of the file. Offsets are
 	// relative so that a capture is self-contained and two captures are comparable.
@@ -308,15 +394,24 @@ type corpusWriter struct {
 func (w *corpusWriter) header(req captureRequest, start time.Time) error {
 	_, err := fmt.Fprintf(w.to,
 		"# openscale capture — %s · %d bauds %d%s%d · %s · durée demandée %s\n"+
+			"# "+protocolMarker+"%s\n"+
 			"# Corpus vivant (§15.4) : une trame par ligne, telle que la balance l'a émise.\n"+
 			"# « @<ms> » en tête de ligne porte l'écart en millisecondes depuis la PREMIÈRE\n"+
 			"# trame. Sans ce marqueur la ligne est la trame entière — c'est le format des\n"+
 			"# fichiers déjà présents dans internal/scale/testdata/frames/.\n"+
 			"# Toute ligne commençant par # est un commentaire.\n",
 		req.link.Port, req.link.Baud, captureBits, captureParity, captureStop,
-		start.UTC().Format(time.RFC3339), req.duration)
+		start.UTC().Format(time.RFC3339), req.duration, req.protocol)
 	return err
 }
+
+// protocolMarker is the header line that names the grammar a capture was cut with.
+//
+// It exists so that `openscale replay` reads the protocol off the FILE instead of
+// guessing: the two commands are one round trip, and a capture that did not say which
+// grammar produced it would have to be replayed on the memory of whoever ran it. It is
+// written as a comment, so every reader of the format already skips it.
+const protocolMarker = "protocole : "
 
 // feed appends the bytes of one read and writes every line the stream now completes.
 //
@@ -326,11 +421,13 @@ func (w *corpusWriter) header(req captureRequest, start time.Time) error {
 func (w *corpusWriter) feed(p []byte, now time.Time) error {
 	w.pending = append(w.pending, p...)
 	for {
-		// frame.FrameEnd and NOT a terminator search of our own: a GRAM XFOC PLUS
-		// delimits with control codes and sends no CR or LF at all, so a writer that
-		// looked for line endings wrote a file with no frames in it while the summary
-		// above it counted 194. The package that decodes decides where a frame ends.
-		consumed := frame.FrameEnd(w.pending)
+		// The DECODER OF THE CAPTURED PROTOCOL and NOT a terminator search of our own: a
+		// GRAM XFOC PLUS delimits with control codes and sends no CR or LF at all, so a
+		// writer that looked for line endings wrote a file with no frames in it while the
+		// summary above it counted 194. Asking the decoder rather than one package's
+		// function is what lets this command write the corpus of a protocol whose frames
+		// carry no delimiter at all.
+		consumed := w.cut.FrameEnd(w.pending)
 		if consumed < 0 {
 			return nil
 		}
@@ -384,17 +481,14 @@ func (w *corpusWriter) writeLine(line []byte, now time.Time) error {
 	return err
 }
 
-// indexTerminator reports where the first CR or LF sits, or -1.
-func indexTerminator(data []byte) int {
-	for i, b := range data {
-		if b == '\r' || b == '\n' {
-			return i
-		}
-	}
-	return -1
-}
-
 // trimTerminator returns the line without its trailing CR, LF or CRLF.
+//
+// It is the last piece of line-ending knowledge left in this command, and it is only ever
+// applied to a frame the DECODER has already cut: it strips the bytes a text protocol
+// ends on so that a corpus line stays line-oriented, and does nothing at all to a
+// transmission delimited by control codes. Its companion — a search for the first CR or
+// LF, which is how this command used to decide where a frame ENDED — is gone, because
+// that decision belongs to the grammar and to nothing else.
 func trimTerminator(line []byte) []byte {
 	for len(line) > 0 && (line[len(line)-1] == '\n' || line[len(line)-1] == '\r') {
 		line = line[:len(line)-1]
@@ -436,8 +530,8 @@ type frameReport struct {
 	// frames is how many measurements came out of the decoder.
 	frames                                  int
 	stable, unstable, unspecified, overload int
-	// resyncs is frame.Accumulator.Resyncs. A line that resynchronises constantly is a
-	// cabling problem, not a parser problem.
+	// resyncs is what the decoder of the protocol reports. A line that resynchronises
+	// constantly is a cabling problem, not a parser problem.
 	resyncs int
 	rate    domain.RateMeter
 	// measured says whether the instants the cadence was computed from are REAL ones. A

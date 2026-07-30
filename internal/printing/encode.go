@@ -1,12 +1,27 @@
-// Package preview writes a rendered label to the two files anybody can measure
-// without owning a printer: a PNG at the pitch of the print head, and a PDF at
+package printing
+
+import (
+	"bytes"
+	"compress/zlib"
+	"fmt"
+	"image"
+	"image/png"
+	"io"
+
+	"openscale/internal/domain"
+)
+
+// The two encoders of a render: a PNG at the pitch of the print head, and a PDF at
 // exact physical scale.
 //
-// IT IS THE OUTPUT PATH OF THE `preview` DRIVER (§8.1). The three values of
-// printer.type share the rendering and differ only by where the bitmap goes:
-// `raster` hands it to the print queue of the system, `sbpl` writes it straight to
-// the device, and this one writes a file — for acceptance, for the ±1 dot
-// adjustment, and for support at a distance.
+// THEY LIVE HERE AND NOT IN A DRIVER PACKAGE, for the reason internal/printing/sbpl
+// gives about the frame it encodes: an encoder is not a ports.Printer. What these two
+// turn into bytes is the *image.Gray Rasterize produces, and THREE callers ask for it
+// — the `preview` driver of §8.1, the aperçu route of the administration screen
+// (§14.4) and `openscale label` (§15.1). Only the first is a driver. Held inside that
+// driver's package, the other two had to IMPORT A DRIVER to encode a PNG, and cut 2
+// of §5.2 — only cmd/openscale/drivers.go names a concrete driver — was a rule the
+// production tree already broke in two files.
 //
 // # WHY THE PDF IS THE POINT
 //
@@ -29,20 +44,8 @@
 // shipped template puts ink. Stretching the bitmap to the page instead would spread
 // that fifth of a dot over the whole height, and the ruler would lose exactly what it
 // came for.
-package preview
 
-import (
-	"bytes"
-	"compress/zlib"
-	"fmt"
-	"image"
-	"image/png"
-	"io"
-
-	"openscale/internal/domain"
-)
-
-// micrometresPerPoint is the definition of the typographic point this package works
+// micrometresPerPoint is the definition of the typographic point a PDF is written
 // in: 72 points to the inch, 25 400 µm to the inch.
 //
 // It is the ONE conversion between the micrometres a template speaks and the units a
@@ -51,12 +54,17 @@ import (
 const micrometresPerPoint = 25_400.0 / 72.0
 
 // inkThreshold is where a grey becomes a burnt dot: strictly below is ink, exactly
-// as applyThreshold reads it in the engine (§7.3).
+// as applyThreshold reads it (§7.3).
 //
 // On a render it decides nothing — every pixel is already 0x00 or 0xFF — and that is
 // the point: the packing is LOSSLESS on anything Rasterize produces, and the PDF
 // carries the same two levels the head burns instead of a grey a viewer would be
 // free to dither.
+//
+// It carries the same figure as symbolThreshold and stays a constant of its own: that
+// one is a RENDERING decision §7.3 is free to move, this one is how a bit is read back
+// out of a finished bitmap, and a PDF that followed the symbol's threshold down would
+// start inventing ink the head never burnt.
 const inkThreshold = 0x80
 
 // EncodePNG writes the render as a PNG, one pixel per dot.
@@ -66,7 +74,7 @@ const inkThreshold = 0x80
 // being written has lost it and no viewer can give it back.
 func EncodePNG(w io.Writer, img *image.Gray) error {
 	if img == nil || img.Bounds().Empty() {
-		return fmt.Errorf("preview: EncodePNG: aucune image à écrire")
+		return fmt.Errorf("printing: EncodePNG: aucune image à écrire")
 	}
 	return png.Encode(w, img)
 }
@@ -87,14 +95,14 @@ func EncodePNG(w io.Writer, img *image.Gray) error {
 // document two runs produce byte for byte — which is what lets a golden hold it.
 func EncodePDF(w io.Writer, img *image.Gray, m domain.Media) error {
 	if img == nil || img.Bounds().Empty() {
-		return fmt.Errorf("preview: EncodePDF: aucune image à écrire")
+		return fmt.Errorf("printing: EncodePDF: aucune image à écrire")
 	}
 	if m.DotsPerMM <= 0 {
-		return fmt.Errorf("preview: EncodePDF: media.dots_per_mm = %g : la résolution de la tête "+
+		return fmt.Errorf("printing: EncodePDF: media.dots_per_mm = %g : la résolution de la tête "+
 			"est ce qui donne au bitmap sa taille physique", m.DotsPerMM)
 	}
 	if m.WidthUM <= 0 || m.HeightUM <= 0 {
-		return fmt.Errorf("preview: EncodePDF: média de %d × %d µm : une page a une surface",
+		return fmt.Errorf("printing: EncodePDF: média de %d × %d µm : une page a une surface",
 			m.WidthUM, m.HeightUM)
 	}
 
@@ -107,7 +115,7 @@ func EncodePDF(w io.Writer, img *image.Gray, m domain.Media) error {
 	// no longer rounding: it is a render made for another template, and the page would
 	// crop the label without saying so.
 	if inkWidthUM > float64(m.WidthUM)+umPerDot || inkHeightUM > float64(m.HeightUM)+umPerDot {
-		return fmt.Errorf("preview: EncodePDF: le rendu fait %d × %d dots, soit %.0f × %.0f µm, "+
+		return fmt.Errorf("printing: EncodePDF: le rendu fait %d × %d dots, soit %.0f × %.0f µm, "+
 			"et déborde le média de %d × %d µm : ce bitmap vient d'un autre gabarit",
 			dots.Dx(), dots.Dy(), inkWidthUM, inkHeightUM, m.WidthUM, m.HeightUM)
 	}
@@ -172,10 +180,10 @@ func deflate(p []byte) ([]byte, error) {
 	var out bytes.Buffer
 	w := zlib.NewWriter(&out)
 	if _, err := w.Write(p); err != nil {
-		return nil, fmt.Errorf("preview: compression de l'image : %w", err)
+		return nil, fmt.Errorf("printing: compression de l'image : %w", err)
 	}
 	if err := w.Close(); err != nil {
-		return nil, fmt.Errorf("preview: compression de l'image : %w", err)
+		return nil, fmt.Errorf("printing: compression de l'image : %w", err)
 	}
 	return out.Bytes(), nil
 }

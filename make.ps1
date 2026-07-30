@@ -21,7 +21,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('all', 'test', 'vet', 'boundary', 'deps', 'build', 'dist', 'release', 'cover', 'front', 'front-check', 'clean', 'help')]
+  [ValidateSet('all', 'test', 'driver', 'vet', 'boundary', 'deps', 'build', 'dist', 'release', 'cover', 'front', 'front-check', 'clean', 'help')]
   [string]$Target = 'all',
 
   # -Version impose le numéro au lieu de le dériver de l'histoire, comme
@@ -106,6 +106,33 @@ function Invoke-Boundary {
 function Invoke-Deps {
   go run ./tools/deps
   Assert-Success 'make deps'
+}
+
+function Invoke-Driver {
+  <#
+  .SYNOPSIS
+    Verifie qu'un driver est COMPLET, sans materiel ni reseau.
+  .DESCRIPTION
+    C'est la commande a lancer avant de dire qu'un driver est termine
+    (docs/07-ajouter-un-materiel.md, section 8). Elle couvre les trois endroits ou un
+    driver incomplet se voit :
+
+      internal/scale/...     les bancs de conformite des balances, et le corpus vivant
+      internal/printing/...  ceux des imprimantes et des transports
+      cmd/openscale          les tests de REGISTRE, c'est-a-dire ce qu'un driver DECLARE
+                             et qu'aucun banc ne voit
+      boundary               la coupe 2 : un seul fichier de l'arbre nomme un driver
+
+    Ce qu'elle NE couvre PAS : la passe -race, l'ecran client, et `make deps` — une
+    dependance nouvelle impose quatre ecritures (ADR-039). C'est `make test` qui les
+    couvre, et c'est lui que la CI execute.
+  #>
+  Invoke-Vet
+  $env:CGO_ENABLED = '0'
+  go test ./internal/scale/... ./internal/printing/... ./cmd/openscale -count=1
+  Assert-Success 'go test (drivers)'
+  Invoke-Boundary
+  Write-Host 'driver : conformite, registre et coupe 2 au vert — reste « make test » avant de livrer'
 }
 
 function Invoke-Test {
@@ -230,10 +257,11 @@ function Invoke-Release {
 }
 
 switch ($Target) {
-  'help' { 'Cibles : test - vet - boundary - deps - build - dist - release - cover - front - front-check - clean' }
+  'help' { 'Cibles : test - driver - vet - boundary - deps - build - dist - release - cover - front - front-check - clean' }
   'vet' { Invoke-Vet }
   'boundary' { Invoke-Boundary }
   'deps' { Invoke-Deps }
+  'driver' { Invoke-Driver }
   'test' { Invoke-Test }
   'cover' { Invoke-Cover }
   'build' { Invoke-Build }

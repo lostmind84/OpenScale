@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"openscale/internal/domain"
+	"openscale/internal/printing"
 	"openscale/internal/station/ports"
 )
 
@@ -26,7 +27,7 @@ import (
 // that much.
 func TestTheAlignmentPatternCarriesItsSquareAndItsFourCrosses(t *testing.T) {
 	printer, transport, _ := newPrinter(t, nil)
-	if err := printer.SelfTest(context.Background(), SelfTestAlignment); err != nil {
+	if err := printer.SelfTest(context.Background(), string(printing.SelfTestAlignment)); err != nil {
 		t.Fatalf("auto-test alignment : %v", err)
 	}
 	pattern := readFrame(t, transport.last(t)).graphic
@@ -102,7 +103,7 @@ func TestTheAlignmentPatternCarriesItsSquareAndItsFourCrosses(t *testing.T) {
 // turns « l'étiquette a l'air un peu courte » into a number.
 func TestTheRulerPatternFramesTheAreaAndTicksEveryMillimetre(t *testing.T) {
 	printer, transport, _ := newPrinter(t, nil)
-	if err := printer.SelfTest(context.Background(), SelfTestRuler); err != nil {
+	if err := printer.SelfTest(context.Background(), string(printing.SelfTestRuler)); err != nil {
 		t.Fatalf("auto-test ruler : %v", err)
 	}
 	pattern := readFrame(t, transport.last(t)).graphic
@@ -138,7 +139,7 @@ func TestTheRulerPatternFramesTheAreaAndTicksEveryMillimetre(t *testing.T) {
 func TestTheLabelSelfTestNeedsALabelSomebodyElseBuilt(t *testing.T) {
 	printer, transport, _ := newPrinter(t, nil)
 
-	err := printer.SelfTest(context.Background(), SelfTestLabel)
+	err := printer.SelfTest(context.Background(), string(printing.SelfTestLabel))
 	printError(t, err, ports.KindConfig, "aucune étiquette de démonstration")
 	if len(transport.frames) != 0 {
 		t.Error("une trame est partie sans étiquette de démonstration")
@@ -153,7 +154,7 @@ func TestTheLabelSelfTestPrintsWhatItWasGiven(t *testing.T) {
 		o.DemoLabel = func() (domain.Label, error) { return demo, nil }
 	})
 
-	if err := printer.SelfTest(context.Background(), SelfTestLabel); err != nil {
+	if err := printer.SelfTest(context.Background(), string(printing.SelfTestLabel)); err != nil {
 		t.Fatalf("auto-test label : %v", err)
 	}
 	_, rendered := productionLabel(t)
@@ -168,7 +169,7 @@ func TestASelfTestThatCannotBePreparedIsARefusalAboutTheData(t *testing.T) {
 			return domain.Label{}, errors.New("aucun produit dans le catalogue")
 		}
 	})
-	err := printer.SelfTest(context.Background(), SelfTestLabel)
+	err := printer.SelfTest(context.Background(), string(printing.SelfTestLabel))
 	printError(t, err, ports.KindData, "démonstration")
 }
 
@@ -184,7 +185,7 @@ func TestAnUnknownSelfTestIsRefusedAndListsTheRealOnes(t *testing.T) {
 		printError(t, err, ports.KindConfig, "auto-test inconnu")
 		var printErr *ports.PrintError
 		errors.As(err, &printErr)
-		for _, real := range []string{SelfTestLabel, SelfTestAlignment, SelfTestRuler} {
+		for _, real := range []string{string(printing.SelfTestLabel), string(printing.SelfTestAlignment), string(printing.SelfTestRuler)} {
 			if !strings.Contains(printErr.Message, real) {
 				t.Errorf("le refus de %q ne nomme pas l'auto-test %q qui, lui, existe", gone, real)
 			}
@@ -199,7 +200,7 @@ func TestASelfTestOnAClosedPrinterIsRefused(t *testing.T) {
 	if err := printer.Close(); err != nil {
 		t.Fatalf("Close : %v", err)
 	}
-	if err := printer.SelfTest(context.Background(), SelfTestRuler); err == nil {
+	if err := printer.SelfTest(context.Background(), string(printing.SelfTestRuler)); err == nil {
 		t.Error("un auto-test a été accepté après Close")
 	}
 }
@@ -225,7 +226,7 @@ func TestAPatternIsAlwaysTheSizeOfTheMedia(t *testing.T) {
 // the path a real label takes, which is what makes it a test of that path.
 func TestTheSelfTestsGoThroughTheTransportLikeALabel(t *testing.T) {
 	printer, transport, _ := newPrinter(t, nil)
-	for _, what := range []string{SelfTestAlignment, SelfTestRuler} {
+	for _, what := range []string{string(printing.SelfTestAlignment), string(printing.SelfTestRuler)} {
 		if err := printer.SelfTest(context.Background(), what); err != nil {
 			t.Fatalf("auto-test %s : %v", what, err)
 		}
@@ -247,7 +248,7 @@ func TestASelfTestFailureCarriesTheTransportFailure(t *testing.T) {
 	printer, transport, _ := newPrinter(t, nil)
 	transport.writeErr = errors.New("file inconnue")
 
-	err := printer.SelfTest(context.Background(), SelfTestAlignment)
+	err := printer.SelfTest(context.Background(), string(printing.SelfTestAlignment))
 	printError(t, err, ports.KindTransient, "ne répond pas")
 }
 

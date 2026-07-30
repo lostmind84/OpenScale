@@ -3,13 +3,14 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
-**Les compteurs, mesurés le 30/07/2026 après le nommage des produits dans les
-signalements.** **2 572 tests Go** verts sur 31 paquets — 0 échec, 5 écartés — et **766
-tests front** sur 34 fichiers, 0 échec. `gofmt` propre, `go vet` vert, `svelte-check` sur
-338 fichiers sans une erreur ni un avertissement, et les deux gardes du dépôt, `boundary`
-et `deps`, vertes. Le bundle de l'écran client reconstruit pèse **79 425 octets gzip, soit
-70,5 % du budget de 112 640** — 33 215 octets de marge. **La passe `-race` est verte elle
-aussi**, 31 paquets, 0 échec.
+**Les compteurs, mesurés le 30/07/2026 à la clôture des lots « drivers enfichables ».**
+**2 826 tests Go** verts sur **36 paquets** — 0 échec, 6 écartés — et **768 tests front**
+sur 34 fichiers, 0 échec (`CGO_ENABLED=0 go test ./... -count=1`, puis `npm test`). Les
+deux gardes du dépôt, `boundary` et `deps`, sont vertes — et depuis ce chantier `boundary`
+exécute enfin la **troisième** coupe qu'il annonçait. Le bundle de l'écran client pèse
+**79 425 octets gzip, soit 70,5 % du budget de 112 640** — 33 215 octets de marge.
+*(`gofmt`, `go vet`, `svelte-check` et la passe `-race` étaient verts à la mesure
+précédente, 2 572 tests Go sur 31 paquets ; ils n'ont pas été rejoués ici.)*
 
 **Passe de sécurité avant l'ouverture du dépôt en public (30/07/2026).** Le dépôt part en
 public sous AGPL-3.0, et un dépôt public est lu par d'autres yeux que ceux d'une
@@ -67,6 +68,100 @@ kiosque), et fermer les routes ouvertes d'ADR-033. Les trois sont désormais **�
 l'écrire. Un fait qui les renforce, vérifié plutôt que supposé : la table `weighings` ne
 porte **aucun identifiant de client** — donc son export ouvert n'expose pas de donnée
 personnelle.
+
+**Les drivers deviennent réellement enfichables — huit lots, et neuf découvertes qui
+n'étaient pas au programme (30/07/2026).** Le chantier visait la promesse la plus citée du
+dossier, « 1 paquet + 1 ligne » (§5.2) : la racine de composition ne construit plus les
+drivers, elle les nomme. Ce qu'il a **trouvé** en chemin vaut plus que ce qu'il a
+déplacé — chacun des points ci-dessous a été reproduit avant d'être corrigé, et aucun
+n'était visible depuis le dossier de conception. Neuf ADR les fixent, **042 à 050**.
+
+**1. La coupe 2 était annoncée depuis L2 et n'a jamais été exécutée.** §5.2 la disait
+« vérifiée par grep en CI ». Il n'y avait pas de grep : `main()` de `tools/boundary`
+appelait **deux** contrôles sur les trois que son propre commentaire décrivait. Six lots
+ont donc tourné avec une frontière annoncée, documentée, citée — et éteinte. Elle est
+désormais une **marche d'AST** qui calcule ce qu'est un paquet driver au lieu de le lire
+dans une liste : tout paquet qui expose une déclaration exportée de type `scale.Driver` ou
+`printing.Driver`. Et **elle refuse de ne rien trouver** : zéro paquet driver est une
+violation, parce qu'un contrôle qui n'a plus rien à protéger est exactement celui qui vient
+de passer six lots à se taire.
+
+**2. `Print` après `Close` était classé `KindTemplate` dans les deux drivers livrés.**
+Tous deux composaient l'étiquette **avant** de tester `closed` ; le rendu échouait alors
+sur une bibliothèque de polices déjà fermée, et un message **développeur, en anglais**,
+atterrissait au milieu d'une phrase française lue sur l'écran de dépannage — là où §8.5
+classe par le geste attendu d'un humain. Aucun test existant ne le voyait : ils n'assertaient
+que `err != nil`, **jamais le `Kind`**. C'est le défaut qui justifie à lui seul le banc de
+conformité d'impression (ADR-048).
+
+**3. Le visualiseur des 20 dernières trames brutes de §14.4 rendait zéro trame** sur une
+GRAM XFOC PLUS, pendant que la ligne au-dessus annonçait N trames valides : `cutFrames`
+découpait sur `CR`/`LF`, que cette balance n'envoie jamais. **Même défaut que le 29/07, un
+étage plus haut** — et c'est la répétition qui a tranché : la décision « où finit une
+trame ? » est désormais une méthode du décodeur, `FrameEnd`, portée par le contrat
+`domain.Decoder` (ADR-047). Un protocole sans délimiteur y répond aussi, là où un appelant
+qui cherche un terminateur ne le pourrait pas.
+
+**4. `copies` avait trois bornes contradictoires** — 10 au schéma d'options, 10 au contrôle
+37, **999 999** dans `raster/settings.go`. Ce n'était pas une incohérence mais **deux
+notions** qu'un même mot recouvrait : ce qu'un **travail d'impression** demande (la largeur
+du champ `<Q>`, six chiffres, borne du protocole) et ce qu'une **configuration** autorise à
+un exploitant (dix — `"copies": 100` est un accident de frappe, et l'accident coûte un
+rouleau et une file d'attente à la balance). Deux constantes désormais, côte à côte, dans le
+paquet de l'imprimante. Le contrôle 37 est **supprimé et son numéro laissé en trou** :
+§11.3 désigne ses contrôles par leur numéro (ADR-044).
+
+**5. `Capabilities.Cutter`, `Raster`, `Status`, `MaxCopies` et `DotsPerMM` n'étaient lus par
+aucun code de production** — cinq champs qu'un driver déclarait honnêtement et que personne
+n'interrogeait. Le chantier en a rendu quatre utiles et laisse le compte à jour :
+`DotsPerMM` est lu par les contrôles 29 et 38 (ADR-045), `MaxCopies` et `Status` par le banc
+de conformité, qui est leur seul juge en l'absence de matériel ; **`Cutter` et `Raster` ne
+sont toujours lus par rien**, et c'est écrit ici pour que le prochain qui les trouve sache
+que ce n'est pas un oubli à combler mais une déclaration en attente d'usage.
+
+**6. L'index des chemins de champs compte 85 entrées**, quand ce fichier en annonçait 114.
+Le chiffre était faux depuis le lot qui l'a écrit ; il est corrigé plus bas.
+
+**7. Le champ exporté `Accumulator.Resyncs` était inatteignable à travers `domain.Decoder`.**
+Le résumé d'`openscale capture` aurait donc affiché **0 resynchronisation, en silence**, pour
+tout protocole autre que celui qui portait le champ — alors que ce chiffre est un
+diagnostic et non une statistique : une resynchronisation est normale, une **cadence** de
+resynchronisations est un problème de câblage. C'est une méthode du contrat, désormais.
+
+**8. Le guide d'ajout de matériel n'était trouvable par aucun chemin canonique.** Relevé
+par une épreuve de recette indépendante, sur le lot voisin. Ni la table « Documentation »
+de `README.md`, ni la table « À lire avant toute intervention » de `CLAUDE.md` ne nommaient
+`docs/07-ajouter-un-materiel.md`. **Il était introuvable par construction** et non par
+inattention : `CLAUDE.md` *ordonne* de lire quatre documents avant toute intervention, et
+aucun des quatre ne menait au septième. Un agent qui obéit **littéralement** ouvrait donc
+`docs/02-architecture.md` — **594 637 octets, soit 580 Ko**, mesuré — et n'apprenait jamais
+l'existence du document écrit pour lui. Les deux tables le nomment désormais. Le fait vaut
+d'être écrit parce qu'il se reproduira : **un document que le point d'entrée ne nomme pas
+n'existe pas pour son lecteur principal**, et c'est une classe de défaut qu'aucun test ne
+rattrape.
+
+**9. Trois compteurs d'ADR divergeaient**, et aucun n'était le bon avant ce chantier :
+`README.md` annonçait **33**, `CLAUDE.md` **41**, et le dossier en portait **41** puis
+**50**. Mesuré de deux façons concordantes le 30/07/2026 —
+`grep -oE "ADR-[0-9]{3}" docs/02-architecture.md | sort -u | wc -l` et
+`grep -c "^### ADR-0"` — le compte réel est **50**, contigu de `ADR-001` à `ADR-050`, sans
+trou. C'est le mesuré qui fait foi, et **les trois textes le disent depuis le 30/07/2026**,
+vérifié sur les fichiers. *(Le « 546 Ko » qu'une note attribuait à « plusieurs textes »
+n'était cité **nulle part** : c'était une mesure juste au moment où le guide a été écrit,
+que les ajouts de ce chantier ont périmée avant qu'elle ne soit publiée. `docs/07` porte
+désormais le chiffre mesuré, 580 Ko, plutôt que la borne prudente qui l'avait remplacée.)*
+
+**Ce que le chantier a livré par ailleurs**, et qui se lit dans les ADR plutôt qu'ici : le
+schéma d'options d'un driver a rejoint le paquet qui lit ses clés (042) et la racine passe
+de 324 à 182 lignes ; l'enregistrement reste **une ligne écrite à la main** — ni `init()`
+par import, ni génération, et §5.1 décrivait le contraire depuis l'origine (043) ; la
+géométrie encrée est déclarée par la tête et le core refuse l'attelage gabarit/tête
+incohérent, **sans toucher à l'étiquette, qui reste identique octet pour octet** (045) ; la
+reconnaissance du matériel appartient au driver, l'énumération des points d'accès au core, et
+`firstScaleType()` disparaît — la détection propose **le driver qui a reconnu des trames**
+(046) ; le corpus vivant est classé par protocole (047) ; les auto-tests honorés sont
+**déclarés** et l'écran ne dessine plus de bouton qui échoue au clic (049) ; et deux paquets
+driver exemplaires sont livrés, compilés, passés au banc, **enregistrés nulle part** (050).
 
 **L'échec intermittent a un nom, et la première piste était fausse (30/07/2026).** L'entrée
 ci-dessus le laissait ouvert : une exécution de la suite sur douze signalait un échec dans un
@@ -448,20 +543,21 @@ corrigeait l'adresse, le poste répondait « configuration enregistrée », et p
 n'était surveillé jusqu'au prochain redémarrage. Les trois tests ajoutés ont été vus
 échouer avant d'être verts.
 
-**Ce que ce poste neuf reste à saisir : cinq fautes, mais quatre lignes (29/07/2026).**
-Mesuré sur le fichier livré de la v0.5 — `config export testdata/config-lacagette.json`,
-puis `config validate` sur l'export : **5 fautes sur 4 champs distincts**.
+**Ce que ce poste neuf reste à saisir : quatre fautes, quatre lignes (mesuré à nouveau le
+30/07/2026).** Mesuré sur le fichier livré — `config export testdata/config-lacagette.json`,
+puis `config validate` sur l'export : **4 fautes sur 4 champs distincts**.
 `station.number` (0 hors bornes `[1, 99]`, et c'est de lui que dérive le nom du fichier
 surveillé), `network.listen` (vide), `scale.options.port`, `catalog.options.url`. La
-spécification du lot annonçait **neuf** ; le chiffre mesuré est **cinq**, et c'est le
+spécification du lot annonçait **neuf** ; le chiffre mesuré est **quatre**, et c'est le
 mesuré qui fait foi.
 
-**`scale.options.port` compte double**, énuméré deux fois avec deux phrases différentes :
-« un poste qui déclare une balance doit nommer son port », puis « option exigée par le
-driver `gram-xfoc-plus` ». Deux règles, un seul champ. Un bénévole devant l'écran ne
-compte pas des fautes, il compte des **lignes à remplir** : il en a **quatre**. Cet écart
-est le critère de recette, pas le total brut — annoncer cinq réparations pour quatre
-champs envoie chercher une cinquième ligne qui n'existe pas.
+**Le doublon a disparu, et c'est ADR-044 qui l'a emporté.** `scale.options.port` était
+énuméré **deux fois**, avec deux phrases différentes : « un poste qui déclare une balance
+doit nommer son port », puis « option exigée par le driver `gram-xfoc-plus` ». Deux règles,
+un seul champ — et un bénévole devant l'écran ne compte pas des fautes, il compte des
+**lignes à remplir**. Le contrôle 3 ne nomme plus aucune clé d'option : il reste une seule
+ligne, et c'est celle qui **nomme le champ et dit qui l'exige**. Le total brut et le nombre
+de lignes coïncident enfin, ce qui supprime l'écart qu'il fallait expliquer.
 
 **Ce que le lot « configuration livrée » laisse ouvert derrière lui (29/07/2026).** Quatre
 constats d'une revue adverse, tous reproduits, aucun corrigé — ils sont ici pour ne pas
@@ -564,8 +660,11 @@ est vérifiée et une trame fausse est jetée sans être devinée. Corpus vivant
 
 `openscale capture` écrivait par ailleurs un fichier **vide de trames** tout en
 annonçant 194 décodées : son rédacteur découpait sur `CR`/`LF`, que cette balance
-n'envoie jamais. `frame.FrameEnd` place cette décision dans le paquet qui décode, une
-seule fois.
+n'envoie jamais. `FrameEnd` place cette décision dans le paquet qui décode, une
+seule fois — **et depuis le 30/07/2026 c'est une méthode de `domain.Decoder`** et non
+une fonction d'un paquet de grammaire : un seul endroit décide de ce qu'est une trame,
+et c'est le protocole (ADR-047). Le même défaut est ressorti **un étage plus haut**,
+voir l'entrée des drivers enfichables.
 
 **Les mesures qui remplacent les hypothèses (§21 n° 3, ADR-005) :**
 
@@ -605,7 +704,8 @@ six, ce qu'un test écrit contre ce défaut précis verrouillait déjà.
 le navigateur et non dans la configuration du poste. Masquer la clé obligeait à mettre
 autre chose à sa place : un refus de `Validate` **n'est pas auto-porteur** — le service
 répond un couple clé + message, et « attendu : nombre entier » ne nomme rien tout seul.
-Un index de 114 chemins nomme désormais chaque champ en français, avec repli sur le chemin
+Un index de **85** chemins (`web/src/admin/lib/fields.ts`, compté le 30/07/2026 ; la
+première version de cette ligne annonçait 114) nomme chaque champ en français, avec repli sur le chemin
 lui-même pour qu'un refus venu d'un contrôle qu'aucune page n'édite reste lisible par
 quelqu'un au téléphone.
 
@@ -1111,9 +1211,19 @@ son périmètre. Aucune ne bloque : ce sont des endroits où la documentation d�
 | 1 | §16.4, l'extrait du `Makefile` | Montre `bin/balance`, `./tools/boundary/check.sh` et `test: front` là où le `Makefile` réel dit `bin/openscale`, `go run ./tools/boundary` et `test: vet` |
 | 2 | §16.4, l'énumération du pipeline CI | Nomme `staticcheck`, qu'aucune étape de `ci.yml` ne lance ; et place `make boundary` / `make deps` **avant** `go test -race`, alors que la CI les lance après |
 | 3 | §11.1 et §13.2, les chemins de `ProgramData` | Trois occurrences disent encore `C:\ProgramData\Balance` et `balance.db` là où le poste écrit `C:\ProgramData\OpenScale` et `openscale.db`. Relevé en écrivant §15.5, qui portait la même faute et a été corrigé ; les trois autres sont hors du périmètre d'ADR-040 |
+| 4 | `internal/printing/render.go`, le godoc de `Rasterize` | Dit que `weighing_identical` déclare **40 × 25,4 mm, 320 × 203 dots**, et que la règle 3 compare le contenu encré à « la géométrie de l'étiquette existante ». Le gabarit livré déclare **35 × 25 mm, 280 × 200 dots** depuis le banc du 28/07, et la règle compare à la géométrie que la **tête déclare** (ADR-045). §7.3 a été corrigé, le godoc non : c'est du **code**, hors du périmètre du lot de documentation |
+| 5 | **Deux** godoc, `internal/scale/gramxfoc/gramxfoc.go:14` et `internal/scale/conformance/conformance.go:3` | Répètent tous deux « un paquet, trois fichiers, ~120 lignes dont 70 de tests », mesure d'avant le banc et le corpus par protocole. Le paquet fait **4 fichiers et 693 lignes, dont 536 de tests**, et le branchement au banc va de **34** lignes (`absent`) à **136** (`example`). §9.3 a été corrigé, les deux godoc non, et pour la même raison. Le second a été relevé par le lot voisin, qui ne pouvait pas y toucher non plus |
+| 6 | ADR-002 et §4 étape 14, la taille d'une étiquette | Annoncent **~16 ko** par étiquette. Le banc du 29/07 a ramené la trame à **14 072 octets** en corrigeant le format de `<G>`. Sans conséquence sur une décision, mais le chiffre circule à trois endroits |
+
+*(L'entrée qui portait les trois compteurs d'ADR divergents — `README.md` à 33, `CLAUDE.md`
+à 41, le dossier à 50 — a été **retirée le 30/07/2026 : elle est réglée**. Les deux points
+d'entrée disent 50, vérifié sur le fichier et non sur parole.)*
 
 C'est exactement la classe de défaut qu'ADR-039 et `make deps` suppriment pour les
-**dépendances**. Ces deux-là portent sur les **outils**, et rien ne les vérifie encore.
+**dépendances**. Les autres portent sur les **outils**, sur des **godoc** et sur des
+**chiffres recopiés**, et rien ne les vérifie encore. Les entrées 4 et 5 disent la limite
+d'un lot qui ne touche qu'à la documentation : **une phrase fausse peut vivre dans un
+commentaire Go**, où aucun relecteur du dossier ne la cherche.
 
 ---
 
@@ -1142,7 +1252,7 @@ de référence produit, pas une correction cosmétique.
 
 ## Décisions structurantes
 
-41 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
+50 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
 
 | ADR | Décision |
 |---|---|
@@ -1158,6 +1268,9 @@ de référence produit, pas une correction cosmétique.
 | **029** | **Barres du code-barres uniformes** — le texte cesse de les recouvrir, +30 % de hauteur lisible |
 | **035** | **Densité de grille continue, `ui.tile_size` retiré** — remplace ADR-031 |
 | **036** | **Double tarif affiché sur chaque tuile de la grille**, pas seulement au moment de peser |
+| **043** | **L'enregistrement d'un driver est une ligne écrite à la main** — ni `init()` par import, ni génération |
+| **045** | **La tête déclare sa géométrie encrée** ; le core refuse l'attelage gabarit/tête incohérent. **N'amende ni A1 ni ADR-003** |
+| **048** | **Tout driver enregistré passe un banc de conformité** — seul juge en l'absence de matériel |
 
 ---
 
@@ -1165,6 +1278,7 @@ de référence produit, pas une correction cosmétique.
 
 | Date | Événement |
 |---|---|
+| 30/07/2026 | **Les drivers deviennent réellement enfichables** (ADR-042 à 050) : le schéma d'options rejoint le paquet du driver, l'enregistrement reste une ligne écrite à la main, la géométrie encrée est déclarée par la tête, la reconnaissance du matériel par le driver, le décodeur est fabriqué par le driver pour les quatre outils qui lisent des octets hors poste, les auto-tests honorés sont déclarés, la famille imprimante obtient son banc de conformité, et deux paquets exemplaires sont livrés sans être enregistrés. **Neuf découvertes** qui n'étaient pas au programme, dont la coupe 2 **annoncée depuis L2 et jamais exécutée**, un `Print` après `Close` mal classé dans les deux drivers livrés, et un guide d'ajout de matériel que ni `README.md` ni `CLAUDE.md` ne nommaient | : cinq défauts corrigés — le voile qui couvrait le bouton Réglages, la détection de balance qui ne pouvait réussir sur aucun port, les volets de la page Matériel refermés par le sondage de 3 s, le retour arrière à 60 s qui écrivait le profil d'usine par-dessus les tarifs de la coopérative (avec le pilote `preview` enfin livré), et l'adresse d'écoute du fichier que le repli jetait même saine. Deux demandes neuves du commanditaire livrées avec : « Recharger le catalogue » rend compte de ce qu'il déclenche — fichier, résultat, heure, inventaire, source surveillée — au lieu de promettre au futur puis de se taire ; et le poste masque les produits vendus à l'unité, `ui.show_by_unit_products` à `false` par défaut, soit 15 tuiles de moins sur le vrai catalogue. **2 562 tests Go** et **764 tests front**, tous verts |
 | 29/07/2026 | **Sept chantiers referment la campagne d'installation** : cinq défauts corrigés — le voile qui couvrait le bouton Réglages, la détection de balance qui ne pouvait réussir sur aucun port, les volets de la page Matériel refermés par le sondage de 3 s, le retour arrière à 60 s qui écrivait le profil d'usine par-dessus les tarifs de la coopérative (avec le pilote `preview` enfin livré), et l'adresse d'écoute du fichier que le repli jetait même saine. Deux demandes neuves du commanditaire livrées avec : « Recharger le catalogue » rend compte de ce qu'il déclenche — fichier, résultat, heure, inventaire, source surveillée — au lieu de promettre au futur puis de se taire ; et le poste masque les produits vendus à l'unité, `ui.show_by_unit_products` à `false` par défaut, soit 15 tuiles de moins sur le vrai catalogue. **2 562 tests Go** et **764 tests front**, tous verts |
 | 29/07/2026 | **Mise à jour depuis l'écran livrée** (ADR-040) : sondage quotidien, empreinte SHA-256 vérifiée, `update.ps1` devenu un contrat à quatre issues, page « Mise à jour », contrôle 48 sur le dépôt suivi. Trois défauts existants payés au passage — l'écran client qui restait noir, les échecs indistincts du script, et le nil typé qui faisait paniquer le tableau de bord de tout binaire `dev` |
 | 29/07/2026 | **La v0.5 installée comme un bénévole sur un poste neuf** : le poste tourne de bout en bout — balance, étiquette, catalogue, redémarrage recette — mais **six défauts** rendent les étapes 4 à 7 infaisables sans ligne de commande. Deux corrigés dans la foulée (la veille du catalogue, dans les deux cas où elle ne quittait pas sa source), quatre laissés ouverts ce jour-là — dont le retour arrière qui écrit le profil d'usine par-dessus les tarifs de la coopérative —, refermés depuis par la série de sept chantiers, ligne ci-dessus |

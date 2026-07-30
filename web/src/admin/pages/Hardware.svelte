@@ -711,12 +711,27 @@
     return failure instanceof AdminError && (failure.status === 401 || failure.status === 409)
   }
 
-  /** Les trois auto-tests, et le nom français de chacun. */
+  /** Les trois auto-tests de §8.6, et le nom français de chacun. */
   const SELF_TESTS: { what: SelfTest; name: string }[] = [
     { what: 'label', name: 'étiquette' },
     { what: 'alignment', name: 'alignement' },
     { what: 'ruler', name: 'réglette' },
   ]
+
+  /**
+   * Ceux que le driver EN SERVICE honore vraiment, et eux seuls.
+   *
+   * La page dessinait les trois quel que soit le driver. Sur un poste en `preview` — celui
+   * sur lequel une configuration d'usine se replie (§11.3) — deux d'entre eux répondaient
+   * « cet auto-test se lit sur une étiquette imprimée » APRÈS le clic, devant quelqu'un qui
+   * cherchait déjà pourquoi rien ne sort. Un bouton dont la seule réponse possible est un
+   * refus n'est pas un choix : le poste déclare ce qu'il honore, l'écran n'affiche que ça
+   * (ADR-025).
+   *
+   * L'ordre reste celui de §8.6, jamais celui du service : c'est celui dans lequel le
+   * document les présente, et celui qu'un bénévole a sous les yeux dans la documentation.
+   */
+  const offered = $derived(SELF_TESTS.filter((test) => health.printer_self_tests.includes(test.what)))
 </script>
 
 <div class="pages">
@@ -927,11 +942,11 @@
         onrun={() => void act('discover', discover)}
       />
       <!--
-        Three self-tests side by side: the label keeps WHICH ONE is working. Reduced all
-        three to « En cours… », nothing on screen would say any more which one is putting
-        out a label.
+        The self-tests THIS driver honours, side by side: the label keeps WHICH ONE is
+        working. Reduced all of them to « En cours… », nothing on screen would say any
+        more which one is putting out a label.
       -->
-      {#each SELF_TESTS as test (test.what)}
+      {#each offered as test (test.what)}
         <Act
           act={test.what}
           label={`Auto-test : ${test.name}${acting === test.what ? ' — en cours…' : ''}`}
@@ -941,6 +956,20 @@
         />
       {/each}
     </div>
+
+    <!--
+      Un bouton qui manque doit se lire comme une déclaration et non comme une panne. Sans
+      cette ligne, un exploitant qui connaît les trois auto-tests de §8.6 et n'en voit
+      qu'un cherche ce qui s'est cassé — ce qui est exactement le temps que la déclaration
+      fait gagner.
+    -->
+    {#if offered.length < SELF_TESTS.length}
+      <p class="note" data-self-tests-note>
+        {offered.length === 0
+          ? 'Le driver d’impression en service n’imprime aucun auto-test.'
+          : 'Les autres auto-tests ne sont pas proposés : le driver d’impression en service ne les imprime pas.'}
+      </p>
+    {/if}
 
     {#if printers.length > 0}
       <p class="count" data-printers-count>

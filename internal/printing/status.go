@@ -37,9 +37,11 @@ const (
 	// and the number of pending jobs. §8.5 calls it « la source la plus riche des deux
 	// OS » and rates it certain on Windows, partial on Linux.
 	LevelN2
-	// LevelN3 is the SBPL ENQ on a bidirectional transport. Any non-empty answer means
-	// the printer is ALIVE; what the answer MEANS is known only once the fine decoding
-	// is enabled, which §8.5 leaves OFF until a real frame has been captured on site.
+	// LevelN3 is the PRINTER ANSWERING FOR ITSELF, over a transport that carries a reply
+	// back. Any non-empty answer means the device is ALIVE; what the answer MEANS is read
+	// by the driver, in the language of that printer, and this file knows none of them —
+	// naming one command of one protocol here would tie the three levels of §8.5, which
+	// are a rule about EVIDENCE, to the hardware of one parc.
 	LevelN3
 )
 

@@ -338,11 +338,19 @@ func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 // scale.
 type Accumulator struct {
 	pending []byte
-	// Resyncs counts how many times the buffer was dropped. The diagnostic screen
+	// resyncs counts how many times the buffer was dropped. The diagnostic screen
 	// shows it: a line that resynchronises constantly is a cabling problem, not a
 	// parser problem.
-	Resyncs int
+	resyncs int
 }
+
+// Resyncs reports how many times the buffer was dropped.
+//
+// A method and not the exported field it used to be, because it is one of the four
+// things domain.Decoder asks of every grammar: `openscale capture` and the living
+// corpus print this figure, and reaching into the field of one implementation is what
+// stopped them from printing it for any other.
+func (a *Accumulator) Resyncs() int { return a.resyncs }
 
 // Feed appends p to the pending tail and returns every measurement the buffer now
 // yields.
@@ -367,7 +375,7 @@ func (a *Accumulator) Feed(p []byte, now time.Time) []domain.Measurement {
 
 	if len(a.pending) > MaxBuffer {
 		a.pending = append([]byte(nil), a.pending[len(a.pending)-resyncKeep:]...)
-		a.Resyncs++
+		a.resyncs++
 	}
 	return out
 }
@@ -378,7 +386,7 @@ func (a *Accumulator) Pending() int { return len(a.pending) }
 
 // Reset drops the buffer. Called when the port is reopened: half a frame from
 // before a reconnection must not be completed by bytes from after it.
-func (a *Accumulator) Reset() { a.pending, a.Resyncs = nil, 0 }
+func (a *Accumulator) Reset() { a.pending, a.resyncs = nil, 0 }
 
 // extract pulls the next frame, or the next piece of noise, out of the buffer.
 //
@@ -446,16 +454,22 @@ const (
 // FrameEnd reports how many bytes at the head of p make up the first COMPLETE frame,
 // or -1 when the frame is still arriving.
 //
-// It exists for `openscale capture`, which writes one frame per line and must cut the
-// stream at exactly the same places the Accumulator does. Duplicating that decision in
-// the command was how the first bench capture came back with a summary of 194 decoded
-// frames and a file containing none: the writer split on CR and LF, which a GRAM XFOC
-// PLUS never sends. ONE PLACE DECIDES WHAT A FRAME IS, and it is this package.
+// It is a METHOD and not a function of this package, because it is the half of
+// domain.Decoder that `openscale capture` needs: the command writes one frame per line
+// and must cut the stream at exactly the same places the decoder does. Left as a
+// package function it could only ever be called for THIS grammar, and a second protocol
+// would be captured by whatever the command happened to search for — which is how the
+// first bench capture came back with a summary of 194 decoded frames and a file
+// containing none.
+//
+// It reads no state of the accumulator, and that is not an oversight: where a frame
+// ends is a property of the GRAMMAR, not of what is currently buffered. The receiver is
+// what carries the grammar's identity, nothing more.
 //
 // It handles the two DELIMITED forms — control framing and terminator — and not the
 // back-to-back form the Accumulator also accepts, because a capture file with no
 // delimiter at all could not be read back line by line anyway.
-func FrameEnd(p []byte) int {
+func (*Accumulator) FrameEnd(p []byte) int {
 	if start := indexByte(p, startOfText); start == 0 || (start > 0 && indexTerminatorByte(p[:start]) < 0) {
 		end := indexByte(p, endOfText)
 		if end < 0 {

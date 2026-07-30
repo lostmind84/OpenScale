@@ -102,12 +102,32 @@ func descriptorOf(id, label string) domain.ScaleDescriptor {
 	}
 }
 
-// driverFor is one registry entry: an identity, the option schema of a serial link, and
-// a factory that builds THE shared loop around a fresh accumulator.
+// NewDecoder builds one accumulator of the grammar of §9.2, which is the decoder of both
+// GRAM models.
+//
+// It is exported because it is what a corpus test of this package hands the shared
+// harness, and because the registry entry below is not the only place a caller may need
+// THIS grammar rather than whichever one a registry happens to hold first.
+//
+// A FRESH one every call, and that is the whole reason it is a function: an accumulator
+// holds the bytes waiting for the rest of their frame, and two ports sharing one buffer
+// would complete a half frame of the first with the bytes of the second — the fabricated
+// mass the grammar exists to refuse.
+func NewDecoder() domain.Decoder { return &frame.Accumulator{} }
+
+// driverFor is one registry entry: an identity, the option schema of a serial link, the
+// grammar of §9.2, and a factory that builds THE shared loop around a fresh accumulator.
+//
+// It declares EndpointSerialPort, which is what lets « Détecter automatiquement » look
+// for it: a GRAM talks on its own, continuously, so listening on a port for three
+// seconds is enough to recognise it. A model that only answered a poll would declare
+// EndpointNone and be chosen by hand instead.
 func driverFor(d domain.ScaleDescriptor) scale.Driver {
 	return scale.Driver{
 		Descriptor: d,
 		Options:    serial.OptionSchema(),
+		NewDecoder: NewDecoder,
+		Endpoint:   scale.EndpointSerialPort,
 		New: func(o domain.DriverOptions, clk ports.Clock, log ports.TechnicalLog) (ports.Scale, error) {
 			return newScale(d, o, clk, log, nil)
 		},
@@ -130,7 +150,7 @@ func newScale(d domain.ScaleDescriptor, o domain.DriverOptions, clk ports.Clock,
 	if err != nil {
 		return nil, err
 	}
-	link.Decoder = &frame.Accumulator{}
+	link.Decoder = NewDecoder()
 	link.Clock = clk
 	link.Open = open
 	return serial.New(d, link, log), nil
