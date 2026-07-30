@@ -1082,7 +1082,7 @@ func TestFingerprintChangesWhenASharedValueChanges(t *testing.T) {
 	for name, mutate := range map[string]func(*Config){
 		"une remise de tarif":     func(c *Config) { c.Pricing.Tiers[0].Discount = 200 },
 		"un seuil de panier":      func(c *Config) { c.Limits.BasketMin = -300 },
-		"le gabarit":              func(c *Config) { c.Printer.Template = "weighing_integer_module" },
+		"le gabarit":              func(c *Config) { c.Printer.Template = "weighing_neutral_single" },
 		"une catégorie":           func(c *Config) { c.Catalog.Categories[0].Visible = false },
 		"la rétention du journal": func(c *Config) { c.Journal.MaxDays = 30 },
 		// Two stations that disagree here do not show the same grid: one offers fifteen

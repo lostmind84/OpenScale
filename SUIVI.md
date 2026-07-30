@@ -1252,25 +1252,26 @@ de référence produit, pas une correction cosmétique.
 
 ## Décisions structurantes
 
-50 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
+51 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
 
 | ADR | Décision |
 |---|---|
 | 001 | Zéro cgo — SQLite via `modernc.org/sqlite` |
 | 002 | Driver raster par défaut, pas SBPL |
-| 003 | Code-barres volontairement tronqué — **ne pas « corriger »** |
+| ~~003~~ | ~~Code-barres volontairement tronqué~~ — **remplacé par ADR-051 le 30/07/2026** |
 | 005 | Stabilité du poids non bloquante par défaut |
 | 006 | Aucune migration depuis le legacy |
 | 008 | Arrondi commercial |
 | 011 | Import manuel de CSV au périmètre V1 |
 | 020 | Carlito comme police d'étiquette (clone métrique de Calibri, OFL) |
 | 021 | « Ce produit est-il pesable ? » remplace le contrôle d'intégrité |
-| **029** | **Barres du code-barres uniformes** — le texte cesse de les recouvrir, +30 % de hauteur lisible |
+| **029** | **Barres du code-barres uniformes** — le texte cesse de les recouvrir. Sa décision tient ; **ses chiffres sont repris par ADR-051** |
 | **035** | **Densité de grille continue, `ui.tile_size` retiré** — remplace ADR-031 |
 | **036** | **Double tarif affiché sur chaque tuile de la grille**, pas seulement au moment de peser |
 | **043** | **L'enregistrement d'un driver est une ligne écrite à la main** — ni `init()` par import, ni génération |
 | **045** | **La tête déclare sa géométrie encrée** ; le core refuse l'attelage gabarit/tête incohérent. **N'amende ni A1 ni ADR-003** |
 | **048** | **Tout driver enregistré passe un banc de conformité** — seul juge en l'absence de matériel |
+| **051** | **A1 n'était pas une contrainte, c'était l'état d'un logiciel Access.** Ce qui est tenu est le contrat de caisse, pas le dessin. Barres 10 875 → **11 375 µm**, gabarit B retiré, règle 9 réécrite contre la plage GS1. **Remplace ADR-003**, reprend les chiffres d'**ADR-029** |
 
 ---
 
@@ -1278,6 +1279,7 @@ de référence produit, pas une correction cosmétique.
 
 | Date | Événement |
 |---|---|
+| 30/07/2026 | **Le commanditaire rouvre A1, et la séparation demandée casse trois nombres du dossier** (ADR-051). « L'étiquette reproduite à l'identique » n'était pas un arbitrage de conception mais **l'état d'un formulaire Access** : le module de 0,293 mm est le corps 34 de la fonte `Code EAN13`, les barres de 11,72 mm en sont 0,977 em, la bande HRI de 2,93 mm en est 0,244 em. **Le raster survit, avec un meilleur argument** — la fenêtre des modules à la fois conformes GS1 et tenant dans 35 mm est vide à 203, 300 **et** 305 dpi, donc le module fractionnaire n'est pas hérité mais nécessaire ; 305 dpi n'achète aucune conformité. **La troncature aussi survit, et change de statut** : c'est un résultat de calcul, pas une décision — sur 25 mm, un symbole de hauteur normative laisse 1,8 mm pour cinq champs. Barres **10 875 → 11 375 µm** (91 dots), pris sur l'interligne et la bande HRI, jamais sur le texte ; marge basse doublée à 1,9 dot. **La mesure a démenti l'estimation** : sur 23 dots de bande HRI, 21 sont de l'encre — 2 étaient libres, pas 9. Gabarit B retiré (75,8 %, sous le plancher GS1) et règle dure 9 réécrite contre la plage GS1 lue au pas que la tête déclare. **Trois erreurs du document corrigées au passage**, dont une origine de symbole périmée qui faisait décrire un gabarit que la règle dure 3 rejette. **Consommable et imprimante : pas de changement, faute de budget** — 38 × 34 rendrait le symbole conforme à 89,7 % et reste chiffré au dossier pour le jour où le taux de lecture se dégraderait |
 | 30/07/2026 | **Les drivers deviennent réellement enfichables** (ADR-042 à 050) : le schéma d'options rejoint le paquet du driver, l'enregistrement reste une ligne écrite à la main, la géométrie encrée est déclarée par la tête, la reconnaissance du matériel par le driver, le décodeur est fabriqué par le driver pour les quatre outils qui lisent des octets hors poste, les auto-tests honorés sont déclarés, la famille imprimante obtient son banc de conformité, et deux paquets exemplaires sont livrés sans être enregistrés. **Neuf découvertes** qui n'étaient pas au programme, dont la coupe 2 **annoncée depuis L2 et jamais exécutée**, un `Print` après `Close` mal classé dans les deux drivers livrés, et un guide d'ajout de matériel que ni `README.md` ni `CLAUDE.md` ne nommaient | : cinq défauts corrigés — le voile qui couvrait le bouton Réglages, la détection de balance qui ne pouvait réussir sur aucun port, les volets de la page Matériel refermés par le sondage de 3 s, le retour arrière à 60 s qui écrivait le profil d'usine par-dessus les tarifs de la coopérative (avec le pilote `preview` enfin livré), et l'adresse d'écoute du fichier que le repli jetait même saine. Deux demandes neuves du commanditaire livrées avec : « Recharger le catalogue » rend compte de ce qu'il déclenche — fichier, résultat, heure, inventaire, source surveillée — au lieu de promettre au futur puis de se taire ; et le poste masque les produits vendus à l'unité, `ui.show_by_unit_products` à `false` par défaut, soit 15 tuiles de moins sur le vrai catalogue. **2 562 tests Go** et **764 tests front**, tous verts |
 | 29/07/2026 | **Sept chantiers referment la campagne d'installation** : cinq défauts corrigés — le voile qui couvrait le bouton Réglages, la détection de balance qui ne pouvait réussir sur aucun port, les volets de la page Matériel refermés par le sondage de 3 s, le retour arrière à 60 s qui écrivait le profil d'usine par-dessus les tarifs de la coopérative (avec le pilote `preview` enfin livré), et l'adresse d'écoute du fichier que le repli jetait même saine. Deux demandes neuves du commanditaire livrées avec : « Recharger le catalogue » rend compte de ce qu'il déclenche — fichier, résultat, heure, inventaire, source surveillée — au lieu de promettre au futur puis de se taire ; et le poste masque les produits vendus à l'unité, `ui.show_by_unit_products` à `false` par défaut, soit 15 tuiles de moins sur le vrai catalogue. **2 562 tests Go** et **764 tests front**, tous verts |
 | 29/07/2026 | **Mise à jour depuis l'écran livrée** (ADR-040) : sondage quotidien, empreinte SHA-256 vérifiée, `update.ps1` devenu un contrat à quatre issues, page « Mise à jour », contrôle 48 sur le dépôt suivi. Trois défauts existants payés au passage — l'écran client qui restait noir, les échecs indistincts du script, et le nil typé qui faisait paniquer le tableau de bord de tout binaire `dev` |

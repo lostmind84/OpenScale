@@ -49,7 +49,8 @@ Conventions : les montants sont en **centimes entiers**, les masses en **grammes
 
 | # | Arbitrage | Où il s'applique |
 |---|---|---|
-| **A1** | **L'étiquette est reproduite à l'identique**, code-barres compris. Le symbole reste délibérément tronqué (barres ≈ 11,7 mm). Module 0,293 mm, hors-tout 33,1 mm. Ce n'est pas un défaut. | §7 entier, ADR-003 |
+| **A1** | ~~L'étiquette est reproduite à l'identique~~ — **retiré le 30/07/2026, remplacé par A1 bis.** | — |
+| **A1 bis** | **Ce qui est tenu, c'est le contrat de caisse, pas le dessin.** L'étiquette porte un **EAN-13** au plan de numérotation d'ADR-028, **zones de silence intactes** et **HRI imprimée**. La mise en page, la hauteur des barres, l'interligne et la bande HRI sont des **variables de conception**. **Ni l'imprimante ni le consommable ne changent** — décision du 30/07/2026, faute de budget et parce que les étiquettes passent en caisse depuis des années. La conformité pleine du symbole est donc hors d'atteinte : par **arbitrage économique**, pas par impossibilité. Condition de réouverture nommée : une dégradation du taux de lecture en caisse. | §7 entier, §7.7, ADR-051 |
 | **A2** | **Le driver raster est le défaut.** Il dessine **l'intégralité** de l'étiquette, code-barres compris, dans un bitmap. La commande SBPL `<BD>` disparaît, ainsi que la table de caractères, CP858, l'octet euro, le sélecteur de type de code-barres et le champ `WithBarcode`. | §7, §8, ADR-002 |
 | **A3** | **La stabilité n'est pas bloquante par défaut.** Détection implémentée, rendu **informatif**. Mode bloquant disponible en configuration. Péremption **dérivée de la cadence réellement observée**, affichée en diagnostic. | §6.5, §13, ADR-005 |
 | **A4** | **Import manuel de CSV au périmètre V1** (glisser-déposer dans l'admin). | §10.4, ADR-011 |
@@ -1160,9 +1161,10 @@ stateDiagram-v2
 > 1. **Le texte recouvre les barres, et c'est un choix du commanditaire** — les deux
 >    prix mangent 4 573 µm des 11 722 µm de barres, qui ne sont donc propres que sur
 >    **8 341 µm**, soit 71 % de l'annoncé. ADR-029 empile les trois lignes et pose le
->    symbole **sous** elles : les barres deviennent **uniformes à 10 875 µm**, soit
->    **+30 %** de hauteur réellement lisible. Le module et le hors-tout ne changent
->    pas, donc A1 est respecté là où A1 se prononce.
+>    symbole **sous** elles : les barres deviennent **uniformes**. ADR-029 les avait
+>    posées à 10 875 µm en s'interdisant de toucher à l'interligne et à la bande HRI ;
+>    **ADR-051 a levé cet interdit et la valeur livrée est 11 375 µm**, soit **+36 %**
+>    de hauteur réellement lisible contre les 8 341 µm propres de l'existant.
 > 2. **L'origine du symbole donnée ici (8 996 µm) est celle de la BOÎTE du contrôle
 >    Access**, pas celle du symbole tracé : la ligne de base du glyphe est à
 >    21 326 µm et les barres commencent à **9 604 µm**, 608 µm plus bas. La hauteur du
@@ -1202,9 +1204,28 @@ En dots (8 dots/mm), ce que le rastériseur produit réellement :
 
 **Contenu des champs (A7).** Le préfixe imprimé est l'`Abbrev` du tarif, suivi de `": "` — exactement `"A: 4,79 €/kg"`, `"S: 6,58 €"`, `"A: 5,92 €"`. **Le suffixe `€/kg` n'est pas une constante du gabarit** : c'est le `PriceSuffix` du produit, issu de la colonne `unite` du CSV (§10.2) — ` €/kg`, ` € le litre` ou ` € l'unité`. Le champ est dimensionné sur le plus long des trois, `" € le litre"`. En mono-tarif, `Abbrev` est vide et `secondary_total_price` porte la condition `when: "multi_tier"` : le champ disparaît, aucun code conditionnel n'est nécessaire.
 
-**Le champ à 7 points est au plancher de lisibilité thermique** (em = 19,8 dots). Règle du moteur : **tout élément dont l'em est < 20 dots est rendu dans la variante Bold** de la police embarquée — **sauf `auto_bold: false`, et c'est précisément le cas dans `weighing_identical`.**
+**Le champ à 7 points est au plancher de lisibilité thermique** (em = 19,8 dots). Règle du moteur : **tout élément dont l'em est < 20 dots est rendu dans la variante Bold** de la police embarquée — **sauf `auto_bold: false`.**
 
-> **Pourquoi ce champ reste en graisse normale.** Le source (`reports/EtataImprimer.report`, label `LabelAPayer`) ne porte **aucun** `FontWeight` : le solidaire est imprimé en **normal**, corps 7. Le rendre gras serait la seule divergence visible de l'étiquette, ce qu'**A1 interdit**. `weighing_identical` porte donc `auto_bold: false` sur `secondary_total_price`, et la règle automatique ne s'applique qu'aux gabarits qui ne se prononcent pas (`weighing_neutral_single`, gabarits d'exploitant). **Le tableau ci-dessus et la règle ne se contredisent plus : la règle a une exception, elle est nommée, et elle est portée par le gabarit, pas par le code.** Si la relecture physique de L4/L5 montre que le solidaire est illisible en normal, la bascule se fait **en une ligne de gabarit**, et c'est alors un écart à A1 qui appartient au commanditaire — pas au moteur de rendu. **Décision tranchée par l'impression réelle et la relecture à 60–80 cm, critère de sortie de L4/L5** *(et non de L0, qui ne livre aucun code : L0 approvisionne le banc)*.
+> **⚠ CE CHAMP N'EXISTE PLUS À 7 POINTS DANS LE GABARIT LIVRÉ.** La relecture à
+> 60–80 cm que cette section annonçait comme « critère de sortie de L4/L5 » a été
+> faite, et elle a tranché **le 29/07/2026** : le prix solidaire était illisible au
+> corps 7 face au corps 11 du prix adhérent. **Les deux prix partagent désormais un
+> corps** — `secondary_total_price` est à **3 888 µm (11 pt)** dans
+> `internal/domain/templates.go`, et non à 2 469. Deux conséquences que ce document
+> n'a pas répercutées :
+>
+> 1. `auto_bold: false` **n'a plus de rôle fonctionnel** : à 31 dots d'em le champ est
+>    très au-dessus du seuil de 20 dots, donc la règle automatique ne se déclencherait
+>    pas de toute façon. Le drapeau ne subsiste que comme trace d'une intention.
+> 2. **Aucun champ de `weighing_identical` n'est plus au plancher de lisibilité.** Les
+>    trois lignes valent 9 / 9 / 11 pt. L'argument « le 7 pt est au plancher » ne peut
+>    plus servir à justifier quoi que ce soit sur le budget vertical.
+>
+> **Ce que le gabarit livré fait autrement, en deux points, tous deux du 29/07/2026 :**
+> le **cadre de `primary_unit_price` est retiré** (`Framed: false` — l'encre qu'il
+> économise est celle que la zone de silence du symbole n'avait pas), et le **corps du
+> prix solidaire passe de 7 à 11 pt**. Les lignes correspondantes des deux tableaux
+> ci-dessus décrivent l'**existant Access**, pas le livré.
 
 ### 7.3 Le moteur de rendu
 
@@ -1424,20 +1445,49 @@ func DrawEAN13(dst *image.Gray, e domain.EAN13, m [95]bool, o SymbolOptions) err
 | Origine du bloc (X, Y) | 0 ; 8 996 | 0 ; 72 |
 | **Bas du bloc** | **23 646** | **189** |
 
-> **Ce tableau décrit l'EXISTANT. Le gabarit livré fait 265 × 110, pas 265 × 117 —
-> et c'est ADR-029 qui l'impose.** En empilant les trois lignes de texte et en posant
-> le symbole dessous, ADR-029 descend l'origine du bloc de 8 996 à **11 288 µm**
-> (90,30 dots) et raccourcit les barres de 11 720 à **10 875 µm**. Le bloc vaut donc
-> `10 875 + max(1 465 ; 2 930) = 13 805 µm = 110,44 dots`.
+> **Ce tableau décrit l'EXISTANT. Le gabarit livré fait 265 × 113, pas 265 × 117.**
+> En empilant les trois lignes de texte et en posant le symbole dessous, ADR-029 avait
+> descendu l'origine du bloc de 8 996 à 11 069 µm et ramené les barres de 11 720 à
+> 10 875. **ADR-051 a rouvert les deux nombres qu'ADR-029 s'interdisait de toucher** —
+> l'interligne et la bande HRI, tous deux hérités — et la géométrie livrée est
+> désormais : origine **10 688 µm** (85,50 dots), barres **11 375 µm**, bande HRI
+> **2 700 µm**. Le bloc vaut `11 375 + max(1 465 ; 2 700) = 14 075 µm = 112,6 dots`, et
+> son bas tombe à **24 763 µm = 198,10 dots**.
 >
-> **Un bloc de 117,2 dots à cette origine mettrait l'encre à 207,5 dots**, au-delà des
-> 202 admis : il ferait échouer la règle dure 3 — celle-là même qu'ADR-029 rend
-> satisfiable. Les deux chiffres ne sont donc pas au choix, et le 110 n'est pas une
-> approximation du 117.
+> **Le budget vertical, poste par poste, tel que `IdenticalTemplate()` le calcule :**
 >
-> **Le 117 reste juste là où sa géométrie vit encore** : `weighing_neutral_single` et
-> `weighing_integer_module` portent toujours 11 720 µm de barres et mesurent bien
-> 265 × 117. Les trois gabarits terminent leur encre à 200,7–200,8 dots.
+> | Poste | µm | D'où il vient |
+> |---|---|---|
+> | 3 lignes de texte, 9 / 9 / **11** pt, 2 interlignes de 150 | 10 538 | `body9`, `body11`, `leading` |
+> | Interligne texte → symbole | 150 | `leading` |
+> | Barres | **11 375** | ADR-051 — 91 dots exactement |
+> | `max(descente des gardes ; HRI)` = HRI | 2 700 | ADR-051 — 21 dots d'encre, 1 de jeu |
+> | Marge basse | 237 | **1,9 dot** — la réserve des flèches ±1 dot, doublée |
+> | **Total** | **25 000** | hauteur encrée déclarée par la tête |
+>
+> **Un bloc de 117,2 dots à cette origine mettrait l'encre à 202,7 dots**, au-delà des
+> 200 admis par la tête : il ferait échouer la règle dure 3. Les deux chiffres ne sont
+> donc pas au choix, et le 113 n'est pas une approximation du 117.
+>
+> **Le 117 ne subsiste nulle part, et c'est une correction du 30/07/2026.** Ce
+> paragraphe affirmait que `weighing_neutral_single` et `weighing_integer_module`
+> « portent toujours 11 720 µm de barres et mesurent bien 265 × 117 », et que « les
+> trois gabarits terminent leur encre à 200,7–200,8 dots ». **Les deux affirmations
+> sont fausses**, et la seconde décrivait un gabarit que la règle dure 3 rejette
+> (200,7 > 200). Les valeurs vérifiées dans `internal/domain/templates.go` et
+> mesurées par `internal/domain/template_test.go` :
+>
+> | Gabarit | Barres | Bloc symbole | Bas de l'encre |
+> |---|---|---|---|
+> | `weighing_identical` | 11 375 µm | 14 075 µm = 112,60 dots | **198,10 dots** |
+> | `weighing_neutral_single` | 11 125 µm | 13 825 µm = 110,60 dots | **198,20 dots** |
+> | ~~`weighing_integer_module`~~ | *retiré le 30/07/2026 (ADR-051)* | — | — |
+>
+> L'origine de l'erreur est identifiée : `IdenticalTemplate()` porte encore, en
+> commentaire, les valeurs `3 525 / 7 050 / 10 938 / 11 288` calculées à
+> `leading = 350`, avant que le banc du 28/07 ne ramène l'interligne à 277. **Les
+> commentaires sont périmés, le code est juste**, et c'est le commentaire qui a été
+> recopié ici.
 >
 > **Mesuré sur le rendu, pas seulement calculé** : le bitmap du PDF de démonstration
 > donne 223 dots de hors-tout de barres, une hauteur encrée **constante à 109 pixels
@@ -1449,7 +1499,7 @@ func DrawEAN13(dst *image.Gray, e domain.EAN13, m [95]bool, o SymbolOptions) err
 1. `Modules("0493021012365")` produit une chaîne de 95 bits **figée dans le test**, obtenue une fois et vérifiée avec un décodeur indépendant ;
 2. pour tout `i`, `|edge(i) − i×2,344| ≤ 0,5 dot` — **pas de dérive cumulative** ;
 3. la largeur totale du symbole vaut exactement 223 dots ;
-4. avec `module_milli_dots = 2000` (gabarit B, §7.6), **toute plage de même couleur a une largeur multiple de 2** — l'invariant devient exact dès que le module est entier ;
+4. avec `module_milli_dots = 2000` — **une géométrie construite dans le test**, depuis le retrait du gabarit B (ADR-051) —, **toute plage de même couleur a une largeur multiple de 2** : l'invariant devient exact dès que le module est entier, et c'est le seul endroit où il est exactement vérifiable. Il n'avait aucune raison d'être porté par un gabarit livrable ;
 5. golden au pixel près du bloc symbole, versionné en PNG ;
 6. le bloc rendu mesure exactement **265 × 117 dots**, HRI comprise, et la HRI est **toujours** présente : un rendu dont la bande basse est vide fait échouer le test (les 13 chiffres sont relus sur le PNG par comparaison de gabarits de chiffres).
 
@@ -1493,6 +1543,33 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault
 8. Aucun chevauchement entre deux éléments actifs sous une même condition.
 9. `module_milli_dots ∈ [1500, 6000]` et `font_size_um ≥ 1800` pour tout élément.
 
+   > **Amendement du 30/07/2026 — ces bornes n'ont pas d'origine, et la bonne en a une.**
+   > `[1500, 6000]` milli-dots ne dit rien : la borne vaut 0,1875–0,750 mm sur une tête
+   > à 8 dots/mm et 0,125–0,500 mm sur une tête à 12, c'est-à-dire qu'elle **accepte du
+   > non-conforme sur l'une et refuse du conforme sur l'autre**. Elle est écrite en
+   > unités de résolution alors qu'elle contrôle une grandeur physique.
+   >
+   > La règle qui a une origine est la plage GS1 elle-même, traduite à la résolution que
+   > **la tête déclare** (ADR-045), et complétée par le hors-tout :
+   >
+   > ```
+   > X = module_milli_dots / (1000 × head.DotsPerMM)      en mm
+   > 0,264 ≤ X ≤ 0,660                                    plage GS1 (80 %–200 %)
+   > 113 × X × head.DotsPerMM ≤ head.InkedWidthDots       zones de silence comprises
+   > ```
+   >
+   > Sur la tête du parc, ces deux conditions donnent **X ∈ [0,2640 ; 0,3097] mm**, soit
+   > `module_milli_dots ∈ [2112, 2478]` — une fenêtre quatre fois plus étroite que
+   > `[1500, 6000]`, et qui **exclut le gabarit B** (`2000` = 75,8 %, sous le plancher).
+   > C'est le contrôle que §7.6 attendait d'un ADR et qu'aucune règle ne rendait.
+   >
+   > Le plancher `font_size_um ≥ 1800` (≈ 5,1 pt) est cohérent avec `MinFontSizeUM` mais
+   > **contredit le « plancher de lisibilité thermique » de §7.2**, qui est à 2 469 µm.
+   > Les deux nombres coexistent parce qu'ils mesurent deux choses : 1 800 est la limite
+   > au-delà de laquelle le rendu casse, 2 469 celle au-delà de laquelle un bénévole ne
+   > lit plus. **Seul le second a été validé physiquement** (relecture à 60–80 cm du
+   > 29/07/2026, §7.2).
+
 > **Quatre chiffres de hauteur circulent ; voici lequel fait foi et pourquoi la règle 3 ne se retourne pas contre A1.**
 >
 > | Grandeur | Valeur | Statut |
@@ -1502,7 +1579,7 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault
 > | **Hauteur encrée déclarée par la tête** (`InkedHeightDots`) | **25,0 mm = 200 dots** sur une WS408 | **c'est la référence de la règle 3** — mesurée au banc du 28/07/2026, et **déclarée par le driver**, pas figée dans le noyau |
 > | Hauteur du **contenu réellement encré** par `weighing_identical` | **24,87 mm = 199 dots** | **c'est la grandeur comparée** |
 >
-> Le contenu descend au plus bas à `11 069 + 13 805 = 24 874 µm`, soit **199 dots** — bas du bloc symbole, HRI comprise (§7.4) ; les trois lignes de texte s'arrêtent à 10 792 µm. **`weighing_identical` passe donc la règle 3 avec un dot de marge**, et cette marge est **délibérée et non résiduelle** : c'est elle que les flèches ±1 dot de l'admin consomment quand un rouleau est posé un cheveu de travers, et la règle 6 applique le décalage **avant** de valider. Elle a été payée sur l'**interligne** (350 → 277 µm), jamais sur les barres — le symbole est la seule chose qu'ADR-003 protège. En largeur, le contenu remplit son encre à **22 µm près**. *(Les 189 dots qu'annonçait la version précédente de ce tableau étaient ceux de la mise en page d'avant ADR-029, où le symbole était posé sous un texte qui le recouvrait à moitié.)* Deux versions de ce document ont eu tort ici, et pour deux raisons différentes qu'il faut distinguer. La première comparait 202 dots (une boîte Access) à 200 dots (un média supposé) et faisait échouer la CI **sur le gabarit exigé par A1** : la conséquence obligatoire de A1 se retournait contre A1, avec 2 dots. La seconde a corrigé la comparaison mais a gardé le chiffre du **PDF de test** — 25,23 mm, 202 dots —, un document que le pilote de l'imprimante n'a jamais produit ; le banc l'a démenti (amendement d'ADR-003). Ce qui rend la troisième version stable n'est pas un meilleur chiffre, c'est un **changement de propriétaire** : la géométrie encrée appartient désormais à la tête, qui la déclare, et non au noyau, qui l'affirmait pour tout le monde (ADR-045).
+> Le contenu descend au plus bas à `10 688 + 14 075 = 24 763 µm`, soit **198,10 dots** — bas du bloc symbole, HRI comprise (§7.4) ; les trois lignes de texte s'arrêtent à 10 538 µm. **`weighing_identical` passe donc la règle 3 avec 1,9 dot de marge**, et cette marge est **délibérée et non résiduelle** : c'est elle que les flèches ±1 dot de l'admin consomment quand un rouleau est posé un cheveu de travers, et la règle 6 applique le décalage **avant** de valider. *(Elle valait 1,0 dot jusqu'au 30/07/2026, et elle avait alors été payée sur l'interligne — 350 → 277 µm — parce qu'ADR-003 protégeait le symbole. ADR-051 a levé cette protection : l'interligne descend à 150 et la bande HRI à 2 700, les barres montent à 11 375, et la marge double au passage.)* En largeur, le contenu remplit son encre à **22 µm près**. *(Les 189 dots qu'annonçait la version précédente de ce tableau étaient ceux de la mise en page d'avant ADR-029, où le symbole était posé sous un texte qui le recouvrait à moitié.)* Deux versions de ce document ont eu tort ici, et pour deux raisons différentes qu'il faut distinguer. La première comparait 202 dots (une boîte Access) à 200 dots (un média supposé) et faisait échouer la CI **sur le gabarit exigé par A1** : la conséquence obligatoire de A1 se retournait contre A1, avec 2 dots. La seconde a corrigé la comparaison mais a gardé le chiffre du **PDF de test** — 25,23 mm, 202 dots —, un document que le pilote de l'imprimante n'a jamais produit ; le banc l'a démenti (amendement d'ADR-003). Ce qui rend la troisième version stable n'est pas un meilleur chiffre, c'est un **changement de propriétaire** : la géométrie encrée appartient désormais à la tête, qui la déclare, et non au noyau, qui l'affirmait pour tout le monde (ADR-045).
 
 **Le diagnostic du symbole ne bloque pas, il informe — et il ne crie pas au loup.**
 
@@ -1528,7 +1605,35 @@ Le gabarit porte **`truncation_accepted: true`**. Quand ce drapeau est levé, l'
 
 Quand le drapeau est baissé (gabarit expérimental), le même diagnostic devient un **avertissement orange**. C'est ce qui empêche un contributeur de six mois plus tard de prendre la décision du commanditaire pour un bug.
 
-### 7.6 Le test terrain : gabarit A contre gabarit B
+### 7.6 Le test terrain
+
+> **⚠ LE GABARIT B EST RETIRÉ — 30/07/2026, ADR-051.** Le protocole A/B décrit ci-dessous
+> n'a plus de bras B, et le comptage qui subsiste est celui du **tracé géométrique**
+> (§7.4, ADR-019) : 50 étiquettes de production Access contre 50 étiquettes neuves, au
+> même scanner de caisse.
+>
+> **Pourquoi il tombe.** `weighing_integer_module` portait un module de 2 dots pour
+> mesurer si des barres rigoureusement uniformes se lisent mieux que l'alternance 2/3.
+> L'hypothèse n'est **pas** réfutée — elle est **inexploitable** : 2 dots valent 0,250 mm,
+> soit **75,8 %**, sous le plancher GS1 de 80 %. Le paragraphe ci-dessous le disait déjà,
+> et en tirait la conclusion qu'il fallait « remettre un chiffre au commanditaire ».
+> C'était une demi-mesure : **un test dont le bras gagnant ne peut pas être adopté n'est
+> pas un test**, c'est une dépense de bénévolat contre une information qu'on s'interdit
+> d'utiliser. La règle dure 9, réécrite contre la plage GS1 (ADR-051), le refuse
+> désormais au chargement, ce qui rend le retrait exécutoire au lieu d'être seulement
+> écrit.
+>
+> **Ce qui survit du gabarit B**, et c'était sa meilleure part : l'invariant de tracé
+> qu'il exerçait — à module entier, toute plage de même couleur est un multiple du
+> module — reste un **test unitaire de `DrawEAN13`**, qui construit sa géométrie sur
+> place. C'est le seul cas où l'invariant est exactement vérifiable, et il n'avait
+> aucune raison d'être porté par un gabarit livrable.
+>
+> **Le protocole ci-dessous est conservé pour ce qu'il enseigne sur la méthode**, et
+> parce que sa dernière phrase — « aucun basculement par défaut, aucune décision prise
+> par un protocole de test » — reste vraie de tous les comptages du dossier.
+
+#### L'état antérieur : gabarit A contre gabarit B
 
 L'arbitrage A2 pose une hypothèse à valider : *à module entier (2 dots), chaque barre fait exactement 2 dots, donc les barres sont rigoureusement uniformes ; le symbole est probablement mieux lu malgré sa largeur réduite.*
 
@@ -1549,6 +1654,161 @@ L'arbitrage A2 pose une hypothèse à valider : *à module entier (2 dots), chaq
 > **Ce que ce comptage peut décider, et ce qu'il ne peut PAS décider.** Il produit **une mesure**, pas un basculement automatique. **`weighing_identical` (A) reste le gabarit livré dans `config-lacagette.json` quel que soit le résultat.** Adopter le gabarit B par défaut serait **deux décisions du commanditaire, pas une conclusion de test** : (a) cesser de reproduire l'étiquette à l'identique, ce que A1 exige explicitement (« le grandissement reste celui d'aujourd'hui : module 0,293 mm, hors-tout 33,1 mm ») ; (b) sortir de la plage GS1 par le bas — 75,8 %, **sous** le plancher de 80 % — c'est-à-dire réintroduire exactement la non-conformité que bloquant-3 soulevait et qu'ADR-003 déclare close, alors que « 88,8 %, dans la plage » est un argument central de §7.1.
 >
 > Si B l'emporte nettement, le livrable est donc **un chiffre remis au commanditaire** (« A : n refus sur 50 ; B : m refus sur 50 »), accompagné de ces deux conséquences écrites. Le basculement, s'il est décidé, est **une ligne de configuration** (`printer.template`) et **un nouvel ADR** amendant ADR-003. **Aucun basculement par défaut, aucune décision prise par un protocole de test.**
+
+### 7.7 Les mesures d'optimisation disponibles, et leur rendement
+
+> **Ouvert le 30/07/2026 à la demande du commanditaire, qui rouvre A1.** Cette section
+> ne décide rien : elle chiffre les leviers, pour que la décision porte sur des nombres.
+> Tout y est mesuré contre le gabarit **livré**, pas contre l'existant Access.
+
+**Le budget vertical est fermé.** Les cinq postes de §7.4 somment exactement à 25 000 µm.
+Gagner de la hauteur de barres, c'est en retirer à l'un des quatre autres, ou agrandir
+le papier. Il n'y a pas de sixième possibilité.
+
+**Ce qui n'est plus un levier, et il faut le dire en premier.** La marge la plus visible
+— les trois lignes de texte, 10 792 µm, 43 % du budget — **a été fermée par le
+commanditaire le 29/07/2026** en portant le prix solidaire de 7 à 11 pt pour la
+lisibilité à bout de bras (§7.2). Sous cette contrainte, **la mise en page livrée est
+déjà à son optimum** : 10 875 µm est la valeur maximale que le budget autorise. Les
+gains « gratuits » que suggérerait un retour au corps 7 rouvriraient une décision
+vieille de vingt-quatre heures, et ne sont donc pas listés ici comme acquis.
+
+#### Les six leviers, du moins cher au plus cher
+
+| # | Levier | Barres | % de la norme (20 290 µm) | Ce qu'il coûte | État |
+|---|---|---|---|---|---|
+| — | avant le 30/07/2026 | 10 875 | 53,6 % | — | — |
+| **O2** | Interligne 277 → 150 µm | 11 256 | 55,5 % | densité de l'empilement | **appliqué** |
+| **O1** | Bande HRI 2 930 → 2 700 µm | 11 105 | 54,7 % | **rien** | **appliqué** |
+| **O1+O2** | les deux | **11 375** | **56,1 %** | — | **LIVRÉ** |
+| O1″ | Bande → 2 625 µm | 11 450 | 56,4 % | chiffres **soudés** aux barres | écarté |
+| O1‴ | Bande → 2 200 µm | 11 875 | 58,5 % | chiffres −12 % **et** soudés | écarté |
+| O1⁗ | Bande → 1 800 µm | 12 250 | 60,4 % | chiffres **−31 %** et soudés | écarté |
+| **O5** | Support 38 × 32 | 18 486 | **conforme à 80,9 %** | rouleau à sourcer | **écarté — budget** |
+| **O5′** | Support 38 × 34 | 20 486 | **conforme à 89,7 %** | rouleau à sourcer | **écarté — budget** |
+| **O5″** | Support 40 × 40 | 26 486 | **conforme, module inchangé** | rouleau standard, papier +60 % | **écarté — budget** |
+
+> **Les trois lignes O5 sont écartées le 30/07/2026, et il faut dire par quoi.** Pas par
+> un argument technique — elles sont toutes les trois valides et chiffrées — mais par
+> **l'absence de budget** et par un constat d'exploitation : *« on ne changera ni
+> l'imprimante ni les étiquettes si tout fonctionne comme ça »*. Les étiquettes passent
+> en caisse depuis des années, et ce fait pèse plus qu'un pourcentage de conformité.
+>
+> **Ce n'est donc pas une décision définitive, c'est une décision datée**, et sa
+> condition de réouverture est nommée : **si le taux de lecture en caisse se dégrade**
+> — tête usée, nouvelle douchette, nouveau lot de papier. Le jour où cela arrive, le
+> dossier n'a pas à refaire l'analyse : les trois chiffres sont là, et O5′ (38 × 34,
+> conforme à 89,7 %, mise en page intacte) est le candidat désigné.
+>
+> **Ce qui reste à faire d'ici là, et qui ne coûte rien : O4.** Le balayage
+> noircissement × vitesse (§21 n° 8 bis) est le seul levier restant, il ne demande ni
+> papier ni imprimante, et son rendement est inconnu — donc c'est le seul qui puisse
+> encore surprendre. Il devient **le premier remède** en cas de dégradation, avant tout
+> arbitrage de consommable.
+
+> **La première version de cette table était fausse, et il faut dire comment.** Elle
+> annonçait 12 386 µm de barres pour un cumul « HRI à 1 800 + interligne à 150 », soit
+> +14 %. Le chiffre était calculé sur la **profondeur** de la bande HRI, sans vérifier
+> **ce que la bande contient**. La mesure a corrigé cela.
+
+**O1 — la bande HRI est un héritage, mais elle n'était presque pas creuse.** Les 2 930 µm
+sont la descente de la fonte `Code EAN13` au corps 34 (0,244 em) : personne ne les a
+choisis, et GS1 ne fixe aucune hauteur numérique pour la HRI, seulement sa lisibilité.
+Mais `FitHRIFace` **n'est pas borné par la bande** : il l'est par la **cellule**, les
+sept modules sous lesquels chaque chiffre doit tenir, soit 14 dots de large. Mesuré :
+
+| Bande | dots | em retenu | Encre du chiffre | Jeu barres ↔ chiffres |
+|---|---|---|---|---|
+| 2 930 | 23 | 3 699 µm | 21 dots | **2 dots** |
+| **2 700** | **22** | **3 699 µm** *(inchangé)* | 21 dots | **1 dot** |
+| 2 625 | 21 | 3 699 µm | 21 dots | **0 — soudés** |
+| 2 200 | 18 | 3 261 µm *(−12 %)* | 18 dots | 0 |
+| 1 800 | 14 | 2 535 µm *(−31 %)* | 14 dots | 0 |
+
+**Sur les 23 dots de bande, 21 sont de l'encre. Deux seulement étaient libres, et l'un
+des deux doit rester** : une caissière qui relève treize chiffres collés au bas des
+barres, c'est le filet de secours dégradé au moment où on prétend l'améliorer. La bande
+s'arrête donc à 2 700 µm, et **les chiffres sortent exactement comme avant**.
+
+Deux contraintes encadrent ce levier, et les deux sont dans le code : la bande doit
+rester **supérieure à la descente des gardes (1 465 µm)**, sinon le `max(…)` de §7.4
+bascule sur la descente et le gain s'évapore ; et à 1 800 µm les chiffres tombent à
+≈ 1,75 mm d'encre, **l'ordre de grandeur du corps 7 que le commanditaire venait de
+rejeter** pour le prix solidaire. Descendre là serait une incohérence de vingt-quatre
+heures.
+
+**O2 — l'interligne est le seul poste vraiment creux.** Le banc du 28/07 l'avait ramené
+de 350 à 277 µm pour rendre 93 µm au papier ; ADR-029 nommait déjà 150 comme son repli.
+Il rend **381 µm**, soit les trois quarts du gain total.
+
+**O3 — le décalage horizontal ne se gagne PAS sur le module.** Contre-intuitif, et le
+document a laissé croire l'inverse. Le contenu remplit sa largeur à **22 µm près**, mais
+ce n'est pas le symbole qui la remplit : le symbole fait 33 109 µm et laisse 1 891 µm.
+Ce qui touche le bord, c'est la **boîte de `product_name`, à 34 978 µm** — une largeur de
+contrôle Access. Réduire le module ne rendrait donc **aucun** jeu de réglage. Le levier
+réel est de **rétrécir les boîtes de texte** : les ramener à 33 200 µm rend **1,8 mm de
+course horizontale** aux flèches ±1 dot de l'admin, au prix d'un déclenchement plus
+précoce de la réduction automatique du corps sur les noms longs (`MinFontSizeUM`).
+
+**O4 — le balayage noircissement × vitesse n'a jamais été fait.** ADR-003 le nomme comme
+« le remède qui reste » et ne lui donne aucun protocole. Le mécanisme est connu : à
+noircissement élevé chaque barre déborde thermiquement d'une fraction de dot, **tous les
+bords se décalent dans le même sens**, et la décodabilité chute sans qu'aucune cote
+change. Descendre à 4 ips permet souvent de baisser le noircissement d'un cran à densité
+optique égale. Protocole : 5 combinaisons (vitesse × noircissement), 20 étiquettes
+chacune, même douchette, refus et relectures comptés. **Coût : une heure de bénévolat et
+100 étiquettes. C'est le seul levier dont le rendement est inconnu, donc le seul qui
+puisse encore surprendre.**
+
+**O4 bis — la compensation de grossissement de barre est impossible à 203 dpi.** Puisque
+le rastériseur trace lui-même le symbole, il pourrait rétrécir chaque barre d'une
+fraction de dot pour compenser O4 (*bar width reduction*). À 8 dots/mm le plus petit
+retrait est **un dot entier, soit 50 % d'une barre de 2 dots** : inapplicable. À
+12 dots/mm, un dot sur les 3,5 du module vaut −28 %, dosable. **C'est le seul argument
+technique réel en faveur d'une tête 305 dpi** — et il ne suffit pas : le passage
+n'apporte aucun module entier conforme (amendement d'ADR-002), déclenche le refus
+d'attelage d'ADR-045, et périme toutes les cotes en dots de §7.2 et §7.4.
+
+**O5 — la hauteur du support est le seul chemin vers la conformité.** Barres disponibles
+sur une hauteur `H` : `H − 10 792 − 277 − HRI − 126`. Conformité atteinte quand
+`barres ≥ 22 850 × m`, avec `m ∈ [80 % ; 93,9 %]` (largeur, amendement d'ADR-002).
+
+| Support | Barres dispo | Grandissement conforme max | Verdict |
+|---|---|---|---|
+| **38 × 25** *(livré)* | 11 486 | 50,3 % | ✗ très loin du plancher |
+| 38 × 30 | 16 486 | 72,2 % | ✗ |
+| **38 × 32** | 18 486 | **80,9 %** | ✓ **tout juste au-dessus du plancher** |
+| **38 × 34** | 20 486 | **89,7 %** | ✓ **confortable, mise en page intacte** |
+| 38 × 35 | 21 486 | 93,9 % *(borné par la largeur)* | ✓ |
+| **40 × 40** *(impr. 37 × 40)* | 26 486 | 99,2 % *(borné par la largeur)* | ✓ **module inchangé** |
+
+**Le point de conception propre sur 38 × 34 : module 0,285 mm (86,4 %).** Barres
+normatives 19 733 µm contre 20 486 disponibles — 753 µm de marge. Hors-tout 32 205 µm,
+donc 2 795 µm de jeu latéral une fois les boîtes de texte rétrécies (O3). Le module reste
+fractionnaire (2,28 dots), **donc le raster reste obligatoire** : la conformité et
+ADR-002 ne s'opposent pas.
+
+**Sur 40 × 40, rien ne change que le papier** : le module reste à 0,293 mm, la mise en
+page reste celle du 29/07, et les barres passent à 20 290 µm avec plus de 6 mm de reste.
+C'est le gabarit `weighing_40x40` que la critique bloquant-5 proposait et qu'ADR-003 a
+clos « sans objet ». Contrepartie : +60 % de papier par étiquette, et une étiquette
+carrée sur un sac.
+
+#### Ce que le cumul donne
+
+- **Livré, sans toucher au papier ni à une décision du commanditaire : 11 375 µm de
+  barres, 56,1 % de la norme, contre 10 875 et 53,6 %.** Soit **+4,6 %**, dont les trois
+  quarts viennent du seul interligne. Le gain est modeste et c'est le résultat honnête :
+  la mise en page était déjà près de son optimum, et la bande HRI n'était pas le
+  gisement qu'elle paraissait.
+- **Un bénéfice qui ne se lit pas dans ce chiffre** : la marge basse passe de 1,0 à
+  **1,9 dot**, donc les flèches ±1 dot de l'admin retrouvent une course verticale que
+  l'amendement d'ADR-045 disait épuisée.
+- **Avec le papier : la conformité pleine dès 32 mm de hauteur**, sans rouvrir la
+  lisibilité des prix tranchée le 29/07, et confortablement à 34.
+- **Le passage à 305 dpi n'apparaît dans aucune de ces lignes** : il n'achète ni
+  conformité, ni affranchissement du raster — seulement O4 bis et du confort de rendu de
+  texte, pour quatre imprimantes.
 
 ---
 
@@ -1589,7 +1849,7 @@ A2 dit deux choses, et les deux sont tenues : *« le driver SBPL reste au périm
 
 **Ce qui est vrai des trois, sans exception : le symbole EAN-13 et sa HRI sont tracés DANS le bitmap** (§7.4), et **la commande native `<BD>` n'est jamais émise**. Elle est écartée pour deux raisons qui ne dépendent d'aucune mesure sur site : elle rendrait **l'aperçu infidèle** (le firmware dessinerait un symbole que l'écran ne montre pas, ce qui est exactement la critique important-1), et elle **rouvrirait les inconnues de firmware** refermées ci-dessus (origine de `<H>`, inclusion de la HRI dans `ccc`, format du sélecteur). `raster` et `sbpl` produisent donc **les mêmes octets** pour une même étiquette — le golden de §8.3 les couvre tous les deux — et ne diffèrent que par **qui porte la trame jusqu'à la tête**.
 
-L'intérêt technique que A2 prêtait par ailleurs au SBPL — *« à 2 dots chaque module fait exactement 2 dots, donc les barres sont rigoureusement uniformes »* — est **conservé en totalité mais testé ailleurs** : cette uniformité vient du **module entier**, pas du langage d'imprimante, et le rastériseur la produit dès qu'on lui donne `module_milli_dots = 2000`. Elle est donc mesurée sur site, 50 étiquettes contre 50, **par le gabarit B** (§7.6, §21 n° 8) — un test *plus* fidèle, puisque tout le reste de l'étiquette est identique entre les deux bras (ADR-002, « Précision technique »).
+L'intérêt technique que A2 prêtait par ailleurs au SBPL — *« à 2 dots chaque module fait exactement 2 dots, donc les barres sont rigoureusement uniformes »* — reste vrai et **ne mène nulle part**. L'uniformité vient bien du **module entier** et non du langage d'imprimante, et le rastériseur la produit dès qu'on lui donne `module_milli_dots = 2000`. Mais 2 000 milli-dots valent 0,250 mm, soit **75,8 %** : sous le plancher GS1, donc inadoptable, donc intestable utilement. **Le gabarit B qui portait ce comptage est retiré** (§7.6, ADR-051), et la règle dure 9 le refuse désormais au chargement. Ce qui subsiste est l'**invariant de tracé** — à module entier, toute plage de même couleur est un multiple du module — conservé comme test unitaire de `DrawEAN13`, seul endroit où il est exactement vérifiable.
 
 ### 8.2 Le driver `raster` — chemin de production par défaut
 
@@ -4456,7 +4716,7 @@ Chaque lot livre quelque chose de **démontrable** et laisse le dépôt vert.
 | **L1 — Socle et arithmétique**<br>*2 sem.* | Dépôt, `go.mod`, Makefile **corrigé** (important-3), CI 3 cibles, `make boundary`. `quantity.go`, `text.go`, `ean13.go` (**dont `internalPlan` et son auto-contrôle au démarrage**, §6.2, ADR-028), `pricing.go`, `product.go`. Vecteurs T1–T34 **et T14 bis**, exhaustif `Divide` vs `big.Rat` sur les 3 politiques. | **`openscale barcode 0493021000003 --weight 1236`** → `0493021012365` ; **`openscale price --unit-price 5,32 --weight 1236 --tiers cagette`** → `A 4,79 €/kg · A 5,92 € · S 6,58 €`. `go test -race` vert en < 3 s, couverture 97 % sur `domain`. **Les 5 codes de `FAideDecimalesPoids` compatibles avec la politique d'arrondi retenue (A6) sont reproduits au digit près** ; **le 6ᵉ (`0493021006579`, prix tronqué à 6,57 €) n'est reproduit qu'en mode `amount_rounding = truncate`, et ce cas est couvert par un test dédié** (T14 bis, Annexe A). *Note : les textes d'aide de l'ancienne application contiennent au moins **deux erreurs avérées** — ce 6,57 € (1,236 × 5,32 = 6,5755 → 6,58 en arrondi commercial) et la clé de `0493021000009` (la bonne est `0493021000003`). **Ils ne font pas foi : la table de configuration et le code font foi.*** |
 | **L2 — Noyau complet**<br>*3 sem.* | `safeguard.go` (14 règles), `measurement.go` (`WeightLatch` + **`RateMeter`**), `frame/` (grammaire + accumulateur + fuzz), `prepare.go`, `machine.go`, `config.go` + `profiles.go`, `template.go` + `Validate`. `store` complet (DDL, migrations, 6 dépôts, purge, quarantaine, décisions locales). | **`openscale config validate config.broken.json`** liste les 26 fautes en français, d'un coup. Les **208** couples (état × événement) passent sans panique. Les **17 scénarios** de `Prepare` passent, **dont « mesure périmée »** (§16.1), et la table de frontières d'âge de `Evaluate` fixe la règle 2 `MEASUREMENT_EXPIRED` à `age > Expiry`. **`Template.ValidateOn` refuse un gabarit dont le contenu encré déborde la géométrie encrée que la tête déclare (280 × 200 dots sur la WS408 du parc)** (A1, §7.5-3, ADR-045). Une base est créée, migrée, purgée. |
 | **L3 — Balance**<br>*2 sem.* | `serial/loop.go`, `gramxfoc` (2 entrées **et rien d'autre dans `scale.type`**, §9.3), `absent/` (source vide de l'état saisie manuelle), `replay/` (**hors configuration** : `openscale capture` / `openscale replay` et le bouton « Rejouer cette trame »), `conformance`. Registre + schéma d'options. Corpus `testdata/frames/`. | **Sur la vraie GRAM du banc** : `openscale capture --duration 30s` produit un fichier ; `openscale replay frames.txt` réaffiche les poids décodés avec l'état de figeage **et la cadence médiane mesurée**. Le test « découpage 18 octets » décode 100 trames sur 100 là où l'existant en perdait une sur deux. **La valeur de `expiry` est enfin fondée sur une mesure.** |
-| **L4 — Étiquette et rendu raster**<br>*3 sem.* | `printing/render.go`, `symbol.go` (**module fractionnaire + HRI**), les 3 gabarits (`weighing_identical`, `weighing_integer_module`, `weighing_neutral_single`), driver `preview` (PDF/PNG), `openscale label`. Golden mixtes. | **`openscale label --template weighing_identical --demo --dual --pdf output.pdf`** → un PDF **imprimable en 100 %**, mesurable au réglet : **module 0,293 mm, hors-tout 33,1 mm, barres 11,7 mm**. Superposé à une étiquette de production sur une table lumineuse, **il coïncide**. L'invariant « pas de dérive cumulative » passe. **Ce lot permet de valider la géométrie sans imprimante.** |
+| **L4 — Étiquette et rendu raster**<br>*3 sem.* | `printing/render.go`, `symbol.go` (**module fractionnaire + HRI**), les **2** gabarits (`weighing_identical`, `weighing_neutral_single`), driver `preview` (PDF/PNG), `openscale label`. Golden mixtes. | **`openscale label --template weighing_identical --demo --dual --pdf output.pdf`** → un PDF **imprimable en 100 %**, mesurable au réglet : **module 0,293 mm, hors-tout 33,125 mm, barres 11,375 mm** (ADR-051 ; c'était 10,875 sous ADR-029 et 11,7 dans l'existant Access). La superposition sur table lumineuse **ne coïncide plus en hauteur de barres, et c'est voulu** — elle reste le contrôle du module et du hors-tout. L'invariant « pas de dérive cumulative » passe. **Ce lot permet de valider la géométrie sans imprimante.** |
 | **L5 — Impression réelle**<br>*2,5 sem.* | `raster/`, `sbpl/` (encapsulation typée `<A>…<G>…<Z>`), les 4 transports, statut N1/N2/N3, les 3 auto-tests, compteur de rouleau, imprimante de secours. Golden `.sbpl`. | **Une vraie étiquette sort de la vraie SATO WS408 du banc, par la file Windows en RAW.** L'auto-test `alignment` lève la polarité de `<G>` en 10 min. **Superposition avec une étiquette de production : identique.** Puis le **test terrain A/B** : 50 étiquettes de chaque gabarit passées au lecteur USB du banc **et** à la douchette de la caisse. **Le comptage produit une recommandation chiffrée remise au commanditaire (« A : n refus sur 50 ; B : m refus sur 50 »), pas un basculement : `weighing_identical` (A) reste le gabarit livré dans `config-lacagette.json` quel que soit le résultat** (A1 fixe le grandissement à celui d'aujourd'hui, et B est à 75,8 %, sous le plancher GS1). Adopter B exigerait une **décision humaine explicite du commanditaire, tracée dans un ADR amendant ADR-003**, et une ligne de configuration (§7.6). Le même passage sert au comptage qui tranche le **tracé géométrique** : 50 étiquettes de production Access contre 50 étiquettes neuves du gabarit A, au même scanner (§7.4, ADR-019). **C'est ici, et pas ailleurs, que le rendu du symbole s'affine** : le commanditaire a tranché — *« fait au mieux pour l'instant, on affinera avec des tests réels d'impression »*. Le tracé géométrique déterministe est donc le **point de départ validé**, et les trois boutons d'ajustement (noircissement, vitesse, décalage ±1 dot) se règlent sur tirage réel, en une demi-heure de banc. |
 | **L6 — Poste vivant et écran client**<br>*4,5 sem.* | `station/` complet (Hub avec **horloge injectée**, workers, superviseur, idempotence, effets, **bascule différée**), `web/` (SSE, DTO, routes, auth, code de secours), front client Svelte complet. Les **23 tests de panne** (§16.2 : 1, 1 bis, 1 ter, 2, 3, 3 bis, 3 ter, 4 à 12, 12 bis, 12 ter, 13 à 17). | **Un poste complet fonctionne** : on pose un sac, on touche le produit, l'étiquette sort — **et dans l'ordre inverse aussi** (armement, test de panne n° 17). Le double-tap ne produit qu'une étiquette. Débrancher **puis rebrancher** la balance revient à l'état nominal en < 200 ms. `TestWeighingEndToEnd` passe sans matériel en 45 ms. **L'arrêt complet prend < 3 s avec 4 navigateurs connectés.** |
 | **L7 — Catalogue**<br>*2,5 sem.* | `source.go`, drivers `local_drop` et `webdav`, dépôt par glisser-déposer **(A4)**, `csvodoo` (parseur **en flux** + **qualification à trois issues**), **upsert par `id` + marquage des retirés**, source d'images, transaction atomique, quarantaine, gardes absolu et relatif, décisions locales. | **On dépose le fichier authentique `flv.csv` dans le répertoire ; la grille se peuple en 5 s avec 331 tuiles — 181 avec photo, 174 sans, aucun trou dans la grille —, le fichier disparaît, et l'admin affiche « 355 · 331 · 8 · 16 » avec les 16 lignes à corriger dans Odoo, nommées.** Le déposer **deux fois** ne produit aucune alerte. **`flv_1.csv` passe aussi, feu VERT, 107 tuiles, sans une seule photo.** Un CSV corrompu part en quarantaine après 3 essais sans jamais écraser le catalogue en service. **Un bénévole glisse un CSV dans l'admin et la grille se remplit.** Un produit cesse d'être proposé en un clic, et il le reste après le prochain import — **sans que la table ait à « survivre » à quoi que ce soit**. Un produit absent du fichier suivant apparaît **retiré, à une date**, et son historique de pesées reste lisible. |
@@ -4475,7 +4735,7 @@ Chaque lot livre quelque chose de **démontrable** et laisse le dépôt vert.
 | **Commande SBPL `<BD>`, mode texte natif, table de caractères, CP858, octet euro** | A2 : le symbole est dans le bitmap. |
 | **Auto-tests `barcode-frame` et `character-table`** | Sans objet (A2). |
 | **Mise en conformité du symbole EAN-13** (média plus haut, 305 dpi, module 2 ou 3 dots imposé) | **A1** : décision explicite du commanditaire. Voir ADR-003. |
-| **5 gabarits livrés → 3** | `weighing_identical`, `weighing_integer_module` (test A/B), `weighing_neutral_single`. Les variantes 40×30, 50×40 et 305 dpi n'ont aucun média correspondant dans le parc. |
+| **5 gabarits livrés → 3, puis → 2** | `weighing_identical`, `weighing_neutral_single`. Les variantes 40×30, 50×40 et 305 dpi n'ont aucun média correspondant dans le parc. `weighing_integer_module` (test A/B) a tenu jusqu'au 30/07/2026, où la règle 9 réécrite contre la plage GS1 l'a refusé : 75,8 %, sous le plancher (ADR-051). |
 | **Thème sombre** | Aucun poste en vitrine dans le parc. |
 | **Mise à jour automatique du binaire** | Réintroduit la dépendance réseau que la contrainte 4 supprime, pour 4 postes dans la même pièce ; le chemin de mise à jour est le code le plus dangereux d'un produit de ce type. L'existant en avait un — **neutralisé par un `Exit Sub` en première instruction**, donc mort depuis des années. On copie un fichier. |
 | **Mode kiosque bricolé en Win32** (`SetWindowLong`, `FindWindowA`) | Remplacé par de la configuration (kiosque navigateur + Assigned Access optionnel) : 200 lignes d'API en moins, un mode d'échec en moins. |
@@ -4504,11 +4764,70 @@ Chaque lot livre quelque chose de **démontrable** et laisse le dépôt vert.
 
 ### ADR-002 — Le driver raster est le chemin de production par défaut
 **Contexte.** Le module du code-barres actuel vaut 0,293 mm. En SBPL le module se déclare en **dots entiers** : à 203 dpi, 2 dots = 0,250 mm (33,1 → 28,3 mm, plus étroit), 3 dots = 0,375 mm (42,4 mm, ne rentre pas). **Aucune valeur entière ne redonne 33,1 mm.**
+
+> **Amendement du 30/07/2026 — l'argument ci-dessus est un calque, et la décision
+> mérite mieux.** « Redonner 33,1 mm » défend un nombre hérité d'Access : 33,109 mm
+> est le hors-tout produit par la police `Code EAN13` au corps 34, pas une exigence.
+> Un lecteur qui rouvrirait A1 pourrait donc croire qu'ADR-002 tombe avec lui. **Il
+> ne tombe pas** — et voici l'argument qui ne doit rien à l'existant.
+>
+> Sur cette largeur, la fenêtre des modules **à la fois conformes GS1 et tenant sur
+> le papier** se calcule sans référence au legacy :
+>
+> ```
+> X ≥ 0,264 mm                          plancher GS1 (80 % de 0,330)
+> 113·X ≤ 35 mm  →  X ≤ 0,309735 mm     hors-tout, zones de silence comprises
+> ```
+>
+> soit **X ∈ [0,2640 ; 0,3097] mm**, un grandissement de 80,0 % à 93,9 %. Traduite en
+> dots, cette fenêtre est **vide aux deux résolutions accessibles** :
+>
+> | Tête | dot | n admissible | Entiers dans la fenêtre |
+> |---|---|---|---|
+> | 203 dpi (8 dots/mm) | 0,125000 mm | [2,112 ; 2,478] | **aucun** |
+> | 300 dpi (11,811/mm) | 0,084667 mm | [3,118 ; 3,658] | **aucun** |
+> | 305 dpi (12 dots/mm) | 0,083333 mm | [3,168 ; 3,717] | **aucun** |
+> | 600 dpi (23,622/mm) | 0,042333 mm | [6,236 ; 7,317] | 7 → 0,2963 mm, 89,8 % |
+>
+> À 8 dots/mm, 2 dots donnent 75,8 % (**sous** le plancher) et 3 dots donnent 35,625 mm
+> pour les 95 modules seuls — hors papier avant même les zones de silence. À 12 dots/mm,
+> 3 dots redonnent 75,8 % et 4 dots donnent 101,0 % mais **37,667 mm hors-tout**, soit
+> 2,7 mm de plus que l'imprimable et 0,33 mm de moins que le support entier : deux dots
+> de marge par côté, contre une découpe à coins arrondis de 1 mm de rayon.
+>
+> **L'énoncé fort est donc celui-ci, et il survit à une page blanche :** le SBPL natif
+> (`<BD>`), qui ne sait déclarer qu'un module entier, **ne peut produire aucun EAN-13
+> conforme sur ce support à aucune résolution en dessous de ~600 dpi**, quelle que soit
+> la mise en page et quel que soit le sort d'A1. Le module fractionnaire n'est pas
+> *hérité*, il est *nécessaire*.
+>
+> **Deux justifications supplémentaires ne parlent pas du code-barres du tout**, et
+> tiendraient même si un module entier existait : le raster rend l'aperçu écran
+> littéralement identique à l'impression (important-1), et il referme les inconnues de
+> firmware — origine de `<H>`, inclusion de la HRI dans `ccc`, format du sélecteur,
+> table de caractères, CP858, octet euro.
+>
+> **Conséquence pour un passage à 305 dpi :** il n'affranchit pas du raster. Ce qu'il
+> achèterait vraiment est ailleurs — voir §7.7.
 **Décision.** Le driver **raster** dessine l'intégralité de l'étiquette — textes, cadres, symbole et HRI — dans un bitmap 1 bit au pas de la tête, et l'envoie à l'imprimante. Le SBPL n'a plus qu'à **transporter ce bitmap** (`<G>`).
 **Conséquences.** Seul chemin qui reproduit l'étiquette à l'identique (A1). Suppression du champ `WithBarcode`, de la commande `<BD>` et de ses inconnues, de la table de caractères du firmware, de CP858, de l'octet euro et du sélecteur de type. **L'aperçu à l'écran devient littéralement identique à l'impression.** Les critiques important-1 et important-5 sont adoptées en totalité, important-6 et important-8 deviennent sans objet pour le code-barres. Coût : ~16 ko par étiquette au lieu de ~400 octets — négligeable sur USB, rédhibitoire sur une liaison série, que la configuration refuse donc explicitement.
-**Précision technique.** L'hypothèse « SBPL à 2 dots = barres uniformes » est exacte, mais l'uniformité vient du **module entier**, pas du langage : le rastériseur produit tout aussi bien un module rigoureusement uniforme. L'hypothèse se teste donc par un **second gabarit** (`weighing_integer_module`, §7.6), sans code spécifique.
+**Précision technique.** L'hypothèse « SBPL à 2 dots = barres uniformes » est exacte, mais l'uniformité vient du **module entier**, pas du langage : le rastériseur produit tout aussi bien un module rigoureusement uniforme. L'hypothèse devait donc se tester par un **second gabarit**, sans code spécifique. *(`weighing_integer_module` a porté ce test jusqu'au 30/07/2026. Il est retiré : 2 dots valent 75,8 %, sous le plancher GS1, donc son bras gagnant n'était pas adoptable — un test dont on s'interdit d'utiliser le résultat n'en est pas un. L'invariant de tracé subsiste en test unitaire. Voir §7.6 et ADR-051.)*
 
 ### ADR-003 — Le symbole EAN-13 est volontairement tronqué
+
+> **⚠ REMPLACÉ PAR ADR-051 le 30/07/2026.** Le commanditaire a rouvert A1, et avec lui
+> les trois interdits que cet ADR posait — changer de consommable, passer en 305 dpi,
+> modifier le grandissement. **Ils sont levés.** Ce qui suit reste au dossier comme
+> l'état antérieur et comme la trace de l'amendement du 29/07 sur l'ordre d'autorité,
+> qui, lui, n'est pas rouvert : l'imprimante d'abord, le pied à coulisse ensuite, les
+> documents en dernier.
+>
+> **Ce qui survit et change seulement de statut** : la troncature. Elle n'est plus une
+> décision du commanditaire mais **un résultat de calcul** — sur 25 mm de hauteur, un
+> EAN-13 de hauteur normative laisserait 1,8 mm pour cinq champs texte au grandissement
+> retenu, et 4,3 mm au plancher GS1 de 80 %. Une seule ligne de 7 pt y tiendrait. Voir
+> ADR-051 et §7.7.
+
 **Contexte.** Le symbole imprimé a un module de 0,293 mm (grandissement 88,8 %, **dans** la plage GS1) mais des barres de ~11,7 mm au lieu des 20,3 mm normatifs, soit une troncature à ~58 %. Un EAN-13 conforme à ce grandissement occupe 33,1 × 23,3 mm ; sur une étiquette de 40 × 25 mm il ne resterait pas 2 mm pour les cinq champs texte imposés.
 **Décision (commanditaire).** **L'étiquette est reproduite à l'identique, code-barres compris.** Ce n'est **pas** un défaut à corriger. Ne pas proposer de changer de consommable, ni de passer en 305 dpi, ni de modifier le grandissement.
 **Conséquences.** (a) Une **règle de validation dure** refuse tout gabarit dont le contenu encré déborde la géométrie de l'étiquette — voir l'amendement ci-dessous pour les chiffres, qui ne sont plus ceux du PDF. (b) Le gabarit porte `truncation_accepted: true` : le diagnostic est **informatif**, pas un avertissement — pour qu'aucun contributeur ne « corrige » cette décision par zèle. **Les critiques bloquant-3, bloquant-4, bloquant-5 et bloquant-10 sont closes sans objet** : elles portaient toutes sur la mise en conformité du symbole. Ce qu'on en retient est intégré : la règle de validation et le présent ADR.
@@ -4549,6 +4868,21 @@ vers la droite**. Tant que le média était déclaré à 40 mm, les flèches ava
 millimètres de jeu — sur du papier qui n'existait pas. Élargir cette plage exige de
 rétrécir le dessin ; la question reste ouverte.
 **Risque assumé.** Si le taux de lecture en caisse se dégrade un jour (tête usée, nouvelle douchette), le remède géométrique a été écarté par décision. Le remède qui reste est le gabarit B (§7.6) et le réglage du noircissement. Aucune mesure ISO/IEC 15416 n'est au plan.
+
+> **Mis à jour le 30/07/2026 — c'est le paragraphe qu'on relira ce jour-là, il doit
+> nommer des remèdes qui existent.** Le gabarit B n'existe plus (ADR-051). L'ordre des
+> remèdes est désormais celui-ci, du gratuit au coûteux :
+>
+> 1. **Le balayage noircissement × vitesse** (§21 n° 8 bis) — une heure, 100 étiquettes,
+>    aucun achat, et son rendement est inconnu donc potentiellement le meilleur ;
+> 2. **le reste du budget vertical** — la bande HRI peut encore descendre à 2 200 µm au
+>    prix de 12 % de la taille des chiffres, ce qui rendrait 500 µm de barres (§7.7) ;
+> 3. **le consommable** — 38 × 34 mm rend le symbole conforme à 89,7 % sans toucher à la
+>    mise en page. Écarté faute de budget le 30/07/2026, **pas pour une raison
+>    technique** : c'est le remède réel, et il est chiffré et prêt.
+>
+> Le risque, lui, ne change pas de nature : la conformité pleine est hors du périmètre
+> V1 par arbitrage économique, et aucune mesure ISO/IEC 15416 n'est au plan.
 
 ### ADR-004 — L'acquittement est la suppression du fichier
 **Contexte.** Une application distante dépose `flv_<n>.csv` dans un répertoire surveillé, **un fichier par poste**. Le protocole est imposé et ne se renégocie pas.
@@ -4679,6 +5013,17 @@ rétrécir le dessin ; la question reste ouverte.
 **Conséquences.** (a) **0 largeur devinée et 0 cas ambigu sur les 508 produits** des deux fixtures, contre 316 ambiguïtés (`flv.csv`) et 92 sur 92 (`flv_1.csv`) pour la variante « déduction stricte », qui était inexploitable. (b) Les 16 codes fautifs sont **isolés et nommés**, au lieu d'être validés en silence — ils produiraient à 1,236 kg trois étiquettes désignant *PATATE DOUCE SAF*, *SAUCISSE CANARD FACON TOULOUSE* et *AIL BLANC SAF*, avec un facteur 10 sur la masse (§6.2, T31–T33). (c) La suppression de `weight_decimals` **tient toujours**, et son argumentaire est complété : ce qui la remplace n'est pas un autre réglage, c'est un **contrat déclaré**, indexé par préfixe — il porte donc déjà deux largeurs différentes, ce qu'un réglage global ne pouvait pas faire. (d) Le prix à payer est nommé : **le plan est établi, pas prouvé**. Il est confirmé par un **test d'acceptation physique bloquant** avant mise en service — imprimer, scanner en caisse, vérifier article et poids (§21 n° 13). (e) Un futur article qui aurait besoin de plus de 3 digits de référence ne fera pas élargir `0493` — 684 références y sont libres — mais **ouvrir un autre préfixe**, en accord avec la caisse. (f) Non couverts, et dits : l'EAN-8, et les codes à prix variable `0491`/`0492` que l'ancienne application signalait déjà (`Module1.bas:4096`, `4105`), absents des deux catalogues.
 
 ### ADR-029 — Les barres du symbole deviennent uniformes ; le texte cesse de les recouvrir
+
+> **⚠ SA DÉCISION TIENT, SES CHIFFRES SONT REMPLACÉS PAR ADR-051 le 30/07/2026.**
+> Empiler les trois lignes et poser le symbole dessous reste juste, et c'est le seul
+> point de cet ADR qui repose sur une mesure du monde et non sur une contrainte. Les
+> **10 875 µm** ci-dessous étaient l'optimum sous une contrainte — « le module et le
+> hors-tout ne changent pas, donc l'interligne et la bande HRI ne se touchent pas » —
+> que le commanditaire a levée. **La valeur livrée est 11 375 µm.**
+>
+> À lire aussi comme un avertissement de méthode : cet ADR justifiait sa compatibilité
+> avec A1 en listant ce qu'il ne touchait pas. Cette liste était sa vraie limite.
+
 **Contexte.** L'étiquette de production superpose les deux prix **par-dessus les barres** du code-barres. Ce n'est pas un accident de mise en page : c'est un **choix délibéré du commanditaire**, qui avait besoin de place pour afficher les deux politiques tarifaires de la coopérative — adhérent et solidaire — au-dessus d'un symbole de cette hauteur. Cela fonctionne en caisse parce qu'un lecteur linéaire n'a besoin que d'**une** ligne de balayage propre, et qu'il la trouve sous le texte.
 
 Le PDF de test a été décompressé et son flux de contenu lu. Il **confirme les six boîtes de §7.2 à 40 µm près** — moins d'un tiers de dot — et il chiffre le coût de ce choix :
@@ -4975,6 +5320,84 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 
 ---
 
+### ADR-051 — L'étiquette n'est plus un calque ; ce qui est tenu est le contrat de caisse
+
+**Statut** : accepté · **Date** : 30/07/2026 · **Portée** : A1, §7 entier, §11.3 · **Remplace** : ADR-003 · **Remplace les chiffres d'** : ADR-029 · **Confirme** : ADR-002, ADR-045
+
+**Contexte.** A1 — « l'étiquette est reproduite à l'identique » — était traité comme une
+contrainte. Ce n'en était pas une : c'était l'**état d'un logiciel Access/VB**, que la
+reprise avait pris pour référence faute de mieux. Le commanditaire l'a rouvert. La
+séparation demandée a montré que le dossier confondait trois choses :
+
+| Nature | Ce qui en relève |
+|---|---|
+| **Physique** | support 38 × 25, tête à 8 dots/mm, plage GS1 [0,264 ; 0,660] mm, 113 modules hors-tout, 22,85 mm de barres normatives à 100 % |
+| **Hérité** | module 0,293 mm *(= corps 34 de la fonte `Code EAN13`)*, barres 11,72 mm *(= 0,977 em au même corps)*, bande HRI 2,93 mm *(= 0,244 em)*, hors-tout 33,109 mm, corps et positions des cinq champs, interligne, Calibri |
+| **Dérivé** | le choix du raster contre le SBPL natif — **et il tient**, voir ci-dessous |
+
+**Décision.** **Ce qui est tenu est le contrat de caisse, pas le dessin** : un EAN-13 au
+plan de numérotation d'ADR-028, zones de silence intactes, HRI imprimée. La mise en
+page, la hauteur des barres, l'interligne et la bande HRI deviennent des **variables de
+conception**, arbitrées par le budget vertical du support.
+
+**Le support et l'imprimante ne changent pas, et c'est une décision, pas un oubli.** Les
+options 38 × 32, 38 × 34 et 40 × 40 rendraient le symbole pleinement conforme ; elles
+sont **écartées le 30/07/2026 faute de budget**, et sur un constat d'exploitation que le
+dossier doit respecter : *« on ne changera ni l'imprimante ni les étiquettes si tout
+fonctionne comme ça »*. Les étiquettes passent en caisse depuis des années. **La
+conformité pleine reste donc hors d'atteinte au périmètre V1, par arbitrage économique
+et non par impossibilité** — la distinction compte, parce qu'elle nomme la condition de
+réouverture : une **dégradation du taux de lecture en caisse**. Les trois chiffres
+restent au dossier (§7.7) pour que ce jour-là personne ne refasse l'analyse.
+
+**Trois nombres hérités ont été rouverts, et un seul n'a pas bougé.**
+
+1. **Le module reste à 0,293 mm — et sa justification a entièrement changé.** Ce n'est
+   plus « A1 le fige » mais : la fenêtre des modules à la fois conformes GS1 et tenant
+   dans 35 mm vaut `X ∈ [0,264 ; 0,3097] mm`, et **aucun entier de dot n'y tombe à 203,
+   300 ni 305 dpi** (amendement d'ADR-002). Le module fractionnaire n'est pas hérité,
+   il est **nécessaire**. Le nombre a survécu à sa propre justification, ce qui est rare
+   et méritait d'être écrit.
+2. **L'interligne passe de 277 à 150 µm** — le repli qu'ADR-029 nommait déjà. **+381 µm.**
+3. **La bande HRI passe de 2 930 à 2 700 µm**, et **pas plus bas.** Elle a été **mesurée
+   plutôt qu'estimée**, et la mesure a démenti l'attente : `FitHRIFace` est borné par la
+   **cellule** (14 dots de large), pas par la bande, si bien que sur 23 dots de bande
+   **21 sont de l'encre**. Deux étaient libres, et l'un des deux doit rester — treize
+   chiffres soudés au bas des barres dégradent le filet de secours au moment même où
+   l'on prétend l'améliorer. **+230 µm**, et **les chiffres sortent inchangés** (em
+   3 699 µm, comme avant).
+
+**Le texte n'a pas été touché**, et c'est délibéré : le commanditaire avait porté le prix
+solidaire de 7 à 11 pt **la veille**, pour la lisibilité à bout de bras. Cette décision
+tient et fixe le budget texte à 10 538 µm.
+
+**Conséquences.**
+
+1. **Les barres passent de 10 875 à 11 375 µm** — 91 dots exactement — soit **56,1 % de
+   la norme au grandissement retenu, contre 53,6 %**. Le gain est de **+4,6 %**, et il est
+   modeste : c'est le résultat honnête d'une mise en page déjà proche de son optimum.
+2. **La marge basse passe de 1,0 à 1,9 dot.** Les flèches ±1 dot de l'admin retrouvent
+   une course verticale que l'amendement d'ADR-045 déclarait épuisée.
+3. **Le gabarit B (`weighing_integer_module`) est retiré** — voir §7.6. La règle dure 9,
+   réécrite contre la plage GS1, le refuse désormais : son bras gagnant n'était pas
+   adoptable, donc ce n'était pas un test.
+4. **La règle dure 9 mesure le module en micromètres contre le pas que la tête déclare**,
+   à la place d'une paire de milli-dots sans origine. Sur le parc : `[2112, 2478]`.
+5. **La troncature reste, et change de statut** : elle n'est plus une décision mais un
+   **résultat de calcul**. Sur 25 mm, un EAN-13 de hauteur normative laisse 1,8 mm pour
+   cinq champs au grandissement retenu et 4,3 mm au plancher GS1 — une seule ligne de
+   7 pt. `truncation_accepted` reste donc levé, avec un motif désormais vérifiable.
+6. **Les deux empreintes de trame changent, et cessent d'être des lectures de banc.**
+   Elles figent une trame calculée, qu'aucune imprimante n'a tirée. Le nombre d'octets,
+   lui, ne bouge pas — 14 072 — parce que le bitmap fait toujours 280 × 200 dots.
+
+**Ce que cette décision ne fait pas.** Elle ne change pas le support, ne touche pas au
+module, ne rend pas le symbole conforme, et ne rouvre pas la lisibilité des prix. Elle
+ne remplace pas non plus la recette physique : l'étiquette **change visuellement**, et
+le protocole de §7.6 s'applique tel quel.
+
+---
+
 ### ADR-046 — La reconnaissance du matériel est déclarée par le driver ; l'énumération des points d'accès reste au core
 
 **Statut** : accepté · **Date** : 30/07/2026 · **Portée** : §9.3, §14.4 · **Complète** : ADR-042, ADR-047
@@ -5062,7 +5485,8 @@ Chacune est une inconnue **matérielle** ou **organisationnelle** que l'analyse 
 | **5** | ~~Un exemplaire réel de `flv_N.csv`~~ — **LEVÉE deux fois.** `docs/annexes/flv.csv` (527 233 o, 24/07/2026, 355 produits) et `docs/annexes/flv_1.csv` (10 413 o, 05/01/2022, 153 produits), repris comme fixtures (§10.2, §16.1). ~~**D'où viennent les images des produits ?**~~ — **LEVÉE aussi : elles viennent du CSV**, qui en porte 181 sur 355 (§10.7). Ce qui reste ouvert est plus étroit : **pourquoi 174 produits sur 355 n'ont-ils pas de photo ?** | **Demander par écrit à Cooperatic** : l'article est-il sans photo dans Odoo, ou l'export en omet-il une partie ; le taux est-il appelé à monter. Accessoirement, inventorier `C:\Balance\Images\` sur un poste pour savoir si le répertoire hérité contient des photos que le CSV n'a pas | **20 min + 1 relance** | **Rien de bloquant, et c'est le résultat d'une décision.** La tuile est bâtie autour du **nom** ; la photo est un enrichissement qui s'ajoute quand elle existe et s'efface sans laisser de trou (§14.2, §14.3, ADR-024) — et cette décision est **confirmée** par la mesure, puisque 49 % du catalogue n'a pas d'image. Ce que la réponse conditionne : rien dans le code, seulement la cible de qualité à annoncer à l'équipe. **Repli livré : import manuel (ADR-011).** |
 | **6** | **Nom exact des files d'impression et leur visibilité depuis le compte du service** | `openscale doctor` sur chaque poste (il interroge le service, pas l'opérateur) | **5 min / poste** | La configuration d'imprimante des 4 postes (L5, L9). Une file « installée pour l'utilisateur » est invisible du service : `install.ps1` le détecte et refuse de continuer. |
 | **7** | **Poids réel d'un panier du magasin** (fenêtre `BASKET_MISSING`, aujourd'hui −282/−270 en dur) | Poser 3 paniers du magasin sur la balance et lire le bandeau | **5 min** | La valeur livrée dans `config-lacagette.json` pour le garde-fou n° 3. Non bloquant : la règle est désactivable et paramétrable. Un mauvais réglage produit des faux positifs sur un autre modèle de panier. |
-| **8** | **Lisibilité comparée gabarit A (identique) / gabarit B (module entier) à la douchette de caisse** | Imprimer **50 étiquettes de chaque**, produits et poids variés, les passer une par une à la caisse ; compter refus et relectures | **45 min** | **Rien — et c'est voulu.** Le gabarit **A reste le défaut en toutes circonstances** (A1 fixe le grandissement à celui d'aujourd'hui ; B est à 75,8 %, sous le plancher GS1). Ce comptage produit une **recommandation chiffrée** remise au commanditaire (« A : n refus sur 50 ; B : m refus sur 50 »), **jamais un basculement** : adopter B exigerait une décision humaine explicite, tracée dans un ADR amendant ADR-003, plus une ligne de configuration (§7.6). |
+| **8** | ~~Lisibilité comparée gabarit A / gabarit B~~ — **RETIRÉE le 30/07/2026 (ADR-051).** Le gabarit B est supprimé : son module de 2 dots vaut 75,8 %, sous le plancher GS1, donc son bras gagnant n'était pas adoptable. Ce qui subsiste du même passage en caisse est le comptage du **tracé géométrique** — 50 étiquettes de production Access contre 50 neuves (§7.4, ADR-019) | — | fait | — |
+| **8 bis** | **Balayage noircissement × vitesse — le seul levier du dossier dont le rendement est inconnu.** À noircissement élevé chaque barre déborde thermiquement d'une fraction de dot : **tous les bords se décalent dans le même sens**, et la décodabilité chute sans qu'aucune cote du gabarit ne change. C'est le remède qu'ADR-003 nommait sans jamais lui donner de protocole | **5 combinaisons**, 20 étiquettes chacune, même douchette de caisse, refus et relectures comptés. Grille : vitesse **4 et 5 ips** × noircissement **3, 4 et 5** (la production est à 5 ips / 4). Imprimer les 100 étiquettes **dans le désordre** pour que l'usure de la tête et l'échauffement ne s'alignent pas sur une branche | **1 h** | **Rien, et c'est ce qui le rend attractif** : les deux réglages sont déjà exposés (`printer.options`), le changement est une ligne de configuration et se défait aussi vite. Ce comptage produit **un couple recommandé** remis au commanditaire. Il ne bascule rien tout seul — même règle que tous les comptages du dossier |
 | **9** | **URL de production, compte et mot de passe d'accès au partage catalogue** | Cooperatic / classeur d'exploitation. L'URL relevée en base est `https://dav.example.org:8001/` — **valeur retirée du dépôt, voir `docs/00-donnees-retirees.md`** ; le code d'origine porte une autre URL | **10 min** | La mise en service (L9). Sans identifiant, le service voit un répertoire vide et le diagnostic dit « tout va bien » — c'est précisément le piège que le contrôle n° 40 et l'affichage du compte au tableau de bord suppriment. |
 | **10** | **`idVendor` / `idProduct` de l'adaptateur USB-série et de l'imprimante** (Linux uniquement) | `lsusb` sur le poste | **2 min** | La règle udev qui donne des noms stables (`/dev/balance-serial`, `/dev/sato-weighing`). Sans elle, `ttyUSB0` devient `ttyUSB1` après un rebranchement. Sans objet sur Windows. |
 | **11** | **Résolution réelle des files installées** (203 dpi supposé) | Journalisée par le driver au démarrage ; auto-test `ruler` mesuré au réglet | **2 min** | Rien : 8 dots/mm est cohérent avec le modèle WS408 et avec la géométrie mesurée. Contrôle de confirmation uniquement. |
