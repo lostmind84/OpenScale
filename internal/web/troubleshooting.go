@@ -124,8 +124,14 @@ func reloadMessage(seen, watched string) string {
 //
 // Manual entry is a STATE the station enters, never a driver written into a file
 // (§11.4): the configuration on disk keeps saying what the operator asked for, and
-// the running one says what the station can actually do. That is why this route is
-// not authenticated and why it does not touch the file.
+// the running one says what the station can actually do. That is why this route does
+// not touch the file.
+//
+// IT IS AUTHENTICATED, unlike the rest of this file. ADR-033 moved the criterion from
+// « does it write the configuration? » to « does it change what the station sells, or the
+// way it weighs? », and this route cuts the scale out and lets the CUSTOMER type their own
+// weight. Writing no file was never what made it harmless. The route table of server.go
+// holds the list, and a test of session_test.go asserts the 401.
 func (s *Server) manualEntry(w http.ResponseWriter, r *http.Request) {
 	var body switchRequest
 	if !decodeJSON(w, r, &body) {
@@ -335,10 +341,16 @@ func (s *Server) selfTest(w http.ResponseWriter, r *http.Request, what string) {
 
 // importCatalog is POST /admin/api/catalog/import: a CSV dropped on the screen (A4).
 //
-// It is NOT authenticated, and it is the one route of ADR-018 where that deserves a
-// sentence: dropping a catalog writes no configuration, it feeds the same watcher,
-// the same parser and the same qualification as the file the producer deposits — and
-// the guards of §10.4 are what protect the catalog in service, not a password.
+// IT IS AUTHENTICATED, and it deserves a sentence because it used not to be. The argument
+// for leaving it open was that a drop writes no configuration and feeds the same watcher,
+// the same parser and the same qualification as the file the producer deposits — so the
+// guards of §10.4, not a password, are what protect the catalog in service. That argument
+// survives, and it stopped being the right one: ADR-033 asks what an act CHANGES, and this
+// one replaces the whole grid with a file somebody brought in. It leaves its trace at the
+// till, which is heavier than anything the password was guarding before.
+//
+// What is still true is that the guards remain the real protection. A password does not
+// make an amputated export safe to put into service; it only names who dropped it.
 func (s *Server) importCatalog(w http.ResponseWriter, r *http.Request) {
 	if s.catalog == nil {
 		unavailable(w, "aucune source de catalogue n'est configurée")

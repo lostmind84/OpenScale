@@ -260,12 +260,15 @@ type SelfTester interface {
 	SelfTest(ctx context.Context, what string) error
 }
 
-// Troubleshooting is what the unauthenticated buttons of §14.4 act on and that
-// nothing else in this package can reach.
+// Troubleshooting is what the repair buttons of §14.4 act on and that nothing else in
+// this package can reach.
 //
-// None of the three writes the configuration file — that is the criterion of
-// ADR-018. Manual entry is a STATE the station enters, the roll counter is a
-// counter, and the fallback printer is a route for the current session.
+// None of the three writes the configuration file: manual entry is a STATE the station
+// enters, the roll counter is a counter, and the fallback printer is a route for the
+// current session. That was the criterion of ADR-018, and it is no longer the one that
+// decides the door — ADR-033 asks what an act CHANGES. Two of the three stay open, and
+// ManualEntry is authenticated: it cuts the scale out and lets the customer type their own
+// weight. The route table below is where that is settled, not this interface.
 type Troubleshooting interface {
 	// ManualEntry switches the station into, or out of, manual weight entry.
 	ManualEntry(ctx context.Context, on bool) error

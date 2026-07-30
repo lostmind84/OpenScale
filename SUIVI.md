@@ -11,6 +11,70 @@ et `deps`, vertes. Le bundle de l'écran client reconstruit pèse **79 425 octet
 70,5 % du budget de 112 640** — 33 215 octets de marge. **La passe `-race` est verte elle
 aussi**, 31 paquets, 0 échec.
 
+**Passe de sécurité avant l'ouverture du dépôt en public (30/07/2026).** Le dépôt part en
+public sous AGPL-3.0, et un dépôt public est lu par d'autres yeux que ceux d'une
+coopérative. La revue a porté sur tout le dépôt et pas sur un diff : secrets, historique
+Git, surface HTTP, chaîne de mise à jour, scripts d'installation, CI, dépendances.
+`govulncheck` ne trouve **aucune vulnérabilité atteignable** et `npm audit` aucune ;
+traversée de chemin, injection SQL et XSS n'ont pas de point d'entrée. Quatre correctifs
+ont été retenus, quatre écarts ont été **pesés et laissés**, et c'est cette seconde liste
+qui vaut d'être écrite : sans elle, ils seront re-signalés ou « corrigés » sans que
+personne sache qu'ils ont été décidés.
+
+| # | Ce qui a changé | État |
+|---|---|---|
+| 1 | Les douze actions de `ci.yml` et `release.yml` épinglées sur un **SHA de commit**, le tag lisible en commentaire. `release.yml` est le seul job du dépôt qui reçoive `contents: write`, et `softprops/action-gh-release` y était sur un tag mobile | ✅ |
+| 2 | `.github/dependabot.yml` : `gomod`, `npm` et **`github-actions`** — c'est cette troisième entrée qui empêche l'épinglage de devenir une dette | ✅ |
+| 3 | `SECURITY.md` : où signaler, ce qu'une équipe bénévole peut promettre, et **le modèle de menace assumé** — accès physique, gestes de dépannage ouverts (ADR-033), HTTP en clair sur la boucle locale, symbole EAN-13 tronqué, mises à jour vérifiées par condensat et non signées | ✅ |
+| 4 | Quatre en-têtes sur **toutes** les réponses, posés par `guard` avant toute décision : CSP, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` | ✅ |
+| 5 | La règle de redirection WebDAV refuse le **déclassement TLS** : elle ne comparait que l'hôte, or `net/http` conserve l'en-tête `Authorization` sur une redirection vers le même hôte | ✅ |
+| 6 | Quatre commentaires qui affirmaient « non authentifié » sur `manual-entry` et `catalog/import`, devenus faux quand ADR-033 les a fait passer derrière le mot de passe — et contredits par un test qui exige le 401 | ✅ |
+| 7 | Le fichier `$(readlink`, vide, suivi à la racine — résidu d'une commande shell ratée | ✅ |
+
+**Pourquoi `frame-ancestors 'none'` est la directive qui compte ici.** Les autres bornent ce
+qu'une page **charge** ; celle-là ferme un **acte**. Les boutons de dépannage de §14.4
+répondent sans mot de passe par décision (ADR-033), donc une page ouverte sur le poste
+pouvait encadrer `/admin`, le recouvrir, et faire cliquer « Rouleau changé » ou un
+auto-test à un bénévole qui croyait cliquer ailleurs. `style-src` garde `'unsafe-inline'` :
+le CSS en ligne n'exécute rien, et une politique qui casse l'écran le jour où vite change
+sa façon d'émettre les styles est une politique qu'on supprime à 7 h du matin au lieu de la
+réparer.
+
+**La CSP a été vérifiée sur les deux écrans réels, pas seulement en test.** Poste de
+démonstration lancé, catalogue déposé, les deux écrans ouverts dans un navigateur :
+**zéro message de console**, grille et photos affichées, police chargée, flux SSE vivant.
+Et le seul motif douteux a été exercé nommément — `handToBrowser` (`Station.svelte:421`)
+crée un `blob:` par `createObjectURL` pour l'export de configuration, ce qu'aucune
+directive CSP ne couvre : le téléchargement passe, sans violation. Trois tests Go
+nouveaux gardent le reste, dont un qui refuse qu'on élargisse `script-src`.
+
+**Les quatre écarts laissés, et le raisonnement.** Le contexte est un poste peu sensible,
+sur le réseau d'une coopérative, devant des bénévoles :
+
+| Écart | Pourquoi on le laisse |
+|---|---|
+| `dav.lacagette-cooperative.fr` subsiste dans 9 commits de `main` (`943a961`→`776f184`, corrigé par `69e2f11`) — la réécriture de `docs/00-donnees-retirees.md` n'a couvert que les deux premiers commits, et l'hôte est revenu en L8 | Le domaine n'existe plus, la valeur est enfouie dans l'historique, et le mot de passe qui l'accompagne est un faux. Réécrire l'historique et forcer la poussée coûterait plus que le risque. **L'écart est connu, pas ignoré** ; ce qui doit ne pas se reproduire, c'est un hôte réel dans une fixture |
+| `install-sheet.txt` reste en clair dans `C:\ProgramData\OpenScale`, lisible par le compte du kiosque : mot de passe Windows **et** code de secours | Le code de secours vaut par la feuille papier, et l'accès physique vaut déjà l'accès administrateur (§15.2). À reprendre le jour où l'ACL de `DataRoot` sera revue |
+| Le compte du kiosque a `Modify` héritable sur tout `DataRoot`, `data\updates` compris — où LocalSystem exécute ensuite `update.ps1` | Élévation locale réelle, mais elle demande un clavier sur le poste. Resserrer la seule ACL de `updates` est le correctif tenu en réserve ; `start.bat` lance `serve` sous le compte interactif, donc le reste de `data\` doit rester inscriptible |
+| `/admin/api/health` publie l'URL WebDAV et le compte sans mot de passe, là où `internal/diag/redact.go` les caviarde de l'archive | Route de boucle locale, illisible en inter-origine faute d'en-têtes CORS. Incohérence assumée entre deux portes |
+| L'export CSV du journal n'échappe pas les cellules commençant par `=`, `+`, `-`, `@` | Le fichier vient de l'Odoo de la coopérative, pas d'un tiers |
+
+**Et ce qui a été examiné puis écarté sans code.** Signer les releases (une clé privée à
+tenir des années par une équipe bénévole, et une clé perdue bloque tout le parc — panne
+plus probable que la menace), servir le poste en HTTPS (certificat auto-signé sur un
+kiosque), et fermer les routes ouvertes d'ADR-033. Les trois sont désormais **écrits dans
+`SECURITY.md`**, pour que le rapport suivant qui les soulève trouve la réponse avant de
+l'écrire. Un fait qui les renforce, vérifié plutôt que supposé : la table `weighings` ne
+porte **aucun identifiant de client** — donc son export ouvert n'expose pas de donnée
+personnelle.
+
+**Une observation restée ouverte.** Sur douze exécutions de la suite complète, **une** a
+signalé un échec dans un paquet, jamais reproduit ensuite — et la commande de comptage qui
+l'a vu n'en a pas gardé le nom. Ce n'est pas imputable aux ajouts ci-dessus : les trois
+tests nouveaux ont tenu 50 exécutions chacun, et `internal/web` dix passes sous `-race`.
+`ci.yml` documente déjà une famille de tests sensibles au planificateur (`skipUnderShort`),
+et c'est la première piste si le symptôme revient.
+
 **Il y a bien un gcc sur ce poste, et les relevés précédents disaient le contraire.** La
 passe `-race` exige cgo, donc un compilateur C, et trois entrées de suivi de suite l'ont
 déclarée injouable ici en la renvoyant à la CI Linux. C'était faux : WinLibs est installé

@@ -1,0 +1,65 @@
+# Surveillance des dépendances — docs/02-architecture.md §17.1.
+#
+# CE FICHIER EXISTE POUR TROIS ÉCOSYSTÈMES, et le troisième est le moins évident : il
+# maintient l'épinglage par SHA des actions de `ci.yml` et de `release.yml`. Épingler une
+# action sur un commit protège la chaîne de construction, mais fige aussi ses correctifs ;
+# sans cette entrée, l'épinglage devient une dette que personne ne relit. Les deux vont
+# ensemble ou aucun des deux ne tient.
+#
+# La cadence est MENSUELLE et les mises à jour sont GROUPÉES en une seule demande par
+# écosystème. Une coopérative n'a pas de mainteneur à temps plein : une demande par
+# dépendance et par semaine, c'est un dépôt où l'on cesse de regarder les demandes — donc
+# un dépôt où la mise à jour de sécurité passe inaperçue avec les autres.
+version: 2
+updates:
+  # --- Go ---------------------------------------------------------------------------
+  # Six modules directs (§17.1). `modernc.org/sqlite` est celui qui compte : c'est lui qui
+  # rend le zéro cgo possible, et une montée qui réintroduirait une dépendance C serait
+  # refusée par le job `build` de la CI avant toute relecture.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      go:
+        patterns: ["*"]
+    commit-message:
+      prefix: build(deps)
+
+  # --- Les actions GitHub -----------------------------------------------------------
+  # Ce qui fait vivre l'épinglage par SHA. Dependabot remplace le commit ET le commentaire
+  # de version au bout de la ligne, donc les deux ne divergent pas.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci(deps)
+
+  # --- L'écran client ---------------------------------------------------------------
+  # ATTENTION EN RELISANT CES DEMANDES : `internal/web/dist` est commité, et le job `front`
+  # de la CI compare ses OCTETS au résultat de `npm ci && npm run build`. Une montée de
+  # vite, de rollup ou de svelte change les empreintes des noms de fichiers, donc l'étape
+  # « internal/web/dist est à jour » devient rouge sur une demande par ailleurs correcte.
+  #
+  # La réponse est celle que le workflow écrit déjà : lancer `make front` et committer
+  # `internal/web/dist` dans la demande. Jamais retirer la garde — c'est elle qui a
+  # rattrapé deux livraisons d'un écran périmé.
+  #
+  # Tout est en devDependencies : rien de ce bloc ne part sur un poste, seul le bundle
+  # construit voyage.
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    versioning-strategy: increase
+    groups:
+      front:
+        patterns: ["*"]
+    commit-message:
+      prefix: build(front)

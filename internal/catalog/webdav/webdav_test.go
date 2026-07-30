@@ -446,6 +446,60 @@ func TestARedirectionOffTheDeclaredHostIsRefused(t *testing.T) {
 	}
 }
 
+// TestARedirectionMayNotDropTLS: the account of an https share never travels in clear.
+//
+// The rule is exercised THROUGH THE CLIENT'S OWN CheckRedirect and not through a server,
+// because reproducing it end to end would mean an httptest TLS server, its self-signed
+// certificate injected into a transport this package deliberately does not let anybody
+// configure — a lot of scaffolding to observe one comparison. What matters is that the hop
+// stays on the DECLARED host, which is what makes it invisible to the check above: net/http
+// keeps the Authorization header on a same-host redirection.
+func TestARedirectionMayNotDropTLS(t *testing.T) {
+	const host = "dav.example.org:8001"
+	client := newClient("https", host)
+
+	hop := func(target string) error {
+		request, err := http.NewRequest(http.MethodGet, target, nil)
+		if err != nil {
+			t.Fatalf("requête %s : %v", target, err)
+		}
+		origin, err := http.NewRequest(http.MethodGet, "https://"+host+"/depots/flv_2.csv", nil)
+		if err != nil {
+			t.Fatalf("requête d'origine : %v", err)
+		}
+		return client.CheckRedirect(request, []*http.Request{origin})
+	}
+
+	// The hole this test closes: same host, TLS dropped.
+	err := hop("http://" + host + "/depots/flv_2.csv")
+	if err == nil {
+		t.Fatal("une redirection https → http sur l'hôte déclaré a été acceptée")
+	}
+	if !strings.Contains(err.Error(), "en clair") {
+		t.Errorf("le refus ne dit pas que le compte partirait en clair : %v", err)
+	}
+
+	// And what must keep working: the same host, still in TLS.
+	if err := hop("https://" + host + "/autre/flv_2.csv"); err != nil {
+		t.Errorf("une redirection https → https sur l'hôte déclaré a été refusée : %v", err)
+	}
+
+	// A share DECLARED in http is not silently upgraded, and not refused either: the
+	// declared scheme is a floor, so a redirection towards TLS is worth following.
+	plain := newClient("http", host)
+	request, err := http.NewRequest(http.MethodGet, "https://"+host+"/depots/flv_2.csv", nil)
+	if err != nil {
+		t.Fatalf("requête : %v", err)
+	}
+	origin, err := http.NewRequest(http.MethodGet, "http://"+host+"/depots/flv_2.csv", nil)
+	if err != nil {
+		t.Fatalf("requête d'origine : %v", err)
+	}
+	if err := plain.CheckRedirect(request, []*http.Request{origin}); err != nil {
+		t.Errorf("une redirection http → https a été refusée : %v", err)
+	}
+}
+
 // TestNextStopsWithItsContext, on the injected clock and with no sleep (§16.4).
 func TestNextStopsWithItsContext(t *testing.T) {
 	remote := &share{present: false}

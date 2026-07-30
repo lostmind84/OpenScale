@@ -139,8 +139,13 @@ func (c adminConfig) Restore(ctx context.Context, version int) (domain.Config, e
 	return c.file.Restore(ctx, version)
 }
 
-// adminTroubleshooting is the three unauthenticated switches of §14.4, and not one of
-// them writes the configuration file — which is the criterion of ADR-018.
+// adminTroubleshooting is the three repair switches of §14.4, and not one of them writes
+// the configuration file.
+//
+// That was the criterion of ADR-018 and it no longer decides who may press them: ADR-033
+// asks what an act CHANGES, so ManualEntry sits behind the password while the roll counter
+// and the fallback printer stay open. Which is which lives in the route table of
+// internal/web, and nowhere else.
 type adminTroubleshooting struct {
 	station *station.Station
 	printer *livePrinter

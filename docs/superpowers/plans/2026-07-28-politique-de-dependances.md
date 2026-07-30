@@ -18,7 +18,7 @@
 - **Langue.** Code, identifiants et **commentaires** en anglais ; documentation en français ; messages destinés à un humain qui lit la sortie du CI en français.
 - **Documentation du code** : `godoc` — commentaire commençant par le nom de l'élément, phrase complète, qui explique le *pourquoi* et jamais le *quoi*.
 - **Zéro cgo.** `tools/deps` ne fait que lire des fichiers ; il compile sous `CGO_ENABLED=0` comme le reste.
-- **Messages de commit** : Conventional Commits, sujet en français **sans accents** (convention du dépôt), corps accentué. Terminer par `Claude-Session: https://claude.ai/code/session_013B8Dhyk96JMESEeXqnqoL3`.
+- **Messages de commit** : Conventional Commits, sujet en français **sans accents** (convention du dépôt), corps accentué. **Aucun lien de session ni mention d'outil en pied de message** : ce dépôt est destiné à circuler, et rien n'y renvoie vers une conversation privée.
 - **Ne jamais faire l'inverse du sens voulu** : c'est la documentation qui rejoint `go.mod`, jamais `go.mod` qui rejoint la documentation. Aucune tâche n'ajoute ni ne retire un module du binaire.
 
 ---
@@ -260,8 +260,6 @@ Lecture textuelle, sans golang.org/x/mod/modfile : un verificateur de
 dependances qui ajoute une dependance ne vaut rien. Les lignes portant
 // indirect sont ignorees -- elles sont la fermeture transitive des six,
 pas un choix du projet.
-
-Claude-Session: https://claude.ai/code/session_013B8Dhyk96JMESEeXqnqoL3
 EOF
 ```
 
@@ -529,8 +527,6 @@ l'intention, l'exigence d'une ligne de separation dit la grammaire.
 
 Une table absente est une ERREUR, jamais un inventaire vide : c'est en
 silence que la promesse du 17.1 s'etait perdue.
-
-Claude-Session: https://claude.ai/code/session_013B8Dhyk96JMESEeXqnqoL3
 EOF
 ```
 
@@ -765,8 +761,6 @@ part avec le binaire -- et c'est cette duplication qui autorise la derive.
 Premiere execution sur le depot : huit ecarts, les quatre modules budgetes
 et non pris, signales une fois par table. C'est le defaut reel, et l'outil
 le trouve du premier coup.
-
-Claude-Session: https://claude.ai/code/session_013B8Dhyk96JMESEeXqnqoL3
 EOF
 ```
 
@@ -833,8 +827,6 @@ refus est argumente : c'est la base de preuve de l'ADR qui suit.
 
 Le renvoi a docs/adr/0018-dependencies.md est supprime -- ce fichier n'a
 jamais existe.
-
-Claude-Session: https://claude.ai/code/session_013B8Dhyk96JMESEeXqnqoL3
 EOF
 ```
 
@@ -940,8 +932,6 @@ a un module qui n'est plus la.
 
 go run ./tools/deps passe au vert : 6 dependances directes, declarees a
 l'identique dans le 17.1 et THIRD-PARTY.md.
-
-Claude-Session: https://claude.ai/code/session_013B8Dhyk96JMESEeXqnqoL3
 EOF
 ```
 
@@ -1010,8 +1000,6 @@ une panne au demarrage d'un poste en magasin.
 sqlc et wire sont nommes recevables sans etre adoptes, et le critere de
 reouverture est chiffre pour que la decision puisse etre reprise sur des
 faits.
-
-Claude-Session: https://claude.ai/code/session_013B8Dhyk96JMESEeXqnqoL3
 EOF
 ```
 
@@ -1141,8 +1129,6 @@ cote serait exactement la divergence silencieuse que ce chantier corrige.
 L'etape CI vient en dernier, apres que le 17.1 et THIRD-PARTY.md ont ete
 remis d'accord avec go.mod : brancher un controle rouge sur la CI casserait
 la branche pour tout le monde.
-
-Claude-Session: https://claude.ai/code/session_013B8Dhyk96JMESEeXqnqoL3
 EOF
 ```
 

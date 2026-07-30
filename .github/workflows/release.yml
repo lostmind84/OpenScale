@@ -35,6 +35,12 @@ on:
 permissions:
   # Écrire est ce qui permet de créer la Release et d'y attacher les archives. C'est la
   # SEULE permission élevée de ce dépôt, et elle ne vaut que pour ce workflow.
+  #
+  # C'EST AUSSI POURQUOI LES ACTIONS D'ICI SONT ÉPINGLÉES SUR UN SHA DE COMMIT (voir la
+  # note de ci.yml). `softprops/action-gh-release` est une action TIERCE, et elle tourne
+  # dans le seul job du dépôt qui reçoive `contents: write` et le `github.token`. Sur un
+  # tag mobile, quiconque peut déplacer `v2` publie ce qu'il veut sous le nom de la
+  # coopérative — et ce que les postes installent ensuite vient de cette page-là.
   contents: write
   # Lire les exécutions de l'intégration continue, pour savoir si la révision du tag a
   # déjà été prouvée. Lecture seule, et c'est la seule chose qu'elle sert à faire.
@@ -80,7 +86,7 @@ jobs:
           fi
           echo "tag validé : $TAG"
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
           # fetch-depth: 0 EST OBLIGATOIRE ICI, et son absence ne se voit pas tout de
@@ -91,12 +97,12 @@ jobs:
           # que contenait la version publiée.
           fetch-depth: 0
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -200,7 +206,7 @@ jobs:
           echo "version publiée : $version"
 
       - name: Publier la Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: OpenScale ${{ github.event.inputs.tag || github.ref_name }}

@@ -35,14 +35,26 @@ env:
   # la chaîne d'outils.
   GO_VERSION: "1.26.5"
 
+# LES ACTIONS SONT ÉPINGLÉES SUR UN SHA DE COMMIT, jamais sur un tag.
+#
+# `actions/checkout@v7` est un tag MOBILE : son propriétaire le déplace quand il veut, et
+# une action déplacée s'exécute dans nos runners avec ce que porte le dépôt à cet
+# instant-là. Un tag n'est donc pas une version, c'est un pointeur — et sur un dépôt
+# public, c'est le chemin d'attaque le moins coûteux qui existe contre une chaîne de
+# construction. Un SHA de commit, lui, désigne des octets qui ne changent plus.
+#
+# Le tag lisible reste en commentaire au bout de la ligne : il est là pour l'humain qui
+# relit, et c'est la seule chose que le SHA ne dit pas. `dependabot.yml` surveille
+# l'écosystème `github-actions` et fait monter les deux ensemble, si bien qu'épingler
+# n'immobilise rien.
 jobs:
   test:
     name: Tests et frontières
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: false
@@ -137,9 +149,9 @@ jobs:
     name: Scripts d'installation, sous Windows PowerShell 5.1
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: false
@@ -162,9 +174,9 @@ jobs:
           - { goos: linux, goarch: amd64 }
           - { goos: linux, goarch: arm64 }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: false
@@ -184,9 +196,9 @@ jobs:
     name: Écran client — types, tests et budget
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "22"
           cache: npm
