@@ -3,15 +3,56 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
-**Les compteurs, mesurés le 29/07/2026 après la série de sept chantiers.** **2 572 tests
-Go** verts sur 31 paquets — 0 échec, 5 écartés, contre 2 352 avant la série, dont 10
-viennent du correctif du démarrage à froid intégré depuis `main` — et **764 tests
-front** sur 34 fichiers, 0 échec, contre 686 sur 31 fichiers. `gofmt` propre, `go vet` vert,
-`svelte-check` sur 338 fichiers sans une erreur ni un avertissement, et les deux gardes du
-dépôt, `boundary` et `deps`, vertes. Le bundle de l'écran client reconstruit pèse **79 429
-octets gzip, soit 70,5 % du budget de 112 640** — 33 211 octets de marge. La passe `-race`
-**n'a pas pu être jouée sur ce poste** : elle exige cgo, le dépôt est en zéro cgo et il n'y
-a pas de gcc ici. La CI Linux est seule à la couvrir, et c'est d'elle qu'il faut l'exiger.
+**Les compteurs, mesurés le 30/07/2026 après le nommage des produits dans les
+signalements.** **2 572 tests Go** verts sur 31 paquets — 0 échec, 5 écartés — et **766
+tests front** sur 34 fichiers, 0 échec. `gofmt` propre, `go vet` vert, `svelte-check` sur
+338 fichiers sans une erreur ni un avertissement, et les deux gardes du dépôt, `boundary`
+et `deps`, vertes. Le bundle de l'écran client reconstruit pèse **79 425 octets gzip, soit
+70,5 % du budget de 112 640** — 33 215 octets de marge. **La passe `-race` est verte elle
+aussi**, 31 paquets, 0 échec.
+
+**Il y a bien un gcc sur ce poste, et les relevés précédents disaient le contraire.** La
+passe `-race` exige cgo, donc un compilateur C, et trois entrées de suivi de suite l'ont
+déclarée injouable ici en la renvoyant à la CI Linux. C'était faux : WinLibs est installé
+par winget, et son `gcc` — MinGW-W64 UCRT, 16.1.0 — n'est que dans le PATH **utilisateur**,
+absent du PATH machine. Un shell qui n'hérite pas de l'environnement de session ne le voit
+pas, et `go test -race` répond alors `cgo: C compiler "gcc" not found`, ce qui ressemble à
+une absence. Le chemin, pour ne pas le rechercher une quatrième fois :
+
+```
+%LOCALAPPDATA%\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin
+```
+
+Les trois invariants de concurrence du Hub sont donc vérifiables **avant** de pousser, et
+`make test` joue ses deux passes comme prévu — c'est exactement ce que l'en-tête du
+`Makefile` demande de ne jamais perdre.
+
+**Les listes de signalements nomment enfin les produits (30/07/2026).** §10.3 bis exigeait
+le nom dans le OÙ depuis le début — *« `id` Odoo **et** nom du produit — de quoi ouvrir la
+fiche sans chercher »* — et les trois listes de la page Catalogue n'affichaient que
+l'identifiant. Corriger « 4412 » demande de chercher d'abord de quel produit il s'agit ;
+corriger « AIL VIOLET SAF » commence tout de suite. Le nom est désormais porté par le
+signalement lui-même, de la qualification jusqu'à l'écran.
+
+| # | Ce qui a changé | État |
+|---|---|---|
+| 1 | `domain.Finding.ProductName`, rempli par les treize constructeurs de `internal/catalog` qui portent une ligne, et par `duplicateID` du parseur | ✅ |
+| 2 | Migration `0002_findings_product_name.sql` : colonne `TEXT NOT NULL DEFAULT ''` sur `findings` | ✅ |
+| 3 | `product_name` dans la route `GET /admin/api/imports` et dans `FindingDTO` | ✅ |
+| 4 | Le nom dessiné avant l'identifiant dans les trois listes — anomalies, unités divergentes, non pesables | ✅ |
+| 5 | Deux tests de store devenus indépendants du numéro de schéma (`MigrationCount()`), et `reopenWithMigrations` qui embarque **toutes** les migrations livrées | ✅ |
+
+**Pourquoi un instantané et pas une jointure.** Aller chercher le nom dans `products` au
+moment de l'affichage aurait évité la migration, et menti deux fois : les signalements d'un
+import de mars auraient porté le nom d'aujourd'hui, et un lot **refusé** — dont aucun
+produit n'entre jamais en base — n'aurait eu aucun nom du tout, alors que c'est précisément
+le lot qu'on veut diagnostiquer. `weighings.product_name` existe pour la même raison depuis
+le début.
+
+**Ce qui n'a pas été touché, et pourquoi.** Le panneau « Produits retirés depuis l'import
+précédent » ne publie encore qu'un **nombre** : les noms demanderaient une route de plus,
+et le panneau dit lui-même où les lire. Ce n'est pas une liste de produits, c'est un
+compteur — il sort du périmètre de cette correction.
 
 **Le démarrage à froid de la v0.6 montrait une panne qui n'existait pas (29/07/2026).**
 Poste redémarré après l'installation : session `openscale` ouverte seule, puis une page
