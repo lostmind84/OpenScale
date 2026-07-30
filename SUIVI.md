@@ -68,12 +68,50 @@ l'écrire. Un fait qui les renforce, vérifié plutôt que supposé : la table `
 porte **aucun identifiant de client** — donc son export ouvert n'expose pas de donnée
 personnelle.
 
-**Une observation restée ouverte.** Sur douze exécutions de la suite complète, **une** a
-signalé un échec dans un paquet, jamais reproduit ensuite — et la commande de comptage qui
-l'a vu n'en a pas gardé le nom. Ce n'est pas imputable aux ajouts ci-dessus : les trois
-tests nouveaux ont tenu 50 exécutions chacun, et `internal/web` dix passes sous `-race`.
-`ci.yml` documente déjà une famille de tests sensibles au planificateur (`skipUnderShort`),
-et c'est la première piste si le symptôme revient.
+**L'échec intermittent a un nom, et la première piste était fausse (30/07/2026).** L'entrée
+ci-dessus le laissait ouvert : une exécution de la suite sur douze signalait un échec dans un
+paquet, jamais reproduit, et la commande de comptage n'en avait pas gardé le nom. Elle
+renvoyait vers la famille de tests sensibles au planificateur que `ci.yml` documente
+(`skipUnderShort`). **Ce n'était pas ça.**
+
+La CI l'a rattrapé sur la demande Dependabot des actions — une demande qui ne change que
+deux empreintes dans deux fichiers YAML, donc dont l'échec ne pouvait pas venir du code
+testé :
+
+```
+--- FAIL: TestAnAmputatedCatalogIsRefusedAgainstTheRealGuard (5.54s)
+    failures_catalog_test.go:1619: la grille n'a jamais compté 331 tuiles
+```
+
+Ce n'est pas une course entre goroutines, c'est un **budget d'attente sans marge**. Mesuré
+sur ce test — le plus lourd du paquet, il décode les 181 images du `flv.csv` réel deux fois :
+
+| Condition | Durée |
+|---|---|
+| isolé, sans `-race` | 0,52 s (cinq exécutions, stable) |
+| isolé, sous `-race` | 1,07 s |
+| budget `hang` | 5 s |
+| observé en CI à l'échec | 5,54 s |
+
+L'écart vient du runner. `go test ./...` joue les paquets **en parallèle**, donc
+`internal/web` et `cmd/openscale` — 25 s et 21 s à eux seuls — concourent avec celui-ci sur
+quatre vCPU, sous le détecteur de courses. Une seconde de travail en devient cinq, et un
+garde-fou qui n'avait qu'un facteur cinq de marge n'en a plus.
+
+`hang` passe donc de 5 s à **30 s**, avec les mesures écrites à côté de la constante. Le
+changement ne coûte **rien** sur une exécution verte — l'attente rend la main dès que sa
+condition tient, aucun test qui passe ne ralentit d'une microseconde. Il coûte trente
+secondes au lieu de cinq pour déclarer un vrai blocage, une fois, sur une exécution qui
+échoue déjà. C'est l'arbitrage que le commentaire de la constante revendiquait depuis le
+début — « it is a guard, not a delay » — et que la valeur 5 ne tenait pas.
+
+**Et les deux groupes de `dependabot.yml`, pour la même raison qu'on écrit les échecs.** La
+première version du fichier groupait tout par écosystème en `patterns: ["*"]`. La demande
+npm qui en est sortie portait six montées dont TypeScript 7, que `svelte-check` refuse
+encore (`peer typescript@"^5.0.0 || ^6.0.0"`) : `npm ci` échouait avant le premier test, et
+cinq montées saines étaient retenues par la sixième sans autre issue que de fermer la
+demande entière. Majeures et mineures voyagent désormais séparément, dans les trois
+écosystèmes.
 
 **Il y a bien un gcc sur ce poste, et les relevés précédents disaient le contraire.** La
 passe `-race` exige cgo, donc un compilateur C, et trois entrées de suivi de suite l'ont
