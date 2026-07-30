@@ -136,7 +136,7 @@ func New(c catalog.SourceConfig) (*Source, error) {
 	username, _ := c.Catalog.Options.Text("username")
 	password, _ := c.Catalog.Options.Text("password")
 	return &Source{
-		client:    newClient(folder.Host),
+		client:    newClient(folder.Scheme, folder.Host),
 		file:      &file,
 		folder:    folder,
 		fileName:  fileName,
@@ -167,17 +167,34 @@ func pathOf(dataDir string) string {
 // A redirect off the declared host is REFUSED: a catalog that arrives from somewhere
 // else than the address an operator typed is not the catalog they configured, and
 // credentials must never follow a redirection to a host nobody vetted (§10.1).
-func newClient(host string) *http.Client {
+//
+// # A redirection may not drop TLS either, and the host check does not cover it
+//
+// The two arguments are the scheme and the host AS DECLARED, and the scheme is here
+// because checking the host alone left a hole that looks closed. net/http keeps the
+// Authorization header across a redirection to the SAME host — which is exactly what the
+// check above lets through — so a share answering « 302 http://same-host/… » to an https
+// request would put `username:password` on the wire in clear, on a network somebody
+// believed was TLS-protected. And nothing in the symptom says so: the catalog arrives, the
+// station serves it, the light is green.
+//
+// The declared scheme is a FLOOR and not a preference: http → https is a redirection worth
+// following, https → http never is.
+func newClient(scheme, host string) *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
 			DialContext:           (&net.Dialer{Timeout: connectTimeout}).DialContext,
 			TLSHandshakeTimeout:   connectTimeout,
 			ResponseHeaderTimeout: connectTimeout,
 		},
-		CheckRedirect: func(request *http.Request, via []*http.Request) error {
+		CheckRedirect: func(request *http.Request, _ []*http.Request) error {
 			if request.URL.Host != host {
 				return fmt.Errorf("redirection vers %s, hors de l'hôte déclaré %s",
 					request.URL.Host, host)
+			}
+			if scheme == "https" && request.URL.Scheme != "https" {
+				return fmt.Errorf("redirection de https vers %s sur %s : le compte du "+
+					"partage ne part pas en clair", request.URL.Scheme, request.URL.Host)
 			}
 			return nil
 		},
