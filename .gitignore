@@ -56,7 +56,7 @@ desktop.ini
 # valeur pour une coopérative qui reprend le dépôt. À retirer d'ici si l'équipe
 # décide de versionner sa configuration d'agents.
 /.claude/
-/.claude-flow/
+.claude-flow/
 /.swarm/
 /agentdb.rvf
 /agentdb.rvf.lock
