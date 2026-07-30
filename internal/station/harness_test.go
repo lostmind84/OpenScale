@@ -33,7 +33,30 @@ const (
 // hang is how long a test waits for something that should be immediate before it
 // declares a deadlock. It never elapses in a passing run: it is a guard, not a
 // delay, and no assertion depends on its value.
-const hang = 5 * time.Second
+//
+// # Thirty seconds, and it used to be five
+//
+// Five was not a margin, it was a coincidence that held on a development machine. CI
+// caught TestAnAmputatedCatalogIsRefusedAgainstTheRealGuard at 5.54 s on 30/07/2026, on a
+// pull request that changed nothing but two action SHAs in YAML — so the failure could not
+// have come from the code under test. MEASURED afterwards, on the same test, which is the
+// heaviest of this package because it decodes the 181 images of the REAL flv.csv twice:
+//
+//	isolated, no -race   0.52 s   (five runs, stable)
+//	isolated, -race      1.07 s
+//	budget               5 s
+//	observed in CI       5.54 s
+//
+// The gap is the runner. `go test ./...` runs the packages CONCURRENTLY, so internal/web
+// and cmd/openscale — 25 s and 21 s of their own — compete with this one on four vCPUs,
+// under the race detector. One second of work becomes five, and a guard with a factor of
+// five of headroom has none left.
+//
+// Raising it costs NOTHING on a green run: the wait returns as soon as its condition
+// holds, so no passing test gets slower by a microsecond. What it costs is thirty seconds
+// instead of five to declare a genuine deadlock, once, on a run that is already failing.
+// That is the trade the sentence above claims to make, and five did not honour it.
+const hang = 30 * time.Second
 
 // loadConfig reads the configuration actually shipped with the binary.
 //

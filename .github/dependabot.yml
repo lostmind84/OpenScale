@@ -6,10 +6,22 @@
 # sans cette entrée, l'épinglage devient une dette que personne ne relit. Les deux vont
 # ensemble ou aucun des deux ne tient.
 #
-# La cadence est MENSUELLE et les mises à jour sont GROUPÉES en une seule demande par
-# écosystème. Une coopérative n'a pas de mainteneur à temps plein : une demande par
-# dépendance et par semaine, c'est un dépôt où l'on cesse de regarder les demandes — donc
-# un dépôt où la mise à jour de sécurité passe inaperçue avec les autres.
+# La cadence est MENSUELLE et les mises à jour sont GROUPÉES. Une coopérative n'a pas de
+# mainteneur à temps plein : une demande par dépendance et par semaine, c'est un dépôt où
+# l'on cesse de regarder les demandes — donc un dépôt où la mise à jour de sécurité passe
+# inaperçue avec les autres.
+#
+# MAIS LES MAJEURES VOYAGENT SÉPARÉMENT DES MINEURES, et cette ligne est écrite après un
+# échec. La première version de ce fichier groupait tout en `patterns: ["*"]` par
+# écosystème. La demande npm qui en est sortie portait six montées, dont TypeScript 7 —
+# que `svelte-check` refuse encore (`peer typescript@"^5.0.0 || ^6.0.0"`). Résultat :
+# `npm ci` échouait AVANT le premier test, et cinq montées parfaitement saines étaient
+# retenues par la sixième, sans autre issue que de fermer la demande entière.
+#
+# Deux groupes par écosystème coûtent une demande de plus et rendent les mineures
+# indépendantes : elles passent seules, et une majeure qui casse peut rester en attente
+# aussi longtemps qu'il faut sans rien bloquer. C'est la seule chose qui distingue une
+# montée qu'on relit d'une montée qu'on subit.
 version: 2
 updates:
   # --- Go ---------------------------------------------------------------------------
@@ -24,6 +36,10 @@ updates:
     groups:
       go:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
+      go-majeur:
+        patterns: ["*"]
+        update-types: ["major"]
     commit-message:
       prefix: build(deps)
 
@@ -37,6 +53,10 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
+      actions-majeur:
+        patterns: ["*"]
+        update-types: ["major"]
     commit-message:
       prefix: ci(deps)
 
@@ -52,6 +72,12 @@ updates:
   #
   # Tout est en devDependencies : rien de ce bloc ne part sur un poste, seul le bundle
   # construit voyage.
+  #
+  # C'est ICI que le groupement unique a fait le plus de dégâts, et c'est pourquoi la
+  # séparation compte le plus : les dépendances du front sont épinglées à la version
+  # EXACTE (§14.1), donc chacune de leurs majeures est une rupture potentielle de peer
+  # dependency. TypeScript 7 en est une, et elle attendra dans `front-majeur` que
+  # `svelte-check` l'accepte, sans retenir les correctifs des cinq autres.
   - package-ecosystem: npm
     directory: /web
     schedule:
@@ -61,5 +87,9 @@ updates:
     groups:
       front:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
+      front-majeur:
+        patterns: ["*"]
+        update-types: ["major"]
     commit-message:
       prefix: build(front)
