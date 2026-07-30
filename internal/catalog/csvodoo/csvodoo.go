@@ -396,11 +396,12 @@ func (o Options) checkReadable(batch *ports.Batch) error {
 // flv_1.csv.
 func duplicateID(row catalog.Row, first int) domain.Finding {
 	return domain.Finding{
-		CSVLine:   row.Line,
-		ProductID: row.ID,
-		Code:      domain.FindingUnreadableRow,
-		Issue:     domain.IssueAnomaly,
-		Value:     row.ID,
+		CSVLine:     row.Line,
+		ProductID:   row.ID,
+		ProductName: row.Name,
+		Code:        domain.FindingUnreadableRow,
+		Issue:       domain.IssueAnomaly,
+		Value:       row.ID,
 		Message: fmt.Sprintf("Corriger l'identifiant : « %s » est déjà porté par la ligne "+
 			"%d. L'identifiant Odoo est la clé du produit — deux lignes qui le partagent "+
 			"font disparaître la première sans un mot.", row.ID, first),

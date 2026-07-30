@@ -72,9 +72,10 @@ type DB struct {
 	clock  Clock
 
 	// migrationSource is the embedded FS in production. It is a field, not the package
-	// variable used directly, for one testable reason: with a single shipped migration
-	// no value of user_version can satisfy 0 < v < len(files), so the "back up an
-	// EXISTING base before migrating it" branch of §12.5 would have no test.
+	// variable used directly, so that a test can add a script PAST the shipped set: the
+	// "back up an EXISTING base before migrating it" branch of §12.5 needs a base at
+	// version N and a binary that knows N+1, which is the update a station lives through
+	// and which no fixed migration set can stage against itself.
 	migrationSource fs.FS
 
 	retention atomic.Pointer[Retention]

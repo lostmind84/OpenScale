@@ -13,8 +13,9 @@ import (
 // The structure is imposed by the type and not by the goodwill of whoever writes the
 // message (§10.3 bis). Each one answers three questions in this order:
 //
-//	WHERE   — the Odoo id and the line, carried by the Finding itself, so that
-//	          somebody can open the record without searching;
+//	WHERE   — the Odoo id, the NAME and the line, carried by the Finding itself, so
+//	          that somebody can open the record without searching — and recognise the
+//	          product before they do;
 //	WHAT    — the action, in the imperative, with the value that is expected;
 //	WHY     — the concrete consequence, in the French of a shop.
 //
@@ -29,11 +30,12 @@ import (
 // healthy catalog (§10.4a).
 func unreadableRow(r Row) domain.Finding {
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingUnreadableRow,
-		Issue:     domain.IssueAnomaly,
-		Value:     r.ID + " / " + r.Name,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingUnreadableRow,
+		Issue:       domain.IssueAnomaly,
+		Value:       r.ID + " / " + r.Name,
 		Message: "Corriger la ligne : elle doit porter un identifiant et un nom. " +
 			"Sans les deux, ce n'est pas un produit mais du texte, et un fichier " +
 			"dont trop de lignes sont dans ce cas est refusé en entier.",
@@ -43,11 +45,12 @@ func unreadableRow(r Row) domain.Finding {
 // priceUnreadable reports a price that is not a number this application can use.
 func priceUnreadable(r Row) domain.Finding {
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingPriceUnreadable,
-		Issue:     domain.IssueAnomaly,
-		Value:     r.Price,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingPriceUnreadable,
+		Issue:       domain.IssueAnomaly,
+		Value:       r.Price,
 		Message: fmt.Sprintf("Corriger le prix : « %s » n'est pas un nombre exploitable "+
 			"(au plus deux décimales, au plus %s €, ni signe ni espace). "+
 			"On ne met pas un prix inventé sur une étiquette : sans prix lisible, "+
@@ -58,11 +61,12 @@ func priceUnreadable(r Row) domain.Finding {
 // zeroPrice reports a product at 0,00 €.
 func zeroPrice(r Row) domain.Finding {
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingZeroPrice,
-		Issue:     domain.IssueAnomaly,
-		Value:     r.Price,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingZeroPrice,
+		Issue:       domain.IssueAnomaly,
+		Value:       r.Price,
 		Message: "Renseigner le prix : il vaut zéro. Une étiquette à 0,00 € passe en " +
 			"caisse sans rien facturer, et le client repart avec la marchandise.",
 	}
@@ -71,10 +75,11 @@ func zeroPrice(r Row) domain.Finding {
 // noBarcode reports an article the till could not read. It is NOT a defect.
 func noBarcode(r Row) domain.Finding {
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingNoBarcode,
-		Issue:     domain.IssueInfo,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingNoBarcode,
+		Issue:       domain.IssueInfo,
 		Message: "Rien à corriger si ce produit ne se pèse pas : sans code-barres, il " +
 			"n'est pas référencé en caisse et n'a donc pas de tuile. " +
 			"Lui donner un code-barres de pesée dans Odoo suffirait à le proposer.",
@@ -88,11 +93,12 @@ func noBarcode(r Row) domain.Finding {
 // offending codes of flv_1.csv are one digit away from being right.
 func invalidBarcode(r Row) domain.Finding {
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingInvalidBarcode,
-		Issue:     domain.IssueAnomaly,
-		Value:     r.Barcode,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingInvalidBarcode,
+		Issue:       domain.IssueAnomaly,
+		Value:       r.Barcode,
 		Message: fmt.Sprintf("Corriger le code-barres « %s » : %s. "+
 			"Un scanner de caisse le refusera.", r.Barcode, whyNotEAN13(r.Barcode)),
 	}
@@ -118,11 +124,12 @@ func whyNotEAN13(code string) string {
 // is wrong.
 func prepackaged(r Row) domain.Finding {
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingPrepackagedProduct,
-		Issue:     domain.IssueInfo,
-		Value:     r.Barcode,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingPrepackagedProduct,
+		Issue:       domain.IssueInfo,
+		Value:       r.Barcode,
 		Message: fmt.Sprintf("Rien à corriger : « %s » est un code fournisseur. "+
 			"Le produit porte déjà son propre code-barres et n'a aucune raison d'être "+
 			"pesé, donc pas de tuile.", r.Barcode),
@@ -135,11 +142,12 @@ func prepackaged(r Row) domain.Finding {
 // number, so it is fixable in Odoo (§10.3).
 func internalCode(r Row) domain.Finding {
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingInternalCodeNotWeighable,
-		Issue:     domain.IssueInfo,
-		Value:     r.Barcode,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingInternalCodeNotWeighable,
+		Issue:       domain.IssueInfo,
+		Value:       r.Barcode,
 		Message: fmt.Sprintf("Corriger le code-barres dans Odoo si ce produit doit être "+
 			"pesé : « %s » est un code interne du magasin que la balance ne sait pas "+
 			"encoder. Les codes pesables commencent par 0493 à 0499.", r.Barcode),
@@ -159,11 +167,12 @@ func reservedZone(r Row, plan domain.PrefixPlan, reserved string) domain.Finding
 		field = "nombre d'unités"
 	}
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingReservedZoneNotEmpty,
-		Issue:     domain.IssueAnomaly,
-		Value:     r.Barcode,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingReservedZoneNotEmpty,
+		Issue:       domain.IssueAnomaly,
+		Value:       r.Barcode,
 		Message: fmt.Sprintf("Corriger le code-barres : les chiffres %d à 12 valent « %s » "+
 			"au lieu de « %s ». La référence déborde sur le champ %s : à l'impression, "+
 			"l'étiquette désignerait un autre article, avec son prix.",
@@ -181,11 +190,12 @@ func unitMismatch(r Row, plan domain.PrefixPlan) domain.Finding {
 		sold = "à l'unité"
 	}
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingUnitMismatch,
-		Issue:     domain.IssueInfo,
-		Value:     r.Barcode,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingUnitMismatch,
+		Issue:       domain.IssueInfo,
+		Value:       r.Barcode,
 		Message: fmt.Sprintf("Corriger l'unité dans Odoo : elle annonce une grandeur %s "+
 			"alors que le code-barres « %s » vend %s. Le code-barres fait foi — c'est la "+
 			"seule des deux informations que la caisse lit —, le produit reste proposé et "+
@@ -196,11 +206,12 @@ func unitMismatch(r Row, plan domain.PrefixPlan) domain.Finding {
 // unknownUnit reports a wording that is none of the three the exchange format uses.
 func unknownUnit(r Row, plan domain.PrefixPlan) domain.Finding {
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingUnknownUnit,
-		Issue:     domain.IssueInfo,
-		Value:     r.PriceSuffix,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingUnknownUnit,
+		Issue:       domain.IssueInfo,
+		Value:       r.PriceSuffix,
 		Message: fmt.Sprintf("Corriger l'unité dans Odoo : elle ne vaut ni « kg », ni "+
 			"« Litre(s) », ni « Unité(s) ». Le produit reste proposé, avec le libellé de "+
 			"prix par défaut de son préfixe («%s »).", plan.PriceLabel),
@@ -231,11 +242,12 @@ func UnexpectedHeader(got, want []string) domain.Finding {
 // is no scenario where the grid is empty because of an unexpected category (§10.2 bis).
 func UnknownCategory(r Row, letter, fallback string) domain.Finding {
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingUnknownCategory,
-		Issue:     domain.IssueInfo,
-		Value:     letter,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingUnknownCategory,
+		Issue:       domain.IssueInfo,
+		Value:       letter,
 		Message: fmt.Sprintf("Corriger la catégorie dans Odoo : « %s » n'est ni F, ni L, "+
 			"ni V, ni A. Le produit est rangé dans « %s » et reste proposé.",
 			letter, fallback),
@@ -248,11 +260,12 @@ func UnknownCategory(r Row, letter, fallback string) domain.Finding {
 // photo. Half the real catalog has no photo anyway (§10.7).
 func ImageInvalid(r Row, why string) domain.Finding {
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingImageInvalid,
-		Issue:     domain.IssueInfo,
-		Value:     why,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingImageInvalid,
+		Issue:       domain.IssueInfo,
+		Value:       why,
 		Message: fmt.Sprintf("Remplacer la photo dans Odoo : %s. Elle n'est ni JPEG, ni "+
 			"PNG, ni GIF, ni BMP, donc elle n'est pas enregistrée. Le produit garde sa "+
 			"tuile, sans photo.", why),
@@ -266,11 +279,12 @@ func ImageInvalid(r Row, why string) domain.Finding {
 // photo (§10.7b).
 func ImageTooLarge(r Row, why string) domain.Finding {
 	return domain.Finding{
-		CSVLine:   r.Line,
-		ProductID: r.ID,
-		Code:      domain.FindingImageTooLarge,
-		Issue:     domain.IssueInfo,
-		Value:     why,
+		CSVLine:     r.Line,
+		ProductID:   r.ID,
+		ProductName: r.Name,
+		Code:        domain.FindingImageTooLarge,
+		Issue:       domain.IssueInfo,
+		Value:       why,
 		Message: fmt.Sprintf("Réduire la photo dans Odoo : %s. Elle n'est pas "+
 			"enregistrée ; le produit garde sa tuile, sans photo.", why),
 	}

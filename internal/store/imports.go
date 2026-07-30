@@ -56,8 +56,8 @@ func insertFindings(ctx context.Context, tx *sql.Tx, importID int64, findings []
 		return nil
 	}
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO findings (import_id, csv_line, product_id, code, issue, message, value)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`)
+		INSERT INTO findings (import_id, csv_line, product_id, product_name, code, issue, message, value)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -65,9 +65,12 @@ func insertFindings(ctx context.Context, tx *sql.Tx, importID int64, findings []
 
 	for _, f := range findings {
 		// product_id is nullable and left NULL rather than '': UNEXPECTED_HEADER and
-		// UNKNOWN_CATEGORY bear on no product in particular.
+		// UNKNOWN_CATEGORY bear on no product in particular. product_name is a display
+		// SNAPSHOT and is stored as plain text, empty included: it is the name this import
+		// read, not a reference to a row that may not exist -- a rejected batch writes no
+		// product at all, and its findings are exactly the ones that need naming.
 		if _, err := stmt.ExecContext(ctx, importID, f.CSVLine, nullString(f.ProductID),
-			f.Code, f.Issue, f.Message, f.Value); err != nil {
+			f.ProductName, f.Code, f.Issue, f.Message, f.Value); err != nil {
 			return fmt.Errorf("signalement %s (ligne CSV %d) : %w", f.Code, f.CSVLine, err)
 		}
 	}
@@ -133,7 +136,7 @@ func (d *DB) LastAppliedImport(ctx context.Context) (domain.Import, error) {
 // like the file it describes.
 func (d *DB) Findings(ctx context.Context, importID int64) ([]domain.Finding, error) {
 	rows, err := d.reader.QueryContext(ctx, `
-		SELECT import_id, csv_line, product_id, code, issue, message, value
+		SELECT import_id, csv_line, product_id, product_name, code, issue, message, value
 		  FROM findings
 		 WHERE import_id = ?
 		 ORDER BY CASE issue WHEN 'anomaly' THEN 0 ELSE 1 END, csv_line`, importID)
@@ -148,7 +151,8 @@ func (d *DB) Findings(ctx context.Context, importID int64) ([]domain.Finding, er
 			f         domain.Finding
 			productID sql.NullString
 		)
-		if err := rows.Scan(&f.ImportID, &f.CSVLine, &productID, &f.Code, &f.Issue, &f.Message, &f.Value); err != nil {
+		if err := rows.Scan(&f.ImportID, &f.CSVLine, &productID, &f.ProductName,
+			&f.Code, &f.Issue, &f.Message, &f.Value); err != nil {
 			return nil, err
 		}
 		if productID.Valid {

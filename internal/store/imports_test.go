@@ -86,9 +86,9 @@ func TestFindingsAreAWorkPlan(t *testing.T) {
 		SHA256: "sha-rejet", RowsRead: 355, Anomalies: 16, UnitMismatches: 1,
 		Result: domain.ImportRejected, Code: "ERR-CAT-03", Reason: "contenu inexploitable",
 	}, []domain.Finding{
-		{CSVLine: 300, ProductID: "5209", Code: domain.FindingUnitMismatch,
+		{CSVLine: 300, ProductID: "5209", ProductName: "OEUFS PLEIN AIR", Code: domain.FindingUnitMismatch,
 			Issue: domain.IssueInfo, Message: "L'unité déclarée ne correspond pas au préfixe.", Value: "Unité(s)"},
-		{CSVLine: 12, ProductID: "20", Code: domain.FindingReservedZoneNotEmpty,
+		{CSVLine: 12, ProductID: "20", ProductName: "TOMME DE SAVOIE", Code: domain.FindingReservedZoneNotEmpty,
 			Issue: domain.IssueAnomaly, Message: "Corrigez ce code dans Odoo.", Value: "0493100100006"},
 		{CSVLine: 1, Code: domain.FindingUnexpectedHeader,
 			Issue: domain.IssueInfo, Message: "En-tête inattendu, colonnes reconnues par leur position."},
@@ -116,6 +116,19 @@ func TestFindingsAreAWorkPlan(t *testing.T) {
 	// UNEXPECTED_HEADER bears on no product in particular.
 	if findings[1].ProductID != "" {
 		t.Errorf("ProductID = %q, want vide", findings[1].ProductID)
+	}
+	if findings[1].ProductName != "" {
+		t.Errorf("ProductName = %q, want vide", findings[1].ProductName)
+	}
+	// The NAME survives the round trip, and it is what makes the list of anomalies a work
+	// plan rather than a list of Odoo ids to look up first. It is stored on the finding
+	// and not read back from products: THIS import was rejected, so it wrote no product
+	// at all -- a name fetched from the catalog would be missing exactly here.
+	if findings[0].ProductName != "TOMME DE SAVOIE" {
+		t.Errorf("nom de l'anomalie = %q, want TOMME DE SAVOIE", findings[0].ProductName)
+	}
+	if findings[2].ProductName != "OEUFS PLEIN AIR" {
+		t.Errorf("nom de l'unité divergente = %q, want OEUFS PLEIN AIR", findings[2].ProductName)
 	}
 	// The rejected import kept its code and its reason.
 	history, err := db.Imports(ctx, 1, 0)

@@ -483,7 +483,7 @@ portent.
 | Un rayon de la grille | `Category.Code` / `Label` / `Rank` / `Color` / `Visible` |
 | L'enregistrement d'une pesée au journal | `Weighing.ID` / `OccurredAt` / `Station` / `JobID` / `IdempotencyKey` / `ProductID` / `ProductName` / `Reference` / `Mode` / `GrossWeight` / `Tare` / `NetWeight` / `Quantity` / `BaseUnitPrice` / `Lines` / `Barcode` / `Source` / `Stability` / `RateMS` / `Frame` / `Result` / `Detail` / `DurationMS` · `WeighingLine.TierCode` / `UnitPrice` / `Amount` |
 | L'enregistrement d'un import | `Import.ID` / `OccurredAt` / `Source` / `FileName` / `SHA256` / `ByteCount` / `RowsRead` / `UnreadableRows` / `Weighable` / `NotWeighable` / `Anomalies` / `UnitMismatches` / `ImagesDecoded` / `ImagesRejected` / `ProductsWithdrawn` / `Result` / `Code` / `Reason` / `DurationMS` |
-| Ce qu'un import a à dire sur une ligne | `Finding.ImportID` / `CSVLine` / `ProductID` / `Code` / `Issue` / `Message` / `Value` |
+| Ce qu'un import a à dire sur une ligne | `Finding.ImportID` / `CSVLine` / `ProductID` / `ProductName` / `Code` / `Issue` / `Message` / `Value` |
 | Une photo, une décision humaine, un contenu banni | `Image.SHA256` / `ByteCount` / `Format` / `Width` / `Height` / `SeenAt` · `LocalDecision.ProductID` / `Offered` / `MinWeightG` / `Reason` / `DecidedAt` / `DecidedBy` · `QuarantineEntry.SHA256` / `FailureCount` / `FirstFailureAt` / `LastFailureAt` / `Code` / `Reason` |
 | Les blocs de la configuration, un champ par bloc de §11.2 | `Config.Version` / `Readme` / `ModifiedAt` / `Station` / `Network` / `UI` / `Scale` / `Printer` / `Pricing` / `Barcode` / `Limits` / `Stability` / `Catalog` / `Journal` / `Admin` / `Maintenance` |
 | Le contenu de chaque bloc | `StationConfig.Number` / `Name` / `Coop` · `NetworkConfig.Listen` / `AdminOnLAN` · `UIConfig.Language` / `Sound` / `IdleTimeoutSeconds` / `ReprintWindowSeconds` / `ShowGridPrices` · `ScaleConfig.Type` / `Present` / `ManualEntryAllowed` / `DegradeAfterSeconds` / `Options` · `PrinterConfig.Type` / `Template` / `Options` · `CatalogConfig.Type` / `Options` / `Images` / `Categories` / `FallbackCategory` · `ImagesConfig.Source` / `Path` · `JournalConfig.MaxRows` / `MaxDays` / `MaxTechnical` · `AdminConfig.PasswordHash` / `RecoveryCodeHash` / `SessionMinutes` / `AttemptsPerMinute` · `MaintenanceConfig.WeeklyIntegrityCheck` / `DiskAlertMB` · `BarcodeConfig.VerifyReferenceCheckDigit` |
@@ -519,7 +519,7 @@ portent.
 | `qualification IN ('pesable','non_pesable','anomalie')` | `qualification IN ('weighable','not_weighable','anomaly')` |
 | `idx_produits_grille` / `idx_produits_reference` | `idx_products_grid` / `idx_products_reference` |
 | table `decisions_locales (produit_id, proposer, poids_min_g, motif, horodate, par)` | table `local_decisions (product_id, offered, min_weight_g, reason, decided_at, decided_by)` |
-| table `signalements (import_id, ligne_csv, produit_id, code, issue, message, valeur)` | table `findings (import_id, csv_line, product_id, code, issue, message, value)` |
+| table `signalements (import_id, ligne_csv, produit_id, nom_produit, code, issue, message, valeur)` | table `findings (import_id, csv_line, product_id, product_name, code, issue, message, value)` |
 | `signalements.issue IN ('anomalie','information')` | `findings.issue IN ('anomaly','info')` |
 | `idx_signalements_import` | `idx_findings_import` |
 | table `pesees` | table `weighings` |

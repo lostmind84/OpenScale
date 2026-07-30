@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,8 +58,10 @@ func TestOpenAppliesEveryMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != 1 {
-		t.Fatalf("user_version = %d, want 1", v)
+	// MigrationCount and not a literal: the number grows with every shipped script, and a
+	// test that had to be edited alongside the schema is a test that gets edited to pass.
+	if v != MigrationCount() {
+		t.Fatalf("user_version = %d, want %d", v, MigrationCount())
 	}
 	if _, err := os.Stat(db.Path()); err != nil {
 		t.Fatalf("le fichier de base n'existe pas : %v", err)
@@ -130,8 +133,8 @@ func TestOpenTwiceMigratesNothingAndBacksUpNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != 1 {
-		t.Fatalf("user_version = %d, want 1", v)
+	if v != MigrationCount() {
+		t.Fatalf("user_version = %d, want %d", v, MigrationCount())
 	}
 	// No pending migration means nothing to lose, hence no copy: a backup on every
 	// start would fill a station's disk with identical files.
@@ -167,9 +170,14 @@ func TestOpenRefusesSchemaFromNewerVersion(t *testing.T) {
 	}
 }
 
-// TestMigrateBacksUpBeforeTouchingAnExistingBase exercises the branch of §12.5 that no
-// shipped migration set can reach: with a single file, no user_version satisfies
-// 0 < v < len(files).
+// TestMigrateBacksUpBeforeTouchingAnExistingBase exercises the branch of §12.5 a station
+// reaches on the update that carries a new script: 0 < user_version < len(files), so
+// there is an N-1 state worth a copy before anything is touched.
+//
+// The synthetic script is numbered PAST the shipped set. Slipping one in the middle would
+// have migrate() re-apply an already-applied file — the loop walks files[v:] by index,
+// not by name — and the test would fail on a duplicate table rather than on what it
+// checks.
 func TestMigrateBacksUpBeforeTouchingAnExistingBase(t *testing.T) {
 	clk := newClock(TestEpoch)
 	db, path := openAt(t, clk)
@@ -181,16 +189,17 @@ func TestMigrateBacksUpBeforeTouchingAnExistingBase(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
+	next := MigrationCount() + 1
 	clk.Advance(time.Hour)
 	upgraded := reopenWithMigrations(t, path, clk, map[string]string{
-		"0002_add_marker.sql": `CREATE TABLE marker (id INTEGER PRIMARY KEY) STRICT;`,
+		fmt.Sprintf("%04d_add_marker.sql", next): `CREATE TABLE marker (id INTEGER PRIMARY KEY) STRICT;`,
 	})
 	defer upgraded.Close()
 
-	if v, err := upgraded.SchemaVersion(); err != nil || v != 2 {
-		t.Fatalf("user_version = %d (err %v), want 2", v, err)
+	if v, err := upgraded.SchemaVersion(); err != nil || v != next {
+		t.Fatalf("user_version = %d (err %v), want %d", v, err, next)
 	}
-	want := fmt.Sprintf("%s.before-v2-%s", path, clk.Now().UTC().Format(backupStampLayout))
+	want := fmt.Sprintf("%s.before-v%d-%s", path, next, clk.Now().UTC().Format(backupStampLayout))
 	if _, err := os.Stat(want); err != nil {
 		copies, _ := filepath.Glob(path + ".before-v*")
 		t.Fatalf("sauvegarde %s absente (présentes : %v)", want, copies)
@@ -221,8 +230,11 @@ func TestKeepLastBackupsKeepsThree(t *testing.T) {
 	}
 
 	// Five successive migrations, one hour apart so that each backup gets its own name.
+	// They are numbered past the shipped set, for the reason the test above states.
+	first := MigrationCount() + 1
+	last := first + 4
 	scripts := map[string]string{}
-	for v := 2; v <= 6; v++ {
+	for v := first; v <= last; v++ {
 		clk.Advance(time.Hour)
 		scripts[fmt.Sprintf("%04d_step.sql", v)] = fmt.Sprintf("CREATE TABLE step%d (id INTEGER PRIMARY KEY) STRICT;", v)
 		next := reopenWithMigrations(t, path, clk, scripts)
@@ -241,8 +253,9 @@ func TestKeepLastBackupsKeepsThree(t *testing.T) {
 	if len(copies) != backupsKept {
 		t.Fatalf("%d sauvegardes conservées, want %d : %v", len(copies), backupsKept, copies)
 	}
-	// The three kept are the three most recent: v4, v5, v6.
-	for _, want := range []string{".before-v4-", ".before-v5-", ".before-v6-"} {
+	// The three kept are the three most recent.
+	for v := last - backupsKept + 1; v <= last; v++ {
+		want := fmt.Sprintf(".before-v%d-", v)
 		if !slicesContainsSubstring(copies, want) {
 			t.Errorf("la sauvegarde %s manque parmi %v", want, copies)
 		}
@@ -336,15 +349,26 @@ func TestOpenCreatesTheDataDirectory(t *testing.T) {
 	}
 }
 
-// reopenWithMigrations opens path with a synthetic migration set: the shipped script
+// reopenWithMigrations opens path with a synthetic migration set: EVERY shipped script
 // plus the extra ones the test needs.
+//
+// Every one of them, and not just the first: the base was created by the real Open, so a
+// set that dropped a shipped script would present the file as ahead of the binary — the
+// ERR-DB-02 branch — instead of exercising the upgrade the test is about.
 func reopenWithMigrations(t *testing.T, path string, clk Clock, extra map[string]string) *DB {
 	t.Helper()
-	shipped, err := migrationScripts.ReadFile("migrations/0001_initial.sql")
-	if err != nil {
-		t.Fatalf("lecture de la migration livrée : %v", err)
+	shipped, err := fs.Glob(migrationScripts, "migrations/*.sql")
+	if err != nil || len(shipped) == 0 {
+		t.Fatalf("lecture des migrations livrées : %d fichier(s), err %v", len(shipped), err)
 	}
-	fsys := fstest.MapFS{"migrations/0001_initial.sql": {Data: shipped}}
+	fsys := fstest.MapFS{}
+	for _, name := range shipped {
+		script, err := migrationScripts.ReadFile(name)
+		if err != nil {
+			t.Fatalf("lecture de %s : %v", name, err)
+		}
+		fsys[name] = &fstest.MapFile{Data: script}
+	}
 	for name, script := range extra {
 		fsys["migrations/"+name] = &fstest.MapFile{Data: []byte(script)}
 	}

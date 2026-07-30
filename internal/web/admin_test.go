@@ -244,7 +244,8 @@ func TestTheTechnicalJournalAndTheImportsAreServed(t *testing.T) {
 		RowsRead: 355, Weighable: 331, NotWeighable: 8, Anomalies: 16,
 	}}
 	b.store.findings[7] = []domain.Finding{{
-		CSVLine: 42, ProductID: "4412", Code: "RESERVED_ZONE_NOT_EMPTY",
+		CSVLine: 42, ProductID: "4412", ProductName: "AIL VIOLET SAF",
+		Code:    "RESERVED_ZONE_NOT_EMPTY",
 		Message: "Corrigez le code-barres dans Odoo.", Value: "0493021012365",
 	}}
 
@@ -262,6 +263,11 @@ func TestTheTechnicalJournalAndTheImportsAreServed(t *testing.T) {
 	}
 	if len(got.Findings) != 1 || got.Findings[0].CSVLine != 42 {
 		t.Fatalf("signalements = %+v", got.Findings)
+	}
+	// The name travels with the finding, and the screen shows it: a list that names « 4412 »
+	// sends whoever corrects the file looking the product up in Odoo before they can start.
+	if got.Findings[0].ProductName != "AIL VIOLET SAF" {
+		t.Errorf("nom servi = %q, want AIL VIOLET SAF", got.Findings[0].ProductName)
 	}
 }
 

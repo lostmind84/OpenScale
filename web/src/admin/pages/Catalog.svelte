@@ -20,9 +20,13 @@
    *
    * The list of not-weighable products is a NEUTRAL INVENTORY and never a list of
    * errors: a prepackaged bulgur is not at fault, it is simply no business of a scale.
-   * Anomalies, on the other hand, each carry their CSV line number, their reason in
-   * French and the offending value — that is the difference between « 16 anomalies »
-   * and a work plan somebody can follow in Odoo (§10.3 bis).
+   * Anomalies, on the other hand, each carry the NAME of the product, their CSV line
+   * number, their reason in French and the offending value — that is the difference
+   * between « 16 anomalies » and a work plan somebody can follow in Odoo (§10.3 bis).
+   * The name comes from the import itself and never from the catalog in service: it is
+   * the one the file carried, so the findings of an import from March keep saying what
+   * that import said, and a batch the station refused — whose products never entered the
+   * base at all — is named too.
    *
    * Six things this page owes ADR-033 and §14.4, and had not:
    *
@@ -657,6 +661,19 @@
       {#each list as finding}
         <li>
           <span class="line">ligne {frenchInteger(finding.csv_line)}</span>
+          <!--
+            The NAME first, and the Odoo id after it: « 4412 » is a number somebody has to
+            look up before they can start, « TOMATE GRAPPE » is the product they already
+            know. The id stays because it is what opens the record in Odoo.
+
+            Drawn only when the import recorded one. Two findings never carry a name — one
+            that bears on no product, and a row too damaged to hold one, which is exactly
+            what UNREADABLE_ROW says in its own message — and inventing a wording for that
+            absence would state a fact this page has not read.
+          -->
+          {#if finding.product_name !== ''}
+            <span class="what" data-name>{finding.product_name}</span>
+          {/if}
           <span class="id">{finding.product_id}</span>
           <span class="value">{finding.value}</span>
           <span class="message">{finding.message}</span>
@@ -885,7 +902,7 @@
 
   <Panel
     title="Anomalies à corriger dans Odoo"
-    note="Chaque ligne porte son numéro dans le CSV, son motif et la valeur fautive."
+    note="Chaque ligne porte le nom du produit, son numéro dans le CSV, son motif et la valeur fautive."
   >
     {#if historyState !== 'read'}
       <p class="fact" data-unread="anomalies">{findingsUnknown}</p>

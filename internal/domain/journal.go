@@ -203,8 +203,18 @@ type Finding struct {
 	// ProductID may be empty: UNEXPECTED_HEADER and UNKNOWN_CATEGORY bear on no
 	// product in particular.
 	ProductID string
-	Code      string
-	Issue     string
+	// ProductName is the commercial name AS THIS IMPORT READ IT, and it is a display
+	// snapshot for the same reason weighings carry one: the name moves in Odoo, the row
+	// that describes an import does not. A report that names « TOMATE GRAPPE » is opened
+	// in Odoo by somebody who recognises the product; one that names « 4412 » is a
+	// number to look up first.
+	//
+	// It is empty in the two cases where the file gives none: a finding that bears on no
+	// product, and a row so damaged it carries no name at all — which is exactly what
+	// UNREADABLE_ROW says.
+	ProductName string
+	Code        string
+	Issue       string
 	// Message is FRENCH, imperative, and names the consequence in shop language.
 	Message string
 	// Value is the offending value, so nobody has to guess which digit is wrong.
