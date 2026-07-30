@@ -166,10 +166,15 @@ func IdenticalTemplate() Template {
 		body9   = 3_175 //  9 pt
 		body11  = 3_888 // 11 pt, measured on the PDF
 	)
-	line2 := Micrometers(body9 + leading)          //  3 525
-	line3 := line2 + Micrometers(body9+leading)    //  7 050
-	textBottom := line3 + Micrometers(body11)      // 10 938
-	symbolTop := textBottom + Micrometers(leading) // 11 288
+	// The four numbers below were commented as 3 525 / 7 050 / 10 938 / 11 288 until
+	// 30/07/2026: those were the values at leading = 350, and the bench had lowered it
+	// to 277 without the comments following. Section 7.4 of the architecture had copied
+	// the stale origin, and from it derived an inked bottom of 200.7 dots — a template
+	// hard rule 3 rejects. The code was right the whole time; only the comments lied.
+	line2 := Micrometers(body9 + leading)          //  3 452
+	line3 := line2 + Micrometers(body9+leading)    //  6 904
+	textBottom := line3 + Micrometers(body11)      // 10 792
+	symbolTop := textBottom + Micrometers(leading) // 11 069 — inked bottom 24 874
 
 	// The two prices of line 3 share a BODY since 29/07/2026, on the commissioning
 	// party's request: the solidarity price was 7 pt against 11 for the member price,
