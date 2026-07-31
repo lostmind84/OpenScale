@@ -57,6 +57,24 @@ const (
 	TransportFile     = "file"
 )
 
+// The three printer.options keys that DESIGNATE A DEVICE (§8.4), spelled once.
+//
+// Each belongs to exactly ONE of the four transports above, and none of them is required:
+// a station on `winspool` leaves address and path empty, and that emptiness is nominal.
+// Which one has to be filled is the business of the transport that was named, and each of
+// the four says so in French when it is built.
+//
+// They live here, next to the transports themselves, because THREE layers read the same
+// three words and a second spelling is how they stop meaning the same thing: the driver
+// schema declares them, the transport registry names the one it reads, and the platform
+// says which one an enumerated destination goes into. The administration screen used to
+// know only `queue`, and wrote an IP address into it on a station set to `tcp`.
+const (
+	DeviceKeyQueue   = "queue"
+	DeviceKeyPath    = "path"
+	DeviceKeyAddress = "address"
+)
+
 // Where the images of the catalog come from (§10.7).
 const (
 	// ImageSourceCSV is the DEFAULT: the reference file carries 181 images out of
@@ -796,6 +814,22 @@ type DriverDescriptor struct {
 	// Nil means « this binary cannot say », which is the honest answer of a validation
 	// run with no driver registry at all; an EMPTY slice is the assertion « none ».
 	SelfTests []string
+	// DeviceKey is the printer.options key a TRANSPORT descriptor reads to DESIGNATE ITS
+	// DEVICE: DeviceKeyQueue for winspool, DeviceKeyPath for devfile and file,
+	// DeviceKeyAddress for tcp. Empty on every other kind of descriptor.
+	//
+	// It travels for the reason Endpoint does just below, and it was learnt the same way.
+	// The Matériel screen carried ONE device field, wired to `queue` whatever the transport
+	// was; « Rechercher l'imprimante » proposes hosts answering on port 9100, and clicking
+	// one wrote 192.168.0.43:9100 into printer.options.queue. Nothing refused it — `queue`
+	// is a key of the driver, and no control ties a key to a transport — so the station
+	// saved a configuration that could not print, and said so only when the socket was
+	// opened.
+	//
+	// Declaring it here is what lets the screen ask the STATION where to write instead of
+	// carrying a table of its own: a fifth transport is then one line in a registry, and the
+	// form follows.
+	DeviceKey string
 	// Endpoint is the kind of access point a SCALE driver is reached and recognised on:
 	// EndpointSerialPort, or empty for a protocol that names none.
 	//

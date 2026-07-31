@@ -13,6 +13,7 @@ import (
 
 	"go.bug.st/serial/enumerator"
 
+	"openscale/internal/domain"
 	"openscale/internal/fake"
 )
 
@@ -107,6 +108,13 @@ func TestEnumeratingThePrintQueuesOfThisMachineNeverFails(t *testing.T) {
 		if strings.TrimSpace(queue.Name) == "" {
 			t.Fatalf("une file sans nom a été rendue : %+v", queue)
 		}
+		// The destination says which printer.options key it goes INTO, and the two twins of
+		// §5.1 do not answer the same one: a Windows queue goes into `queue`, a print node
+		// into `path`. The screen has no way of telling them apart by looking at the name,
+		// and it wrote every one of them into `queue`.
+		if queue.Key != domain.DeviceKeyQueue && queue.Key != domain.DeviceKeyPath {
+			t.Fatalf("la destination %+v ne dit pas dans quelle clé elle va", queue)
+		}
 		if queue.Default {
 			defaults++
 		}
@@ -157,6 +165,12 @@ func TestTheScanReportsWhatAnsweredAndNothingElse(t *testing.T) {
 	}
 	if !strings.Contains(found[0].Detail, "candidat") {
 		t.Fatalf("le libellé promet plus qu'une connexion acceptée : %q", found[0].Detail)
+	}
+	// What the scan reports is an ADDRESS, and it says so. Clicking one on the Matériel
+	// screen used to write 192.168.1.42:9100 into printer.options.queue, which validates,
+	// which no transport reads, and which only fails when the socket is opened.
+	if found[0].Key != domain.DeviceKeyAddress {
+		t.Fatalf("le candidat %+v ne se déclare pas comme une adresse", found[0])
 	}
 }
 

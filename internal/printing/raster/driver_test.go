@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"openscale/internal/domain"
+	"openscale/internal/printing/transport"
 )
 
 // deliveredOptions is printer.options as testdata/config-lacagette.json carries it, minus
@@ -141,6 +142,27 @@ func TestTheSchemaBoundsComeFromTheManual(t *testing.T) {
 	for key := range bounds {
 		t.Errorf("le schéma ne déclare pas %s : le formulaire offrirait un champ libre là où "+
 			"le manuel a une borne", key)
+	}
+}
+
+// TestTheSchemaDeclaresEveryDeviceKeyATransportNames closes on this side the contract the
+// transport package holds on its own: each of the four transports names the printer.options
+// key that DESIGNATES ITS DEVICE, and the administration screen writes what a volunteer
+// types into that key.
+//
+// A key named there and absent here would be refused by control 7 — « option inconnue du
+// driver » — the moment the field was filled in, which is a refusal about a screen rather
+// than about a configuration.
+func TestTheSchemaDeclaresEveryDeviceKeyATransportNames(t *testing.T) {
+	declared := make(map[string]bool)
+	for _, schema := range OptionSchema() {
+		declared[schema.Key] = true
+	}
+	for _, descriptor := range transport.Descriptors() {
+		if !declared[descriptor.DeviceKey] {
+			t.Errorf("le transport %q désigne son appareil par %q, que ce driver ne déclare pas",
+				descriptor.ID, descriptor.DeviceKey)
+		}
 	}
 }
 

@@ -6,6 +6,7 @@
   import { AdminError } from '../lib/api'
   import type { Draft } from '../lib/draft.svelte'
   import type { DetectionDTO, HealthDTO, PortDTO, PrinterDeviceDTO } from '../lib/dto'
+  import { labelOf } from '../lib/fields'
   import { frenchDateTime, frenchDuration, frenchInteger } from '../lib/format'
   import type { LightLevel } from '../lib/lights'
   import type { Admin } from '../lib/session.svelte'
@@ -158,6 +159,76 @@
   /** Les trames affichées : celles du port écouté, et d'aucun autre. */
   const shown = $derived(framesPort === port ? frames : [])
 
+  /**
+   * Les trois clés de `printer.options` qui DÉSIGNENT UN APPAREIL (§8.4).
+   *
+   * Elles sont énumérées ici pour deux choses seulement : ouvrir le volet sur celle qu'un
+   * contrôle a refusée, et savoir laquelle le champ d'appareil doit lâcher quand le
+   * transport change. **Laquelle est la bonne n'est jamais décidé ici** : c'est le poste
+   * qui le dit, transport par transport, dans `health.printer_transports`.
+   */
+  const DEVICE_KEYS = ['queue', 'path', 'address']
+
+  /**
+   * La clé sur laquelle la page se rabat quand elle ne peut pas savoir.
+   *
+   * Deux cas, tous deux rares et tous deux honnêtes : un binaire sans registre de
+   * transports, et un fichier nommant un transport que ce poste ne connaît pas. La liste
+   * déroulante dit déjà le second en toutes lettres ; ce que ce repli achète, c'est qu'il
+   * reste un champ à corriger au lieu d'un volet vide.
+   */
+  const DEFAULT_DEVICE_KEY = 'queue'
+
+  /** Ce que chaque clé d'appareil décide, en une phrase de bénévole. */
+  const DEVICE_HINTS: Record<string, string> = {
+    queue: 'Choisissez-la dans la liste ci-dessus : une file mal orthographiée ne s’imprime pas.',
+    path: 'Le nœud d’impression de ce poste, /dev/usb/lp0 ou le lien que la règle udev lui donne.',
+    address:
+      'L’adresse de l’imprimante sur le réseau, 192.168.0.43 — le port 9100 est ajouté s’il manque.',
+  }
+
+  /** Les transports que CE POSTE porte, et pour chacun la clé où il fait écrire (§8.4). */
+  const transports = $derived(health.printer_transports)
+  const transport = $derived(draft.text('printer.options.transport'))
+  /** Vrai quand la configuration nomme un transport que ce poste ne déclare pas. */
+  const transportUnknown = $derived(
+    transport !== '' && !transports.some((candidate) => candidate.id === transport),
+  )
+  /**
+   * Ce que la liste « Transport » propose, la valeur en cours COMPRISE.
+   *
+   * Un `<select>` dont la valeur ne figure dans aucune option se rabat en silence sur la
+   * première : l'écran afficherait « File d'impression Windows » sur un poste réglé sur
+   * autre chose, et le premier geste de qui vient corriger ce réglage serait de le
+   * réenregistrer tel qu'il croit le lire. La valeur inconnue est donc gardée, et nommée.
+   */
+  const transportChoices = $derived(
+    transports.length === 0
+      ? []
+      : [
+          ...(transportUnknown
+            ? [{ value: transport, label: `${transport} — inconnu de ce poste` }]
+            : []),
+          ...transports.map((candidate) => ({ value: candidate.id, label: candidate.label })),
+        ],
+  )
+  /** La clé de `printer.options` que le transport CHOISI lit, et elle seule. */
+  const deviceKey = $derived(
+    transports.find((candidate) => candidate.id === transport)?.key ?? DEFAULT_DEVICE_KEY,
+  )
+  const devicePath = $derived('printer.options.' + deviceKey)
+  /**
+   * Les destinations que le transport choisi peut VRAIMENT ouvrir.
+   *
+   * Même règle que pour les auto-tests trente lignes plus bas (ADR-025) : une destination
+   * qu'un clic écrirait dans une clé que le transport en service ne lit pas n'est pas un
+   * choix. C'est ce clic-là qui mettait « 192.168.0.43:9100 » dans `printer.options.queue`
+   * — un fichier que rien ne refuse et que le poste ne sait pas imprimer.
+   */
+  const reachable = $derived(printers.filter((device) => device.key === deviceKey))
+  /** Combien de destinations sont écartées parce qu'un autre transport les lit. */
+  const unreachable = $derived(printers.length - reachable.length)
+
   const scaleStanding = $derived(standingOfScale())
   const printerStanding = $derived(standingOfPrinter())
   const framesCaption = $derived(captionOfFrames())
@@ -170,7 +241,9 @@
   const printerRefused = $derived(
     faultOf('printer.type') !== '' ||
       faultOf('printer.options.transport') !== '' ||
-      faultOf('printer.options.queue') !== '',
+      // Les TROIS clés d'appareil, et pas seulement la file : un refus sur l'adresse
+      // laissait le volet fermé sur le champ qu'il fallait corriger.
+      DEVICE_KEYS.some((key) => faultOf('printer.options.' + key) !== ''),
   )
 
   /**
@@ -621,6 +694,41 @@
   }
 
   /**
+   * Le libellé du premier transport qui lit cette clé, ou rien.
+   *
+   * Le PREMIER, parce que deux transports peuvent lire la même clé — `devfile` et `file`
+   * lisent tous deux `path` — et que l'ordre du registre est celui de §8.4 : le défaut
+   * d'abord.
+   *
+   * @param key - la clé d'appareil.
+   */
+  function labelOfTransportReading(key: string): string {
+    return transports.find((candidate) => candidate.key === key)?.label ?? ''
+  }
+
+  /**
+   * Ce que dit la ligne des destinations écartées.
+   *
+   * Un compte tout seul — « 4 destinations ne sont pas proposées » — laisse chercher ; ce
+   * qui fait gagner du temps est le nom du réglage à changer, dans les mots mêmes de la
+   * liste déroulante qui est juste en dessous.
+   */
+  function reachElsewhere(): string {
+    const elsewhere = [
+      ...new Set(
+        printers
+          .filter((device) => device.key !== deviceKey)
+          .map((device) => labelOfTransportReading(device.key)),
+      ),
+    ].filter((label) => label !== '')
+    const count = `${frenchInteger(unreachable)} ${
+      unreachable > 1 ? 'destinations ne sont pas proposées' : 'destination n’est pas proposée'
+    }`
+    if (elsewhere.length === 0) return `${count} : aucun transport de ce poste ne les lit.`
+    return `${count} : choisissez « ${elsewhere.join(' » ou « ')} » pour les voir.`
+  }
+
+  /**
    * Ce qu'un champ propose en autocomplétion, PLAFONNÉ.
    *
    * `Field` imprime cette liste en toutes lettres — « Valeurs acceptées : … » — dès qu'un
@@ -971,18 +1079,20 @@
       </p>
     {/if}
 
-    {#if printers.length > 0}
+    {#if reachable.length > 0}
       <p class="count" data-printers-count>
-        {census('file d’impression', 'files d’impression', printers.length)}
+        {census('destination', 'destinations', reachable.length)}
       </p>
       <ul class="list">
-        {#each printers.slice(0, ROWS_SHOWN) as device (device.name)}
+        {#each reachable.slice(0, ROWS_SHOWN) as device (device.name)}
           <li>
-            <button
-              type="button"
-              class="pick"
-              onclick={() => draft.set('printer.options.queue', device.name)}
-            >
+            <!--
+              Le clic écrit dans la clé que la DESTINATION déclare, jamais dans une clé que
+              l'écran aurait choisie : les deux routes servent la même liste ici, et
+              « 192.168.0.43:9100 » ne ressemble pas moins à un nom de file que
+              « SATO WS408_2 ».
+            -->
+            <button type="button" class="pick" onclick={() => draft.set(devicePath, device.name)}>
               {device.name}
             </button>
             <span class="detail">
@@ -991,6 +1101,15 @@
           </li>
         {/each}
       </ul>
+    {/if}
+
+    <!--
+      Ce que le transport choisi ne peut pas ouvrir se dit, au lieu de disparaître. Une
+      liste qui rétrécit en silence après « Rechercher l'imprimante » se lit comme une
+      recherche qui n'a rien trouvé.
+    -->
+    {#if unreachable > 0}
+      <p class="note" data-unreachable>{reachElsewhere()}</p>
     {/if}
 
     <!-- Même règle que le volet de la balance : l'ouverture est LIÉE, jamais poussée. -->
@@ -1007,28 +1126,45 @@
           disabled={!configRead}
           onchange={(value) => draft.set('printer.type', value)}
         />
+        <!--
+          Le transport se CHOISIT, et le champ d'en dessous suit. C'était un champ de texte
+          libre au-dessus d'un champ câblé sur `printer.options.queue` quoi qu'on tape : un
+          poste réglé sur `tcp` enregistrait l'adresse de son imprimante dans la clé de la
+          file Windows. Rien ne le refusait — aucun contrôle ne lie une clé à un transport —
+          et le poste n'imprimait pas.
+
+          La liste est vide sur un binaire qui ne déclare aucun transport ; `Field` retombe
+          alors sur la saisie libre, ce qui vaut mieux qu'une liste sans une valeur dedans.
+        -->
         <Field
           label="Transport"
           path="printer.options.transport"
-          value={draft.text('printer.options.transport')}
-          hint="Local par défaut : une file Windows ou un fichier de périphérique de ce poste."
+          value={transport}
+          hint="Local par défaut : une file Windows ou un nœud d’impression de ce poste."
           fault={faultOf('printer.options.transport')}
           allowed={allowedFor('printer.options.transport')}
+          choices={transportChoices}
           disabled={!configRead}
           onchange={(value) => draft.set('printer.options.transport', value)}
         />
+        <!--
+          UN champ, dont la clé est celle que le transport choisi lit. Les deux autres ne
+          sont pas effacées pour autant : revenir à un transport déjà réglé ne doit pas
+          coûter la saisie, et une clé qu'aucun transport ne lit est légitimement vide
+          (§8.4).
+        -->
         <Field
-          label="File ou chemin"
-          path="printer.options.queue"
-          value={draft.text('printer.options.queue')}
-          hint="Choisissez-la dans la liste ci-dessus : une file mal orthographiée ne s’imprime pas."
-          fault={faultOf('printer.options.queue')}
+          label={labelOf(devicePath)}
+          path={devicePath}
+          value={draft.text(devicePath)}
+          hint={DEVICE_HINTS[deviceKey] ?? ''}
+          fault={faultOf(devicePath)}
           allowed={suggestions(
-            'printer.options.queue',
-            printers.map((device) => device.name),
+            devicePath,
+            reachable.map((device) => device.name),
           )}
           disabled={!configRead}
-          onchange={(value) => draft.set('printer.options.queue', value)}
+          onchange={(value) => draft.set(devicePath, value)}
         />
       </div>
     </details>

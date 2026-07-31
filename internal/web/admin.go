@@ -62,7 +62,11 @@ type PortInfo struct {
 
 // PrinterInfo is one print queue or one device the platform knows about.
 type PrinterInfo struct {
-	Name    string
+	Name string
+	// Key is the printer.options key this destination goes into: "queue", "path" or
+	// "address" (domain.DeviceKey*). The enumeration that found it is the only layer that
+	// knows, and the screen has no way of telling the three apart by looking at the name.
+	Key     string
 	Detail  string
 	Default bool
 }
@@ -543,9 +547,17 @@ type portDTO struct {
 	PID         string `json:"pid"`
 }
 
-// printerDeviceDTO is one print queue.
+// printerDeviceDTO is one print destination this station can reach.
 type printerDeviceDTO struct {
-	Name    string `json:"name"`
+	Name string `json:"name"`
+	// Key is the printer.options key this destination goes INTO, as the enumeration that
+	// found it declared: "queue", "path" or "address".
+	//
+	// The screen writes what a volunteer clicks into THAT key and no other. It wrote every
+	// one of them into `queue`, and the two routes served by this handler do not answer the
+	// same kind of thing: one lists the queues of the spooler, the other the hosts that
+	// replied on port 9100.
+	Key     string `json:"key"`
 	Detail  string `json:"detail"`
 	Default bool   `json:"default"`
 }
@@ -585,7 +597,7 @@ func (s *Server) answerPrinters(w http.ResponseWriter, r *http.Request, discover
 	}{make([]printerDeviceDTO, 0, len(list))}
 	for _, p := range list {
 		body.Printers = append(body.Printers, printerDeviceDTO{
-			Name: p.Name, Detail: p.Detail, Default: p.Default,
+			Name: p.Name, Key: p.Key, Detail: p.Detail, Default: p.Default,
 		})
 	}
 	writeJSON(w, http.StatusOK, body)

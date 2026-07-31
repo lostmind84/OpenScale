@@ -88,6 +88,11 @@ type benchOptions struct {
 	// cmd/openscale hands them over. Empty by default: a bench wires no driver registry,
 	// which is exactly the case §14.5 has to answer without inventing anything.
 	printers []domain.DriverDescriptor
+	// transports are the byte transports this bench declares its binary was built with,
+	// each naming the printer.options key it designates its device by. Empty by default,
+	// for the reason printers is: a bench wires no registry, and §14.5 must answer that
+	// honestly rather than invent four names.
+	transports []domain.DriverDescriptor
 	// catalogSources are the catalog sources this bench declares its binary was built
 	// with. It carries the SHIPPED one by default, and that is not decoration: controls 39
 	// and 46 read the schema to learn which key names a drop directory, so a bench that
@@ -189,7 +194,8 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		Update:     o.update,
 		Binder:     o.binder,
 		Registries: domain.Registries{
-			Paths: o.paths, Printers: o.printers, CatalogSources: o.catalogSources,
+			Paths: o.paths, Printers: o.printers, Transports: o.transports,
+			CatalogSources: o.catalogSources,
 		},
 		Version: "test",
 	}
