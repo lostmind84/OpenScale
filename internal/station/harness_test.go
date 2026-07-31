@@ -265,10 +265,14 @@ type bench struct {
 
 // benchOptions is what a test wants to change about the standard bench.
 type benchOptions struct {
-	config   func(*domain.Config)
-	catalog  *domain.Catalog
-	newScale ScaleFactory
-	noScale  bool
+	config  func(*domain.Config)
+	catalog *domain.Catalog
+	// catalogAt is when the catalog above was IMPORTED, as the composition root reads
+	// it back from the base at start-up. The zero instant is a station whose store has
+	// never applied one.
+	catalogAt time.Time
+	newScale  ScaleFactory
+	noScale   bool
 	// journal and technical replace the recording doubles with the REAL database,
 	// which is what failure tests 7 and 14 need: an error a map cannot produce.
 	journal   Journal
@@ -297,7 +301,7 @@ type benchOptions struct {
 func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 	t.Helper()
 
-	o := benchOptions{catalog: garlicCatalog()}
+	o := benchOptions{catalog: garlicCatalog(), catalogAt: epoch}
 	for _, f := range tweak {
 		f(&o)
 	}
@@ -319,7 +323,7 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 	}
 
 	options := Options{
-		Clock: clock, Config: cfg, Catalog: o.catalog,
+		Clock: clock, Config: cfg, Catalog: o.catalog, CatalogAt: o.catalogAt,
 		Printer: b.printer, Journal: b.journal, TechnicalSink: b.technical,
 		NewScale: o.newScale, CatalogSource: o.source, ApplyCatalog: o.applyCatalog,
 		OnRevert: o.onRevert, OutOfService: o.outOfService, Registries: o.registries,

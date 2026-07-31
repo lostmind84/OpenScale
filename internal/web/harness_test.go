@@ -156,7 +156,11 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 
 	st, err := station.New(station.Options{
 		Clock: clock, Config: cfg, Catalog: o.catalog,
-		Scale: b.scale, Printer: b.printer,
+		// The instant the composition root reads back from the imports table — here, the
+		// bench's own epoch. A station stamps the catalog it STARTS with, and it takes
+		// that instant from the store precisely so that a restart cannot invent one.
+		CatalogAt: epoch,
+		Scale:     b.scale, Printer: b.printer,
 		Journal: b.store, TechnicalSink: b.store,
 		// The rollback puts the FILE back as well as the running station, and it is the
 		// composition root that does it (§11.4, serve.go). Without it here, the store the

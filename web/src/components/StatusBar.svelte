@@ -25,7 +25,7 @@
     label: LabelDTO | null
     /** The window of `reprint_window_s` is still open, and nothing was reprinted. */
     available: boolean
-    /** When the catalog entered service, already formatted, or empty (§14.3). */
+    /** When the catalog was imported, already formatted, or empty (§14.3, ADR-053). */
     catalogAt?: string
     /** How many weighable products the grid is drawing from. */
     productCount?: number
@@ -70,6 +70,8 @@
     Ce que le poste sait de lui-même. « Ces prix datent de quand ? » est la
     question qu'un bénévole pose devant une grille ; une date qui cesse
     d'avancer est aussi la façon dont un poste dit qu'il ne reçoit plus rien.
+    C'est la date du dernier import qui a appliqué des modifications, et
+    aucun redémarrage ne la déplace (ADR-053).
   -->
   <div class="block station">
     {#if catalogAt !== ''}

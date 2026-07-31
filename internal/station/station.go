@@ -93,10 +93,17 @@ type CatalogApplier func(ctx context.Context, cfg domain.Config, b *ports.Batch)
 // It carries what produced it so that the dashboard can say « Catalogue du
 // 24/07/2026 » without asking the store.
 type CatalogBatch struct {
-	Catalog    *domain.Catalog
-	Source     string
-	FileName   string
-	ReceivedAt time.Time
+	Catalog  *domain.Catalog
+	Source   string
+	FileName string
+	// ImportedAt is the instant of the import that PRODUCED this catalog — the
+	// occurred_at of its row in the imports table, and never the instant of the swap.
+	//
+	// The two differ by up to MaxSwitchIdle, because a catalog waits for a station
+	// nobody is touching (§10.8). Stamping the swap made the same catalog carry one
+	// date in service and another after the next restart, which reads it back from the
+	// base. One catalog, one instant.
+	ImportedAt time.Time
 }
 
 // Server is the part of an HTTP server the shutdown needs. Declared here, on the
@@ -127,6 +134,15 @@ type Options struct {
 	// starts the machine in Initializing, which is what makes the grid say
 	// « Catalogue vide » instead of showing nothing.
 	Catalog *domain.Catalog
+	// CatalogAt is when that snapshot was IMPORTED — the instant of the last import
+	// the store applied, read back from the base by the composition root.
+	//
+	// It is handed in rather than taken from the clock, and that is the defect this
+	// field was added for: a station stamps the catalog it starts with, so reading the
+	// clock here dated every catalog from the last reboot. §14.3 shows this instant
+	// permanently to answer « ces prix datent de quand ? », and a date that a service
+	// restart moves answers a question nobody asked.
+	CatalogAt time.Time
 	// OutOfService starts the station in the one terminal state, which is what an
 	// unusable configuration does (§11.3, ERR-CFG-01).
 	OutOfService bool
@@ -931,13 +947,26 @@ func (s *Station) offer(ctx context.Context, source ports.CatalogSource, batch *
 	} else if catalog != nil {
 		s.logIfCatalogErr(s.hub.PushCatalog(ctx, &CatalogBatch{
 			Catalog: catalog, Source: batch.Source,
-			FileName: batch.FileName, ReceivedAt: s.clock.Now(),
+			FileName: batch.FileName, ImportedAt: importedAt(result, s.clock),
 		}))
 	}
 	if err := source.Acknowledge(ctx, batch, result); err != nil {
 		s.hub.logTechnical(domain.LevelWarn, "catalog", "ERR-CAT-05",
 			"Fichier de catalogue non supprimé.", err.Error())
 	}
+}
+
+// importedAt is the instant the applier recorded, or the clock when it recorded none.
+//
+// The fallback is for the DEFAULT applier — plainCatalog, which writes no history row
+// because it has no store to write it to — and for any plug-in one somebody adds later.
+// A station whose applier keeps no history still has to answer « ces prix datent de
+// quand ? », and the moment its catalog was offered is the truest thing left to say.
+func importedAt(result ports.BatchResult, clock ports.Clock) time.Time {
+	if result.AppliedAt.IsZero() {
+		return clock.Now()
+	}
+	return result.AppliedAt
 }
 
 // logIfCatalogErr reports a catalog that never reached the loop.
