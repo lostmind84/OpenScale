@@ -21,13 +21,22 @@ import (
 
 // --- The shape of the report ------------------------------------------------
 
-// TestTheReportCarriesTheFifteenControlsOfTheDocument is the count itself. §15.4 says
-// fifteen, names fifteen, and bloquant-7 says the autologon is the third of them.
-func TestTheReportCarriesTheFifteenControlsOfTheDocument(t *testing.T) {
+// TestTheReportCarriesEveryControlOfTheDocument is the count itself, and it counts
+// ControlOrder rather than a number typed here.
+//
+// The number was written 15 in three test files and in five paragraphs of the
+// architecture; adding a sixteenth turned three of them red and left the five silent.
+// ControlOrder is documented as « the authority on how many controls there are », so it
+// is what a test compares against — a number typed beside it is a second authority, and
+// the two drift.
+//
+// bloquant-7 still holds: the autologon is the THIRD, and that is asserted below.
+func TestTheReportCarriesEveryControlOfTheDocument(t *testing.T) {
 	report := newBench(t).run()
 
-	if len(report.Controls) != 15 {
-		t.Fatalf("%d contrôles, le document en nomme 15 (§15.4)", len(report.Controls))
+	if len(report.Controls) != len(ControlOrder) {
+		t.Fatalf("%d contrôles rendus, %d déclarés dans ControlOrder",
+			len(report.Controls), len(ControlOrder))
 	}
 	for i, want := range ControlOrder {
 		if report.Controls[i].ID != want {
@@ -74,7 +83,7 @@ func TestANominalStationIsGreenExceptWhatItDoesNotHave(t *testing.T) {
 }
 
 // TestEveryRedControlSaysWhatToDo is the rule of the whole package, asserted over every
-// single failure the fifteen controls can produce on this bench.
+// single failure the controls can produce on this bench.
 //
 // It is deliberately a LOOP over spoilers and not fifteen assertions: adding a sixteenth
 // failure branch without a remedy fails here, without anybody remembering to come back.
@@ -874,9 +883,47 @@ func TestASystemWhoseInstallerWritesNoPowerSettingIsNotJudged(t *testing.T) {
 	}
 }
 
+// --- 16. The right to restart the machine -----------------------------------
+
+// TestTheRebootPermissionIsJudgedOnThisPlatform.
+//
+// The verdict differs by platform and each one is defensible, which is precisely why it
+// is asserted rather than left to a reading: Windows runs the service as LocalSystem and
+// has nothing to pose, Linux stands behind a polkit rule, and a system that cannot
+// restart at all is not judged — inventing a requirement there would be worse than
+// saying nothing.
+func TestTheRebootPermissionIsJudgedOnThisPlatform(t *testing.T) {
+	found := control(t, newBench(t).run(), ControlRebootPermission)
+
+	switch runtime.GOOS {
+	case "windows":
+		if found.Status != StatusPass {
+			t.Fatalf("statut %s : LocalSystem porte le privilège d'arrêt, il n'y a rien à poser",
+				found.Status)
+		}
+	case "linux":
+		// Both are true answers here — the rule is posed on an installed station and
+		// absent on a build machine — and what matters is that a refusal SAYS WHAT TO DO.
+		if found.Status != StatusPass && found.Status != StatusFail {
+			t.Fatalf("statut %s : sous Linux la question a une réponse", found.Status)
+		}
+		if found.Status == StatusFail && !strings.Contains(found.Remedy, "install.sh") {
+			t.Errorf("le refus ne nomme pas le remède :\n%s", found.Remedy)
+		}
+	default:
+		if found.Status != StatusNotApplicable {
+			t.Fatalf("statut %s : ce système ne redémarre pas depuis l'écran, il n'y a "+
+				"aucun droit à exiger", found.Status)
+		}
+	}
+	if found.Observed == "" {
+		t.Error("le contrôle ne dit pas ce qu'il a vu")
+	}
+}
+
 // --- The whole report -------------------------------------------------------
 
-func TestADoctorWithNoCollaboratorAtAllStillProducesFifteenLines(t *testing.T) {
+func TestADoctorWithNoCollaboratorAtAllStillProducesEveryLine(t *testing.T) {
 	// The case §15.1 exists for, taken to its limit: no machine, no service, no base, no
 	// configuration. A diagnosis that refused to run here would refuse exactly when needed.
 	doctor, err := New(Options{Clock: newBench(t).clock})
@@ -887,8 +934,8 @@ func TestADoctorWithNoCollaboratorAtAllStillProducesFifteenLines(t *testing.T) {
 	if err := report.Validate(); err != nil {
 		t.Fatalf("le rapport se contredit :\n%v", err)
 	}
-	if len(report.Controls) != 15 {
-		t.Fatalf("%d contrôles au lieu de 15", len(report.Controls))
+	if len(report.Controls) != len(ControlOrder) {
+		t.Fatalf("%d contrôles au lieu de %d", len(report.Controls), len(ControlOrder))
 	}
 	if report.Worst() == StatusPass {
 		t.Error("un poste dont rien n'a pu être lu ne peut pas être annoncé au vert")

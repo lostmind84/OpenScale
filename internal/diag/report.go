@@ -8,14 +8,17 @@ import (
 	"time"
 )
 
-// The identifiers of the fifteen controls of §15.4, in the order the document
+// The identifiers of the controls of §15.4, in the order the document
 // enumerates them.
 //
 // They are ENGLISH and STABLE: a support call quotes them, diagnostic.zip carries them,
 // and the wording of the French sentence beside them is free to improve without
 // invalidating a note somebody wrote in the shop binder. The third one is the autologon,
-// and it is third because bloquant-7 counts it as « énuméré en 3ᵉ position sur les 15
-// contrôles ».
+// and it is third because bloquant-7 puts it there — « énuméré en 3ᵉ position ».
+//
+// THE COUNT IS ControlOrder AND NOTHING ELSE. It was written « fifteen » in a dozen
+// comments, three test files and five paragraphs of the architecture; adding a sixteenth
+// turned three of them red and left the rest quietly wrong.
 const (
 	ControlService           = "service"
 	ControlKioskTask         = "kiosk-task"
@@ -32,12 +35,17 @@ const (
 	ControlCatalogSource     = "catalog-source"
 	ControlSystemClock       = "system-clock"
 	ControlPowerSettings     = "power-settings"
+	// ControlRebootPermission is the sixteenth, added with the « Redémarrer
+	// l'ordinateur » button: under Linux the service runs as `openscale` and a polkit
+	// rule stands between it and the right, so its absence is a button that answers
+	// « accès refusé » on a station where everything else works.
+	ControlRebootPermission = "reboot-permission"
 )
 
-// ControlOrder is the fifteen identifiers in the order §15.4 lists them, and the
+// ControlOrder is the identifiers in the order §15.4 lists them, and the
 // authority on « how many controls are there ».
 //
-// A slice and not a count: a test asserts that a report carries exactly these fifteen,
+// A slice and not a count: a test asserts that a report carries exactly these,
 // once each, in this order — which is what keeps a fourteenth from being dropped in a
 // refactor and nobody noticing.
 var ControlOrder = []string{
@@ -46,14 +54,15 @@ var ControlOrder = []string{
 	ControlConfiguration, ControlDatabase, ControlMigrations,
 	ControlSerialPort, ControlPrintQueue, ControlScaleRate,
 	ControlCatalogSource, ControlSystemClock, ControlPowerSettings,
+	ControlRebootPermission,
 }
 
-// Control is what one of the fifteen controls reports: what was checked, how it came
+// Control is what one of the controls reports: what was checked, how it came
 // out, and what to do about it.
 type Control struct {
-	// ID is one of the fifteen stable identifiers above.
+	// ID is one of the stable identifiers above.
 	ID string `json:"id"`
-	// Rank is the position of §15.4, 1 to 15.
+	// Rank is the position of §15.4, counted from 1 in the order of ControlOrder.
 	Rank int `json:"rank"`
 	// Checked is FRENCH and names WHAT WAS VERIFIED, in the words of §15.4. It is
 	// written in the past tense of a report, not as a question.
@@ -214,7 +223,7 @@ func (r Report) summaryLine() string {
 		return fmt.Sprintf("%d contrôle(s) n'ont pas pu être établis d'ici. Rien d'anormal n'a été "+
 			"constaté par ailleurs.", r.Count(StatusUnknown))
 	}
-	return "Les quinze contrôles sont au vert."
+	return "Tous les contrôles sont au vert."
 }
 
 // prefixContinuation indents the continuation lines of a remedy that carries several,

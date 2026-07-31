@@ -112,14 +112,15 @@ func TestTheArchiveIsReadableAndComplete(t *testing.T) {
 		}
 	}
 
-	// The report member must decode back into a report with its fifteen controls: the
+	// The report member must decode back into a report with ALL its controls: the
 	// archive is read by a support tool, not only by a human.
 	var report Report
 	if err := json.Unmarshal(readNamed(t, archive, "doctor.json"), &report); err != nil {
 		t.Fatalf("doctor.json illisible : %v", err)
 	}
-	if len(report.Controls) != 15 {
-		t.Errorf("doctor.json porte %d contrôles, attendu 15", len(report.Controls))
+	if len(report.Controls) != len(ControlOrder) {
+		t.Errorf("doctor.json porte %d contrôles, attendu %d",
+			len(report.Controls), len(ControlOrder))
 	}
 
 	// The three CSV members must parse with the separator they were written with, and carry

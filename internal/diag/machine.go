@@ -14,8 +14,8 @@ import (
 //
 // It is declared HERE, on the consumer's side (§5.3). ONE interface and not nine, and
 // that is deliberate: these are not nine independent capabilities a caller might mix and
-// match, they are one platform, implemented once per operating system, and the fifteen
-// controls are their only consumer. A test drives all fifteen with a single double that
+// match, they are one platform, implemented once per operating system, and the
+// controls are their only consumer. A test drives all of them with a single double that
 // needs no Windows, no service, no registry and no printer.
 //
 // Every method returns « I do not know » as a value rather than as an error whenever not
@@ -224,7 +224,7 @@ func megabytes(bytes uint64) int64 { return int64(bytes / (1 << 20)) }
 // silentMachine is what a doctor built without a Machine asks.
 //
 // It answers « je ne sais pas » to everything, and it exists so that `openscale doctor`
-// still produces its fifteen lines when the platform layer could not be built: a
+// still produces its lines when the platform layer could not be built: a
 // diagnosis that refuses to run because one of its own sources is missing is a diagnosis
 // nobody can read (§15.1).
 type silentMachine struct{}

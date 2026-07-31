@@ -57,7 +57,7 @@ type doctorOptions struct {
 	output string
 }
 
-// runDoctor performs the fifteen controls and prints them.
+// runDoctor performs the controls and prints them.
 //
 // The exit code is exitFailure and never exitFatal: 3 is reserved by §13.4 for a station
 // that cannot serve, and a diagnosis is not a station.
@@ -87,7 +87,7 @@ func runDoctor(ctx context.Context, args []string, out io.Writer) error {
 
 	if failures := report.Count(diag.StatusFail); failures > 0 {
 		// One line on stderr, because the report is already above: a script reads the exit
-		// code, and a human reads the fifteen lines and their instructions.
+		// code, and a human reads the lines above and their instructions.
 		return &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf(
 			"%d contrôle(s) en échec — les consignes sont dans le rapport ci-dessus.", failures)}
 	}
@@ -213,7 +213,7 @@ func parseDoctorOptions(args []string, out io.Writer) (doctorOptions, error) {
 	fs.Usage = func() {
 		fmt.Fprint(out, `Usage : openscale doctor [--zip] [--output f.zip] [--config fichier] [--data répertoire]
 
-Les quinze contrôles de §15.4. Chacun dit ce qui a été vérifié, comment cela s'est
+Les contrôles de §15.4. Chacun dit ce qui a été vérifié, comment cela s'est
 passé, et ce qu'il faut FAIRE si c'est rouge. La commande fonctionne même quand le
 service ne démarre pas — c'est précisément à cela qu'elle sert.
 

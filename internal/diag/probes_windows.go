@@ -69,6 +69,15 @@ func systemUptime() (time.Duration, error) {
 // by hand here would be a second way of asking the same question.
 func sessionIsElevated() bool { return windows.GetCurrentProcessToken().IsElevated() }
 
+// rebootPermission reports whether this station may restart the machine.
+//
+// The service is installed without a ServiceStartName, so it runs as LocalSystem, which
+// holds SeShutdownPrivilege. There is nothing to pose and nothing that could be missing —
+// unlike Linux, where a polkit rule stands between the account and the right.
+func rebootPermission() (bool, string) {
+	return true, "le service tourne en LocalSystem, qui porte le privilège d'arrêt"
+}
+
 // systemRelease is left empty on Windows.
 //
 // Naming the build would take a second registry read for a decorative line, and the two
