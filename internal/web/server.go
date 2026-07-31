@@ -301,6 +301,24 @@ type Updater interface {
 	Apply(ctx context.Context, repository, wanted string) error
 }
 
+// Restarter stops the station so that its supervisor starts it again.
+//
+// Declared here, on the consumer's side; *stationRestarter of cmd/openscale satisfies
+// it. NIL MEANS « nobody would relaunch it », and the route then answers 501 instead of
+// stopping a station that would stay down — which is what `openscale serve` typed into
+// a terminal is.
+//
+// This is the route ADR-027 removed, and it is not that route. What the ADR refuses is
+// a restart DEMANDED BY A SETTING: no configuration block may ask for one, and none
+// does. This one is a repair, and it goes through the only restart that ADR calls
+// legitimate — the one the SCM or systemd triggers on its own.
+type Restarter interface {
+	// Restart asks the station to stop. It returns as soon as the demand is recorded,
+	// because what carries it out also ends this process, and a *station.DowntimeRefused
+	// when the station must not be taken down right now.
+	Restart() error
+}
+
 // Options is everything the HTTP layer is given. Clock and Hub are required; every
 // other collaborator is optional and its absence is answered honestly.
 type Options struct {
@@ -328,6 +346,9 @@ type Options struct {
 	Dashboard Dashboard
 	// Update installs a newer release from the screen. Nil answers 501 on the act.
 	Update Updater
+	// Restart stops the station so that its supervisor starts it again. Nil answers
+	// 501 on that route: see Restarter.
+	Restart Restarter
 
 	// Assets is the built front end (internal/web/dist through //go:embed). Nil
 	// serves a placeholder page rather than a 404: a station whose front end has not
@@ -362,6 +383,7 @@ type Server struct {
 	diagnostician   Diagnostician
 	dashboard       Dashboard
 	updater         Updater
+	restarter       Restarter
 	assets          fs.FS
 	images          fs.FS
 	registries      domain.Registries
@@ -398,7 +420,8 @@ func New(o Options) (*Server, error) {
 		store: o.Store, configStore: o.Config, catalog: o.Catalog,
 		hardware: o.Hardware, printer: o.Printer, troubleshooting: o.Troubleshooting,
 		diagnostician: o.Diagnostic, dashboard: o.Dashboard, updater: o.Update,
-		assets: o.Assets, images: o.Images, registries: o.Registries,
+		restarter: o.Restart,
+		assets:    o.Assets, images: o.Images, registries: o.Registries,
 		binder: o.Binder, version: o.Version,
 		sessions: newSessionStore(o.Clock),
 	}
@@ -513,6 +536,7 @@ func (s *Server) routes() http.Handler {
 		"POST /admin/api/config/import":                s.importConfig,
 		"POST /admin/api/config/restore":               s.restoreConfig,
 		"POST /admin/api/config/reload":                s.reloadConfigFromDisk,
+		"POST /admin/api/restart":                      s.restart,
 		"POST /admin/api/troubleshooting/manual-entry": s.manualEntry,
 		"POST /admin/api/catalog/import":               s.importCatalog,
 		"POST /admin/api/printers/discover":            s.discoverPrinters,

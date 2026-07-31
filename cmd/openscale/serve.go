@@ -53,6 +53,13 @@ const (
 	// stopped serving on its own. « Un poste ne peut pas tourner normalement en étant
 	// mort. »
 	exitFatal = 3
+	// exitRestart is a stop somebody ASKED FOR, from the administration screen.
+	//
+	// It is non-zero ON PURPOSE, and that is the whole mechanism: a non-zero code is
+	// what makes the SCM apply the recovery actions of §15.2 and systemd its
+	// Restart=always. A clean 0 would be recorded as a stop nobody undoes, and the
+	// station would wait for a human who thinks it is coming back.
+	exitRestart = 4
 )
 
 // The technical codes of §13.4, each with the sentence a volunteer reads.
@@ -68,6 +75,14 @@ const (
 	// codeServerStopped is ERR-SYS-03: Serve returned without a shutdown having been
 	// asked for.
 	codeServerStopped = "ERR-SYS-03"
+	// codeRestartAsked is ERR-SYS-09: a volunteer asked for a restart from the
+	// administration screen.
+	//
+	// It is written to the technical journal BEFORE the stop, because nothing written
+	// afterwards would ever be written — and because the Windows event log will record
+	// this stop as « inattendu », which it is not. That line is the only place the
+	// intention survives.
+	codeRestartAsked = "ERR-SYS-09"
 )
 
 // probeBudget is how long the single-instance probe waits for the address to answer.
@@ -131,6 +146,16 @@ type serveOptions struct {
 	// waits on instead of polling a port, and it is the only reason this struct is not
 	// three strings.
 	serving func(address string)
+
+	// restarting hands over the demand the restart button carries, and is nil in
+	// production.
+	//
+	// It exists because the ROUTE cannot prove what this file does: restarterFor gives
+	// the HTTP layer nothing on a station nobody supervises, and a test binary is never
+	// supervised — so a request would honestly answer 501 and prove nothing about the
+	// exit code, which is the whole point of the mechanism. What the route does with the
+	// demand is proven in internal/web; what serve() does with it is proven here.
+	restarting func(ask func() error)
 }
 
 // runServe is the subcommand of §15.1: the service itself, and the default of the
@@ -453,6 +478,10 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		diagnostic = nil
 	}
 
+	// The restart button, wired to the select below. It is built here and not inside
+	// web.Options because serve() is the half that WAITS on it.
+	restarter := newStationRestarter(func() (bool, string) { return st.Hub().DowntimeGuard() })
+
 	server, err := web.New(web.Options{
 		Clock:      clock,
 		Hub:        st.Hub(),
@@ -492,6 +521,9 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 			machine: diag.NewMachine(clock), dataDir: o.dataDir,
 		},
 		Update: updaterFor(updateService),
+		// Nil on a station nobody supervises, and the route then says so rather than
+		// stopping a process that would stay stopped (restarterFor).
+		Restart: restarterFor(restarter),
 	})
 	if err != nil {
 		_ = binder.Close()
@@ -512,6 +544,9 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	go func() { served <- httpServer.Serve(binder) }()
 
 	fmt.Fprintf(out, "openscale %s — poste en écoute sur http://%s\n", version, binder.Addr())
+	if o.restarting != nil {
+		o.restarting(restarter.Restart)
+	}
 	if o.serving != nil {
 		o.serving(binder.Addr().String())
 	}
@@ -519,6 +554,14 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	var fatal error
 	select {
 	case <-ctx.Done():
+	case <-restarter.Asked():
+		// A stop somebody asked for, which takes the SAME road as every other stop —
+		// the ordered shutdown below is not duplicated for this case, and that is the
+		// point of going through here rather than through a script.
+		fatal = &serviceFailure{Code: codeRestartAsked, Exit: exitRestart, Message: "" +
+			"Redémarrage demandé depuis l'écran d'administration. Le gestionnaire de " +
+			"services relance le poste."}
+		recordFailure(db, clock, fatal)
 	case err := <-served:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			fatal = &serviceFailure{Code: codeServerStopped, Exit: exitFatal, Err: err, Message: fmt.Sprintf(

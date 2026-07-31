@@ -1,11 +1,20 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 
 	"openscale/internal/domain"
 	"openscale/internal/station"
 )
+
+// codeRestartUnsupervised is what a station nobody would relaunch answers.
+//
+// It is NOT the code of the restart itself — ERR-SYS-09, written by cmd/openscale into
+// the technical journal on the way out. One says « the station is going down on
+// purpose », the other « it would not come back », and a volunteer looking either up in
+// TROUBLESHOOTING.md must not land on the other.
+const codeRestartUnsupervised = "ERR-SYS-10"
 
 // reloadConfigFromDisk is POST /admin/api/config/reload: the file, as somebody has just
 // edited it, enters service without the station being stopped.
@@ -78,6 +87,45 @@ func (s *Server) reloadConfigFromDisk(w http.ResponseWriter, r *http.Request) {
 	s.moveListener(inForce, onDisk, outcome.ConfirmBefore)
 	writeJSON(w, http.StatusOK, s.configPayload(onDisk,
 		s.confirmationOf(outcome.Changed, outcome.ConfirmBefore)))
+}
+
+// restart is POST /admin/api/restart: the station stops, and its supervisor starts it.
+//
+// # What it is, and what ADR-027 refused
+//
+// The ADR removed a route of this name because no configuration block may demand a
+// restart — and none does, the hot reload of §11.4 still covers every one of them. This
+// route is not that one: it is the way out of a station under kiosk, where a volunteer
+// facing something frozen has no console to reach and no other move than the power
+// switch. It stops nothing by itself either. The station goes through the ordered
+// shutdown of §13.4 and returns a non-zero code; the SCM and systemd do the restarting,
+// which is precisely the one restart ADR-027 calls legitimate.
+func (s *Server) restart(w http.ResponseWriter, _ *http.Request) {
+	if s.restarter == nil {
+		writeProblem(w, http.StatusNotImplemented, codeRestartUnsupervised,
+			"Ce poste n'est pas lancé par un service : personne ne le redémarrerait. "+
+				"Installez-le en service avec « openscale service install ».")
+		return
+	}
+	if err := s.restarter.Restart(); err != nil {
+		var refused *station.DowntimeRefused
+		if errors.As(err, &refused) {
+			// The guard WROTE the sentence, and this layer does not paraphrase it:
+			// paraphrasing would lose the only thing the volunteer can act on. No code
+			// either — codeNoPassword is the one 409 that means « authenticate », and
+			// the screen offers the installation sheet when it reads it.
+			writeProblem(w, http.StatusConflict, "", refused.Reason)
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "",
+			"Le redémarrage n'a pas pu être demandé : "+err.Error())
+		return
+	}
+	// 202: the station is about to stop, and there will be no second answer on this
+	// connection. The screen polls /healthz until somebody answers again, exactly as it
+	// does after an update.
+	writeJSON(w, http.StatusAccepted, actionDTO{
+		Done: true, Message: "Le poste redémarre. L'écran revient tout seul."})
 }
 
 // secretsLostBy names the credentials this file would erase.

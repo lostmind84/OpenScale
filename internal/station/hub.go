@@ -256,6 +256,19 @@ func (h *Hub) State() Snapshot { return *h.state.Load() }
 // Config returns the configuration in force.
 func (h *Hub) Config() domain.Config { return *h.cfg.Load() }
 
+// DowntimeRefused carries the guard's OWN French sentence up to the screen.
+//
+// A type and not a formatted string, for the reason update.BusyError already gives: the
+// layer above renders that sentence verbatim, because the guard knows whether a weighing
+// or a catalogue is in the way and an HTTP handler does not. Recovering it by cutting a
+// prefix off an error message would break the first time either side is reworded.
+type DowntimeRefused struct{ Reason string }
+
+// Error renders the refusal for a log.
+func (e *DowntimeRefused) Error() string {
+	return "station: the station must not be taken down: " + e.Reason
+}
+
 // DowntimeGuard reports whether the station may be taken down, and says IN FRENCH
 // why not when it may not.
 //

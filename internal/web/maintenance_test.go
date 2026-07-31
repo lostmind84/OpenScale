@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"openscale/internal/station"
 )
 
 // TestRereadingTheFilePutsItInService: a config.json edited by hand enters service
@@ -139,6 +141,83 @@ func TestRereadingIsProtected(t *testing.T) {
 
 	if response := b.post("/admin/api/config/reload", `{}`); response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("POST /admin/api/config/reload sans session = %d, attendu 401", response.StatusCode)
+	}
+}
+
+// --- Redémarrer l'application -----------------------------------------------
+
+// stubRestarter records the demand instead of stopping a station.
+type stubRestarter struct {
+	err   error
+	calls int
+}
+
+func (r *stubRestarter) Restart() error {
+	r.calls++
+	return r.err
+}
+
+// TestRestartingAsksTheStationToStop.
+//
+// 202 and not 200: the station is about to go, and there will be no second answer on
+// this connection — the screen polls /healthz until somebody answers again.
+func TestRestartingAsksTheStationToStop(t *testing.T) {
+	restarter := &stubRestarter{}
+	b := adminBench(t, func(o *benchOptions) { o.restarter = restarter })
+
+	answer := decodeStatus[actionDTO](t,
+		b.post("/admin/api/restart", `{}`), http.StatusAccepted)
+	if !answer.Done || answer.Message == "" {
+		t.Fatalf("réponse = %+v : elle doit porter une phrase française", answer)
+	}
+	if restarter.calls != 1 {
+		t.Fatalf("%d demande(s) transmise(s), attendu 1", restarter.calls)
+	}
+}
+
+// TestAnUnsupervisedStationIsNotStopped: without a service manager nobody relaunches
+// it, and stopping it would leave a station nothing can turn back on.
+func TestAnUnsupervisedStationIsNotStopped(t *testing.T) {
+	b := adminBench(t)
+
+	answer := decodeStatus[problem](t,
+		b.post("/admin/api/restart", `{}`), http.StatusNotImplemented)
+	if answer.Message == "" {
+		t.Fatal("le refus ne porte aucune phrase française")
+	}
+	if answer.Code == "" {
+		t.Error("le refus ne porte aucun code : il n'est cherchable dans aucune notice")
+	}
+}
+
+// TestRestartingIsRefusedMidWeighing: the guard answers for this act as it answers for
+// an update, and its sentence travels verbatim.
+func TestRestartingIsRefusedMidWeighing(t *testing.T) {
+	restarter := &stubRestarter{err: &station.DowntimeRefused{
+		Reason: "Une pesée est en cours. Réessayez dans un instant."}}
+	b := adminBench(t, func(o *benchOptions) { o.restarter = restarter })
+
+	answer := decodeStatus[problem](t,
+		b.post("/admin/api/restart", `{}`), http.StatusConflict)
+	if answer.Message != "Une pesée est en cours. Réessayez dans un instant." {
+		t.Fatalf("phrase servie %q : le refus du garde doit voyager mot pour mot", answer.Message)
+	}
+	// ERR-CFG-02 is « this station has no password yet », and the screen offers the
+	// installation sheet when it reads it. A busy station must not send anybody
+	// looking for that sheet.
+	if answer.Code == codeNoPassword {
+		t.Error("un poste occupé répond le code d'un poste sans mot de passe")
+	}
+}
+
+// TestRestartingIsProtected: it stops the station, which is heavier than anything the
+// password was already guarding.
+func TestRestartingIsProtected(t *testing.T) {
+	b := newBench(t, func(o *benchOptions) { o.restarter = &stubRestarter{} })
+	b.setPassword("mot-de-passe-long", "ABCD2345")
+
+	if response := b.post("/admin/api/restart", `{}`); response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("POST /admin/api/restart sans session = %d, attendu 401", response.StatusCode)
 	}
 }
 
