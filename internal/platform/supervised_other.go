@@ -4,13 +4,24 @@ package platform
 
 import "os"
 
-// supervised reads the marker systemd sets on every unit it starts.
+// supervised reports whether systemd would relaunch THIS process.
 //
-// INVOCATION_ID, and not a check on PID 1 or on the parent process: the main process of
-// a unit is not a child of PID 1 in every cgroup arrangement, whereas systemd.exec(5)
-// documents this variable as being set for each invocation. The value carries no meaning
-// here — only its presence does.
+// # Two conditions, and the second one is the whole function
 //
-// A unit that stops is relaunched because deploy/linux/openscale.service says
-// Restart=always. That is the second half of the answer, and it lives in the unit.
-func supervised() bool { return os.Getenv("INVOCATION_ID") != "" }
+// INVOCATION_ID says « this comes from a unit ». It is NOT enough on its own, because
+// EVERY CHILD OF A SERVICE INHERITS IT: a shell started from a unit, a `go test` run by a
+// CI agent that is itself a unit, a script launched by an operator through systemd-run —
+// all of them would answer « somebody will relaunch me », and nobody would.
+//
+// MEASURED, and that is how this was found: on the GitHub Actions runner — a systemd
+// service — the test binary read INVOCATION_ID and declared itself supervised. The
+// button would then have stopped a process that stays stopped, which is exactly the
+// failure the check exists to prevent.
+//
+// The second condition is what tells the MAIN process of a unit from its descendants:
+// systemd forks it directly, so its parent is PID 1. A child has its own parent. This is
+// the same reasoning notify.go already applies to WATCHDOG_PID — « a mismatch means the
+// variables were inherited by something that must NOT answer ».
+func supervised() bool {
+	return os.Getenv("INVOCATION_ID") != "" && os.Getppid() == 1
+}

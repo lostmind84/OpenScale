@@ -885,36 +885,45 @@ func TestASystemWhoseInstallerWritesNoPowerSettingIsNotJudged(t *testing.T) {
 
 // --- 16. The right to restart the machine -----------------------------------
 
-// TestTheRebootPermissionIsJudgedOnThisPlatform.
-//
-// The verdict differs by platform and each one is defensible, which is precisely why it
-// is asserted rather than left to a reading: Windows runs the service as LocalSystem and
-// has nothing to pose, Linux stands behind a polkit rule, and a system that cannot
-// restart at all is not judged — inventing a requirement there would be worse than
-// saying nothing.
-func TestTheRebootPermissionIsJudgedOnThisPlatform(t *testing.T) {
+// TestAStationThatMayRestartTheMachineIsGreen.
+func TestAStationThatMayRestartTheMachineIsGreen(t *testing.T) {
 	found := control(t, newBench(t).run(), ControlRebootPermission)
+	if found.Status != StatusPass {
+		t.Fatalf("statut %s — %s", found.Status, found.Observed)
+	}
+}
 
-	switch runtime.GOOS {
-	case "windows":
-		if found.Status != StatusPass {
-			t.Fatalf("statut %s : LocalSystem porte le privilège d'arrêt, il n'y a rien à poser",
-				found.Status)
-		}
-	case "linux":
-		// Both are true answers here — the rule is posed on an installed station and
-		// absent on a build machine — and what matters is that a refusal SAYS WHAT TO DO.
-		if found.Status != StatusPass && found.Status != StatusFail {
-			t.Fatalf("statut %s : sous Linux la question a une réponse", found.Status)
-		}
-		if found.Status == StatusFail && !strings.Contains(found.Remedy, "install.sh") {
-			t.Errorf("le refus ne nomme pas le remède :\n%s", found.Remedy)
-		}
-	default:
-		if found.Status != StatusNotApplicable {
-			t.Fatalf("statut %s : ce système ne redémarre pas depuis l'écran, il n'y a "+
-				"aucun droit à exiger", found.Status)
-		}
+// TestAStationThatMayNOTRestartTheMachineSaysWhatToDo.
+//
+// This is the state of every Linux station whose polkit rule was never posed, and the
+// reason this control exists: the station works perfectly until the evening somebody
+// needs the one button it forbids.
+func TestAStationThatMayNOTRestartTheMachineSaysWhatToDo(t *testing.T) {
+	b := newBench(t)
+	b.machine.reboot = RebootPermissionState{Applicable: true, Allowed: false,
+		Detail: "/etc/polkit-1/rules.d/49-openscale-reboot.rules est absent"}
+
+	found := control(t, b.run(), ControlRebootPermission)
+	if found.Status != StatusFail {
+		t.Fatalf("droit refusé : %s", found.Status)
+	}
+	if !strings.Contains(found.Remedy, "install.sh") {
+		t.Errorf("la consigne ne nomme pas le remède :\n%s", found.Remedy)
+	}
+	if found.Code != codeRebootRefused {
+		t.Errorf("code %q, attendu %q", found.Code, codeRebootRefused)
+	}
+}
+
+// TestASystemThatCannotRestartAtAllIsNotJudged: inventing a requirement there would be
+// worse than saying nothing, which is the rule the power settings already follow.
+func TestASystemThatCannotRestartAtAllIsNotJudged(t *testing.T) {
+	b := newBench(t)
+	b.machine.reboot = RebootPermissionState{Applicable: false}
+
+	found := control(t, b.run(), ControlRebootPermission)
+	if found.Status != StatusNotApplicable {
+		t.Fatalf("système sans redémarrage : %s, attendu SANS OBJET", found.Status)
 	}
 	if found.Observed == "" {
 		t.Error("le contrôle ne dit pas ce qu'il a vu")

@@ -166,7 +166,7 @@ func (d *Doctor) Run(ctx context.Context) Report {
 		d.checkCatalogSource(loaded, health, healthErr),
 		d.checkSystemClock(loaded),
 		d.checkPowerSettings(ctx),
-		d.checkRebootPermission(),
+		d.checkRebootPermission(ctx),
 	}
 	for i := range report.Controls {
 		report.Controls[i].Rank = i + 1
@@ -1222,19 +1222,25 @@ func parseBuildDate(value string) (time.Time, bool) {
 // missing its rule works perfectly — right up to the evening a volunteer is facing a
 // frozen kiosk, touches the one button that would have saved them, and watches a
 // countdown expire on nothing.
-func (d *Doctor) checkRebootPermission() Control {
+func (d *Doctor) checkRebootPermission(ctx context.Context) Control {
 	control := Control{ID: ControlRebootPermission,
 		Checked: "Droit de redémarrer l'ordinateur depuis l'écran"}
-	switch allowed, detail := rebootPermission(); {
-	case detail == "":
+	state, err := d.o.Machine.RebootPermission(ctx)
+	switch {
+	case err != nil:
+		control.Status, control.Observed = StatusUnknown,
+			"le droit de redémarrer n'a pas pu être établi : "+err.Error()
+		control.Remedy = "Vérifiez à la main que /etc/polkit-1/rules.d porte la règle " +
+			"49-openscale-reboot.rules, ou relancez « sudo ./install.sh »."
+	case !state.Applicable:
 		control.Status = StatusNotApplicable
 		control.Observed = "ce système ne sait pas redémarrer depuis l'écran (§15.3), " +
 			"il n'y a donc aucun droit à vérifier"
-	case allowed:
-		control.Status, control.Observed = StatusPass, detail
+	case state.Allowed:
+		control.Status, control.Observed = StatusPass, state.Detail
 	default:
 		control.Status, control.Code = StatusFail, codeRebootRefused
-		control.Observed = "NON : " + detail + ". Le bouton « Redémarrer l'ordinateur » " +
+		control.Observed = "NON : " + state.Detail + ". Le bouton « Redémarrer l'ordinateur » " +
 			"répondra « accès refusé », et il ne le dira qu'au moment où quelqu'un en a besoin."
 		control.Remedy = "Relancez « sudo ./install.sh » depuis deploy/linux : il pose la " +
 			"règle polkit qui autorise le compte du poste à redémarrer l'ordinateur, et rien d'autre."

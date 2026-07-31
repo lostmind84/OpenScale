@@ -200,6 +200,10 @@ func (m *countingMachine) Power(context.Context) (diag.PowerState, error) {
 	return diag.PowerState{}, nil
 }
 
+func (m *countingMachine) RebootPermission(context.Context) (diag.RebootPermissionState, error) {
+	return diag.RebootPermissionState{}, nil
+}
+
 func (m *countingMachine) SerialPorts(context.Context) ([]diag.PortInfo, error) {
 	return nil, nil
 }

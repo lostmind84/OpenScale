@@ -32,14 +32,20 @@ func TestATestBinaryIsNotSupervised(t *testing.T) {
 	}
 }
 
-// TestSystemdIsSupervised: systemd sets INVOCATION_ID for every unit it starts, and
-// the unit shipped in deploy/linux carries Restart=always.
-func TestSystemdIsSupervised(t *testing.T) {
+// TestAChildOfAUnitIsNotSupervised is the defect the CI found, and the reason this file
+// no longer trusts INVOCATION_ID on its own.
+//
+// EVERY CHILD OF A SERVICE INHERITS THAT VARIABLE. On the GitHub Actions runner — itself
+// a systemd service — the test binary read it and declared itself supervised; the button
+// would then have stopped a process nothing relaunches. A test binary is never the main
+// process of a unit, whatever it inherits.
+func TestAChildOfAUnitIsNotSupervised(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("sous Windows la question est posée au SCM, pas à l'environnement")
 	}
 	t.Setenv("INVOCATION_ID", "b1e0a1e0b1e0a1e0b1e0a1e0b1e0a1e0")
-	if !Supervised() {
-		t.Fatal("un processus lancé par systemd est déclaré non supervisé : le bouton serait absent d'un poste où il marche")
+	if Supervised() {
+		t.Fatal("un binaire de test qui a HÉRITÉ d'INVOCATION_ID se déclare supervisé : " +
+			"le bouton arrêterait un processus que rien ne relance")
 	}
 }

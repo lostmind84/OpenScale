@@ -435,6 +435,20 @@ var sleepSettings = []powerSetting{
 	{"SUB_VIDEO", "VIDEOIDLE", "extinction de l'écran"},
 }
 
+// RebootPermission reports whether this station may restart the machine.
+//
+// The three answers are three platforms, and the middle one is why this question exists:
+// under Linux the service runs as `openscale` and polkit stands between it and the right,
+// so a station missing its rule works perfectly — right up to the evening a volunteer is
+// facing a frozen kiosk and touches the one button that would have saved them.
+func (hostMachine) RebootPermission(context.Context) (RebootPermissionState, error) {
+	allowed, detail := rebootPermission()
+	if detail == "" {
+		return RebootPermissionState{Applicable: false}, nil
+	}
+	return RebootPermissionState{Allowed: allowed, Detail: detail, Applicable: true}, nil
+}
+
 // Power reports the sleep and USB selective suspend settings.
 func (m hostMachine) Power(ctx context.Context) (PowerState, error) {
 	if runtime.GOOS != "windows" {

@@ -186,6 +186,8 @@ type fakeMachine struct {
 	listen       ListenState
 	listenErr    error
 	system       SystemInfo
+	reboot       RebootPermissionState
+	rebootErr    error
 }
 
 // newFakeMachine returns a host on which nothing is wrong.
@@ -204,6 +206,12 @@ func newFakeMachine() *fakeMachine {
 		listen:      ListenState{Address: "127.0.0.1:8085", Bindable: true, Determined: true},
 		system: SystemInfo{OS: "windows", Arch: "amd64", Hostname: "PESEE-2",
 			Uptime: 30 * time.Hour, UptimeText: "30 h"},
+		// A nominal station may restart the machine. The question is ASKED of this
+		// double and not of the system the test runs on: reading the real one made the
+		// nominal bench green on a developer's Windows and red on the CI runner, which
+		// has no polkit rule and never will.
+		reboot: RebootPermissionState{Allowed: true, Applicable: true,
+			Detail: "le service tourne en LocalSystem, qui porte le privilège d'arrêt"},
 	}
 }
 
@@ -215,6 +223,9 @@ func (m *fakeMachine) AutoLogon(context.Context) (AutoLogonState, error) {
 	return m.autoLogon, m.autoLogonErr
 }
 func (m *fakeMachine) Power(context.Context) (PowerState, error) { return m.power, m.powerErr }
+func (m *fakeMachine) RebootPermission(context.Context) (RebootPermissionState, error) {
+	return m.reboot, m.rebootErr
+}
 func (m *fakeMachine) SerialPorts(context.Context) ([]PortInfo, error) {
 	return m.serialPorts, m.portsErr
 }

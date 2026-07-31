@@ -32,6 +32,14 @@ type Machine interface {
 	AutoLogon(ctx context.Context) (AutoLogonState, error)
 	// Power reports the sleep and USB selective suspend settings of §15.2 step 5.
 	Power(ctx context.Context) (PowerState, error)
+	// RebootPermission reports whether this station may restart the machine.
+	//
+	// It is asked of the platform and not read inline, for the reason every other
+	// question here is: a control that consulted the real system would answer
+	// differently on a developer's machine, on the CI and on a station — and it did.
+	// The CI runner has no polkit rule, so a nominal bench turned red there and was
+	// green on Windows.
+	RebootPermission(ctx context.Context) (RebootPermissionState, error)
 	// SerialPorts enumerates the serial ports with their USB description.
 	SerialPorts(ctx context.Context) ([]PortInfo, error)
 	// OpenSerialPort opens one port and closes it again, which is the only way to tell
@@ -116,6 +124,23 @@ type PowerState struct {
 	Applicable bool `json:"applicable"`
 	// Determined is false when the query itself failed.
 	Determined bool `json:"determined"`
+}
+
+// RebootPermissionState is the answer to « ce poste peut-il redémarrer l'ordinateur ? ».
+//
+// The question has one answer per platform and each is defensible: Windows runs the
+// service as LocalSystem and there is nothing to pose, Linux stands behind a polkit rule
+// that the installer writes, and a system that cannot restart at all is not judged.
+type RebootPermissionState struct {
+	// Allowed means the station may restart the machine right now.
+	Allowed bool `json:"allowed"`
+	// Detail is FRENCH and says WHAT WAS FOUND — the rule that is there, or the path
+	// where it is not.
+	Detail string `json:"detail"`
+	// Applicable is false on a system that cannot restart from the screen at all.
+	// Inventing a requirement there would be worse than saying nothing, which is the
+	// rule PowerState.Applicable already states for the power settings.
+	Applicable bool `json:"applicable"`
 }
 
 // PortInfo is one serial port the platform enumerated.
@@ -236,6 +261,9 @@ func (silentMachine) AutoLogon(context.Context) (AutoLogonState, error) {
 }
 func (silentMachine) Power(context.Context) (PowerState, error) {
 	return PowerState{Applicable: true}, nil
+}
+func (silentMachine) RebootPermission(context.Context) (RebootPermissionState, error) {
+	return RebootPermissionState{}, nil
 }
 func (silentMachine) SerialPorts(context.Context) ([]PortInfo, error) { return nil, nil }
 func (silentMachine) OpenSerialPort(context.Context, string) error {
