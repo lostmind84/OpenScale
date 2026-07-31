@@ -89,6 +89,12 @@ binaire — est dans [`docs/05-demarrage-rapide.md`](docs/05-demarrage-rapide.md
 
 ## Documentation
 
+**Pour découvrir le projet : <https://lostmind84.github.io/OpenScale/>** — le *handbook*,
+court et hiérarchisé, écrit pour un développeur qui arrive. Sa source est `handbook/`.
+
+La table ci-dessous est la référence technique. Elle est exhaustive, et elle fait foi dès
+qu'un détail compte.
+
 | Fichier | Contenu |
 |---|---|
 | [`docs/02-architecture.md`](docs/02-architecture.md) | La référence : 22 sections, 52 ADR, le code des interfaces |

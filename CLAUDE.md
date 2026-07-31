@@ -37,6 +37,11 @@ conséquences, et elles priment sur tout réflexe de démarrage :
 | `SUIVI.md`                       | Où en est le projet, quel lot est en cours                                                                                                                       |
 | `docs/reference-existant/`       | Analyse détaillée du legacy — à consulter, pas à lire en entier                                                                                                  |
 
+**`handbook/` est la documentation humaine, publiée sur GitHub Pages ; `docs/` reste la
+référence technique de cet agent. Ne pas les confondre, ne pas les fusionner, ne pas
+résumer `docs/` en place** (ODR-0002). Un fait nouveau s'écrit dans `docs/` ; `handbook/`
+n'en reprend que ce qui met en route, et renvoie au reste par des URL GitHub absolues.
+
 ## Conventions non négociables
 
 **Langue.** Le code est en **anglais** : identifiants, paquets, types, fonctions,
