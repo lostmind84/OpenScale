@@ -250,6 +250,24 @@ func TestAnAutoLogonOntoTheWrongAccountIsStillAFailure(t *testing.T) {
 	}
 }
 
+func TestAKioskAccountThatCannotBeNamedIsNotAnAccusation(t *testing.T) {
+	b := newBench(t)
+	// What a station answers when the scheduler normalised the task's principal to a SID:
+	// the autologon is on, and the account the kiosk runs as cannot be named. Failing here
+	// would report, on a station that works, a misconfiguration nobody can act on — and
+	// volunteers who learn to ignore the orange stop reading the control that matters.
+	//
+	// The guard this pins is `state.Expected != ""` in unattendedRestartControl; removing it
+	// turns every unknown back into an accusation.
+	b.machine.autoLogon.Expected = ""
+
+	found := control(t, b.run(), ControlUnattendedRestart)
+	if found.Status != StatusPass {
+		t.Fatalf("compte du kiosque impossible à nommer : %s, attendu OK — ne pas savoir n'est pas "+
+			"un défaut de configuration", found.Status)
+	}
+}
+
 // --- 4. The data directory --------------------------------------------------
 
 func TestADataDirectoryThatCannotBeWrittenIsProvedByWriting(t *testing.T) {

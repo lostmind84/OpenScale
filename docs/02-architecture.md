@@ -4276,6 +4276,8 @@ balance --version                           version, commit, date de build
 - **`openscale serve` = service Windows**, démarrage automatique. Il tient le port série, la base et l'imprimante ; il démarre **avant** toute ouverture de session et survit à une déconnexion.
 - **`openscale kiosk` = tâche planifiée à l'ouverture de session**, qui ne fait **que du HTTP**.
 
+**Et le kiosque masque sa propre console** (ADR-054). Le binaire est une application console — c'est ce que produit la chaîne Go sur Windows — donc la tâche planifiée, qui le lance dans la session interactive, reçoit une fenêtre noire qui reste devant le client tant que le superviseur tourne. `platform.HideOwnConsole()` la retire, **et seulement quand ce processus est seul attaché à cette console** : lancé à la main depuis un terminal (§15.4), le poste laisse à l'opérateur la fenêtre qui est la sienne. Le service, lui, n'a jamais rien montré : la session 0 n'a pas de bureau.
+
 **Le compte du service.** La file `SATO WS408_n` doit être visible depuis le contexte du service. La réponse correcte n'est pas un compte de service dédié (le SCM n'appelle pas `LoadUserProfile`, `HKCU` n'est pas monté) : c'est **d'installer la file en imprimante LOCALE machine**. `install.ps1` le vérifie et refuse de continuer si la file est « installée pour l'utilisateur », avec la procédure exacte à l'écran. `openscale doctor` le re-vérifie **depuis le contexte du service**, pas depuis celui de l'opérateur (important-11).
 
 **L'ouverture de session automatique est écrite par l'installeur** (bloquant-7). C'était l'écueil le plus coûteux du plan précédent : l'installeur posait `DevicePasswordLessBuildVersion=0` puis affichait *« lancez maintenant netplwiz »*. Étape manuelle, faite une fois, **jamais vérifiée ensuite**. Après la moindre coupure de courant ou un redémarrage forcé par Windows Update, le poste revenait sur l'écran de connexion Windows : `/healthz` répond 200, l'application est « en bonne santé », **et le poste est inutilisable**. Personne dans l'équipe du samedi n'a le mot de passe du compte Windows.
@@ -5540,6 +5542,36 @@ le protocole de §7.6 s'applique tel quel.
 **Pourquoi pas persister la bascule, qui aurait gardé la définition d'origine.** Il aurait fallu écrire en base **depuis la goroutine du Hub**, qui est précisément celle dont §13.2 interdit toute I/O — une écriture SQLite y bloque la boucle qui doit répondre à un client. Il aurait donc fallu un canal, un worker et un état de plus, pour dater à dix secondes près un instant que la base tient déjà exactement. **La donnée existait ; ce qui manquait, c'est qu'on la lise.**
 
 **Ce qu'on accepte en échange.** L'écart entre l'import et la bascule — au plus `MaxSwitchIdle`, soit 10 s — est désormais absorbé du côté de l'import : entre les deux, l'écran montre **l'ancienne date**, ce qui est juste, puisque l'ancienne grille est encore servie. La date ne prétend plus dire *quand cette grille est passée à l'écran* mais *quand ce catalogue a été importé*, et c'est la question que les bénévoles posent. Le tableau de bord d'administration (§14.4) et l'écran client citent maintenant **la même ligne de la même table**, ce qui supprime la classe de bug où deux écrans dataient le même catalogue différemment.
+
+---
+
+### ADR-054 — La console du kiosque est masquée par le poste lui-même, et seulement quand elle lui appartient
+
+**Statut** : accepté · **Date** : 31/07/2026 · **Portée** : §15.2, §15.4 · **Amende** : §15.2
+
+**Contexte.** `openscale.exe` est une **application console** : le champ `Subsystem` de son en-tête PE vaut 3, `IMAGE_SUBSYSTEM_WINDOWS_CUI` — mesuré le 31/07/2026 sur un binaire fraîchement construit, et c'est ce que produit la chaîne Go sur Windows, sans réglage. La tâche planifiée de §15.2 lance `openscale kiosk` dans la **session interactive** du compte non privilégié : Windows lui alloue donc une console, et cette fenêtre reste à l'écran aussi longtemps que tourne le superviseur — c'est-à-dire indéfiniment, par conception. Devant un client, sur un poste dont l'écran client *est* la raison d'être, une fenêtre noire que personne ne regarde et où rien ne peut se faire. **Le service `serve` n'a jamais eu le problème** : le gestionnaire de services le tient en session 0, invisible quel que soit le sous-système.
+
+**Décision.** Le poste masque sa propre console, depuis son propre code : `platform.HideOwnConsole()`, appelé par `openscale kiosk` **juste avant** d'entrer dans la boucle du superviseur.
+
+**Le garde-fou, qui est le tout de la décision.** La règle n'est pas « masquer la console », c'est **« masquer la console qu'on nous a donnée »**. Le même binaire se lance à la main depuis un terminal quand un poste n'affiche rien (§15.4) : la console est alors celle de l'opérateur, partagée avec le shell, et la masquer lui retirerait sa fenêtre en plein diagnostic. Le discriminant est `GetConsoleProcessList`, et il est **exact et non heuristique** — c'est le nombre de processus attachés à la console, et être seul dessus est précisément ce qui la rend nôtre. Mesuré le 31/07/2026 :
+
+| Lancement | processus attachés |
+| --------- | ------------------ |
+| depuis une invite PowerShell | **4** |
+| `Start-Process` (console neuve) | **1** |
+| `cmd /c start` (console neuve) | **1** |
+
+Le Planificateur de tâches est dans le second cas, comme tout `CreateProcess` portant `CREATE_NEW_CONSOLE`.
+
+**Pourquoi pas `-H=windowsgui`, qui supprimerait la fenêtre à la racine.** Parce qu'un seul binaire porte **toutes** les sous-commandes, et que la plupart existent pour écrire dans un terminal qu'un humain lit : `doctor` et ses 15 contrôles, `drivers`, `label`, `capture`, `replay`, `config export`. Le sous-système GUI ne cache pas la fenêtre de ces commandes-là, **il leur retire leur sortie standard** — `doctor` deviendrait une commande qui ne répond rien. Un poste en panne se diagnostique par ces lignes ; les perdre pour gagner une fenêtre serait un échange perdant, et silencieux.
+
+**Pourquoi pas un second binaire `openscale-kiosk.exe` construit en `windowsgui`.** Il n'a aucun défaut de conception, seulement un coût : deux exécutables à construire pour trois cibles, deux à empaqueter dans l'archive de §17.2, deux dans `SHA256SUMS`, deux à remplacer par `update.ps1`, deux à vérifier dans l'empreinte. C'est la mécanique de livraison entière qui double, pour une fenêtre.
+
+**Pourquoi `ShowWindow(SW_HIDE)` et pas `FreeConsole`.** Les deux font disparaître la fenêtre ; **un seul laisse une sortie standard qui fonctionne**. Mesuré le même jour : après `ShowWindow(SW_HIDE)`, une écriture sur `os.Stdout` rend toujours `n=37, err=nil`. Or `openscale kiosk` écrit à travers un `io.MultiWriter` posé sur la sortie standard **et** sur le journal du superviseur, et `io.MultiWriter` abandonne au premier writer en échec : détacher la console arrêterait le journal à la ligne qui précède l'appel. Le seul fichier que quelqu'un ouvre quand un poste n'affiche rien deviendrait muet, pour cacher une fenêtre. **Ne pas intervertir les deux.**
+
+**Ce qu'on accepte en échange.** L'appel est placé **après** la recherche du navigateur, et non au début : « aucun navigateur trouvé sur ce poste » n'est rapporté par rien d'autre, et masquer plus tôt enverrait cette phrase à une fenêtre déjà sortie de l'écran. Le prix est donc une console visible pendant les quelques centaines de millisecondes qui précèdent le navigateur, à l'ouverture de session, devant un bureau Windows que le client ne regarde pas. Un échec de démarrage, lui, garde sa fenêtre — c'est voulu.
+
+**Effet de bord sur `start.bat`.** La démonstration ouvrait trois fenêtres — la console de `serve`, celle de `kiosk`, le navigateur — là où son propre en-tête en annonçait deux. Elle en ouvre maintenant deux. La fenêtre « OpenScale - poste » est **conservée** : c'est le seul geste d'arrêt documenté sans ligne de commande.
 
 ---
 

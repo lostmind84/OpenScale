@@ -353,15 +353,24 @@ func registryValue(output, name string) (string, bool) {
 	return "", false
 }
 
-// parseTaskUserID extracts <UserId> from the XML of the kiosk task.
+// parseTaskUserID extracts the <UserId> OF THE PRINCIPAL from the XML of the kiosk task.
 //
 // The XML is the one output of schtasks that is NOT localised, which is why the account is
 // read from there and not from the `/fo LIST /v` listing. Knowing which account the kiosk
 // runs as is what turns « l'ouverture de session est active » into « elle est active POUR
 // LE BON COMPTE » — an autologon onto another account leaves the client screen closed just
 // as surely as no autologon at all.
+//
+// ★ THE PRINCIPAL, NOT THE FIRST <UserId> OF THE DOCUMENT. openscale-kiosk.xml carries two:
+// the trigger's, which says WHICH LOGON wakes the task, and the principal's, which says
+// UNDER WHICH ACCOUNT it runs. Only the second answers the question this control asks — and
+// the scheduler normalises the first to a SID when it registers the task, so reading it
+// compared a SID against DefaultUserName and accused a healthy station.
 func parseTaskUserID(xml string) string {
 	const open, close = "<UserId>", "</UserId>"
+	if i := strings.Index(xml, "<Principals>"); i >= 0 {
+		xml = xml[i:]
+	}
 	start := strings.Index(xml, open)
 	if start < 0 {
 		return ""
@@ -377,6 +386,14 @@ func parseTaskUserID(xml string) string {
 	account := strings.TrimSpace(rest[:end])
 	if i := strings.LastIndex(account, `\`); i >= 0 {
 		account = account[i+1:]
+	}
+	// A principal normalised to a SID is not comparable to DefaultUserName, which is
+	// spelled « openscale ». Nothing is known then, and NOT KNOWING IS THE ANSWER: doctor
+	// guards its mismatch branch with Expected != "", so an empty result reports the
+	// unattended restart on the strength of AutoAdminLogon alone rather than accusing a
+	// station of running the kiosk under an account nobody can name.
+	if strings.HasPrefix(account, "S-1-") {
+		return ""
 	}
 	return account
 }
