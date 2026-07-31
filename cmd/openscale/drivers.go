@@ -1,10 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"sort"
-	"strings"
-
 	"openscale/internal/catalog"
 	"openscale/internal/catalog/localdrop"
 	"openscale/internal/catalog/webdav"
@@ -119,42 +115,48 @@ func newTransport(o domain.DriverOptions, clk ports.Clock, labelDir string) (por
 	})
 }
 
-// catalogSources is the set of catalog sources this binary was built with.
+// catalogSourceRegistry is the set of catalog sources this binary was built with.
 //
 // Two entries, and the split between them is not technical: `local_drop` watches a
 // directory this machine can see, `webdav` fetches from a share. Both end at the same
 // place — ONE CSV per station, deleted once read, and the deletion IS the
 // acknowledgement (§10.1). A single shared file that four stations would have to agree
 // on has no acknowledgement at all, which is why it is not offered.
-func catalogSources() map[string]catalog.Source {
-	sources := make(map[string]catalog.Source, 2)
-	for _, source := range []catalog.Source{localdrop.Descriptor(), webdav.Descriptor()} {
-		sources[source.ID] = source
-	}
-	return sources
+//
+// It is built the same way as the scale and printer registries, and that is a CORRECTION
+// rather than tidiness: this root used to hold a map of its own plus a re-implementation
+// of the lookup and of the « type inconnu » message, so catalog.Registry — the thing
+// §5.2 promises a new source only has to add ONE LINE to — was reached by nothing but
+// the descriptor call in `doctor`. Adding a third source meant editing the map, the
+// lookup and the message; it now means the line below.
+func catalogSourceRegistry() *catalog.Registry {
+	registry := catalog.NewRegistry()
+	registry.Register(localdrop.Descriptor())
+	registry.Register(webdav.Descriptor())
+	return registry
+}
+
+// catalogSourceDescriptors is the catalog half of the registries a configuration is
+// checked against (§11.3).
+//
+// A control that announced « configuration valide » without having looked at
+// catalog.options would be announcing something nobody verified, and the difference
+// between « aucune faute » and « aucune faute que j'aie su chercher » is the whole value
+// of that control.
+func catalogSourceDescriptors() []domain.DriverDescriptor {
+	return catalogSourceRegistry().Descriptors()
 }
 
 // newCatalogSource builds the source a configuration names.
 //
-// It refuses an unknown type by NAMING what exists, like every other registry here: a
-// volunteer who mistyped a driver name must read the list rather than the word
+// The registry refuses an unknown type by NAMING what exists, like every other registry
+// here: a volunteer who mistyped a source name must read the list rather than the word
 // "inconnu" (§11.3).
 func newCatalogSource(
 	cfg domain.Config, dataDir string, clock ports.Clock, log ports.TechnicalLog,
 	images catalog.ImageSink, quarantine catalog.FailureLedger,
 ) (ports.CatalogSource, error) {
-	sources := catalogSources()
-	source, known := sources[cfg.Catalog.Type]
-	if !known {
-		names := make([]string, 0, len(sources))
-		for id := range sources {
-			names = append(names, id)
-		}
-		sort.Strings(names)
-		return nil, fmt.Errorf("catalog.type %q inconnu : les sources disponibles sont %s",
-			cfg.Catalog.Type, strings.Join(names, ", "))
-	}
-	return source.New(catalog.SourceConfig{
+	return catalogSourceRegistry().New(cfg.Catalog.Type, catalog.SourceConfig{
 		Catalog:       cfg.Catalog,
 		StationNumber: cfg.Station.Number,
 		DataDir:       dataDir,

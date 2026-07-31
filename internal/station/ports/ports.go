@@ -257,12 +257,35 @@ type Transport interface {
 // --- 4. CATALOG SOURCE -----------------------------------------------------
 
 // Batch is one whole catalog, ready to replace the one in service.
+//
+// NOTHING in it presumes a file. A batch comes from a directory this machine watches,
+// from a share, or from an ERP that answered a question; the three are told apart by
+// Source and by nothing else, and every figure below is filled the same way whichever it
+// was. That is what lets a station read an API without a second copy of §10.3.
 type Batch struct {
-	// ID is the sha256 of the file, computed as it was read.
-	ID       string
-	Source   string
+	// ID is the fingerprint of the CONTENT, and the quarantine of §10.5 counts failures
+	// by it: three refusals of the SAME content light the red light, and a producer who
+	// fixes their export must not find a station that has already given up on it.
+	//
+	// A file source computes it as the sha256 of the bytes as they were read. A source
+	// with no file computes it over WHAT IT RECEIVED, in an order it controls —
+	// catalog.Fingerprint does exactly that. Never over a clock or over a request
+	// identifier: every answer would then be a new content, and a counter that never
+	// reaches three is a red light that never comes on.
+	ID     string
+	Source string
+	// FileName is what the batch was CALLED where it was read, and it is an observation
+	// of provenance rather than a path: `flv_2.csv` for a file, and something a human can
+	// act on for a source that has none — the endpoint and the watermark, say.
+	//
+	// The name is a debt and it is a WEIGHED one: the value travels to
+	// domain.Import.FileName, to the `file_name` column, to the admin screen and to the
+	// diagnostic archive. Renaming it here alone would leave the seam mismatched, and
+	// renaming the whole chain costs a migration for a word.
 	FileName string
-	// Bytes is the size of what was read, for the import record.
+	// Bytes is the size of what was read, for the import record. Zero is legitimate: it
+	// means the source cannot say, which is the honest answer of one that never counted
+	// bytes.
 	Bytes int64
 	// Products and Findings are the outcome of the qualification (§10.3).
 	Products []domain.Product
@@ -284,16 +307,34 @@ type BatchResult struct {
 
 // CatalogSource yields whole catalogs, full replace, one batch at a time.
 //
+// It is the plug-in point that tells a watched directory, a share and an ERP API apart,
+// and it is deliberately about ACQUISITION only: where a catalog comes from, and what is
+// owed to the producer once the station has decided what to do with it. What SHAPE the
+// data had on the wire is the business of a catalog.RowReader, and what a catalog
+// DECIDES about a row is catalog.Assemble's — a source that answered all three questions
+// itself would answer the last two once per source.
+//
 // Acknowledgement is EXPLICIT and SEPARATE from reading: Next reads and validates
-// without touching the file, Acknowledge archives it and only then DELETES it.
-// Deleting at read time would let a crash between reading and applying lose an update
-// for good, and without a trace.
+// without touching anything, and Acknowledge comes afterwards. Acquitting at read time
+// would let a crash between reading and applying lose an update for good, and without a
+// trace.
 type CatalogSource interface {
 	// Name reports the registry key of the source, such as "local_drop".
 	Name() string
 	// Next blocks until a batch is available or ctx is done.
 	Next(ctx context.Context) (*Batch, error)
-	// Acknowledge archives then removes the batch that produced result.
+	// Acknowledge records what became of a batch and releases it.
+	//
+	// For a FILE source the release is a DELETION, and the deletion IS the
+	// acknowledgement (ADR-004): the copy is archived first, the file removed second.
+	// A source with no file still owes the same thing in its own terms — remembering the
+	// watermark it must not read again, so that the next Next does not hand back the
+	// catalog that was just applied.
+	//
+	// Doing nothing is legitimate for a source that would re-read the same content
+	// harmlessly: an identical batch is a NOMINAL outcome (§10.5, ADR-015) and costs one
+	// digest, not a second qualification. It is NOT legitimate for a source that would
+	// re-read a REFUSED content, which the quarantine then bans after three sightings.
 	Acknowledge(ctx context.Context, b *Batch, result BatchResult) error
 	// Close stops watching the source.
 	Close() error

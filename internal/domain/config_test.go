@@ -101,7 +101,7 @@ func testRegistries() Registries {
 	// here is what makes control 46 the only voice on that field -- an undeclared key
 	// would already be refused by control 9, and the case would prove nothing.
 	localDrop := append([]OptionSchema{
-		{Key: "directory", Kind: OptionText},
+		{Key: "directory", Kind: OptionText, Use: UseDropDirectory},
 	}, commonCatalog...)
 
 	return Registries{
@@ -705,19 +705,22 @@ func TestTheCorpusCoversTheControls(t *testing.T) {
 
 // --- Controls 46 and 47: the drop directory ------------------------------------
 
-// TestADirectoryOnWebDAVNamesTheSourceThatWatchesOne is control 47, the symmetry of
-// 39: a key that means nothing for the source declared is a mistake, not a value to
-// ignore in silence.
+// TestADirectoryOnWebDAVNamesTheSourceThatWatchesOne was control 47, and it is now
+// control 9 doing the same work for every driver family at once.
 //
-// The registries are left EMPTY on purpose. Control 9 refuses an undeclared key on
-// its own, so a case that only looked at the field would pass without control 47
-// existing at all; what proves 47 is speaking is a message that names the source
-// which DOES watch a directory.
+// A key that means nothing for the source declared is a mistake and not a value to ignore
+// in silence — that much has not changed. What has changed is who says so: control 47
+// spelled `directory`, `webdav` and `local_drop` by hand inside this package, so no third
+// source could be added without editing it. Control 9 reads the SCHEMAS, refuses the key,
+// and names whichever driver declares it (ADR-052).
+//
+// The registries therefore have to be the REAL ones here, where control 47 needed them
+// empty to be heard alone: it is the registry that carries the answer now.
 func TestADirectoryOnWebDAVNamesTheSourceThatWatchesOne(t *testing.T) {
 	config := loadDelivered(t)
 	setOption(t, config.Catalog.Options, "directory", `D:\catalogue`)
 
-	fault := findFault(config.Validate(Registries{}), "catalog.options.directory")
+	fault := findFault(config.Validate(testRegistries()), "catalog.options.directory")
 	if fault == nil {
 		t.Fatal("un répertoire de dépôt déclaré sur webdav doit être refusé")
 	}
@@ -1774,7 +1777,7 @@ func TestOptionSchemaChecksEveryKind(t *testing.T) {
 			options := DriverOptions{}
 			setOption(t, options, testCase.schema.Key, testCase.value)
 			descriptor := DriverDescriptor{ID: "essai", Options: []OptionSchema{testCase.schema}}
-			faults := validateOptions("bloc.options", options, &descriptor)
+			faults := validateOptions("bloc.options", options, &descriptor, nil)
 			if testCase.faulty && len(faults) == 0 {
 				t.Fatalf("%v doit être refusé", testCase.value)
 			}
@@ -1790,13 +1793,13 @@ func TestRequiredOptionIsNamedWhenAbsent(t *testing.T) {
 		{Key: "port", Kind: OptionText, Required: true},
 		{Key: "baud", Kind: OptionInt},
 	}}
-	faults := validateOptions("scale.options", DriverOptions{}, &descriptor)
+	faults := validateOptions("scale.options", DriverOptions{}, &descriptor, nil)
 	if findFault(faults, "scale.options.port") == nil {
 		t.Fatalf("l'option exigée doit être nommée ; obtenu :\n%s", strings.Join(fieldsOf(faults), "\n"))
 	}
 	// An unregistered driver yields nothing: inventing a schema for a driver nobody
 	// has written yet would be a second source of truth.
-	if faults := validateOptions("scale.options", DriverOptions{}, nil); len(faults) != 0 {
+	if faults := validateOptions("scale.options", DriverOptions{}, nil, nil); len(faults) != 0 {
 		t.Fatalf("un driver non enregistré ne produit aucune faute, obtenu %v", fieldsOf(faults))
 	}
 }
@@ -1814,7 +1817,7 @@ func TestARequiredOptionLeftEmptyIsAsAbsentAsAMissingKey(t *testing.T) {
 	options := DriverOptions{}
 	setOption(t, options, "port", "")
 
-	faults := validateOptions("scale.options", options, &descriptor)
+	faults := validateOptions("scale.options", options, &descriptor, nil)
 	if findFault(faults, "scale.options.port") == nil {
 		t.Fatalf("une option exigée laissée vide est acceptée ; obtenu :\n%s",
 			strings.Join(fieldsOf(faults), "\n"))
@@ -1833,7 +1836,7 @@ func TestAnOptionalOptionMayStayEmpty(t *testing.T) {
 	setOption(t, options, "address", "")
 	setOption(t, options, "queue", "")
 
-	if faults := validateOptions("printer.options", options, &descriptor); len(faults) != 0 {
+	if faults := validateOptions("printer.options", options, &descriptor, nil); len(faults) != 0 {
 		t.Fatalf("une option facultative vide est refusée :\n%s",
 			strings.Join(fieldsOf(faults), "\n"))
 	}

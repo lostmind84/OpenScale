@@ -2220,7 +2220,7 @@ func toGrams(intPart, fracPart string, u Unit) (domain.Grams, error) {
 
 > **Ce que cela coûte, mesuré et non estimé.** `internal/scale/gramxfoc` — deux entrées de registre, un décodeur — fait **4 fichiers et 693 lignes, dont 536 de tests** : `gramxfoc.go` 157, `gramxfoc_test.go` 365, `conformance_test.go` 94, `corpus_test.go` 77. *(La version précédente de cette ligne annonçait « 3 fichiers, ~120 lignes dont 70 de tests », un chiffre écrit avant que le banc et le corpus par protocole n'existent.)*
 >
-> **Le branchement au banc coûte d'une dizaine de lignes à une centaine, et l'écart se lit.** Un driver qui n'ouvre rien s'y branche par un appel : `absent/conformance_test.go` fait **34 lignes**, dont une dizaine de code — il n'a ni port à simuler ni octets à livrer. Un driver adossé à une source d'octets doit fournir au banc de quoi lui écrire dessus, et c'est là que passent les lignes : **94** pour `gramxfoc` (un port simulé, une table qui relie chaque driver au sien, parce que le banc construit un driver neuf par contrôle), **112** pour `replay`, **129** pour `serial`. Ce n'est pas de la cérémonie : c'est exactement la couture que §9.1 laisse — `Options.Open` — et c'est ce qui rend la conformité vérifiable **sans matériel**.
+> **Le branchement au banc coûte d'une dizaine de lignes à une centaine, et l'écart se lit.** Un driver qui n'ouvre rien s'y branche par un appel : `absent/conformance_test.go` fait **34 lignes**, dont une dizaine de code — il n'a ni port à simuler ni octets à livrer. Un driver adossé à une source d'octets doit fournir au banc de quoi lui écrire dessus, et c'est là que passent les lignes : **94** pour `gramxfoc` (un port simulé, une table qui relie chaque driver au sien, parce que le banc construit un driver neuf par contrôle), **112** pour `replay`, **129** pour `serial`. Ce n'est pas de la cérémonie : c'est exactement le point d'injection que §9.1 laisse — `Options.Open` — et c'est ce qui rend la conformité vérifiable **sans matériel**.
 
 ---
 
@@ -5317,6 +5317,55 @@ Les opportunités de coupure ont été mesurées de la même façon plutôt que 
 **`Template.Media.DotsPerMM` reste la source unique de résolution, et gagne un second rôle.** C'est aussi la déclaration de **la tête pour laquelle ce gabarit a été mesuré**, et le core **refuse l'attelage incohérent au chargement**, en français, en nommant les deux chiffres : *« le gabarit est mesuré pour une tête de 8 dots/mm et la tête d'impression en fait 12 dots/mm : à ce module le symbole sortirait à un autre grandissement »*. Sans ce refus, `symbol.module_milli_dots` — **la seule longueur d'un gabarit exprimée en unités de résolution**, délibérément, 0,293 mm valant 2,344 dots — imprimerait 0,195 mm sur une WS412, **sous tous les planchers GS1, sans qu'un octet de la trame le dise**. Les règles 3 et 4 ne sont d'ailleurs même pas énumérées quand les deux pas divergent : nommer dix conséquences d'une cause déjà nommée n'aide personne.
 
 **Conséquences.** Le chiffre du parc, `280 × 200`, reste écrit une fois — dans `raster`, qui pilote la WS408, et dans `domain.ReferenceHead` comme **repli** pour les appelants sans descripteur en main (`Validate`, l'aperçu, les tests). §7.5 gagne une règle « 3 bis » plutôt qu'un dixième numéro : ce n'est pas une contrainte de plus sur un gabarit, c'est la condition pour que les règles 3 et 4 veuillent dire quelque chose. Le contrôle 38 borne les flèches ±1 dot par la marge que **cette** tête laisse, et non par une marge comptée à un autre pas. Contrepartie mesurée : sur la tête du parc, `weighing_identical` remplit sa largeur à **22 µm près** et laisse **un dot** en hauteur — les flèches n'ont plus qu'un dot vers la gauche et zéro vers la droite. Élargir cette plage exige de rétrécir le dessin, et cette question reste ouverte.
+
+---
+
+### ADR-052 — L'origine des produits est un point d'enfichage à deux axes, et le CSV n'en est qu'un mode
+
+**Statut** : accepté · **Date** : 31/07/2026 · **Portée** : §5.2, §10 entier, §11.3, `docs/08-ajouter-une-source-de-catalogue.md` · **Complète** : ADR-004, ADR-021, ADR-042, ADR-043, ADR-050 · **Supprime** : le contrôle 47 de §11.3
+
+**Contexte.** Le commanditaire demande de pouvoir aller chercher les produits ailleurs que dans un fichier — les API d'Odoo, celles d'un autre ERP demain. Le dossier annonçait déjà `ports.CatalogSource` comme point d'enfichage, et il l'était : `local_drop` et `webdav` l'honorent tous les deux. Quatre constats, tous reproduits sur le code livré, disaient que la promesse ne tenait pas hors du fichier.
+
+| # | Constat | Preuve |
+|---|---|---|
+| 1 | **Deux axes fondus en un.** `localdrop` et `webdav` ne diffèrent que par l'acquisition des octets, et chacun appelle `csvodoo.Parse` en dur. L'assemblage d'un lot — qualification, doublons d'identifiant, photos, garde absolue — vivait dans le paquet du **format** | `localdrop.go:287`, `webdav.go:365` |
+| 2 | **`ports.Batch` avait la forme d'un fichier** : `FileName`, `Bytes`, `ID` = condensat du fichier, et `Acknowledge` documenté comme « archiver puis **supprimer** ». Une API n'a rien à supprimer | `ports.go:260-300` |
+| 3 | **La racine de composition n'utilisait pas le registre.** `newCatalogSource` tenait une `map` à elle et réimplémentait le lookup et le message « type inconnu » ; `catalog.Registry` n'était atteint que par l'appel aux descripteurs de `doctor` | `drivers.go:126-166` |
+| 4 | **`Config.Validate` codait les identifiants de source en dur.** Les contrôles 39, 46 et 47 nommaient `local_drop` et `webdav` dans `internal/domain` : une troisième source obligeait à éditer le domaine | `config.go:1280`, `1365`, `1378` |
+| 5 | **La coupe 2 ne couvrait pas les sources.** `tools/boundary` ne connaissait que `scale.Driver` et `printing.Driver` : `internal/web` aurait pu importer `internal/catalog/localdrop` sans un mot — la même classe de défaut que la coupe annoncée pendant six lots et éteinte, un point d'enfichage plus loin | `tools/boundary/main.go:441` |
+
+**Décision.** L'origine des produits se déclare sur **deux axes séparés**, et ce qu'un catalogue **décide** n'est sur aucun des deux.
+
+| Axe | Contrat | Ce qu'il possède |
+|---|---|---|
+| **Acquisition** | `ports.CatalogSource` | où l'on va chercher, l'authentification, la scrutation, l'archive, l'**identité** d'un lot, l'acquittement |
+| **Format** | `catalog.RowReader` *(neuf)* | le fil, et le vocabulaire du producteur traduit en `catalog.Row` |
+| **Ni l'un ni l'autre** | `catalog.Assemble` *(neuf)* | la question à trois réponses de §10.3, les doublons d'identifiant, les règles de §10.7 sur les photos, les signalements, la garde absolue de §10.4a |
+
+**Le contrat entre les deux axes est un FLUX, et c'est la propriété à ne pas perdre.** `Next` rend une ligne à la fois ; le pic mémoire d'un import reste **une ligne**, mesuré — la colonne image *est* le fichier, 500 368 des 527 233 octets de l'export de référence. `internal/catalog/example` tient la promesse **à travers une pagination** : le décodeur est positionné dans le tableau JSON, une page finie va chercher la suivante, deux pages ne coexistent jamais.
+
+**`Row.Image` porte des OCTETS et non une adresse.** Reconnaître l'en-tête parmi les quatre formats, refuser une photo trop grosse ou trop large, en calculer l'empreinte, remarquer qu'elle est déjà celle d'un autre produit : ce sont les règles de §10.7 et elles ne sont pas des faits sur un format. Le lecteur décode — base64 ici, octets bruts ailleurs — **et s'arrête un octet après le plafond**, ce qui est ce qui refuse un champ annonçant trois mégaoctets après 256 ko lus.
+
+**L'identité d'un lot est celle du CONTENU, et sur une API ce n'est pas le condensat du corps.** Hacher le JSON reçu ferait dépendre l'identité de l'ordre des clés du serveur, de ses espaces et de tout champ que ce poste ignore : le même catalogue arriverait neuf chaque nuit, « le même catalogue deux fois » cesserait d'être le cas nominal de §10.5, chaque scrutation réécrirait la grille sous le doigt d'un client, et la quarantaine ne verrait jamais un contenu refusé trois fois. `catalog.Fingerprint` hache donc les **produits**, dans un ordre qu'il impose. Sur un **refus**, à l'inverse, ce sont bien les octets reçus : il n'y a pas de produits à hacher, et une clé qui n'identifie rien compterait trois tentatives contre trois inconnus.
+
+**L'acquittement est asymétrique**, et c'est la seule chose qu'une source sans fichier doit inventer plutôt que copier : un lot `applied` ou `unchanged` est retenu — sans quoi le poste retélécharge tout le catalogue à chaque scrutation pour conclure qu'il l'avait déjà —, un lot **refusé** ne l'est jamais. Retenir un refus ferait cesser de demander un contenu jamais mis en service : la quarantaine ne le verrait pas trois fois, le voyant rouge ne s'allumerait pas, et le producteur ne corrigerait rien puisque personne ne le lui aurait dit.
+
+**Les règles croisées de §11.3 deviennent déclaratives.** `domain.OptionSchema` gagne un champ `Use` : `Kind` dit quelle **forme** a une valeur, `Use` dit ce qu'elle **désigne**. Une seule valeur aujourd'hui, `UseDropDirectory`, et elle est lue par deux contrôles :
+
+| Contrôle | Avant | Après |
+|---|---|---|
+| **39** — pas d'hôte HTTP(S) derrière un chemin de dépôt (important-11) | `if catalog.type == "local_drop"` | toute option déclarée `UseDropDirectory`, quelle que soit la source |
+| **46** — le répertoire nommé doit être exploitable par le service | `if catalog.type == "local_drop"`, clé `directory` écrite dans le domaine | la clé que le **schéma** désigne |
+| **47** — un répertoire de dépôt ne veut rien dire pour un partage | un `if` sur `webdav` | **supprimé, numéro laissé en trou** (ADR-044) |
+| **9** — option inconnue du driver | « option inconnue du driver `"webdav"` » | « … : c'est `"local_drop"` qui la déclare » — pour **toute** famille de drivers |
+
+Le 47 n'apportait rien que sa phrase : le contrôle 9 refusait déjà une clé que la source choisie ne déclare pas, pour toute source, présente ou à venir. La phrase est passée dans le 9, qui **nomme** désormais le driver qui déclare la clé — ce qui vaut aussi pour un `queue` sous un transport TCP ou un `port` sous une balance réseau.
+
+**La coupe 2 gagne son troisième type de registre.** `tools/boundary` lit désormais une table `{paquet → type}` au lieu de deux tests, et `catalog.Source` y est. Vérifié en provoquant la violation : un import de `internal/catalog/localdrop` depuis `internal/diag` est refusé, en nommant la déclaration qui fait de ce paquet un paquet driver — `func Descriptor() catalog.Source`.
+
+**Conséquences.** Ajouter une source est redevenu **un paquet et une ligne**, et la ligne est dans `catalogSourceRegistry()` de `cmd/openscale/drivers.go`, comme pour une balance et pour une imprimante. `internal/catalog/example` est la preuve exécutable que la séparation tient pour un producteur sans fichier : elle pagine, s'authentifie, acquitte sans rien supprimer, et **n'est enregistrée nulle part** (ADR-050). `docs/08-ajouter-une-source-de-catalogue.md` parcourt le même chemin en français.
+
+**Trois contreparties assumées.** (1) Le champ `ports.Batch.FileName` **garde son nom** alors qu'il désigne désormais ce qu'un lot était **appelé** là où il a été lu : la valeur voyage jusqu'à `domain.Import.FileName`, la colonne `file_name`, l'écran d'administration et l'archive de diagnostic, et renommer la chaîne entière coûte une migration pour un mot. (2) Le décodage d'une photo se fait **avant** que la ligne soit connue comme produit, où l'ancien code le faisait après : un lecteur en flux ne peut pas connaître une qualification qu'il n'effectue pas. Le coût est un décodage base64 sur une ligne qui a à la fois un identifiant illisible et une photo — combinaison qu'aucun des deux exports authentiques ne contient. (3) **Il n'existe toujours aucun banc de conformité pour une source de catalogue**, là où une balance, une imprimante et un transport en ont un. C'est l'écart qu'ADR-048 a comblé côté impression après qu'un défaut classé au mauvais `Kind` eut traversé deux drivers livrés ; il reste ouvert ici, et il est nommé dans `docs/08` §9 plutôt que laissé à découvrir.
 
 ---
 

@@ -64,7 +64,28 @@ type Row struct {
 	PriceSuffix string
 	// ImageSHA addresses the photo when the row carried a usable one, and is empty on
 	// 174 of the 355 real rows — half a catalog, so not a degraded case (§10.7).
+	//
+	// A reader fills it only when the producer already gives an ADDRESS it can be held
+	// to. Everywhere else the reader hands over the bytes in Image and lets Assemble
+	// compute the address, which is the only way two sources that carry the same photo
+	// end up writing one file.
 	ImageSHA string
+	// Image is the photo the row carried, in the bytes of the image ITSELF: the reader
+	// has already unwrapped whatever the format wrapped them in — base64 for the Odoo
+	// export, and raw bytes for a producer that hands them over. Nil is the ORDINARY
+	// case and raises nothing.
+	//
+	// The bytes and not a sha, because who owns the ADDRESS is the question §10.7
+	// answers, and the answer is « not the format ». Recognising the header against the
+	// four accepted ones, refusing a photo too big or too wide, hashing it, noticing it
+	// is the same photo as another product's and handing it to the sink is one rule
+	// applied to every source, and it lives in Assemble.
+	//
+	// A reader is expected to stop unwrapping at the ceiling plus one byte rather than to
+	// hand over everything it found: that is what refuses a field claiming three
+	// megabytes after 256 kB have been read instead of after three megabytes have been
+	// allocated.
+	Image []byte
 }
 
 // internalPrefixSpace is the leading three digits every code the shop attributed

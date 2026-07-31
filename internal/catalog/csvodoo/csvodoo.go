@@ -24,25 +24,21 @@ import (
 // and far below the ceiling of the file, so the peak memory stays a row.
 const readBufferSize = 64 << 10
 
-// maxImageEdge closes the decompression bomb: an image declaring 40 000 pixels a side
-// costs nothing to declare and gigabytes to decode. It is checked on the CONFIG,
-// before the pixels are ever read (§10.7b).
-const maxImageEdge = 4096
-
 // bomUTF8 is the byte order mark a spreadsheet reintroduces without warning. The two
 // authentic files do not carry one; the parser removes it when it is there (§10.2).
 var bomUTF8 = []byte{0xEF, 0xBB, 0xBF}
 
-// The shipped values of §11.2, used when a key is absent from catalog.options.
+// defaultMaxFileSizeMB is the shipped value of §11.2, used when catalog.options does
+// not carry the key.
+//
+// It is the one guard of the import that is about a FILE and therefore stays here: the
+// ceiling on a decoded photo and the absolute guard of §10.4a hold for every source and
+// live in catalog, next to the assembler that applies them.
 //
 // A missing key must never mean "no limit": a station whose configuration lost a line
-// keeps the guard the specification ships with, and the administration screen shows
-// the threshold next to the measurement of the day.
-const (
-	defaultMaxFileSizeMB   = 8
-	defaultMaxImageSizeKB  = 256
-	defaultMinReadableRate = 0.9
-)
+// keeps the guard the specification ships with, and the administration screen shows the
+// threshold next to the measurement of the day.
+const defaultMaxFileSizeMB = 8
 
 // Options is everything the parser needs and nothing it could invent.
 type Options struct {
@@ -54,6 +50,8 @@ type Options struct {
 	// through, and refuse what is manifestly no longer a catalog.
 	MaxFileSize int64
 	// MaxImageSize bounds ONE decoded image, in bytes. The largest observed is 11 513.
+	// This parser stops unwrapping one byte past it; naming the ceiling in a French
+	// sentence is the assembler's business (§10.7).
 	MaxImageSize int
 	// MinReadableRatio is the absolute guard: below it the WHOLE batch is refused,
 	// because a CSV cut off in mid-flight does not replace a healthy catalog (§10.4a).
@@ -72,13 +70,15 @@ type Options struct {
 // OptionsFrom reads what catalog.options declares, and fills in the shipped value of
 // every key it does not carry.
 //
-// It is the ONE place that reads those keys, so a threshold cannot end up enforced
-// differently in the source and in the parser.
+// The keys the ASSEMBLER enforces are read by the assembler's own reader and forwarded
+// here rather than read a second time: a threshold spelled in two packages is a
+// threshold that will one day be enforced differently in each (ADR-042).
 func OptionsFrom(cfg domain.CatalogConfig) Options {
+	shared := catalog.AssembleOptionsFrom(cfg)
 	o := Options{
 		MaxFileSize:      megabytes(cfg.Options, "max_file_size_mb", defaultMaxFileSizeMB),
-		MaxImageSize:     kilobytes(cfg.Options, "max_image_size_kb", defaultMaxImageSizeKB),
-		MinReadableRatio: ratio(cfg.Options, "min_readable_ratio", defaultMinReadableRate),
+		MaxImageSize:     shared.MaxImageSize,
+		MinReadableRatio: shared.MinReadableRatio,
 		ImageSource:      cfg.Images.Source,
 		FallbackCategory: cfg.FallbackCategory,
 	}
@@ -96,23 +96,6 @@ func megabytes(o domain.DriverOptions, key string, fallback int64) int64 {
 	return fallback << 20
 }
 
-// kilobytes reads a size in kilobytes and returns it in bytes.
-func kilobytes(o domain.DriverOptions, key string, fallback int) int {
-	if value, ok := o.Int(key); ok && value > 0 {
-		return int(value) << 10
-	}
-	return fallback << 10
-}
-
-// ratio reads a proportion, refusing anything outside [0, 1] rather than enforcing a
-// threshold nobody meant.
-func ratio(o domain.DriverOptions, key string, fallback float64) float64 {
-	if value, ok := o.Ratio(key); ok && value >= 0 && value <= 1 {
-		return value
-	}
-	return fallback
-}
-
 // Parse reads one whole exchange file and produces the batch that will replace the
 // catalog in service.
 //
@@ -120,6 +103,11 @@ func ratio(o domain.DriverOptions, key string, fallback float64) float64 {
 // decoded image. The sha256 that identifies the batch is computed AS THE BYTES GO BY,
 // which is also what makes « the same catalog twice » a nominal case rather than a
 // second full qualification (§10.5).
+//
+// What it does itself is what a FILE decides — the ceiling of §10.1, the digest that
+// names the content, the seven columns and the two pieces of Odoo vocabulary. What a
+// CATALOG decides is catalog.Assemble's, and this function is one of its callers rather
+// than a second copy of it.
 //
 // It touches nothing: the file is still there when this returns, whatever it returns.
 // Acknowledging is the source's business and it comes last, because a crash between
@@ -131,7 +119,7 @@ func Parse(source io.Reader, o Options) (*ports.Batch, error) {
 	hash := sha256.New()
 	buffered := bufio.NewReaderSize(io.TeeReader(counter, hash), readBufferSize)
 
-	batch, err := o.read(buffered)
+	batch, err := catalog.Assemble(&rowReader{options: o, buffered: buffered}, o.assembling())
 
 	// The tail is drained WHATEVER happened, and that is not tidiness. §10.5 counts
 	// failures BY SHA, so a refusal carrying the digest of the half of the file that
@@ -142,40 +130,39 @@ func Parse(source io.Reader, o Options) (*ports.Batch, error) {
 		err = fmt.Errorf("%w : %v", catalog.ErrContent, drained)
 	}
 	sha, read := hex.EncodeToString(hash.Sum(nil)), counter.count
-	if err == nil && read > o.MaxFileSize {
+	// The ceiling is judged BEFORE anything the assembler concluded, because it is the
+	// CAUSE of what the assembler concluded: the read is cut one byte past the ceiling,
+	// so an oversized file arrives at the assembler truncated and comes back as « aucune
+	// ligne de produit » or as a mangled row. Reporting that would send somebody looking
+	// for a content fault in a file whose only fault is its size.
+	if read > o.MaxFileSize {
 		err = fmt.Errorf("%w : le fichier dépasse le plafond de %d Mo ; "+
 			"le catalogue de référence en pèse 0,5", catalog.ErrContent, o.MaxFileSize>>20)
 	}
 	if err != nil {
+		// A refused batch is NOT handed back, not even half of it: the catalog in service
+		// is replaced by a whole one or by nothing at all (§10.4, failure test 9).
 		return nil, catalog.Refused(sha, read, err)
 	}
 
+	// The identity of a batch belongs to whoever ACQUIRED it, which is why the assembler
+	// leaves both fields at zero: here it is the digest of the bytes that went past and
+	// how many there were.
 	batch.ID, batch.Bytes = sha, read
-	// A refused batch is NOT handed back, not even half of it: the catalog in service
-	// is replaced by a whole one or by nothing at all (§10.4, failure test 9).
-	if err := o.checkReadable(batch); err != nil {
-		return nil, catalog.Refused(sha, read, err)
-	}
 	return batch, nil
 }
 
-// read turns the bytes into a batch, and knows nothing of the digest that will name
-// it: every exit of this function is a refusal Parse has to be able to attribute.
-func (o Options) read(buffered *bufio.Reader) (*ports.Batch, error) {
-	if err := skipBOM(buffered); err != nil {
-		return nil, fmt.Errorf("%w : %v", catalog.ErrContent, err)
+// assembling is what this parser forwards to the shared assembler.
+func (o Options) assembling() catalog.AssembleOptions {
+	return catalog.AssembleOptions{
+		Source:           o.Source,
+		Designation:      o.FileName,
+		MaxImageSize:     o.MaxImageSize,
+		MinReadableRatio: o.MinReadableRatio,
+		KeepPhotos:       o.decodeImages(),
+		Now:              o.Now,
+		Images:           o.Images,
 	}
-	batch := &ports.Batch{Source: o.Source, FileName: o.FileName}
-	reader := newCSVReader(buffered)
-	if finding, err := readHeader(reader); err != nil {
-		return nil, err
-	} else if finding != nil {
-		batch.Findings = append(batch.Findings, *finding)
-	}
-	if err := o.readRows(reader, batch); err != nil {
-		return nil, err
-	}
-	return batch, nil
 }
 
 // withDefaults fills in what a caller left at zero, so that a bare Options{} is a
@@ -185,15 +172,86 @@ func (o Options) withDefaults() Options {
 		o.MaxFileSize = defaultMaxFileSizeMB << 20
 	}
 	if o.MaxImageSize <= 0 {
-		o.MaxImageSize = defaultMaxImageSizeKB << 10
+		o.MaxImageSize = catalog.DefaultMaxImageSizeKB << 10
 	}
 	if o.MinReadableRatio <= 0 {
-		o.MinReadableRatio = defaultMinReadableRate
+		o.MinReadableRatio = catalog.DefaultMinReadableRatio
 	}
 	if o.ImageSource == "" {
 		o.ImageSource = domain.ImageSourceCSV
 	}
 	return o
+}
+
+// rowReader hands the exchange file over to the assembler one line at a time.
+//
+// It holds the file and nothing else: the seven columns, the semicolon, the header and
+// the two pieces of Odoo vocabulary. Everything a catalog DECIDES about a row — the
+// three-outcome question of §10.3, an id a previous line already used, the address of a
+// photo — is on the other side of catalog.RowReader.
+type rowReader struct {
+	options  Options
+	buffered *bufio.Reader
+	reader   *csv.Reader
+	// preamble is what the FIRST line had to say about itself, held until a row carries
+	// it out. A remark about the whole file has no row of its own, and the finding names
+	// the line it came from anyway (§10.2).
+	preamble []domain.Finding
+	// started is false until the header has been consumed. The header is read on the
+	// first call to Next rather than in a constructor, so that every failure of this
+	// reader — an empty file included — leaves by the same door.
+	started bool
+}
+
+// Next hands over the next product line of the file.
+func (r *rowReader) Next() (catalog.Row, []domain.Finding, error) {
+	if !r.started {
+		if err := r.start(); err != nil {
+			return catalog.Row{}, nil, err
+		}
+	}
+	record, err := r.reader.Read()
+	if errors.Is(err, io.EOF) {
+		return catalog.Row{}, nil, io.EOF
+	}
+	if err != nil && !isRowError(err) {
+		return catalog.Row{}, nil, fmt.Errorf("%w : %v", catalog.ErrContent, err)
+	}
+	preamble := r.takePreamble()
+	if err != nil {
+		return catalog.Row{}, append(preamble, malformedRow(lineOf(err), err)), catalog.ErrRowUnreadable
+	}
+	line, _ := r.reader.FieldPos(columnID)
+	row, findings := r.options.row(line, record)
+	return row, append(preamble, findings...), nil
+}
+
+// Close releases nothing: the file belongs to the source that opened it, and it is
+// still there when the reading ends — whatever the reading concluded (ADR-004).
+func (r *rowReader) Close() error { return nil }
+
+// start consumes the byte order mark and the header line.
+func (r *rowReader) start() error {
+	r.started = true
+	if err := skipBOM(r.buffered); err != nil {
+		return fmt.Errorf("%w : %v", catalog.ErrContent, err)
+	}
+	r.reader = newCSVReader(r.buffered)
+	finding, err := readHeader(r.reader)
+	if err != nil {
+		return err
+	}
+	if finding != nil {
+		r.preamble = []domain.Finding{*finding}
+	}
+	return nil
+}
+
+// takePreamble hands the header remark to the first row that leaves, once.
+func (r *rowReader) takePreamble() []domain.Finding {
+	preamble := r.preamble
+	r.preamble = nil
+	return preamble
 }
 
 // newCSVReader configures the reader the way the format demands.
@@ -237,96 +295,18 @@ func readHeader(reader *csv.Reader) (*domain.Finding, error) {
 	return &finding, nil
 }
 
-// readRows qualifies every product line of the file.
-func (o Options) readRows(reader *csv.Reader, batch *ports.Batch) error {
-	seen := make(map[string]int)
-	images := make(map[string]bool)
-	for {
-		record, err := reader.Read()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil && !isRowError(err) {
-			return fmt.Errorf("%w : %v", catalog.ErrContent, err)
-		}
-		batch.RowsRead++
-		if err != nil {
-			batch.UnreadableRows++
-			batch.Findings = append(batch.Findings, malformedRow(lineOf(err), err))
-			continue
-		}
-		o.readRow(reader, record, batch, seen, images)
-	}
-}
-
-// readRow turns one seven-field record into a product and its findings.
-//
-// The photo is decoded LAST, once the row is known to be a product at all: a line
-// that is not a product has no photo to keep, and decoding one would be work done for
-// a row nobody will ever show.
-func (o Options) readRow(reader *csv.Reader, record []string, batch *ports.Batch,
-	seen map[string]int, images map[string]bool) {
-	line, _ := reader.FieldPos(columnID)
-	row, findings := o.row(line, record)
-
-	if first, duplicate := seen[row.ID]; duplicate && row.ID != "" {
-		batch.UnreadableRows++
-		batch.Findings = append(batch.Findings, duplicateID(row, first))
-		return
-	}
-	if row.ID != "" {
-		seen[row.ID] = line
-	}
-
-	product, verdict, ok := catalog.Qualify(row)
-	findings = append(findings, verdict...)
-	if !ok {
-		batch.UnreadableRows++
-		batch.Findings = append(batch.Findings, findings...)
-		return
-	}
-	if o.decodeImages() {
-		product.ImageSHA = o.attach(row, record[columnImage], batch, &findings, images)
-	}
-	batch.Findings = append(batch.Findings, findings...)
-	batch.Products = append(batch.Products, product)
-}
-
-// attach decodes the photo of one row and reports the sha the product is to carry.
-//
-// An empty result is the ordinary case on half the catalog and raises NOTHING: 174 of
-// the 355 real products have no photo, and a finding that fires on 49 % of the lines
-// informs nobody (§10.7c).
-func (o Options) attach(row catalog.Row, encoded string, batch *ports.Batch,
-	findings *[]domain.Finding, images map[string]bool) string {
-	if encoded == "" {
-		return ""
-	}
-	image, content, err := o.decode(encoded)
-	if err != nil {
-		*findings = append(*findings, imageRefused(row, err))
-		return ""
-	}
-	if images[image.SHA256] {
-		// The same photo on two products is one file: the sha IS the address, which is
-		// what makes a re-import write nothing at all (§10.7).
-		return image.SHA256
-	}
-	if o.Images != nil {
-		if err := o.Images.Put(image.SHA256, image.Format, content); err != nil {
-			*findings = append(*findings, catalog.ImageInvalid(row, err.Error()))
-			return ""
-		}
-	}
-	images[image.SHA256] = true
-	batch.Images = append(batch.Images, image)
-	return image.SHA256
-}
-
-// row translates one record into the adapter-neutral row Qualify reads.
+// row translates one record into the adapter-neutral row the assembler reads.
 //
 // The two pieces of Odoo vocabulary are resolved HERE and nowhere else: the category
-// letter into the code of a shelf, the unit wording into a magnitude and a suffix.
+// letter into the code of a shelf, the unit wording into a magnitude and a suffix. The
+// seventh column is unwrapped from its base64 and handed over as BYTES — recognising the
+// format, bounding the dimensions and computing the address are §10.7's rules, which
+// hold for every source and live in catalog.
+//
+// The photo is unwrapped BEFORE the row is known to be a product, where the previous
+// design did it after: a streaming reader cannot know what a qualification it does not
+// perform will conclude. The cost is one base64 decode on a row that has both an
+// unreadable id and a photo — a combination neither authentic export contains.
 func (o Options) row(line int, record []string) (catalog.Row, []domain.Finding) {
 	// Cloned, not sliced: the seven fields share one backing array with the base64 of
 	// the image, and a product that kept a slice of it would keep the image alive for
@@ -343,10 +323,19 @@ func (o Options) row(line int, record []string) (catalog.Row, []domain.Finding) 
 	row.CategoryCode = code
 	row.Magnitude, row.PriceSuffix = unit(field(record, columnUnit))
 
+	var findings []domain.Finding
 	if !known {
-		return row, []domain.Finding{catalog.UnknownCategory(row, letter, o.FallbackCategory)}
+		findings = append(findings, catalog.UnknownCategory(row, letter, o.FallbackCategory))
 	}
-	return row, nil
+	if encoded := field(record, columnImage); o.decodeImages() && encoded != "" {
+		content, err := unwrap(encoded, o.MaxImageSize)
+		if err != nil {
+			findings = append(findings, catalog.ImageInvalid(row, err.Error()))
+		} else {
+			row.Image = content
+		}
+	}
+	return row, findings
 }
 
 // field reads one column, trimmed and detached from the shared record buffer.
@@ -367,46 +356,6 @@ func field(record []string, column int) string {
 
 // decodeImages reports whether this station reads the seventh column at all.
 func (o Options) decodeImages() bool { return imagesWanted(o.ImageSource) }
-
-// checkReadable applies the absolute guard: below the threshold the batch is refused
-// whole.
-//
-// It bears on UNREADABLE lines and on nothing else. That is the correction of
-// §10.4a: the previous threshold counted every product the legacy rules rejected, so
-// a perfectly normal catalog lit a permanent red light on its very first import.
-func (o Options) checkReadable(batch *ports.Batch) error {
-	report := catalog.Summarize(batch)
-	if report.RowsRead == 0 {
-		return fmt.Errorf("%w : le fichier ne porte aucune ligne de produit", catalog.ErrContent)
-	}
-	if report.Readable(o.MinReadableRatio) {
-		return nil
-	}
-	return fmt.Errorf("%w : %d ligne(s) illisible(s) sur %d, soit moins de %d %% de lignes "+
-		"exploitables ; un fichier coupé en cours d'écriture ne remplace pas un catalogue sain",
-		catalog.ErrContent, report.UnreadableRows, report.RowsRead,
-		int(o.MinReadableRatio*100+0.5))
-}
-
-// duplicateID reports an Odoo id a previous line already used.
-//
-// The id is the PRODUCER's key and an import is an upsert on it (§10.9): two rows
-// sharing one id would make the second overwrite the first silently, so the second is
-// set aside and named. The 355 ids of flv.csv are distinct, as are the 153 of
-// flv_1.csv.
-func duplicateID(row catalog.Row, first int) domain.Finding {
-	return domain.Finding{
-		CSVLine:     row.Line,
-		ProductID:   row.ID,
-		ProductName: row.Name,
-		Code:        domain.FindingUnreadableRow,
-		Issue:       domain.IssueAnomaly,
-		Value:       row.ID,
-		Message: fmt.Sprintf("Corriger l'identifiant : « %s » est déjà porté par la ligne "+
-			"%d. L'identifiant Odoo est la clé du produit — deux lignes qui le partagent "+
-			"font disparaître la première sans un mot.", row.ID, first),
-	}
-}
 
 // malformedRow reports a line encoding/csv could not read at all.
 func malformedRow(line int, err error) domain.Finding {
@@ -466,3 +415,6 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	c.count += int64(n)
 	return n, err
 }
+
+// Compile-time proof that this parser really is one reader among others.
+var _ catalog.RowReader = (*rowReader)(nil)

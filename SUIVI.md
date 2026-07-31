@@ -3,6 +3,67 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**L'origine des produits est enfichable, et le CSV n'en est plus qu'un mode (31/07/2026).**
+Le commanditaire demande de pouvoir aller chercher les produits par les API d'Odoo, ou de
+n'importe quel ERP demain. `ports.CatalogSource` était annoncé comme le point d'enfichage et
+l'était pour un fichier ; **quatre constats, tous reproduits sur le code livré, disaient qu'il
+ne l'était pas hors du fichier** — et un cinquième a été trouvé en chemin. ADR-052 les fixe.
+
+| # | Ce qui n'allait pas | Où c'était |
+|---|---|---|
+| 1 | **Deux axes fondus en un.** `localdrop` et `webdav` ne diffèrent que par l'acquisition des octets, et chacun appelait `csvodoo.Parse` en dur. L'assemblage d'un lot — qualification, doublons d'identifiant, photos, garde absolue — vivait dans le paquet du **format** | `localdrop.go:287`, `webdav.go:365` |
+| 2 | **`ports.Batch` avait la forme d'un fichier** : `ID` = condensat du fichier, et `Acknowledge` documenté comme « archiver puis supprimer ». Une API n'a rien à supprimer | `ports.go:260-300` |
+| 3 | **La racine n'utilisait pas son registre.** `newCatalogSource` tenait une `map` à elle plus une réimplémentation du lookup et du message « type inconnu » ; `catalog.Registry` n'était atteint que par `doctor` | `drivers.go:126-166` |
+| 4 | **`Config.Validate` codait les sources en dur.** Contrôles 39, 46 et 47 nommant `local_drop` et `webdav` **dans `internal/domain`** : une troisième source obligeait à éditer le domaine | `config.go:1280`, `1365`, `1378` |
+| 5 | **La coupe 2 ne couvrait pas les sources**, trouvé en vérifiant le reste : `tools/boundary` ne connaissait que `scale.Driver` et `printing.Driver`, si bien que `internal/web` aurait pu importer `internal/catalog/localdrop` sans un mot | `tools/boundary/main.go:441` |
+
+**Le cinquième est le même défaut que le n° 1 du chantier précédent, un point d'enfichage plus
+loin** — une coupe annoncée qui ne protégeait pas ce qu'on croyait. Elle lit désormais une
+table `{paquet → type}` où `catalog.Source` est le troisième, et **elle a été vérifiée en
+provoquant la violation** : un import de `internal/catalog/localdrop` depuis `internal/diag`
+est refusé, en nommant la déclaration qui fait de ce paquet un paquet driver.
+
+**Où passe la séparation, et ce qu'aucune source ne réécrit.** `ports.CatalogSource` garde
+l'acquisition ; `catalog.RowReader`, neuf, porte le format et rend **une ligne à la fois** ; et
+`catalog.Assemble`, neuf, possède tout ce qu'un catalogue **décide** — §10.3, les doublons
+d'identifiant, les règles de §10.7 sur les photos, les signalements, la garde de §10.4a. Le pic
+mémoire reste **une ligne**, et `internal/catalog/example` le tient **à travers une
+pagination** : décodeur positionné dans le tableau JSON, une page finie va chercher la
+suivante, deux pages ne coexistent jamais.
+
+**Trois découvertes que la rédaction du paquet exemple a faites, et qu'aucun guide n'aurait
+données.** (1) `next_page` cherché **avant** `products` lit la page 1 d'un catalogue et
+l'appelle le tout — **en silence**, avec une grille d'apparence normale à qui il manque les
+quatre cinquièmes de la boutique ; un test l'a rattrapé avant la livraison. (2) Le plafond de
+taille de fichier était jugé **après** l'assemblage : la lecture étant coupée au plafond, un
+fichier trop gros ressortait en « aucune ligne de produit », et on serait allé chercher une
+faute de contenu dans un fichier dont le seul défaut est sa taille. (3) L'identité d'un lot
+d'API **ne peut pas** être le condensat du corps JSON — ordre des clés et espaces du serveur —
+sans quoi le même catalogue arrive neuf chaque nuit et la quarantaine de §10.5 ne compte jamais
+jusqu'à trois. `catalog.Fingerprint` hache les **produits** ; sur un **refus**, où il n'y a pas
+de produits, ce sont les octets reçus, et c'est le maximum honnête.
+
+**Le contrôle 47 est supprimé, son numéro laissé en trou comme celui du 37** (ADR-044). Il
+disait « un répertoire de dépôt ne veut rien dire pour un partage » — vrai, et déjà refusé par
+le contrôle 9 pour toute source. Son seul apport était sa phrase, qui est passée dans le 9 :
+« option inconnue du driver `"webdav"` : c'est `"local_drop"` qui la déclare », **pour toute
+famille de drivers**, un `queue` sous un transport TCP compris.
+
+**Ce qui reste ouvert, et qui est nommé plutôt que laissé à découvrir.** Il n'existe **aucun
+banc de conformité pour une source de catalogue**, là où une balance, une imprimante et un
+transport en ont un chacun — c'est l'écart qu'ADR-048 a comblé côté impression après qu'un
+défaut classé au mauvais `Kind` eut traversé deux drivers livrés. Et `ports.Batch.FileName`
+**garde son nom** alors qu'il désigne désormais ce qu'un lot était appelé là où il a été lu : la
+valeur voyage jusqu'à la colonne `file_name`, l'écran d'administration et l'archive de
+diagnostic, et renommer la chaîne entière coûte une migration pour un mot.
+
+**Mesuré le 31/07/2026 :** **2 835 tests Go** verts sur **35 paquets**, 0 échec
+(`CGO_ENABLED=0 go test ./... -count=1`), la passe `-race` verte, `gofmt` et `go vet`
+silencieux, `boundary` et `deps` verts. *Les tests front n'ont pas été rejoués : aucun fichier
+de `web/` n'a été touché.*
+
+---
+
 **Les compteurs, mesurés le 30/07/2026 à la clôture des lots « drivers enfichables ».**
 **2 826 tests Go** verts sur **36 paquets** — 0 échec, 6 écartés — et **768 tests front**
 sur 34 fichiers, 0 échec (`CGO_ENABLED=0 go test ./... -count=1`, puis `npm test`). Les
@@ -1252,7 +1313,8 @@ de référence produit, pas une correction cosmétique.
 
 ## Décisions structurantes
 
-51 ADR dans `docs/02-architecture.md` §20. Les plus engageantes :
+52 ADR dans `docs/02-architecture.md` §20 — contigus de 001 à 052, sans trou. Les plus
+engageantes :
 
 | ADR | Décision |
 |---|---|
@@ -1271,6 +1333,7 @@ de référence produit, pas une correction cosmétique.
 | **043** | **L'enregistrement d'un driver est une ligne écrite à la main** — ni `init()` par import, ni génération |
 | **045** | **La tête déclare sa géométrie encrée** ; le core refuse l'attelage gabarit/tête incohérent. **N'amende ni A1 ni ADR-003** |
 | **048** | **Tout driver enregistré passe un banc de conformité** — seul juge en l'absence de matériel |
+| **052** | **L'origine des produits est enfichable sur deux axes** — acquisition (`ports.CatalogSource`) et format (`catalog.RowReader`) ; ce qu'un catalogue décide vit dans `catalog.Assemble` et ne se réimplémente pas. Le CSV n'est plus qu'un mode. **Supprime le contrôle 47**, rend déclaratives les règles croisées de `Config.Validate`, et étend la coupe 2 à `catalog.Source` |
 | **051** | **A1 n'était pas une contrainte, c'était l'état d'un logiciel Access.** Ce qui est tenu est le contrat de caisse, pas le dessin. Barres 10 875 → **11 375 µm**, gabarit B retiré, règle 9 réécrite contre la plage GS1. **Remplace ADR-003**, reprend les chiffres d'**ADR-029** |
 
 ---
@@ -1279,6 +1342,8 @@ de référence produit, pas une correction cosmétique.
 
 | Date | Événement |
 |---|---|
+| 31/07/2026 | **L'origine des produits devient enfichable, et le CSV n'en est plus qu'un mode** (ADR-052). Acquisition (`ports.CatalogSource`) et format (`catalog.RowReader`) sont deux axes séparés ; ce qu'un catalogue **décide** vit dans `catalog.Assemble` et ne se réimplémente dans aucune source. Cinq constats, tous reproduits : les deux sources livrées appelaient le parseur CSV en dur, `ports.Batch` avait la forme d'un fichier, la racine tenait une `map` au lieu de son registre, `Config.Validate` codait `local_drop` et `webdav` en dur dans le domaine, et **la coupe 2 ne couvrait pas les sources** — `internal/web` aurait pu importer un paquet source sans un mot. Contrôle 47 supprimé, numéro laissé en trou. `internal/catalog/example` livré : source d'ERP par HTTP, paginée, **enregistrée nulle part**. **2 835 tests Go** verts sur 35 paquets, passe `-race` verte. Trois découvertes en écrivant l'exemple, dont `next_page` cherché avant `products` — qui lit la page 1 et l'appelle le catalogue entier, **en silence** |
+| 31/07/2026 | **Le français des documents cesse de tout traduire, et la règle est relevée plutôt que décrétée.** Trois mots retirés — « couture » pour *seam*, « déballer » pour *unwrap*, et surtout « assembleur », **faux ami** qui désigne le langage d'assemblage en français. La mesure a montré que le dépôt avait déjà une politique que personne n'avait écrite : `driver` 379 contre « pilote » 74, `goroutine` 58 contre 0, `timeout` 32 contre 0, et à l'inverse « trame », « gabarit », « lot », « garde-fou » en français partout. `docs/03-glossaire.md` gagne un **§ Vocabulaire de prose** chiffré et reproductible ; `CLAUDE.md` porte la règle en trois cas et le test qui tranche. **Et `CLAUDE.md` affirmait encore que l'implémentation n'avait pas commencé**, sur un dépôt tagué v0.8, installé sur un poste réel et public sous AGPL — corrigé, ainsi que le quatrième compteur d'ADR qu'il portait |
 | 30/07/2026 | **Le commanditaire rouvre A1, et la séparation demandée casse trois nombres du dossier** (ADR-051). « L'étiquette reproduite à l'identique » n'était pas un arbitrage de conception mais **l'état d'un formulaire Access** : le module de 0,293 mm est le corps 34 de la fonte `Code EAN13`, les barres de 11,72 mm en sont 0,977 em, la bande HRI de 2,93 mm en est 0,244 em. **Le raster survit, avec un meilleur argument** — la fenêtre des modules à la fois conformes GS1 et tenant dans 35 mm est vide à 203, 300 **et** 305 dpi, donc le module fractionnaire n'est pas hérité mais nécessaire ; 305 dpi n'achète aucune conformité. **La troncature aussi survit, et change de statut** : c'est un résultat de calcul, pas une décision — sur 25 mm, un symbole de hauteur normative laisse 1,8 mm pour cinq champs. Barres **10 875 → 11 375 µm** (91 dots), pris sur l'interligne et la bande HRI, jamais sur le texte ; marge basse doublée à 1,9 dot. **La mesure a démenti l'estimation** : sur 23 dots de bande HRI, 21 sont de l'encre — 2 étaient libres, pas 9. Gabarit B retiré (75,8 %, sous le plancher GS1) et règle dure 9 réécrite contre la plage GS1 lue au pas que la tête déclare. **Trois erreurs du document corrigées au passage**, dont une origine de symbole périmée qui faisait décrire un gabarit que la règle dure 3 rejette. **Consommable et imprimante : pas de changement, faute de budget** — 38 × 34 rendrait le symbole conforme à 89,7 % et reste chiffré au dossier pour le jour où le taux de lecture se dégraderait |
 | 30/07/2026 | **Les drivers deviennent réellement enfichables** (ADR-042 à 050) : le schéma d'options rejoint le paquet du driver, l'enregistrement reste une ligne écrite à la main, la géométrie encrée est déclarée par la tête, la reconnaissance du matériel par le driver, le décodeur est fabriqué par le driver pour les quatre outils qui lisent des octets hors poste, les auto-tests honorés sont déclarés, la famille imprimante obtient son banc de conformité, et deux paquets exemplaires sont livrés sans être enregistrés. **Neuf découvertes** qui n'étaient pas au programme, dont la coupe 2 **annoncée depuis L2 et jamais exécutée**, un `Print` après `Close` mal classé dans les deux drivers livrés, et un guide d'ajout de matériel que ni `README.md` ni `CLAUDE.md` ne nommaient | : cinq défauts corrigés — le voile qui couvrait le bouton Réglages, la détection de balance qui ne pouvait réussir sur aucun port, les volets de la page Matériel refermés par le sondage de 3 s, le retour arrière à 60 s qui écrivait le profil d'usine par-dessus les tarifs de la coopérative (avec le pilote `preview` enfin livré), et l'adresse d'écoute du fichier que le repli jetait même saine. Deux demandes neuves du commanditaire livrées avec : « Recharger le catalogue » rend compte de ce qu'il déclenche — fichier, résultat, heure, inventaire, source surveillée — au lieu de promettre au futur puis de se taire ; et le poste masque les produits vendus à l'unité, `ui.show_by_unit_products` à `false` par défaut, soit 15 tuiles de moins sur le vrai catalogue. **2 562 tests Go** et **764 tests front**, tous verts |
 | 29/07/2026 | **Sept chantiers referment la campagne d'installation** : cinq défauts corrigés — le voile qui couvrait le bouton Réglages, la détection de balance qui ne pouvait réussir sur aucun port, les volets de la page Matériel refermés par le sondage de 3 s, le retour arrière à 60 s qui écrivait le profil d'usine par-dessus les tarifs de la coopérative (avec le pilote `preview` enfin livré), et l'adresse d'écoute du fichier que le repli jetait même saine. Deux demandes neuves du commanditaire livrées avec : « Recharger le catalogue » rend compte de ce qu'il déclenche — fichier, résultat, heure, inventaire, source surveillée — au lieu de promettre au futur puis de se taire ; et le poste masque les produits vendus à l'unité, `ui.show_by_unit_products` à `false` par défaut, soit 15 tuiles de moins sur le vrai catalogue. **2 562 tests Go** et **764 tests front**, tous verts |
