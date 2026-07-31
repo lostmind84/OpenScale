@@ -215,3 +215,22 @@ la pesée : le catalogue vit en mémoire.
   [`docs/05-demarrage-rapide.md`](https://github.com/lostmind84/OpenScale/blob/main/docs/05-demarrage-rapide.md)
 - Installer un **vrai** poste, écran tactile et imprimante compris :
   [`INSTALLATION.md`](https://github.com/lostmind84/OpenScale/blob/main/INSTALLATION.md)
+
+## Installer un poste de production
+
+Rien de ce qui précède n'est nécessaire : un poste s'installe en une commande, sur un
+Windows nu, sans dépôt, sans Go et sans archive à décompresser. Depuis PowerShell — les
+droits administrateur sont demandés en cours de route :
+
+```powershell
+irm https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/windows/bootstrap.ps1 | iex
+```
+
+La commande prend la dernière version publiée, **vérifie son empreinte avant de la
+décompresser**, pose trois questions — mot de passe de la session du poste, production ou
+pilote, ouverture de session automatique — puis déroule l'installation complète : compte
+Windows dédié, service, tâche du kiosque, réglages d'alimentation, fiche d'installation.
+
+Le détail, la voie hors ligne par clé USB et la suite du parcours (redémarrage de recette,
+balance, imprimante, catalogue) sont dans
+[`INSTALLATION.md`](https://github.com/lostmind84/OpenScale/blob/main/INSTALLATION.md).

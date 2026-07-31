@@ -173,6 +173,34 @@ function New-RandomPassword {
   -join ($bytes | ForEach-Object { $alphabet[$_ % $alphabet.Length] })
 }
 
+function ConvertTo-PlainText {
+  <#
+  .SYNOPSIS
+    Le contenu d'un SecureString, en clair.
+  .DESCRIPTION
+    Le passage par Marshal est ce qui rend cette lecture possible sous WINDOWS POWERSHELL
+    5.1 : « ConvertFrom-SecureString -AsPlainText » n'existe qu'à partir de PowerShell 7,
+    et un script d'installation qui ne tourne pas sur le PowerShell livré avec Windows ne
+    sert à rien.
+
+    La mémoire non gérée est remise à zéro dans un finally, y compris si la lecture lève.
+    Ce que ça ne prétend PAS être, c'est une protection du mot de passe : celui-ci finit
+    en clair dans Winlogon\DefaultPassword et sur la fiche d'installation, et install.ps1
+    assume les deux en toutes lettres.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][securestring]$Secure)
+
+  $pointer = [IntPtr]::Zero
+  try {
+    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
+    [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+  }
+  finally {
+    if ($pointer -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
+  }
+}
+
 function Save-Snapshot {
   <#
   .SYNOPSIS

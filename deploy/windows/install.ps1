@@ -41,6 +41,15 @@
   n'est PAS en libre-service : sans elle, le poste reste sur l'écran de connexion de
   Windows après une coupure de courant, /healthz répond 200, et le poste est inutilisable.
 
+.PARAMETER SessionPassword
+  Le mot de passe du compte Windows dédié, choisi par l'installateur. Absent, il est tiré
+  au sort sur 20 caractères — c'est le comportement par défaut, et le seul qu'ait connu ce
+  script jusqu'au 31/07/2026.
+
+  Il est écrit en clair dans Winlogon\DefaultPassword quelques dizaines de lignes plus bas,
+  et sur la fiche d'installation : sa longueur n'est donc PAS ce qui protège ce poste.
+  C'est bootstrap.ps1 qui pose le plancher, à quatre caractères, et qui explique pourquoi.
+
 .EXAMPLE
   .\install.ps1
 .EXAMPLE
@@ -50,6 +59,7 @@
 param(
   [switch]$Pilot,
   [switch]$SkipAutoLogon,
+  [securestring]$SessionPassword,
   [string]$InstallDir,
   [string]$DataRoot)
 
@@ -89,17 +99,36 @@ else {
 
 # --- 1. Compte local dédié, sans droits administrateur ------------------------------
 # ★ AVANT l'ACL de l'étape 2, qui le nomme.
-$password = New-RandomPassword 20
+$password = if ($SessionPassword) { ConvertTo-PlainText $SessionPassword } else { New-RandomPassword 20 }
+$origin = if ($SessionPassword) { 'choisi à l''installation' } else { 'tiré au sort' }
 $secure = ConvertTo-SecureString $password -AsPlainText -Force
-if (Get-LocalUser -Name $script:AccountName -ErrorAction Ignore) {
-  Set-LocalUser -Name $script:AccountName -Password $secure -PasswordNeverExpires $true
-  Write-Step "compte local $($script:AccountName) : mot de passe renouvelé" $paths.LogFile
+
+# La LONGUEUR et l'ORIGINE, jamais la valeur : ce journal reste sur le poste, la fiche part
+# au classeur. C'est la même règle que pour le code de secours, deux étapes plus bas.
+Write-Step "mot de passe de session : $($password.Length) caractères, $origin" $paths.LogFile
+
+# Le try/catch nomme LA cause. Une stratégie locale peut imposer une longueur ou une
+# complexité minimale (net accounts) : hors domaine elle vaut zéro, mais quand elle refuse,
+# New-LocalUser lève une exception qui parle de « mot de passe ne satisfait pas aux
+# exigences » sans dire laquelle, ni où la lire.
+try {
+  if (Get-LocalUser -Name $script:AccountName -ErrorAction Ignore) {
+    Set-LocalUser -Name $script:AccountName -Password $secure -PasswordNeverExpires $true
+    Write-Step "compte local $($script:AccountName) : mot de passe renouvelé" $paths.LogFile
+  }
+  else {
+    New-LocalUser -Name $script:AccountName -Password $secure -PasswordNeverExpires `
+      -AccountNeverExpires -FullName 'Poste de pesée OpenScale' `
+      -Description 'Compte du kiosque. Sans droits administrateur.' | Out-Null
+    Write-Step "compte local $($script:AccountName) créé" $paths.LogFile
+  }
 }
-else {
-  New-LocalUser -Name $script:AccountName -Password $secure -PasswordNeverExpires `
-    -AccountNeverExpires -FullName 'Poste de pesée OpenScale' `
-    -Description 'Compte du kiosque. Sans droits administrateur.' | Out-Null
-  Write-Step "compte local $($script:AccountName) créé" $paths.LogFile
+catch [Microsoft.PowerShell.Commands.InvalidPasswordException] {
+  throw "Windows a refusé ce mot de passe pour le compte $($script:AccountName) : la " +
+  "stratégie locale de ce PC en exige un plus long ou plus complexe. « net accounts » " +
+  'affiche la longueur minimale exigée, et secpol.msc la complexité. Relancez ensuite ' +
+  "l'installation avec un mot de passe qui la respecte, ou sans mot de passe du tout — " +
+  "il sera alors tiré au sort sur 20 caractères. ($($_.Exception.Message))"
 }
 # Le groupe des utilisateurs ordinaires, par son SID : « Utilisateurs » sur un Windows
 # français, « Users » sur un anglais, et un installeur qui nomme le groupe en clair
