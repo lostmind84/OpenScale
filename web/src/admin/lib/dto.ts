@@ -181,6 +181,18 @@ export interface HealthDTO {
   }
   events: TechnicalLineDTO[]
   catalog: ImportDTO | null
+  /**
+   * L'import dont les signalements DÉCRIVENT LE CATALOGUE EN SERVICE, et ce n'est pas
+   * toujours celui du dessus. Zéro quand ce poste n'en a aucun.
+   *
+   * Un export redéposé à l'identique est enregistré « inchangé » et n'écrit aucun
+   * signalement — ils appartiennent à l'import qui a produit la grille, une ligne plus
+   * haut —, et un lot que la base a refusé n'en écrit pas davantage. Lire ceux de la
+   * dernière ligne vidait les trois listes de la page Catalogue sur l'événement le plus
+   * ordinaire qui soit, pendant que l'encadré du haut continuait d'annoncer seize
+   * anomalies à corriger.
+   */
+  catalog_findings_id: number
   catalog_motives: MotiveDTO[]
   catalog_source: CatalogSourceDTO | null
   decisions: DecisionDTO[]

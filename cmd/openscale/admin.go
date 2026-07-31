@@ -77,6 +77,12 @@ func (s adminStore) Imports(ctx context.Context, limit, offset int) ([]domain.Im
 	return s.db.Imports(ctx, limit, offset)
 }
 
+// LastAppliedImport returns the most recent import that put a catalog in service, which
+// is the row the screens read when the last one changed nothing (§14.4, ADR-053).
+func (s adminStore) LastAppliedImport(ctx context.Context) (domain.Import, error) {
+	return s.db.LastAppliedImport(ctx)
+}
+
 // Findings returns what one import had to say about the rows it read.
 func (s adminStore) Findings(ctx context.Context, importID int64) ([]domain.Finding, error) {
 	return s.db.Findings(ctx, importID)

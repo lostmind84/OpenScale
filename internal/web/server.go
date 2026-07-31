@@ -90,6 +90,13 @@ type Store interface {
 	TechnicalEntries(ctx context.Context, q TechnicalQuery) ([]TechnicalLine, error)
 	// Imports returns the history of catalog imports, most recent first.
 	Imports(ctx context.Context, limit, offset int) ([]domain.Import, error)
+	// LastAppliedImport returns the most recent import that PUT A CATALOG IN SERVICE.
+	//
+	// It is not the same question as the first row of Imports: 'unchanged', 'rejected'
+	// and 'failed' are rows too, and none of them changed what the station serves. The
+	// error is « this station has never applied one » and carries no sentinel: every
+	// caller here treats it as an absence.
+	LastAppliedImport(ctx context.Context) (domain.Import, error)
 	// Findings returns what one import had to say about the rows it read.
 	Findings(ctx context.Context, importID int64) ([]domain.Finding, error)
 	// LocalDecisions returns the human judgements in force (§10.6).

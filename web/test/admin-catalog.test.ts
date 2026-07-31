@@ -790,7 +790,14 @@ describe('rien n’est affirmé de ce qui n’a pas été lu', () => {
     history = []
     findings = []
     catalogProducts = []
-    open(nominalHealth({ catalog: null, catalog_motives: [], catalog_source: null }))
+    open(
+      nominalHealth({
+        catalog: null,
+        catalog_findings_id: 0,
+        catalog_motives: [],
+        catalog_source: null,
+      }),
+    )
     await settle()
 
     const said = pageText()
@@ -824,11 +831,38 @@ describe('les signalements suivent l’import en vigueur', () => {
     // bord change d'import. L'encadré du haut le disait déjà ; les anomalies, elles,
     // restaient celles de l'import précédent, et le travail fait se lisait comme vain.
     findings = manyAnomalies(3)
-    setHealth(nominalHealth({ catalog: { ...FLV_IMPORT, id: 8 } }))
+    setHealth(
+      nominalHealth({ catalog: { ...FLV_IMPORT, id: 8 }, catalog_findings_id: 8 }),
+    )
     await settle()
 
     expect(pageText()).toContain('3 anomalies.')
     expect(calls.filter((call) => call.url.startsWith('/admin/api/imports'))).toHaveLength(2)
+  })
+
+  it('lit ceux du catalogue EN SERVICE, pas ceux d’une ligne « inchangé »', async () => {
+    // Le producteur redépose son export à l'identique, ce qu'ADR-015 tient pour un
+    // événement NOMINAL : la ligne est enregistrée « inchangé », elle ne bascule rien et
+    // elle ne réécrit AUCUN signalement — ils appartiennent à l'import qui a produit la
+    // grille, une ligne plus haut. La page lisait ceux du dernier import : l'encadré du
+    // haut continuait d'annoncer seize anomalies au-dessus de trois listes qui répondaient
+    // toutes « Aucune anomalie sur le dernier import. », et définitivement.
+    findings = manyAnomalies(16)
+    history = [{ ...FLV_IMPORT, id: 8, result: 'unchanged' }, FLV_IMPORT]
+    open(
+      nominalHealth({
+        catalog: { ...FLV_IMPORT, id: 8, result: 'unchanged' },
+        catalog_findings_id: FLV_IMPORT.id,
+      }),
+    )
+    await settle()
+
+    const read = calls.filter((call) => call.url.startsWith('/admin/api/imports'))
+    expect(read.map((call) => call.url)).toEqual([
+      `/admin/api/imports?id=${String(FLV_IMPORT.id)}`,
+    ])
+    expect(pageText()).toContain('16 anomalies.')
+    expect(pageText()).not.toContain('Aucune anomalie sur le dernier import.')
   })
 
   it('ne relit rien tant que l’import en vigueur est le même', async () => {

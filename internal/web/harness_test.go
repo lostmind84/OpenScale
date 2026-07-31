@@ -587,6 +587,23 @@ func (m *memoryStore) Imports(_ context.Context, limit, _ int) ([]domain.Import,
 	return out, nil
 }
 
+// LastAppliedImport scans the same list the real store queries, and it scans it WHOLE:
+// a station that received the same export twenty nights running has twenty 'unchanged'
+// rows above the one that put the grid in service.
+func (m *memoryStore) LastAppliedImport(context.Context) (domain.Import, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.err != nil {
+		return domain.Import{}, m.err
+	}
+	for _, imp := range m.imports {
+		if imp.Result == domain.ImportApplied {
+			return imp, nil
+		}
+	}
+	return domain.Import{}, errors.New("aucun import appliqué sur ce poste")
+}
+
 func (m *memoryStore) Findings(_ context.Context, importID int64) ([]domain.Finding, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

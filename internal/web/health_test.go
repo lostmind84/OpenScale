@@ -306,3 +306,78 @@ func TestTheNonWeighableFigureIsBrokenDownByMotive(t *testing.T) {
 		t.Fatalf("inventaire = %+v, attendu 8 non pesables", got.Catalog)
 	}
 }
+
+// TestASecondSightingOfTheSameCatalogKeepsItsFindings is the defect the Catalogue page
+// showed in the shop: an inventory announcing « 16 anomalies » above three lists that all
+// read « Aucune anomalie sur le dernier import. »
+//
+// A producer who drops a byte-identical export a second night is a NOMINAL event
+// (ADR-015): the row is recorded 'unchanged', it swaps nothing, and it deliberately
+// records NO findings — they belong to the import that produced the catalog in service,
+// one row above (importer.unchanged). The dashboard read the findings of the LAST ROW,
+// so the second sighting silently emptied every list of the page, and did it for good:
+// the counters kept saying there was work to do while the work plan had vanished.
+//
+// What the screen shows is the catalog IN SERVICE, and the id of the import that
+// describes it is the payload's business to name -- exactly the reading ADR-053 gave the
+// client screen for its date.
+func TestASecondSightingOfTheSameCatalogKeepsItsFindings(t *testing.T) {
+	b := newBench(t)
+	b.store.imports = []domain.Import{
+		{ID: 8, OccurredAt: epoch, Source: domain.CatalogSourceLocalDrop,
+			FileName: "flv_2.csv", Result: domain.ImportUnchanged,
+			RowsRead: 355, Weighable: 331, NotWeighable: 8, Anomalies: 16, UnitMismatches: 1},
+		{ID: 7, OccurredAt: epoch, Source: domain.CatalogSourceLocalDrop,
+			FileName: "flv_2.csv", Result: domain.ImportApplied,
+			RowsRead: 355, Weighable: 331, NotWeighable: 8, Anomalies: 16, UnitMismatches: 1},
+	}
+	b.store.findings[7] = []domain.Finding{
+		{CSVLine: 12, Code: domain.FindingPrepackagedProduct,
+			Issue: domain.IssueInfo, Value: "3760091721234"},
+		{CSVLine: 91, Code: domain.FindingInvalidBarcode,
+			Issue: domain.IssueAnomaly, Value: "0493021012366"},
+	}
+
+	got := decodeStatus[adminHealthDTO](t, b.get("/admin/api/health"), http.StatusOK)
+	// The INVENTORY stays that of the last row: « inchangé » is what happened last, and
+	// hiding it would be a second lie in the other direction.
+	if got.Catalog == nil || got.Catalog.ID != 8 || got.Catalog.Result != domain.ImportUnchanged {
+		t.Fatalf("inventaire = %+v, attendu la ligne 8 « inchangé »", got.Catalog)
+	}
+	if got.CatalogFindings != 7 {
+		t.Fatalf("signalements en vigueur = %d, attendu 7 : un fichier inchangé n'en "+
+			"réécrit aucun, et ceux du catalogue en service restent ceux de l'import appliqué",
+			got.CatalogFindings)
+	}
+	want := []motiveDTO{{Code: domain.FindingPrepackagedProduct, Count: 1}}
+	if !reflect.DeepEqual(got.CatalogMotives, want) {
+		t.Fatalf("motifs = %+v, attendu %+v", got.CatalogMotives, want)
+	}
+}
+
+// TestARefusedFileNamesItsOwnFindings is the other half of the rule, and the reason it is
+// NOT « toujours le dernier import appliqué ».
+//
+// A batch the station refused wrote no product at all, and its findings are exactly the
+// ones somebody has to fix for the next file to get in (§10.5). Falling back to the
+// applied import would answer a refusal with the remarks of a catalog that is fine.
+func TestARefusedFileNamesItsOwnFindings(t *testing.T) {
+	b := newBench(t)
+	b.store.imports = []domain.Import{
+		{ID: 9, OccurredAt: epoch, Source: domain.CatalogSourceLocalDrop,
+			FileName: "flv_2.csv", Result: domain.ImportRejected, Code: "ERR-CAT-03",
+			RowsRead: 355, UnreadableRows: 200},
+		{ID: 7, OccurredAt: epoch, Source: domain.CatalogSourceLocalDrop,
+			FileName: "flv_2.csv", Result: domain.ImportApplied, RowsRead: 355},
+	}
+	b.store.findings[9] = []domain.Finding{{CSVLine: 3, Code: domain.FindingUnreadableRow,
+		Issue: domain.IssueAnomaly}}
+	b.store.findings[7] = []domain.Finding{{CSVLine: 12, Code: domain.FindingPrepackagedProduct,
+		Issue: domain.IssueInfo, Value: "3760091721234"}}
+
+	got := decodeStatus[adminHealthDTO](t, b.get("/admin/api/health"), http.StatusOK)
+	if got.CatalogFindings != 9 {
+		t.Fatalf("signalements en vigueur = %d, attendu 9 : un lot refusé porte les siens",
+			got.CatalogFindings)
+	}
+}
