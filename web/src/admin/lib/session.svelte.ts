@@ -58,12 +58,18 @@ export interface PendingCredentials {
 /**
  * Vrai quand un refus se règle en s'authentifiant, et non en corrigeant sa saisie.
  *
- * 401 « session absente ou expirée » et 409 « aucun mot de passe n'est posé » sont les
+ * 401 « session absente ou expirée » et le 409 QUI PORTE {@link CODE_NO_PASSWORD} sont les
  * deux seuls ; un 422 se règle en changeant le champ fautif, et rouvrir un panneau de mot
  * de passe par-dessus cacherait la faute qu'il faut lire.
+ *
+ * Le statut 409 seul ne suffit pas, et c'est ce qui rendait ces actes erratiques : il est
+ * aussi celui d'un compte à rebours déjà armé, d'une confirmation que personne n'attend et
+ * d'une mise à jour sur un poste occupé. Un exploitant authentifié depuis dix minutes se
+ * voyait réclamer la fiche d'installation sur un double appui de « Confirmer », annulait,
+ * recliquait — et l'acte passait sans rien demander, la session n'ayant jamais été perdue.
  */
 function needsCredentials(failure: unknown): failure is AdminError {
-  return failure instanceof AdminError && (failure.status === 401 || failure.status === 409)
+  return failure instanceof AdminError && failure.needsCredentials
 }
 
 /**
@@ -157,7 +163,7 @@ export class Admin {
   /** Enregistre le refus d'un acte, et ce qu'il implique de la session. */
   #failAction(failure: unknown): void {
     this.actionError = sentenceOf(failure)
-    this.needsFirstPassword = failure instanceof AdminError && failure.status === 409
+    this.needsFirstPassword = failure instanceof AdminError && failure.needsFirstPassword
     this.#forgetSessionIfRefused(failure)
   }
 
@@ -270,7 +276,7 @@ export class Admin {
   /** Ouvre le panneau et rend la main quand il a répondu. */
   #askForCredentials(failure: AdminError): Promise<boolean> {
     this.pending = {
-      kind: failure.status === 409 ? 'first-password' : 'password',
+      kind: failure.needsFirstPassword ? 'first-password' : 'password',
       message: failure.message,
     }
     return new Promise<boolean>((resolve) => {

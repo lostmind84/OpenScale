@@ -27,6 +27,16 @@ import type {
  * un 401 n'est pas une panne, c'est une session à rouvrir.
  */
 
+/**
+ * Le code du SEUL 409 qui est une question d'authentification.
+ *
+ * 409 est aussi ce que répondent un compte à rebours déjà armé, une confirmation que
+ * personne n'attend et une mise à jour sur un poste occupé. Le statut ne les distingue
+ * pas ; ce code, oui, et il est écrit une seule fois de chaque côté — `web.codeNoPassword`
+ * en Go.
+ */
+export const CODE_NO_PASSWORD = 'ERR-CFG-02'
+
 /** Le refus d'une route, avec la phrase française que le service a écrite. */
 export class AdminError extends Error {
   constructor(
@@ -43,6 +53,25 @@ export class AdminError extends Error {
   /** Vrai quand la session manque ou a expiré : l'écran redemande le mot de passe. */
   get needsPassword(): boolean {
     return this.status === 401
+  }
+
+  /** Vrai quand ce poste n'a JAMAIS eu de mot de passe : seul le code de secours en pose un. */
+  get needsFirstPassword(): boolean {
+    return this.status === 409 && this.code === CODE_NO_PASSWORD
+  }
+
+  /**
+   * Vrai quand ce refus se règle en s'authentifiant, et non en corrigeant sa saisie.
+   *
+   * C'est la question que se posent `Admin.protect`, `Draft.save`, `Draft.confirm` et le
+   * balayage des ports : un refus qui répond oui REMONTE jusqu'à `protect`, qui demande de
+   * quoi s'authentifier puis REJOUE l'acte ; tout le reste s'affiche là où il est né. Elle
+   * vit ici parce qu'elle était écrite en trois exemplaires, et que les trois se sont
+   * trompées ensemble : elles lisaient le statut 409 nu, qui est aussi celui d'un compte à
+   * rebours armé et d'une confirmation que personne n'attend.
+   */
+  get needsCredentials(): boolean {
+    return this.needsPassword || this.needsFirstPassword
   }
 }
 

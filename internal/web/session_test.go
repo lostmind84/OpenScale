@@ -352,6 +352,43 @@ func TestAStationWithNoPasswordSaysSoInsteadOfRefusingEverything(t *testing.T) {
 	}
 }
 
+// TestTheMissingPasswordIsTheONLY409TheScreenMayTreatAsAnAuthentication.
+//
+// L'écran ouvre son panneau « code de secours + nouveau mot de passe » sur un 409, et 409
+// est AUSSI ce que répondent un compte à rebours déjà armé, une confirmation que personne
+// n'attend et une mise à jour sur un poste occupé. Sans un code qui les distingue,
+// « Aucune confirmation n'est attendue » envoyait un bénévole chercher la fiche
+// d'installation d'un poste dont le mot de passe est posé depuis des mois.
+func TestTheMissingPasswordIsTheONLY409TheScreenMayTreatAsAnAuthentication(t *testing.T) {
+	blank := newBench(t, func(o *benchOptions) {
+		o.config = func(cfg *domain.Config) { cfg.Admin.PasswordHash = "" }
+	})
+	// Les deux portes qui constatent l'absence de mot de passe le NOMMENT, chacune de son
+	// côté : la route protégée (le garde) et l'ouverture de session.
+	protected := decodeStatus[problem](t,
+		blank.do(http.MethodPut, "/admin/api/config", `{}`, nil), http.StatusConflict)
+	if protected.Code != codeNoPassword {
+		t.Fatalf("acte protégé sans mot de passe : code %q, attendu %q",
+			protected.Code, codeNoPassword)
+	}
+	opening := decodeStatus[problem](t,
+		blank.post("/admin/api/session", `{"password":"quoi"}`), http.StatusConflict)
+	if opening.Code != codeNoPassword {
+		t.Fatalf("ouverture de session sans mot de passe : code %q, attendu %q",
+			opening.Code, codeNoPassword)
+	}
+
+	// Et le conflit MÉTIER qui partage le statut ne le porte pas.
+	b := newBench(t)
+	b.setPassword("openscale", "ABCD2345")
+	b.login("openscale")
+	conflict := decodeStatus[problem](t,
+		b.post("/admin/api/config/confirm", `{}`), http.StatusConflict)
+	if conflict.Code == codeNoPassword {
+		t.Fatalf("« %s » se fait passer pour un poste sans mot de passe", conflict.Message)
+	}
+}
+
 // TestChangingThePasswordRevokesTheSessionsMintedUnderTheOldOne (§11.4).
 func TestChangingThePasswordRevokesTheSessionsMintedUnderTheOldOne(t *testing.T) {
 	b := newBench(t)
