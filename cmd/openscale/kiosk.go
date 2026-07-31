@@ -69,6 +69,17 @@ func runKiosk(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+
+	// Here and not at the top of the function, because everything above can still fail
+	// with a sentence somebody has to read -- « aucun navigateur trouvé sur ce poste »
+	// is reported by nothing else. Masking the window earlier would send those to a
+	// window that has left the screen. From this line on, the supervisor writes to its
+	// journal and the console has nothing left to show.
+	if err := platform.HideOwnConsole(); err != nil {
+		// A console window left on screen is ugly; it is never a reason to leave a
+		// customer in front of a black screen. The station starts, the journal says why.
+		fmt.Fprintf(out, "openscale kiosk : la fenêtre de console n'a pas pu être masquée (%v)\n", err)
+	}
 	return supervisor.Run(ctx)
 }
 
