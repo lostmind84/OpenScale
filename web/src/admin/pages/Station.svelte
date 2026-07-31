@@ -1,6 +1,7 @@
 <script lang="ts">
   import Act from '../components/Act.svelte'
   import Field from '../components/Field.svelte'
+  import Maintenance from '../components/Maintenance.svelte'
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
   import { AdminError } from '../lib/api'
@@ -17,9 +18,12 @@
    * The Station page of §14.4: identity, export and import with the field-by-field diff,
    * the five restorable versions, the binary version, the paths, the disk space.
    *
-   * **There is no « restart » button.** No configuration block demands one (§11.4,
-   * ADR-027): the only legitimate restart is the one the service manager triggers on its
-   * own, and a button would have made it an ordinary gesture.
+   * **No SETTING demands a restart, and the Maintenance section is not one.** ADR-027
+   * refuses a restart demanded by a configuration block — the hot reload of §11.4 covers
+   * all of them, and that still holds. What the section at the bottom of this page offers
+   * is a repair: on a station under kiosk no console is reachable, so rereading the file,
+   * restarting the station and restarting the machine had no way in at all. The station
+   * still never restarts ITSELF: it stops, and its supervisor starts it.
    *
    * An import APPLIES NOTHING. It shows what would change, and saving — a separate
    * gesture, on the bar below — is what applies it. A file that applied itself would be a
@@ -902,6 +906,8 @@
       </p>
     {/if}
   </Panel>
+
+  <Maintenance {admin} />
 </div>
 
 <style>

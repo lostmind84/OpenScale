@@ -10,6 +10,7 @@ import type {
   PortDTO,
   PrinterDeviceDTO,
   ProblemDTO,
+  RebootDTO,
   ReloadDTO,
   SessionDTO,
   TechnicalLineDTO,
@@ -195,6 +196,39 @@ export function fetchConfig(): Promise<ConfigDTO> {
 /** Écrit la configuration : les cinq étapes de §11.4, dans l'ordre. */
 export function saveConfig(config: Record<string, unknown>): Promise<ConfigDTO> {
   return sendJSON<ConfigDTO>('PUT', '/admin/api/config', config)
+}
+
+/**
+ * Relit `config.json` tel qu'il est sur le disque et le met en service.
+ *
+ * Elle n'écrit rien : le document EST le fichier. Un refus 422 porte toutes les fautes,
+ * comme un enregistrement, et le fichier reste tel quel — c'est le seul exemplaire qui
+ * existe de ce que quelqu'un vient de taper.
+ */
+export function reloadConfigFromDisk(): Promise<ConfigDTO> {
+  return postJSON<ConfigDTO>('/admin/api/config/reload', {})
+}
+
+/**
+ * Demande au poste de redémarrer.
+ *
+ * 202 : le poste va s'arrêter et son superviseur le relancera. Il n'y aura pas de seconde
+ * réponse sur cette connexion — l'écran sonde `/healthz` jusqu'au retour, comme après une
+ * mise à jour. Un 501 dit que personne ne le relancerait, ce qui est le cas d'un binaire
+ * lancé à la main.
+ */
+export function restartStation(): Promise<ActionDTO> {
+  return postJSON<ActionDTO>('/admin/api/restart', {})
+}
+
+/** Arme le redémarrage de l'ordinateur, que le service déclenchera à l'échéance servie. */
+export function armReboot(): Promise<RebootDTO> {
+  return postJSON<RebootDTO>('/admin/api/reboot', {})
+}
+
+/** Annule le redémarrage armé. Un 409 dit qu'il n'y avait plus rien à annuler. */
+export function cancelReboot(): Promise<ActionDTO> {
+  return sendJSON<ActionDTO>('DELETE', '/admin/api/reboot', {})
 }
 
 /** Confirme la configuration en service et arrête le compte à rebours. */
