@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -414,6 +415,80 @@ func TestTheDescriptorDeclaresWhatTheControlsRead(t *testing.T) {
 	if drop {
 		t.Error("une clé est déclarée répertoire de dépôt : le contrôle 46 sonderait un " +
 			"répertoire que cette source ne surveille pas")
+	}
+}
+
+// --- Le contrat que le Hub appelle vraiment ---------------------------------------
+
+// TestNameAndDescribeSayWhatThisSourceIs.
+//
+// `Name` est la clé de registre qui atterrit dans `imports.source`, et `Describe` la
+// phrase que l'écran d'administration affiche en permanence (§10.1).
+func TestNameAndDescribeSayWhatThisSourceIs(t *testing.T) {
+	erp := &producer{pages: onePage(garlic())}
+	source := newSource(t, erp.serve(t))
+
+	if source.Name() != ID {
+		t.Errorf("Name() = %q, attendu %q", source.Name(), ID)
+	}
+	if !strings.Contains(source.Describe(), "/api/products") {
+		t.Errorf("l'écran n'apprend pas ce qui est interrogé : %s", source.Describe())
+	}
+}
+
+// TestNextHandsOverTheFirstCatalogItFinds.
+//
+// `Next` sonde AVANT d'attendre : un poste qui démarre à côté d'un ERP qui a déjà un
+// catalogue ne reste pas cinq minutes avec une grille vide.
+func TestNextHandsOverTheFirstCatalogItFinds(t *testing.T) {
+	erp := &producer{pages: onePage(garlic())}
+	source := newSource(t, erp.serve(t))
+
+	batch, err := source.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next : %v", err)
+	}
+	if batch == nil || len(batch.Products) != 1 {
+		t.Fatalf("le premier catalogue n'est pas remonté : %v", batch)
+	}
+}
+
+// TestNextGivesTheHandBackWhenTheStationStops.
+//
+// La veille du catalogue est une des goroutines de §13.1, et une goroutine qui
+// n'entend pas l'annulation de son contexte est une qui empêche le poste de s'arrêter.
+func TestNextGivesTheHandBackWhenTheStationStops(t *testing.T) {
+	erp := &producer{pages: onePage(garlic())}
+	source := newSource(t, erp.serve(t))
+
+	// Un contexte déjà annulé : le sondage échoue — ce qui n'est pas une panne, la
+	// source réessaiera — puis l'attente voit l'annulation et rend la main.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	batch, err := source.Next(ctx)
+	if batch != nil {
+		t.Fatalf("un lot est remonté d'un contexte annulé : %v", batch)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("l'annulation n'est pas rendue telle quelle : %v", err)
+	}
+}
+
+// TestFivePressesAreOneExtraPollAndNotFive.
+//
+// « Recharger le catalogue » est un bouton qu'un bénévole presse plusieurs fois quand
+// rien ne bouge à l'écran (§14.4). L'envoi est non bloquant et la capacité est de un :
+// presser ne doit jamais attendre la fin d'une lecture de 355 lignes.
+func TestFivePressesAreOneExtraPollAndNotFive(t *testing.T) {
+	erp := &producer{pages: onePage(garlic())}
+	source := newSource(t, erp.serve(t))
+
+	for range 5 {
+		source.Wake()
+	}
+	if pending := len(source.wake); pending != 1 {
+		t.Fatalf("%d sondages en attente après cinq pressions, attendu 1", pending)
 	}
 }
 
