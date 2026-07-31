@@ -38,9 +38,20 @@ pilote, ouverture de session automatique — puis installe tout : compte Windows
 service, tâche du kiosque, réglages d'alimentation, fiche d'installation à ranger dans le
 classeur du magasin. Comptez **15 minutes** jusqu'à la première étiquette, matériel branché.
 
+Sur une **Debian 12 minimale**, une commande également — et **la même met à jour** un poste
+déjà installé :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/linux/bootstrap.sh | sudo sh
+```
+
+Elle choisit l'archive de la bonne architecture — `amd64` ou `arm64` —, vérifie son
+empreinte avant de décompresser, et ne pose aucune question : sous Linux, il n'y en a
+aucune à poser.
+
 Le parcours complet du bénévole — redémarrage de recette, balance, imprimante, catalogue,
 et **l'installation par clé USB d'un poste sans Internet** — est dans
-[`INSTALLATION.md`](INSTALLATION.md). Sous Linux, `deploy/linux/install.sh`.
+[`INSTALLATION.md`](INSTALLATION.md).
 
 ## Essayer, sans balance et sans imprimante
 

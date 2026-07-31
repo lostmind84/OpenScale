@@ -446,14 +446,52 @@ Le poste tourne aussi sur une Debian 12 minimale, sans environnement de bureau. 
 kiosque y est `cage`, un compositeur qui n'affiche qu'une seule application : il n'y a
 littéralement rien vers quoi s'échapper.
 
+**Une commande, sur une Debian nue, sans dépôt et sans archive à décompresser :**
+
 ```bash
-sudo ./install.sh
+curl -fsSL https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/linux/bootstrap.sh | sudo sh
 ```
 
-Le script installe `cage`, `chromium` et `seatd`, crée le compte `openscale` dans les
-groupes `dialout` (le port série) et `lp` (l'imprimante), pose les deux unités systemd et
-les règles udev qui donnent au port série un **nom stable** — `/dev/ttyUSB0` devient
-`ttyUSB1` après un rebranchement, et c'est un piège qui coûte une heure.
+Elle choisit l'archive de la bonne architecture — `amd64` pour un mini-PC, `arm64` pour un
+Raspberry Pi —, installe `unzip` s'il manque, **vérifie l'empreinte avant de décompresser**,
+puis lance l'installation. Elle ne pose **aucune question** : le compte `openscale` n'a ni
+mot de passe ni shell, il n'y a pas de mode pilote, et le kiosque est activé d'office.
+
+L'installation elle-même pose `cage`, `chromium` et `seatd`, crée le compte `openscale`
+dans les groupes `dialout` (le port série) et `lp` (l'imprimante), installe les deux unités
+systemd et les règles udev qui donnent au port série un **nom stable** — `/dev/ttyUSB0`
+devient `ttyUSB1` après un rebranchement, et c'est un piège qui coûte une heure.
+
+À la fin, elle affiche le dossier où les scripts du poste sont rangés,
+`/var/lib/openscale/installer/<version>/` : c'est là que vivent la mise à jour et la
+désinstallation.
+
+**La même commande met à jour un poste déjà installé.** Elle passe alors par `update.sh`,
+qui arrête proprement le service, sauvegarde le binaire sous un nom horodaté, vérifie que
+le poste répond, et **remet la version précédente** si ce n'est pas le cas. Un poste déjà
+à jour n'est pas touché : la commande le dit et s'arrête.
+
+<details>
+<summary>Poste sans Internet, retour à une version antérieure, réparation</summary>
+
+**Sans Internet**, copiez l'archive `openscale-<version>-linux-<architecture>.zip` sur une
+clé USB, décompressez-la sur le poste et lancez le script directement :
+
+```bash
+sudo ./install.sh      # poste neuf
+sudo ./update.sh       # poste déjà installé
+```
+
+**Aligner un poste sur les autres**, ou revenir en arrière :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/linux/bootstrap.sh | sudo sh -s -- --version v0.9
+```
+
+**Réparer** un poste dont la configuration système a été abîmée — refaire les groupes, les
+unités et les règles udev sans passer par la mise à jour : ajoutez `--force-install`.
+
+</details>
 
 Ensuite, les étapes 3 à 7 sont les mêmes : redémarrer, vérifier que l'écran revient
 seul, puis régler depuis l'écran.

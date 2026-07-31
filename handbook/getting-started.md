@@ -231,6 +231,17 @@ décompresser**, pose trois questions — mot de passe de la session du poste, p
 pilote, ouverture de session automatique — puis déroule l'installation complète : compte
 Windows dédié, service, tâche du kiosque, réglages d'alimentation, fiche d'installation.
 
+Sur une **Debian 12 minimale**, une commande également — et **la même met à jour** un poste
+déjà installé :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/linux/bootstrap.sh | sudo sh
+```
+
+Elle choisit l'archive de la bonne architecture — `amd64` pour un mini-PC, `arm64` pour un
+Raspberry Pi —, installe `unzip` s'il manque, et ne pose aucune question : le compte
+`openscale` n'a ni mot de passe ni shell, et le kiosque `cage` est activé d'office.
+
 Le détail, la voie hors ligne par clé USB et la suite du parcours (redémarrage de recette,
 balance, imprimante, catalogue) sont dans
 [`INSTALLATION.md`](https://github.com/lostmind84/OpenScale/blob/main/INSTALLATION.md).

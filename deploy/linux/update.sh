@@ -1,7 +1,8 @@
 #!/bin/sh
 # Met à jour le binaire d'un poste OpenScale, et revient en arrière si ça casse — §15.5.
 #
-#     sudo ./update.sh
+#     sudo ./update.sh              depuis le répertoire de la nouvelle version
+#     sudo ./update.sh --latest     va chercher la dernière release sur Internet
 #
 # Même procédure que update.ps1 sous Windows, et pour les mêmes raisons :
 #   1. arrêt du service AVEC contrôle d'erreur, sur le budget de §13.4 ;
@@ -19,13 +20,39 @@ BINARY='/usr/local/bin/openscale'
 CONFIG='/etc/openscale/config.json'
 DATA_DIR='/var/lib/openscale'
 BACKUP_DIR="$DATA_DIR/backups"
+BOOTSTRAP_URL='https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/linux/bootstrap.sh'
 HERE=$(cd "$(dirname "$0")" && pwd)
-SOURCE="${1:-$HERE/openscale}"
 
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1"; }
 fail() { printf 'update.sh : %s\n' "$1" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || fail "à lancer en root : sudo ./update.sh"
+
+# --- 0. --latest : le téléchargement n'est pas réécrit ici -----------------------------
+# Résoudre la release, comparer l'empreinte et décompresser existe UNE FOIS dans ce dépôt,
+# dans bootstrap.sh — le seul fichier qui doit savoir le faire sans rien pouvoir sourcer,
+# puisqu'il vit HORS de l'archive. Ce mode le rappelle donc au lieu d'en écrire une seconde
+# version, qui finirait par diverger de la première.
+#
+# IL N'Y A PAS DE BOUCLE : bootstrap.sh relance ce script SANS --latest, sur le binaire
+# qu'il vient d'extraire à côté de lui. Un test le vérifie sur le texte des deux fichiers.
+if [ "${1:-}" = '--latest' ]; then
+  shift
+  if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+    fail "ni curl ni wget : --latest ne peut rien télécharger. Copiez l'archive sur une clé USB et lancez « sudo ./update.sh »."
+  fi
+  ENTRY=$(mktemp)
+  trap 'rm -f "$ENTRY"' EXIT INT TERM
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$BOOTSTRAP_URL" -o "$ENTRY"
+  else
+    wget -qO "$ENTRY" "$BOOTSTRAP_URL"
+  fi
+  sh "$ENTRY" "$@"
+  exit $?
+fi
+
+SOURCE="${1:-$HERE/openscale}"
 [ -f "$SOURCE" ] || fail "le nouveau binaire est introuvable ($SOURCE)"
 [ -f "$BINARY" ] || fail "aucun poste installé : c'est install.sh qu'il faut lancer"
 

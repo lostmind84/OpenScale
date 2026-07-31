@@ -1156,7 +1156,7 @@ func TestTheInstallersRefuseToRunWithoutAdministrator(t *testing.T) {
 			t.Errorf("%s ne vérifie pas qu'il est lancé en administrateur", name)
 		}
 	}
-	for _, name := range []string{"install.sh", "update.sh", "uninstall.sh"} {
+	for _, name := range []string{"install.sh", "update.sh", "uninstall.sh", "bootstrap.sh"} {
 		script := readFile(t, filepath.Join("linux", name))
 		if !strings.Contains(script, "id -u") {
 			t.Errorf("%s ne vérifie pas qu'il est lancé en root", name)
@@ -1302,6 +1302,7 @@ func TestTheDeliveredArchiveHasEverythingSection17_2Lists(t *testing.T) {
 		filepath.Join("linux", "install.sh"),
 		filepath.Join("linux", "update.sh"),
 		filepath.Join("linux", "uninstall.sh"),
+		filepath.Join("linux", "bootstrap.sh"),
 		filepath.Join("..", "INSTALLATION.md"),
 		filepath.Join("..", "TROUBLESHOOTING.md"),
 		filepath.Join("..", "testdata", "config-lacagette.json"),
