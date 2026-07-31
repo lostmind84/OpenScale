@@ -15,7 +15,7 @@ import (
 
 // ServiceProbe is the RUNNING station, asked over HTTP.
 //
-// Three of the fifteen controls have no other honest source. « File d'impression visible
+// Three of the controls have no other honest source. « File d'impression visible
 // depuis le contexte du service », « cadence balance observée » and « répertoire
 // catalogue accessible tel que le service le voit » are questions about the SERVICE's
 // rights and the SERVICE's observations; a doctor run by an administrator has the

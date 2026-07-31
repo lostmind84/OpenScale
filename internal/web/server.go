@@ -55,6 +55,13 @@ type Hub interface {
 	Catalog() *domain.Catalog
 	// CatalogUpdatedAt returns when that catalog entered service, or the zero time.
 	CatalogUpdatedAt() time.Time
+	// DowntimeGuard reports whether the station may be taken down, and says in French
+	// why not when it may not.
+	//
+	// The rule belongs to the station and is asked, never deduced: an HTTP layer that
+	// read a state to conclude « somebody is weighing » would hold a second copy of a
+	// rule that already has an owner.
+	DowntimeGuard() (bool, string)
 }
 
 // Controller is what the HTTP layer needs from the station AROUND the loop: the
@@ -301,6 +308,35 @@ type Updater interface {
 	Apply(ctx context.Context, repository, wanted string) error
 }
 
+// Restarter stops the station so that its supervisor starts it again.
+//
+// Declared here, on the consumer's side; *stationRestarter of cmd/openscale satisfies
+// it. NIL MEANS « nobody would relaunch it », and the route then answers 501 instead of
+// stopping a station that would stay down — which is what `openscale serve` typed into
+// a terminal is.
+//
+// This is the route ADR-027 removed, and it is not that route. What the ADR refuses is
+// a restart DEMANDED BY A SETTING: no configuration block may ask for one, and none
+// does. This one is a repair, and it goes through the only restart that ADR calls
+// legitimate — the one the SCM or systemd triggers on its own.
+type Restarter interface {
+	// Restart asks the station to stop. It returns as soon as the demand is recorded,
+	// because what carries it out also ends this process, and a *station.DowntimeRefused
+	// when the station must not be taken down right now.
+	Restart() error
+}
+
+// Rebooter restarts THE MACHINE.
+//
+// Declared here, on the consumer's side; platform.Reboot satisfies it once adapted. Nil
+// answers 501: a station whose platform cannot restart must say so rather than offer a
+// button that fails at the last click, and « ce poste ne sait pas faire » is a different
+// piece of news from « ça n'a pas marché ».
+type Rebooter interface {
+	// Reboot restarts the machine. It returns as soon as the demand is accepted.
+	Reboot() error
+}
+
 // Options is everything the HTTP layer is given. Clock and Hub are required; every
 // other collaborator is optional and its absence is answered honestly.
 type Options struct {
@@ -328,6 +364,11 @@ type Options struct {
 	Dashboard Dashboard
 	// Update installs a newer release from the screen. Nil answers 501 on the act.
 	Update Updater
+	// Restart stops the station so that its supervisor starts it again. Nil answers
+	// 501 on that route: see Restarter.
+	Restart Restarter
+	// Reboot restarts the machine, after the countdown of rebootPlan. Nil answers 501.
+	Reboot Rebooter
 
 	// Assets is the built front end (internal/web/dist through //go:embed). Nil
 	// serves a placeholder page rather than a 404: a station whose front end has not
@@ -362,11 +403,15 @@ type Server struct {
 	diagnostician   Diagnostician
 	dashboard       Dashboard
 	updater         Updater
-	assets          fs.FS
-	images          fs.FS
-	registries      domain.Registries
-	binder          *Binder
-	version         string
+	restarter       Restarter
+	// rebootPlan is the countdown before the machine restarts, or nil on a platform
+	// that cannot restart — which is what the two reboot routes answer 501 on.
+	rebootPlan *rebootPlan
+	assets     fs.FS
+	images     fs.FS
+	registries domain.Registries
+	binder     *Binder
+	version    string
 
 	// subscribers counts the SSE streams in flight. An atomic and not a mutex: the
 	// only question asked of it is « are there already eight? », and it is asked
@@ -398,9 +443,13 @@ func New(o Options) (*Server, error) {
 		store: o.Store, configStore: o.Config, catalog: o.Catalog,
 		hardware: o.Hardware, printer: o.Printer, troubleshooting: o.Troubleshooting,
 		diagnostician: o.Diagnostic, dashboard: o.Dashboard, updater: o.Update,
-		assets: o.Assets, images: o.Images, registries: o.Registries,
+		restarter: o.Restart,
+		assets:    o.Assets, images: o.Images, registries: o.Registries,
 		binder: o.Binder, version: o.Version,
 		sessions: newSessionStore(o.Clock),
+	}
+	if o.Reboot != nil {
+		s.rebootPlan = newRebootPlan(o.Clock, o.Reboot.Reboot, s.reportRebootRefused)
 	}
 	s.handler = s.routes()
 	return s, nil
@@ -512,6 +561,10 @@ func (s *Server) routes() http.Handler {
 		"GET /admin/api/config/export":                 s.exportConfig,
 		"POST /admin/api/config/import":                s.importConfig,
 		"POST /admin/api/config/restore":               s.restoreConfig,
+		"POST /admin/api/config/reload":                s.reloadConfigFromDisk,
+		"POST /admin/api/restart":                      s.restart,
+		"POST /admin/api/reboot":                       s.armReboot,
+		"DELETE /admin/api/reboot":                     s.cancelReboot,
 		"POST /admin/api/troubleshooting/manual-entry": s.manualEntry,
 		"POST /admin/api/catalog/import":               s.importCatalog,
 		"POST /admin/api/printers/discover":            s.discoverPrinters,

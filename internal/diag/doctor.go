@@ -89,7 +89,7 @@ type Options struct {
 	Migrations int
 }
 
-// Doctor performs the fifteen controls of §15.4.
+// Doctor performs the controls of §15.4.
 type Doctor struct {
 	o Options
 }
@@ -120,7 +120,7 @@ type loadedConfig struct {
 	Err    error
 }
 
-// Run performs the fifteen controls, in the order §15.4 enumerates them, and hands back
+// Run performs the controls, in the order §15.4 enumerates them, and hands back
 // the report.
 //
 // It never returns an error: a diagnosis that refuses to produce a report because one of
@@ -166,6 +166,7 @@ func (d *Doctor) Run(ctx context.Context) Report {
 		d.checkCatalogSource(loaded, health, healthErr),
 		d.checkSystemClock(loaded),
 		d.checkPowerSettings(ctx),
+		d.checkRebootPermission(ctx),
 	}
 	for i := range report.Controls {
 		report.Controls[i].Rank = i + 1
@@ -1211,6 +1212,45 @@ func parseBuildDate(value string) (time.Time, bool) {
 	}
 	return built, true
 }
+
+// --- 16. The right to restart the machine -----------------------------------
+
+// checkRebootPermission is the sixteenth control: may this station restart the computer?
+//
+// It exists because the answer is INVISIBLE until somebody needs it. Under Linux the
+// service runs as `openscale` and polkit stands between it and the right, so a station
+// missing its rule works perfectly — right up to the evening a volunteer is facing a
+// frozen kiosk, touches the one button that would have saved them, and watches a
+// countdown expire on nothing.
+func (d *Doctor) checkRebootPermission(ctx context.Context) Control {
+	control := Control{ID: ControlRebootPermission,
+		Checked: "Droit de redémarrer l'ordinateur depuis l'écran"}
+	state, err := d.o.Machine.RebootPermission(ctx)
+	switch {
+	case err != nil:
+		control.Status, control.Observed = StatusUnknown,
+			"le droit de redémarrer n'a pas pu être établi : "+err.Error()
+		control.Remedy = "Vérifiez à la main que /etc/polkit-1/rules.d porte la règle " +
+			"49-openscale-reboot.rules, ou relancez « sudo ./install.sh »."
+	case !state.Applicable:
+		control.Status = StatusNotApplicable
+		control.Observed = "ce système ne sait pas redémarrer depuis l'écran (§15.3), " +
+			"il n'y a donc aucun droit à vérifier"
+	case state.Allowed:
+		control.Status, control.Observed = StatusPass, state.Detail
+	default:
+		control.Status, control.Code = StatusFail, codeRebootRefused
+		control.Observed = "NON : " + state.Detail + ". Le bouton « Redémarrer l'ordinateur » " +
+			"répondra « accès refusé », et il ne le dira qu'au moment où quelqu'un en a besoin."
+		control.Remedy = "Relancez « sudo ./install.sh » depuis deploy/linux : il pose la " +
+			"règle polkit qui autorise le compte du poste à redémarrer l'ordinateur, et rien d'autre."
+	}
+	return control
+}
+
+// codeRebootRefused is ERR-SYS-12, and internal/web allocates it to the same fact: the
+// machine was asked to restart and said no.
+const codeRebootRefused = "ERR-SYS-12"
 
 // --- 15. Sleep and USB selective suspend ------------------------------------
 

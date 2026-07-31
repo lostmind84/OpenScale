@@ -115,6 +115,45 @@ systemctl status openscale
 journalctl -u openscale -n 50
 ```
 
+## Quelque chose est figé et on n'a accès à rien — l'écran d'administration est la sortie
+
+Le poste tourne en kiosque : il n'y a ni bureau, ni console, ni bouton Windows. Les trois
+gestes de reprise sont au bas de la page **Poste** de l'écran d'administration, du plus
+doux au plus brutal. **Essayez-les dans cet ordre.**
+
+**1. Relire le fichier de configuration.** À utiliser après avoir modifié `config.json` à
+la main. Rien n'est coupé, la pesée continue. Si le fichier comporte des fautes, elles
+s'affichent **toutes**, et le fichier reste tel que vous l'avez écrit — corrigez et
+recommencez.
+
+> Un fichier reconstruit à partir d'un **export** est refusé : un export ne porte jamais
+> les empreintes du mot de passe, et le relire fermerait l'administration. Reposez le mot
+> de passe avec `openscale config password` avant de relire.
+
+**2. Redémarrer le poste.** L'application s'arrête et son service la relance. Comptez
+quelques secondes, l'écran client revient tout seul. Le journal Windows enregistrera un
+« arrêt inattendu » : **c'est normal**, c'est ainsi que le redémarrage est déclenché.
+
+- Si le bouton répond **« ce poste n'est pas lancé par un service »** (`ERR-SYS-10`),
+  personne ne le relancerait : installez-le en service avec
+  `openscale service install`, ou redémarrez-le depuis un terminal.
+- En ligne de commande, le même geste s'écrit
+  `& "C:\Program Files\OpenScale\openscale.exe" service restart`, ou
+  `sudo systemctl restart openscale` sur Linux.
+
+**3. Redémarrer l'ordinateur.** Le bouton rouge, en dernier recours. Il demande une
+confirmation, puis affiche un décompte de trente secondes que **« Annuler » arrête**.
+Comptez ensuite une minute avant que l'écran revienne.
+
+- **`ERR-SYS-11`** : ce système ne sait pas redémarrer depuis l'écran.
+- **`ERR-SYS-12`** : l'ordinateur a refusé. Sur un poste Linux, c'est presque toujours la
+  règle d'autorisation qui manque — relancez `sudo ./install.sh` depuis `deploy/linux`.
+  `openscale doctor` le contrôle, et le dit avant que quelqu'un en ait besoin.
+
+**Le poste refuse les trois pendant une pesée**, avec la phrase « Une pesée est en cours.
+Réessayez dans un instant. » Attendez que le client ait retiré son sac : couper là
+perdrait son étiquette.
+
 ## Le poids ne s'affiche pas, ou l'écran dit « Vous pouvez saisir le poids à la main »
 
 Le poste continue de fonctionner : on tape le poids, l'étiquette sort. Ce n'est pas une
@@ -494,6 +533,10 @@ Ils ne servent **pas** à chercher : ils servent à confirmer qu'on parle de la 
 | `ERR-SYS-05` | plus de place sur le disque, des pesées ne sont plus journalisées |
 | `ERR-SYS-07` | l'heure du système a sauté |
 | `ERR-SYS-08` | **le redémarrage sans intervention n'est pas configuré** |
+| `ERR-SYS-09` | quelqu'un a demandé le redémarrage du poste depuis l'écran d'administration |
+| `ERR-SYS-10` | ce poste n'est pas lancé par un service : personne ne le relancerait, le bouton « Redémarrer le poste » ne fait donc rien |
+| `ERR-SYS-11` | ce système ne sait pas redémarrer l'ordinateur depuis l'écran |
+| `ERR-SYS-12` | l'ordinateur a REFUSÉ de redémarrer — sous Linux, la règle d'autorisation manque : relancez `sudo ./install.sh` |
 | `ERR-KSK-02` | l'affichage n'arrive pas à rester ouvert |
 | `ERR-UI-01` | l'écran client a rencontré une erreur d'affichage |
 | `ERR-UPD-01` | le serveur des versions est injoignable — la connexion du magasin, le plus souvent |

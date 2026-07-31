@@ -16,7 +16,7 @@
 // pas et dit POURQUOI ». So the doctor reads the configuration file, the database and
 // the operating system DIRECTLY. It never needs the HTTP layer to be up.
 //
-// Three of the fifteen controls are the exception, and it is a deliberate one:
+// Three of the controls are the exception, and it is a deliberate one:
 // « file d'impression visible depuis le contexte du service », « cadence balance
 // observée » and « répertoire catalogue accessible tel que le service le voit » are
 // questions only the running service can answer honestly. A doctor run by an

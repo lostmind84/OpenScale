@@ -343,7 +343,7 @@ func readme(report Report) string {
 
 	fmt.Fprintf(out, "Ce que contient cette archive\n")
 	for _, line := range []string{
-		"doctor.txt · doctor.json  les quinze contrôles, avec la consigne de chacun",
+		"doctor.txt · doctor.json  les contrôles, avec la consigne de chacun",
 		"system.json               version, système, temps de fonctionnement, empreinte",
 		"config.redacted.json      la configuration du poste, SANS AUCUN SECRET",
 		"health.json               ce que le service répondait au moment de l'archive",

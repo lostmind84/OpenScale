@@ -3,6 +3,53 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Un poste enfermé sous kiosque a maintenant une sortie (31/07/2026).** Il n'y avait aucun
+moyen de relire un `config.json` modifié à la main, de relancer l'application, ni de
+redémarrer la machine : le `_readme` du fichier demandait « arrêtez le service, éditez,
+redémarrez », trois gestes qu'un poste sans console ni bureau ne permet pas. La réponse
+était de couper le courant. **ADR-055** pose les quatre gestes, et **ne rouvre pas
+ADR-027** : aucun bloc de configuration n'exige de redémarrage — le rechargement à chaud
+les couvre tous — et ce qui est ajouté est du **dépannage**, pas la conséquence d'un
+réglage.
+
+| Geste | Coupure | Réversible |
+|---|---|---|
+| `POST /admin/api/config/reload` — relit le fichier tel quel | aucune | 60 s, automatique |
+| `POST /admin/api/restart` — le poste s'arrête, le superviseur le relance | ~5 s | non |
+| `POST` · `DELETE /admin/api/reboot` — l'ordinateur | ~1 min | 30 s, par bouton |
+| `openscale service restart` | ~5 s | non |
+
+**Trois choses que l'implémentation a trouvées, et qu'aucune conception n'avait vues.**
+(1) **Une annulation sur deux ne servait à rien** : quand l'échéance et l'annulation
+tombent au même instant, les deux cas du `select` sont prêts et Go en choisit un **au
+hasard** — la machine repartait quand même. C'est le verrou, et non le `select`, qui
+tranche désormais ; le test isolé passait, c'est la suite complète qui l'a montré, et il
+tourne maintenant cent fois. (2) **Un redémarrage REFUSÉ ne disait rien** : la réponse
+était partie trente secondes plus tôt, le poste tournait toujours, et le bénévole
+regardait un décompte expirer sur rien — exactement ce que fait un poste Linux sans sa
+règle polkit. D'où `ERR-SYS-12` et un **16ᵉ contrôle** dans `doctor`. (3) **Relire un
+`config.json` reconstruit depuis un export fermerait l'administration** : `Config.Export`
+retire toujours les deux empreintes, et le contrôle 31 accepte leur absence à juste titre
+— la faute n'est pas dans le fichier, elle est dans le fait de lire *ce* fichier sur *ce*
+poste. Refusé en 422, avec le remède.
+
+**« Quinze contrôles » disparaît du dépôt.** Le nombre était écrit dans une douzaine de
+commentaires, trois fichiers de tests et cinq paragraphes de l'architecture ; en ajouter
+un seizième a fait rougir trois tests et laissé tout le reste faux en silence.
+`diag.ControlOrder` était déjà documenté comme l'autorité sur le compte — c'est désormais
+ce que les tests lisent, et §15.4 est le seul endroit qui énumère.
+
+**Mesuré le 31/07/2026, à la clôture de ce chantier :** **2 950 tests Go** — 2 938 verts,
+12 écartés — sur **35 paquets**, 0 échec (`CGO_ENABLED=0 go test ./... -count=1 -v`) ;
+**796 tests front** sur 35 fichiers, 0 échec (`npm test`) ; `gofmt`, `go vet` et
+`svelte-check` silencieux ; `boundary` et `deps` verts ; passe `-race` verte sur
+`internal/web`, `internal/station` et `deploy/`. Les trois cibles compilent
+(`windows`, `linux`, `linux/arm64`).
+
+---
+
+> Suite du tableau de bord — les chantiers précédents, du plus récent au plus ancien.
+
 **Les actes protégés ne réclament plus la fiche d'installation sur un conflit de
 configuration (31/07/2026).** Signalé depuis l'exploitation : « on me demande le code de
 secours + un nouveau mot de passe alors que j'avais saisi le mien il y a dix minutes ; je

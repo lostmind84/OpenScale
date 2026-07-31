@@ -49,6 +49,9 @@ rm -f /etc/udev/rules.d/99-openscale.rules
 udevadm control --reload 2>/dev/null || true
 log 'règle udev supprimée'
 
+rm -f /etc/polkit-1/rules.d/49-openscale-reboot.rules
+log 'règle polkit supprimée : plus personne ne redémarre l'"'"'ordinateur au nom du poste'
+
 rm -f "$BINARY"
 rm -rf "$DOC_DIR"
 log "binaire et documentation supprimés"

@@ -55,7 +55,7 @@ La configuration (§11.5) :
   config fingerprint [fichier]             l'empreinte de 8 caractères à comparer
 
 Diagnostic du poste (lot L8) :
-  doctor [--zip] [--output f.zip]          les quinze contrôles de §15.4 : ce qui a été
+  doctor [--zip] [--output f.zip]          les contrôles de §15.4 : ce qui a été
          [--config f] [--data d]           vérifié, le verdict, et ce qu'il faut FAIRE si
          [--listen hôte:port]              c'est rouge. Fonctionne même quand le service
                                            ne démarre pas. --zip écrit en plus le fichier

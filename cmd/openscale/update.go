@@ -20,8 +20,8 @@ import (
 // volunteer touches a button rather than when the wiring is laid out.
 type guardFunc func() (bool, string)
 
-// UpdateGuard answers by calling the function.
-func (f guardFunc) UpdateGuard() (bool, string) { return f() }
+// DowntimeGuard answers by calling the function.
+func (f guardFunc) DowntimeGuard() (bool, string) { return f() }
 
 // newUpdateService wires the update service over the running station.
 //

@@ -104,6 +104,23 @@ if [ -f "$HERE/99-openscale.rules" ]; then
   fi
 fi
 
+# --- 4 bis. Le droit de redémarrer l'ordinateur --------------------------------------
+# Le service tourne en « openscale » et non en root : sans cette règle, le bouton
+# « Redémarrer l'ordinateur » de l'écran d'administration est refusé par polkit. Le poste
+# marche quand même, et c'est pourquoi son absence n'arrête pas l'installation — mais
+# « openscale doctor » la signale, parce que le défaut ne se verrait sinon qu'au moment
+# où quelqu'un en a besoin.
+if [ -f "$HERE/49-openscale-reboot.rules" ]; then
+  if [ -d /etc/polkit-1/rules.d ]; then
+    install -m 0644 "$HERE/49-openscale-reboot.rules" \
+      /etc/polkit-1/rules.d/49-openscale-reboot.rules
+    log "règle polkit posée : le poste peut redémarrer l'ordinateur depuis l'écran"
+  else
+    log '/etc/polkit-1/rules.d absent : le bouton « Redémarrer l'"'"'ordinateur » répondra'
+    log "que ce poste ne sait pas le faire. Tout le reste fonctionne."
+  fi
+fi
+
 # --- 5. Les unités systemd ----------------------------------------------------------
 install -m 0644 "$HERE/openscale.service" "$UNIT_DIR/openscale.service"
 install -m 0644 "$HERE/openscale-kiosk.service" "$UNIT_DIR/openscale-kiosk.service"

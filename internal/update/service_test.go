@@ -27,7 +27,7 @@ type stubGuard struct {
 	reason string
 }
 
-func (g stubGuard) UpdateGuard() (bool, string) { return g.allow, g.reason }
+func (g stubGuard) DowntimeGuard() (bool, string) { return g.allow, g.reason }
 
 // serviceBench wires a Service over fakes and hands back what a test steers.
 type serviceBench struct {

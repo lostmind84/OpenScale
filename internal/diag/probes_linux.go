@@ -69,3 +69,29 @@ func systemRelease() string {
 // never reached here; the function exists because probes.go compiles everywhere and names
 // it.
 func sessionIsElevated() bool { return os.Geteuid() == 0 }
+
+// rebootPermissionPath is where install.sh poses the polkit rule of §15.3.
+//
+// It is named here and matched against deploy/linux/49-openscale-reboot.rules by a test
+// of deploy/: a path that drifted between the installer and this control would report a
+// station as unable to restart on the very day it can.
+const rebootPermissionPath = "/etc/polkit-1/rules.d/49-openscale-reboot.rules"
+
+// rebootPermission reports whether this station may restart the machine.
+//
+// IT LOOKS FOR THE RULE AND NOT FOR THE RIGHT. Asking polkit for the right means calling
+// `systemctl reboot`, and the honest answer to « ce poste peut-il redémarrer ? » is not
+// worth restarting the machine to obtain. The rule being posed is what install.sh
+// controls, what a volunteer can put back, and what this control can therefore name.
+func rebootPermission() (bool, string) {
+	if os.Geteuid() == 0 {
+		// A station running as root needs no rule. The delivered unit does not do this
+		// — it names User=openscale — but a service started by hand for a repair does,
+		// and reporting that one as unable would be false.
+		return true, "ce processus tourne en root : polkit ne lui demande rien"
+	}
+	if _, err := os.Stat(rebootPermissionPath); err != nil {
+		return false, rebootPermissionPath + " est absent"
+	}
+	return true, "la règle polkit " + rebootPermissionPath + " est posée"
+}

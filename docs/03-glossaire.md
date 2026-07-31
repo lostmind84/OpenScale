@@ -941,6 +941,10 @@ français.
 | `ERR-UPD-07` | *libellé de `outcome.json`* | La bascule a échoué **et le poste ne répond pas** (`exit 11`). Demande quelqu'un tout de suite : `openscale doctor`, et le chemin de la sauvegarde. |
 | `ERR-UPD-08` | `web.codeUpdateNoArchive` | « Cette version ne contient pas de fichier pour ce poste. » Un fork qui a renommé ses archives, ou une publication sans `SHA256SUMS-archives.txt`. |
 | `ERR-UPD-09` | `web.codeUpdateMoved` | « Une autre version est parue depuis l'affichage de cette page. Rechargez-la. » **Deux codes et non un avec `-03`** : « attendez un instant » et « rechargez la page » ne sont pas la même instruction. |
+| `ERR-SYS-09` | `cmd/openscale.codeRestartAsked` — journal technique de `serve` | « Redémarrage demandé depuis l'écran d'administration. Le gestionnaire de services relance le poste. » Écrit **avant** l'arrêt, parce que rien écrit après ne serait écrit — et parce que le journal d'événements de Windows enregistrera ce même arrêt comme « inattendu », ce qu'il n'est pas. Cette ligne est le seul endroit où l'intention survit. |
+| `ERR-SYS-10` | `web.codeRestartUnsupervised` | « Ce poste n'est pas lancé par un service : personne ne le redémarrerait. » **Distinct d'`ERR-SYS-09`** : l'un dit « le poste part exprès », l'autre « il ne reviendrait pas », et un bénévole qui cherche l'un dans la notice ne doit pas tomber sur l'autre. |
+| `ERR-SYS-11` | `web.codeRebootUnsupported` | « Ce poste ne sait pas redémarrer l'ordinateur depuis l'écran. » La route existe et refuse, comme `ERR-UPD-05` : un 404 enverrait chercher une faute de frappe. |
+| `ERR-SYS-12` | `web.codeRebootRefused` **et** `diag.codeRebootRefused` | « L'ordinateur a refusé de redémarrer. Le poste, lui, fonctionne toujours. » **Ce code existe parce que le refus n'avait aucun témoin** : la réponse était partie trente secondes plus tôt, le poste tournait encore, et le bénévole regardait un décompte expirer sur rien. C'est exactement ce que fait un poste Linux dont la règle polkit de §15.3 manque. Le 16ᵉ contrôle de `doctor` porte le même code, pour le dire **avant** que quelqu'un en ait besoin. |
 
 > **Codes cités mais pas encore alloués.** `ERR-SCL-08` (poignée déjà relâchée, journalisée
 > par le Hub), `ERR-CAT-03` et `ERR-CAT-05` (échec de contenu, fichier lu mais non
@@ -985,6 +989,18 @@ accents graves** — `ports.Batch`, `domain.Template`, `Finding`. C'est exacteme
 | acquittement | 33 | acknowledgement | 21 |
 | veille | 27 | watcher | 2 |
 | scrutation | 22 | polling | 17 |
+
+### Deux mots français qu'il ne faut pas confondre
+
+| Mot | Ce qu'il désigne | Jamais |
+|---|---|---|
+| **poste** | l'**application** : le service, ses drivers, son écran client. « Le poste redémarre… » est la page de secours du service (§14.4) | la machine |
+| **ordinateur** | la **machine** : ce que redémarre le bouton rouge de la rubrique Maintenance, et ce que `doctor` interroge | l'application |
+
+Les deux sens du mot « poste » se sont retrouvés sur un même écran le jour où le bouton de
+redémarrage machine est arrivé (ADR-055) — le même défaut d'usage qui avait valu au mot
+« version » une page séparée (ADR-040). Devant un bénévole, un mot qui désigne deux choses
+n'en désigne aucune.
 
 ### Ce qui reste en anglais
 

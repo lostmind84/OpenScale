@@ -27,3 +27,7 @@ func systemRelease() string { return "" }
 // The Windows kiosk probe is the only caller, so this build never reaches it; the function
 // exists because probes.go compiles everywhere and names it.
 func sessionIsElevated() bool { return os.Geteuid() == 0 }
+
+// rebootPermission has nothing to report on a system that cannot restart from the screen
+// at all: platform.Reboot answers ErrRebootUnsupported here, so the right is moot.
+func rebootPermission() (bool, string) { return false, "" }

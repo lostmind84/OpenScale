@@ -20,6 +20,17 @@ export interface ActionDTO {
 }
 
 /**
+ * Le compte à rebours avant que l'ordinateur redémarre.
+ *
+ * `seconds_left` vient du service et n'est pas recalculé ici : c'est lui qui décide du
+ * délai, et un écran qui le devinerait afficherait un décompte que rien ne tient.
+ */
+export interface RebootDTO {
+  at: string
+  seconds_left: number
+}
+
+/**
  * Ce que « Recharger le catalogue » répond, sur les deux routes qui y mènent.
  *
  * Un type à lui, et non un `ActionDTO` élargi : celui-là sert sept routes et son format

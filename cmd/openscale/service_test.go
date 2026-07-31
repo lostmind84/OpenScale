@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -173,6 +174,62 @@ func TestServiceRefusesAnActionItDoesNotHave(t *testing.T) {
 		})
 	}
 }
+
+// TestRestartDoesNotStartWhatItCouldNotStop.
+//
+// Chaining the two would answer a second message about a service that was never
+// stopped, and hide the fault the first one already named — « accès refusé », most
+// often, which is the whole answer.
+//
+// The two halves travel as functions because platform.StopService talks to the SCM and
+// has no seam: a test that called the real one would stop the OpenScale a developer has
+// installed on their own machine.
+func TestRestartDoesNotStartWhatItCouldNotStop(t *testing.T) {
+	started := false
+	out := &strings.Builder{}
+
+	err := restartService(out, "OpenScale",
+		func() error { return errStopRefused },
+		func() error { started = true; return nil })
+
+	if !errors.Is(err, errStopRefused) {
+		t.Fatalf("restartService = %v, attendu le refus de l'arrêt", err)
+	}
+	if started {
+		t.Fatal("le service a été démarré alors que son arrêt avait échoué")
+	}
+}
+
+// TestRestartStopsThenStarts, in that order and once each.
+func TestRestartStopsThenStarts(t *testing.T) {
+	var order []string
+	out := &strings.Builder{}
+
+	err := restartService(out, "OpenScale",
+		func() error { order = append(order, "stop"); return nil },
+		func() error { order = append(order, "start"); return nil })
+	if err != nil {
+		t.Fatalf("restartService : %v", err)
+	}
+
+	if len(order) != 2 || order[0] != "stop" || order[1] != "start" {
+		t.Fatalf("ordre des appels = %v, attendu [stop start]", order)
+	}
+	if !strings.Contains(out.String(), "redémarré") {
+		t.Errorf("rien n'est dit à l'opérateur : %q", out.String())
+	}
+}
+
+// TestTheUsageNamesRestart: a volunteer reading « openscale service » must find the
+// action there, or it does not exist for them.
+func TestTheUsageNamesRestart(t *testing.T) {
+	if !strings.Contains(serviceUsage, "restart") {
+		t.Fatal("« restart » ne figure pas dans l'aide de « openscale service »")
+	}
+}
+
+// errStopRefused stands in for what the SCM answers a caller without the rights.
+var errStopRefused = errors.New("accès refusé")
 
 // TestTheKioskReadsTheAddressFromTheSameFileTheServiceDoes is what keeps a station from
 // showing a blank page the day somebody moves the port on the screen that exists for
