@@ -164,7 +164,7 @@ type Hub struct {
 	// catalogWaiting mirrors « pendingBatch != nil » for readers OUTSIDE the loop.
 	//
 	// pendingBatch itself is owned by the loop goroutine and reading it from an
-	// HTTP handler would be a race. What needs the answer is UpdateGuard, and the
+	// HTTP handler would be a race. What needs the answer is DowntimeGuard, and the
 	// question it asks is worth the mirror: a pending batch means the CSV has
 	// already been read AND DELETED -- the deletion is the acknowledgement -- so
 	// the products exist only in this process's memory. Stopping the station there
@@ -256,23 +256,28 @@ func (h *Hub) State() Snapshot { return *h.state.Load() }
 // Config returns the configuration in force.
 func (h *Hub) Config() domain.Config { return *h.cfg.Load() }
 
-// UpdateGuard reports whether the station may be taken down to install a new
-// version, and says IN FRENCH why not when it may not.
+// DowntimeGuard reports whether the station may be taken down, and says IN FRENCH
+// why not when it may not.
+//
+// It answers for the THREE acts that stop the station: installing a new version,
+// restarting the service, restarting the machine. The name says « taken down » and
+// not « updated » because the rule never depended on what came after the stop --
+// what it protects is the weighing in progress and the catalogue not yet in service.
 //
 // The rule lives here and not in the HTTP layer, for one reason: the HTTP layer
 // would have to read a state in order to deduce a rule, and the rule would then
 // exist in two places. It asks a question and renders the answer.
-func (h *Hub) UpdateGuard() (bool, string) {
-	return updateGuardFor(h.State().State, h.catalogWaiting.Load())
+func (h *Hub) DowntimeGuard() (bool, string) {
+	return downtimeGuardFor(h.State().State, h.catalogWaiting.Load())
 }
 
-// updateGuardFor is the rule itself, without a Hub, so that every state of the
+// downtimeGuardFor is the rule itself, without a Hub, so that every state of the
 // machine can be put to it in one table.
 //
 // OutOfService and Faulted PASS, deliberately. A station that cannot serve is
 // exactly the one that may need a newer binary, and refusing there would close
 // the only door -- which is why NeutralProfile names a repository.
-func updateGuardFor(state domain.State, catalogWaiting bool) (bool, string) {
+func downtimeGuardFor(state domain.State, catalogWaiting bool) (bool, string) {
 	if catalogWaiting {
 		// The CSV has already been read and deleted -- the deletion IS the
 		// acknowledgement -- and the products live only in memory until a quiet

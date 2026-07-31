@@ -154,7 +154,7 @@ func TestNeutralProfileDiffersFromTheDeliveredFile(t *testing.T) {
 // TestTheNeutralProfileFollowsARepository is not a detail of completeness.
 //
 // This profile is what an OUT-OF-SERVICE station runs, and an out-of-service
-// station is exactly the one that may need a newer binary: Hub.UpdateGuard lets
+// station is exactly the one that may need a newer binary: Hub.DowntimeGuard lets
 // it update deliberately, as the escape hatch out of a broken version. A neutral
 // profile failing control 48 would close the door the guard leaves open.
 func TestTheNeutralProfileFollowsARepository(t *testing.T) {

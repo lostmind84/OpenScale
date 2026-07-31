@@ -43,9 +43,9 @@ func (e *BusyError) Is(target error) bool { return target == ErrBusy }
 // Guard is what the service asks before taking the station down. Declared here,
 // on the consumer's side; *station.Hub satisfies it.
 type Guard interface {
-	// UpdateGuard reports whether the station may be taken down, and says in
+	// DowntimeGuard reports whether the station may be taken down, and says in
 	// French why not when it may not.
-	UpdateGuard() (bool, string)
+	DowntimeGuard() (bool, string)
 }
 
 // Paths are the three absolute directories the swap needs.
@@ -168,7 +168,7 @@ func (s *Service) Apply(ctx context.Context, repository, wanted string) error {
 	if err := s.refuseIfSwapInFlight(); err != nil {
 		return err
 	}
-	if allowed, reason := s.Guard.UpdateGuard(); !allowed {
+	if allowed, reason := s.Guard.DowntimeGuard(); !allowed {
 		return &BusyError{Reason: reason}
 	}
 	release, err := s.source(repository).Latest(ctx)

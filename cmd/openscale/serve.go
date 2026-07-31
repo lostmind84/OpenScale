@@ -356,7 +356,7 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	// touches a button, which is long after the line that assigns it.
 	var st *station.Station
 	updateService := newUpdateService(clock,
-		guardFunc(func() (bool, string) { return st.Hub().UpdateGuard() }), o.dataDir)
+		guardFunc(func() (bool, string) { return st.Hub().DowntimeGuard() }), o.dataDir)
 
 	st, err = station.New(station.Options{
 		Clock:        clock,

@@ -36,7 +36,7 @@ func TestTheGuardAnswersForEveryStateOfTheMachine(t *testing.T) {
 		{domain.Rejected, false},
 	}
 	for _, c := range cases {
-		allowed, reason := updateGuardFor(c.state, false)
+		allowed, reason := downtimeGuardFor(c.state, false)
 		if allowed != c.allow {
 			t.Errorf("état %s : autorisé %v, attendu %v", c.state, allowed, c.allow)
 		}
@@ -53,27 +53,27 @@ func TestTheGuardAnswersForEveryStateOfTheMachine(t *testing.T) {
 // volunteer, so it carries no section number and no ADR.
 func TestTheGuardSpeaksFrenchAndNamesNoDocument(t *testing.T) {
 	for _, state := range []domain.State{domain.Printing, domain.EnteringTare} {
-		_, reason := updateGuardFor(state, false)
+		_, reason := downtimeGuardFor(state, false)
 		if strings.Contains(reason, "§") || strings.Contains(reason, "ADR-") {
 			t.Errorf("état %s : la raison porte un renvoi de dossier : %q", state, reason)
 		}
 	}
-	if _, reason := updateGuardFor(domain.Idle, true); reason == "" {
+	if _, reason := downtimeGuardFor(domain.Idle, true); reason == "" {
 		t.Fatal("un catalogue en attente refuse sans dire pourquoi")
 	}
 }
 
-// TestACatalogWaitingToEnterServiceHoldsTheUpdateBack is the failure mode this
+// TestACatalogWaitingToEnterServiceHoldsEveryStopBack is the failure mode this
 // clause exists for, and it is one this project has already paid for.
 //
 // A pending batch means the CSV has already been read AND DELETED -- the deletion
 // is the acknowledgement (§10.1) -- and the products live only in this process's
 // memory, waiting for a quiet moment to enter service. Stopping the station there
 // does not defer the catalogue: it LOSES it, and nothing will ever offer it again.
-func TestACatalogWaitingToEnterServiceHoldsTheUpdateBack(t *testing.T) {
-	allowed, reason := updateGuardFor(domain.Idle, true)
+func TestACatalogWaitingToEnterServiceHoldsEveryStopBack(t *testing.T) {
+	allowed, reason := downtimeGuardFor(domain.Idle, true)
 	if allowed {
-		t.Fatal("un catalogue en attente de mise en service laisse passer une mise à jour")
+		t.Fatal("un catalogue en attente de mise en service laisse passer un arrêt du poste")
 	}
 	if !strings.Contains(strings.ToLower(reason), "catalogue") {
 		t.Errorf("la raison ne nomme pas le catalogue : %q", reason)
@@ -83,16 +83,17 @@ func TestACatalogWaitingToEnterServiceHoldsTheUpdateBack(t *testing.T) {
 // TestTheGuardAgreesWithTheCatalogSwapOnEveryStateItAllows.
 //
 // swapIsSafeIn already answers « is anybody mid-cycle? » for the catalogue, and
-// the update asks the same question with more at stake. Whatever is too busy for
-// a catalogue swap must be too busy for a reboot; the reverse need not hold, and
-// does not -- OutOfService and Faulted refuse a swap and allow an update.
+// stopping the station asks the same question with more at stake. Whatever is too
+// busy for a catalogue swap must be too busy for a stop; the reverse need not hold,
+// and does not -- OutOfService and Faulted refuse a swap and allow a stop, because a
+// station that cannot serve is the one a new version or a restart may cure.
 func TestTheGuardAgreesWithTheCatalogSwapOnEveryStateItAllows(t *testing.T) {
 	for state := domain.Initializing; state <= domain.OutOfService; state++ {
 		if !swapIsSafeIn(state) {
 			continue
 		}
-		if allowed, reason := updateGuardFor(state, false); !allowed {
-			t.Errorf("état %s : le catalogue peut basculer mais la mise à jour est refusée (%s)",
+		if allowed, reason := downtimeGuardFor(state, false); !allowed {
+			t.Errorf("état %s : le catalogue peut basculer mais l'arrêt du poste est refusé (%s)",
 				state, reason)
 		}
 	}
@@ -103,8 +104,8 @@ func TestTheGuardAgreesWithTheCatalogSwapOnEveryStateItAllows(t *testing.T) {
 func TestAStationInTheMiddleOfAWeighingRefuses(t *testing.T) {
 	b := newBench(t)
 
-	if allowed, reason := b.hub.UpdateGuard(); !allowed {
-		t.Fatalf("un poste au repos refuse la mise à jour : %s", reason)
+	if allowed, reason := b.hub.DowntimeGuard(); !allowed {
+		t.Fatalf("un poste au repos refuse d'être arrêté : %s", reason)
 	}
 
 	b.feed(1236, 5)
@@ -124,9 +125,9 @@ func TestAStationInTheMiddleOfAWeighingRefuses(t *testing.T) {
 	if got := b.hub.State().State; got == domain.Idle {
 		t.Fatal("le poste est retombé au repos alors que le sac est encore sur le plateau")
 	}
-	allowed, reason := b.hub.UpdateGuard()
+	allowed, reason := b.hub.DowntimeGuard()
 	if allowed {
-		t.Fatal("une pesée est en cours et la mise à jour passe")
+		t.Fatal("une pesée est en cours et l'arrêt du poste passe")
 	}
 	if reason == "" {
 		t.Error("le refus ne porte aucune phrase")
@@ -142,7 +143,7 @@ func TestAStationOutOfServiceMayBeUpdated(t *testing.T) {
 	if got := b.hub.State().State; got != domain.OutOfService {
 		t.Fatalf("état %s, attendu out_of_service", got)
 	}
-	if allowed, reason := b.hub.UpdateGuard(); !allowed {
+	if allowed, reason := b.hub.DowntimeGuard(); !allowed {
 		t.Fatalf("un poste hors service refuse sa seule porte de sortie : %s", reason)
 	}
 }
