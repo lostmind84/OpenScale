@@ -512,6 +512,7 @@ func (s *Server) routes() http.Handler {
 		"GET /admin/api/config/export":                 s.exportConfig,
 		"POST /admin/api/config/import":                s.importConfig,
 		"POST /admin/api/config/restore":               s.restoreConfig,
+		"POST /admin/api/config/reload":                s.reloadConfigFromDisk,
 		"POST /admin/api/troubleshooting/manual-entry": s.manualEntry,
 		"POST /admin/api/catalog/import":               s.importCatalog,
 		"POST /admin/api/printers/discover":            s.discoverPrinters,
