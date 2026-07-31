@@ -116,6 +116,15 @@ export function nominalHealth(overrides: Partial<HealthDTO> = {}): HealthDTO {
     scale_present: true,
     // Un poste nominal tourne sur `raster`, qui honore les trois auto-tests de §8.6.
     printer_self_tests: ['label', 'alignment', 'ruler'],
+    // Les quatre transports de §8.4, chacun disant dans quelle clé de `printer.options` il
+    // désigne son appareil. C'est là-dessus, et sur rien d'autre, que la page Matériel
+    // décide où écrire ce qu'un bénévole saisit.
+    printer_transports: [
+      { id: 'winspool', label: 'File d’impression Windows (RAW)', key: 'queue' },
+      { id: 'devfile', label: 'Nœud d’impression du système', key: 'path' },
+      { id: 'tcp', label: 'Imprimante réseau, port 9100', key: 'address' },
+      { id: 'file', label: 'Fichier — développement, tests, support à distance', key: 'path' },
+    ],
     counters: { unlogged_weighings_count: 0, journal_rows_count: 1236 },
     events: [],
     catalog: FLV_IMPORT,

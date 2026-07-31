@@ -140,7 +140,7 @@ func printersOf(queues []platform.PrintQueue) []web.PrinterInfo {
 	out := make([]web.PrinterInfo, 0, len(queues))
 	for _, queue := range queues {
 		out = append(out, web.PrinterInfo{
-			Name: queue.Name, Detail: queue.Detail, Default: queue.Default,
+			Name: queue.Name, Key: queue.Key, Detail: queue.Detail, Default: queue.Default,
 		})
 	}
 	return out

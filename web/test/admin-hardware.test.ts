@@ -40,7 +40,7 @@ const PAUSE_MS = 250
 /** La configuration d'un poste dont la balance est branchée sur COM8. */
 const CONFIG = {
   scale: { type: 'gram_xfoc', present: true, options: { port: 'COM8', baud_rate: 9600 } },
-  printer: { type: 'raster', options: { transport: 'local', queue: 'Étiqueteuse' } },
+  printer: { type: 'raster', options: { transport: 'winspool', queue: 'Étiqueteuse' } },
 }
 
 let host: HTMLElement
@@ -51,10 +51,17 @@ let draft: Draft
 let calls: string[] = []
 /** Les ports que le poste énumère. */
 let ports: { name: string; description: string; vid: string; pid: string }[] = []
-/** Les files d'impression que la plateforme déclare. */
-let printers: { name: string; detail: string; default: boolean }[] = []
-/** Ce que « Rechercher l'imprimante » rapporte du réseau. */
-let discovered: { name: string; detail: string; default: boolean }[] = []
+/**
+ * Les files d'impression que la plateforme déclare.
+ *
+ * `key` est la clé de `printer.options` dans laquelle la destination va, et c'est
+ * l'ÉNUMÉRATION qui le dit : une file Windows va dans `queue`, un nœud d'impression dans
+ * `path`, un hôte trouvé sur le port 9100 dans `address`. Rien dans le nom ne les
+ * distingue.
+ */
+let printers: { name: string; key: string; detail: string; default: boolean }[] = []
+/** Ce que « Rechercher l'imprimante » rapporte du réseau : des ADRESSES. */
+let discovered: { name: string; key: string; detail: string; default: boolean }[] = []
 /**
  * Ce que la PREMIÈRE capture répond ; les manches suivantes ne rendent rien.
  *
@@ -284,6 +291,37 @@ function field(path: string): HTMLInputElement {
   return found
 }
 
+/** La liste déroulante que ce chemin de clé désigne. */
+function choice(path: string): HTMLSelectElement {
+  const id = 'field-' + path.replace(/\./gu, '-')
+  const found = host.querySelector<HTMLSelectElement>('select#' + id)
+  if (found === null) throw new Error(`aucune liste « ${path} » à l'écran`)
+  return found
+}
+
+/** Vrai quand ce chemin de clé porte une commande à l'écran, quelle qu'elle soit. */
+function shown(path: string): boolean {
+  return host.querySelector('#field-' + path.replace(/\./gu, '-')) !== null
+}
+
+/**
+ * Choisit une valeur dans une liste déroulante, comme un doigt le fait.
+ *
+ * L'événement `change` et non une écriture directe : c'est celui que le navigateur émet, et
+ * c'est la voie de retour que la page écoute.
+ *
+ * @param path - le chemin de la clé que la liste règle.
+ * @param value - la valeur à choisir.
+ */
+async function pick(path: string, value: string): Promise<void> {
+  const list = choice(path)
+  list.value = value
+  // `bubbles` n'est pas une précaution : Svelte 5 délègue `change` à la racine, et un
+  // événement qui ne remonte pas n'atteint jamais le gestionnaire.
+  list.dispatchEvent(new Event('change', { bubbles: true }))
+  await settle()
+}
+
 /** Combien d'appels ont été passés sur cette route. */
 function countOf(fragment: string): number {
   return calls.filter((line) => line.includes(fragment)).length
@@ -471,15 +509,20 @@ describe('les actes protégés de l’imprimante', () => {
     // `POST /admin/api/printers/discover` est protégée : un bandeau « cette adresse
     // demande une session ouverte » sans porte pour la régler ne mène nulle part.
     guarded = true
-    discovered = [{ name: 'Zebra du réseau', detail: '10.0.0.9', default: false }]
+    discovered = [{ name: '10.0.0.9:9100', key: 'address', detail: 'répond', default: false }]
     await open()
+    // Le balayage rend des ADRESSES : la page ne les propose que sous le transport qui les
+    // lit (ADR-025), et c'est celui-là qu'un exploitant qui cherche une imprimante réseau
+    // vient de choisir.
+    await tap(folded('Réglages de l’imprimante'))
+    await pick('printer.options.transport', 'tcp')
 
     button('Rechercher l’imprimante').click()
     await waitFor(() => admin.pending !== null)
     expect(admin.pending?.kind).toBe('password')
 
     await admin.answerPassword('openscale')
-    await waitFor(() => text().includes('Zebra du réseau'))
+    await waitFor(() => text().includes('10.0.0.9:9100'))
     expect(countOf('/admin/api/printers/discover')).toBe(2)
   })
 
@@ -542,6 +585,7 @@ describe('les actes protégés de l’imprimante', () => {
     // contrôle de §11.3 refuse la clé, et un poste porte PDF, OneNote, télécopie…
     printers = Array.from({ length: 30 }, (_, index) => ({
       name: `File ${String(index + 1)}`,
+      key: 'queue',
       detail: '',
       default: false,
     }))
@@ -601,6 +645,138 @@ describe('ce que la page dit de l’imprimante et de la balance', () => {
  * refermait — à chaque tour du tableau de bord, sous les doigts de quelqu'un qui tapait un
  * nom de port dedans. Les deux seuls champs qui nomment un port série vivent là.
  */
+describe('le transport de l’imprimante, et où il fait écrire', () => {
+  it('se choisit dans la liste que le POSTE déclare, jamais en texte libre', async () => {
+    await open()
+    await tap(folded('Réglages de l’imprimante'))
+    const list = choice('printer.options.transport')
+    const offered = [...list.options].map((option) => option.value)
+    expect(offered).toEqual(['winspool', 'devfile', 'tcp', 'file'])
+    // Le libellé est celui du poste, pas un mot que l'écran s'invente.
+    expect(list.options[2]?.textContent).toContain('Imprimante réseau')
+    expect(list.value).toBe('winspool')
+  })
+
+  it('montre le champ de l’appareil QUE le transport choisi lit', async () => {
+    await open()
+    await tap(folded('Réglages de l’imprimante'))
+    expect(shown('printer.options.queue')).toBe(true)
+    expect(shown('printer.options.address')).toBe(false)
+
+    await pick('printer.options.transport', 'tcp')
+    expect(draft.text('printer.options.transport')).toBe('tcp')
+    // Le champ de la file DISPARAÎT : le laisser à l'écran sous un transport qui ne le lit
+    // pas est exactement ce qui a fait saisir une adresse IP dans printer.options.queue.
+    expect(shown('printer.options.queue')).toBe(false)
+    expect(shown('printer.options.address')).toBe(true)
+    expect(text()).toContain('Adresse réseau')
+
+    await pick('printer.options.transport', 'devfile')
+    expect(shown('printer.options.path')).toBe(true)
+    expect(shown('printer.options.address')).toBe(false)
+  })
+
+  it('écrit dans la clé du transport choisi, et dans aucune autre', async () => {
+    await open()
+    await tap(folded('Réglages de l’imprimante'))
+    await pick('printer.options.transport', 'tcp')
+    const box = field('printer.options.address')
+    box.value = '192.168.0.43:9100'
+    box.dispatchEvent(new Event('input', { bubbles: true }))
+    await settle()
+    expect(draft.text('printer.options.address')).toBe('192.168.0.43:9100')
+    // La file garde ce qu'elle avait : revenir à `winspool` ne doit pas coûter la saisie.
+    expect(draft.text('printer.options.queue')).toBe('Étiqueteuse')
+  })
+
+  it('n’affiche pas une liste vide quand le poste ne déclare aucun transport', async () => {
+    // C'est l'état d'un binaire sans registre de transports : la page retombe sur un champ
+    // libre plutôt que d'offrir une liste déroulante sans une seule valeur dedans.
+    await open(nominalHealth({ printer_transports: [] }))
+    await tap(folded('Réglages de l’imprimante'))
+    expect(() => choice('printer.options.transport')).toThrow()
+    expect(field('printer.options.transport').value).toBe('winspool')
+  })
+
+  it('garde à l’écran une valeur que ce poste ne connaît pas, en le disant', async () => {
+    // Un fichier écrit à la main, ou venu d'un binaire plus récent. Une liste qui se
+    // rabattrait en silence sur son premier choix afficherait un transport que le poste
+    // n'applique pas, et rien à l'écran ne dirait lequel tourne vraiment.
+    CONFIG.printer.options.transport = 'smb'
+    try {
+      await open()
+      await tap(folded('Réglages de l’imprimante'))
+      const list = choice('printer.options.transport')
+      expect(list.value).toBe('smb')
+      expect(text()).toContain('inconnu de ce poste')
+    } finally {
+      CONFIG.printer.options.transport = 'winspool'
+    }
+  })
+})
+
+describe('les destinations listées, et la clé où chacune va', () => {
+  it('écrit une file d’impression dans la file', async () => {
+    printers = [{ name: 'SATO WS408_2', key: 'queue', detail: 'file locale', default: true }]
+    await open()
+    button('Lister les files').click()
+    await waitFor(() => text().includes('SATO WS408_2'))
+    button('SATO WS408_2').click()
+    await settle()
+    expect(draft.text('printer.options.queue')).toBe('SATO WS408_2')
+  })
+
+  it('écrit une imprimante réseau découverte dans l’ADRESSE, jamais dans la file', async () => {
+    // Le défaut lui-même. « Rechercher l'imprimante » rend des hôtes qui répondent sur le
+    // port 9100 ; la page les écrivait dans printer.options.queue, que seul `winspool` lit.
+    // Le fichier était accepté — rien ne lie une clé à un transport — et le poste
+    // n'imprimait pas, sans que l'écran ait dit un mot.
+    discovered = [
+      { name: '192.168.0.43:9100', key: 'address', detail: 'répond sur le port 9100', default: false },
+    ]
+    await open()
+    await tap(folded('Réglages de l’imprimante'))
+    await pick('printer.options.transport', 'tcp')
+    button('Rechercher l’imprimante').click()
+    await waitFor(() => text().includes('192.168.0.43:9100'))
+    button('192.168.0.43:9100').click()
+    await settle()
+    expect(draft.text('printer.options.address')).toBe('192.168.0.43:9100')
+    expect(draft.text('printer.options.queue')).toBe('Étiqueteuse')
+  })
+
+  it('n’offre pas une destination que le transport choisi ne peut pas ouvrir', async () => {
+    // Même règle que pour les auto-tests (ADR-025) : un clic dont le seul résultat possible
+    // est un poste qui n'imprime pas n'est pas un choix. Et l'écart se DIT — une liste qui
+    // rétrécit en silence se lit comme une recherche qui n'a rien trouvé.
+    discovered = [
+      { name: '192.168.0.43:9100', key: 'address', detail: 'répond', default: false },
+    ]
+    await open()
+    button('Rechercher l’imprimante').click()
+    await waitFor(() => host.querySelector('[data-unreachable]') !== null)
+    expect(text()).not.toContain('192.168.0.43:9100')
+    expect(text()).toContain('Imprimante réseau, port 9100')
+  })
+
+  it('écrit un nœud d’impression dans le chemin', async () => {
+    printers = [
+      { name: '/dev/usb/lp0', key: 'path', detail: 'nœud d’impression', default: false },
+    ]
+    await open()
+    await tap(folded('Réglages de l’imprimante'))
+    await pick('printer.options.transport', 'devfile')
+    button('Lister les files').click()
+    // La LISTE, et non le texte de la page : l'aide du champ « Fichier de périphérique »
+    // cite /dev/usb/lp0 elle aussi, et l'attente se terminait avant que la liste n'arrive.
+    await waitFor(() => host.querySelector('[data-printers-count]') !== null)
+    button('/dev/usb/lp0').click()
+    await settle()
+    expect(draft.text('printer.options.path')).toBe('/dev/usb/lp0')
+    expect(draft.text('printer.options.queue')).toBe('Étiqueteuse')
+  })
+})
+
 describe('les volets repliés de la page Matériel', () => {
   it('garde ouvert le volet des réglages série quand le sondage d’état passe', async () => {
     await open()

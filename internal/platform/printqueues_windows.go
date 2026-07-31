@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 	"unsafe"
+
+	"openscale/internal/domain"
 )
 
 // This file answers the button « Lister les files » of §14.4 on the platform the whole
@@ -86,6 +88,7 @@ func PrintQueues(ctx context.Context) ([]PrintQueue, error) {
 		}
 		out = append(out, PrintQueue{
 			Name:    name,
+			Key:     domain.DeviceKeyQueue,
 			Detail:  describeQueue(utf16String(buffer, info.serverName), info.attributes),
 			Default: strings.EqualFold(name, preferred),
 		})

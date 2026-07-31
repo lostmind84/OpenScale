@@ -48,6 +48,38 @@ func TestDescriptorsAreTheFourOfTheDocument(t *testing.T) {
 	}
 }
 
+// TestEachTransportNamesTheDeviceKeyItReallyReads is what the administration screen rests
+// on: it draws ONE device field and takes its key from the descriptor of the transport
+// chosen, instead of showing the same `queue` box whatever the transport is.
+//
+// A descriptor naming a key its transport does not read is not a cosmetic mismatch. That
+// is precisely how an IP address ended up in printer.options.queue on a station set to
+// `tcp`: the file validated — `queue` is a key of the driver, and no control ties one to a
+// transport — and the failure only surfaced when the socket was opened, on the morning of
+// a sale.
+//
+// The assertion is made from the OTHER end: built with every device key empty, each
+// transport must complain about the one key its own descriptor names, and about no other.
+func TestEachTransportNamesTheDeviceKeyItReallyReads(t *testing.T) {
+	for _, descriptor := range transport.Descriptors() {
+		t.Run(descriptor.ID, func(t *testing.T) {
+			if descriptor.DeviceKey == "" {
+				t.Fatalf("le transport %q ne nomme aucune clé d'appareil ; l'écran ne saurait "+
+					"pas où écrire ce qu'un bénévole y tape", descriptor.ID)
+			}
+			built, err := transport.New(descriptor.ID, transport.Config{Clock: fake.NewClock(t0)})
+			if err == nil {
+				built.Close()
+				t.Fatalf("le transport %q s'est construit sans appareil désigné", descriptor.ID)
+			}
+			want := "printer.options." + descriptor.DeviceKey
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("le refus ne nomme pas %q : %v", want, err)
+			}
+		})
+	}
+}
+
 // TestEveryTransportAnswersToItsConfiguredName is the other half of the same contract:
 // a transport whose Name did not match its descriptor would be selectable and
 // unreachable.

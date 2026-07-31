@@ -174,6 +174,21 @@ export interface HealthDTO {
    * ne déclare aucun driver d'impression, ce qui n'arrive pas sur un poste en service.
    */
   printer_self_tests: string[]
+  /**
+   * Les transports d'octets que CE BINAIRE porte (§8.4), et pour chacun la clé de
+   * `printer.options` dans laquelle il désigne son appareil.
+   *
+   * La page Matériel y prend les deux choses à la fois : ce que la liste déroulante
+   * « Transport » propose, et **où le champ d'appareil en dessous écrit**. Elle n'avait ni
+   * l'une ni l'autre — `transport` était un champ de texte libre, et l'unique champ
+   * d'appareil était câblé sur `queue` quoi qu'on tape au-dessus. Un poste réglé sur `tcp`
+   * enregistrait donc l'adresse de son imprimante dans `printer.options.queue` : rien ne
+   * le refusait, aucun transport ne la lisait, et le poste n'imprimait pas.
+   *
+   * Toujours une liste, jamais `null`. Vide quand le binaire ne déclare aucun transport,
+   * et la page retombe alors sur un champ libre plutôt que sur une liste sans valeur.
+   */
+  printer_transports: TransportDTO[]
   counters: {
     unlogged_weighings_count: number
     /** -1 quand ce poste n'a pas de journal (ADR-013). */
@@ -269,9 +284,27 @@ export interface PortDTO {
   pid: string
 }
 
-/** Une file d'impression ou un nœud d'impression que la plateforme connaît. */
+/** Un transport d'octets, et l'endroit où le choisir fait écrire (§8.4). */
+export interface TransportDTO {
+  /** La valeur qui va dans `printer.options.transport` : `winspool`, `tcp`… */
+  id: string
+  /** Le libellé français de la liste déroulante. Il vient du poste, jamais de l'écran. */
+  label: string
+  /** La clé de `printer.options` par laquelle ce transport désigne son appareil. */
+  key: string
+}
+
+/** Une destination d'impression que la plateforme connaît : file, nœud ou hôte. */
 export interface PrinterDeviceDTO {
   name: string
+  /**
+   * La clé de `printer.options` où cette destination va : `queue`, `path` ou `address`.
+   *
+   * C'est l'énumération qui le dit, parce qu'elle seule le sait : les deux routes servent
+   * la même liste à l'écran et « 192.168.0.43:9100 » ne ressemble pas moins à un nom de
+   * file que « SATO WS408_2 ».
+   */
+  key: string
   detail: string
   default: boolean
 }

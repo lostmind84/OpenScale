@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"openscale/internal/domain"
 	"openscale/internal/station/ports"
 )
 
@@ -155,6 +156,7 @@ func probeAll(ctx context.Context, dial func(context.Context, string) (net.Conn,
 				mu.Lock()
 				found = append(found, PrintQueue{
 					Name: address,
+					Key:  domain.DeviceKeyAddress,
 					Detail: fmt.Sprintf("répond sur le port %d : candidat pour "+
 						"printer.options.transport = tcp", RawPrintPort),
 				})

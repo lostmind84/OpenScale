@@ -173,6 +173,23 @@ type adminHealthDTO struct {
 	// It is a LIST AND NEVER `null`, like every list of §14.5: the TypeScript contract
 	// declares an array and the page filters it the instant it has read it.
 	PrinterSelfTests []string `json:"printer_self_tests"`
+	// PrinterTransports are the byte transports THIS BINARY carries (§8.4), each with the
+	// wording a volunteer reads and the printer.options key it designates its device by.
+	//
+	// It travels for the reason the field above does, and it answers the same kind of
+	// question one notch further along: not « which button may I draw » but « where does
+	// what somebody types in this box get written ». The Matériel screen had no answer at
+	// all — `transport` was a free text box, and the single device field under it was wired
+	// to `queue` whatever was typed above. A station set to `tcp` therefore saved its
+	// printer's address into printer.options.queue, which validates and cannot print.
+	//
+	// The list comes from the registry and never from a table in the screen, exactly as
+	// control 8 of Config.Validate reads the same registry to refuse an unknown name: a
+	// fifth transport must not be able to exist for the validation and not for the form.
+	//
+	// EMPTY on a server built with no transport registry — the HTTP bench of this package —
+	// and never `null`, like every list of §14.5.
+	PrinterTransports []transportDTO `json:"printer_transports"`
 
 	Counters countersDTO `json:"counters"`
 	// Events is the ten last technical lines, which is what §14.4 puts on the
@@ -222,6 +239,19 @@ type adminHealthDTO struct {
 	// It is read from the last poll left on disk, never by asking the repository:
 	// this handler answers every three seconds.
 	NewVersion string `json:"new_version"`
+}
+
+// transportDTO is one byte transport a volunteer may choose from, and where choosing it
+// sends what they type next.
+type transportDTO struct {
+	// ID is the value that goes into printer.options.transport: "winspool", "devfile",
+	// "tcp", "file".
+	ID string `json:"id"`
+	// Label is the French wording of the drop-down list: « Imprimante réseau, port 9100 ».
+	Label string `json:"label"`
+	// Key is the printer.options key this transport DESIGNATES ITS DEVICE by, and the one
+	// the screen writes the device field into: "queue", "path" or "address".
+	Key string `json:"key"`
 }
 
 // routingDTO is which printer is in service.
@@ -305,16 +335,17 @@ func (s *Server) adminHealth(w http.ResponseWriter, r *http.Request) {
 	cfg := s.hub.Config()
 	snap := s.hub.State()
 	body := adminHealthDTO{
-		Version:          s.version,
-		Fingerprint:      cfg.Fingerprint(),
-		Station:          cfg.Station.Number,
-		StationName:      cfg.Station.Name,
-		Coop:             cfg.Station.Coop,
-		Alive:            s.alive(),
-		State:            s.stateOf(snap),
-		ScalePresent:     cfg.Scale.Present,
-		PrinterSelfTests: s.selfTestsOf(cfg.Printer.Type),
-		Counters:         countersDTO{Unlogged: snap.UnloggedWeighings, Journal: -1},
+		Version:           s.version,
+		Fingerprint:       cfg.Fingerprint(),
+		Station:           cfg.Station.Number,
+		StationName:       cfg.Station.Name,
+		Coop:              cfg.Station.Coop,
+		Alive:             s.alive(),
+		State:             s.stateOf(snap),
+		ScalePresent:      cfg.Scale.Present,
+		PrinterSelfTests:  s.selfTestsOf(cfg.Printer.Type),
+		PrinterTransports: s.transports(),
+		Counters:          countersDTO{Unlogged: snap.UnloggedWeighings, Journal: -1},
 		// The three lists are EMPTY and not nil, because that is the difference between
 		// « there is none » and `null`. A station with no journal (ADR-013) reads none of
 		// them, a station installed this morning has no import to break down, and the
@@ -348,6 +379,21 @@ func (s *Server) selfTestsOf(driver string) []string {
 		}
 	}
 	return []string{}
+}
+
+// transports reports the byte transports this binary carries, in the order the registry
+// declares them — which is the order §8.4 presents them in, the two local defaults first.
+//
+// EMPTY and never nil: a server built with no transport registry is a legitimate state,
+// and the screen then draws no drop-down list rather than a broken one.
+func (s *Server) transports() []transportDTO {
+	out := make([]transportDTO, 0, len(s.registries.Transports))
+	for _, descriptor := range s.registries.Transports {
+		out = append(out, transportDTO{
+			ID: descriptor.ID, Label: descriptor.Label, Key: descriptor.DeviceKey,
+		})
+	}
+	return out
 }
 
 // fillHealthFromPlatform adds the three facts only the composition root can answer, and

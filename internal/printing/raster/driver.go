@@ -21,11 +21,16 @@ import (
 // apart: the form the administration screen generates and the parser that reads the file
 // back are two halves of one contract. Spelled in two packages, a key renamed on one
 // side becomes a field the form offers and the driver never reads.
+//
+// The three that DESIGNATE A DEVICE are the exception, and they take their spelling from
+// the domain rather than giving it: the transport registry names the one it reads and the
+// platform says which one an enumerated destination fills, so those three words are read
+// by more than this driver.
 const (
 	optionTransport    = "transport"
-	optionQueue        = "queue"
-	optionPath         = "path"
-	optionAddress      = "address"
+	optionQueue        = domain.DeviceKeyQueue
+	optionPath         = domain.DeviceKeyPath
+	optionAddress      = domain.DeviceKeyAddress
 	optionFallback     = "fallback"
 	optionEnabled      = "enabled"
 	optionDarkness     = "darkness"

@@ -26,6 +26,18 @@
     fault?: string
     /** Les valeurs qui MARCHERAIENT, quand le contrôle les connaît (§11.3). */
     allowed?: string[]
+    /**
+     * Les valeurs entre lesquelles CHOISIR, quand la clé n'en accepte pas d'autres.
+     *
+     * Vide — le cas ordinaire — laisse le champ de saisie. Non vide, le champ devient une
+     * liste déroulante : c'est ce qu'il faut quand la valeur décide de la SUITE du
+     * formulaire, comme `printer.options.transport`, qui décide dans quelle clé le champ
+     * d'en dessous écrit. Une faute de frappe y coûtait un poste qui n'imprime pas.
+     *
+     * `allowed` est autre chose et les deux cohabitent : il vient d'un REFUS et suggère,
+     * là où celui-ci contraint.
+     */
+    choices?: { value: string; label: string }[]
     onchange: (value: string) => void
   }
 
@@ -38,6 +50,7 @@
     disabled = false,
     fault = '',
     allowed = [],
+    choices = [],
     onchange,
   }: Props = $props()
 
@@ -50,14 +63,28 @@
     <span class="name">{label}</span>
     {#if preferences.showTechnicalNames}<code>{path}</code>{/if}
   </label>
-  <input
-    {id}
-    type={kind}
-    {value}
-    {disabled}
-    list={allowed.length > 0 ? id + '-allowed' : undefined}
-    oninput={(event) => onchange(event.currentTarget.value)}
-  />
+  {#if choices.length > 0}
+    <!--
+      La liste ne porte QUE ce que l'appelant lui donne, la valeur en cours comprise : c'est
+      à lui de la faire figurer quand le poste ne la connaît pas. Un `<select>` dont la
+      valeur n'est dans aucune option se rabat sur la première, et l'écran afficherait alors
+      un réglage que le poste n'applique pas.
+    -->
+    <select {id} {value} {disabled} onchange={(event) => onchange(event.currentTarget.value)}>
+      {#each choices as candidate (candidate.value)}
+        <option value={candidate.value}>{candidate.label}</option>
+      {/each}
+    </select>
+  {:else}
+    <input
+      {id}
+      type={kind}
+      {value}
+      {disabled}
+      list={allowed.length > 0 ? id + '-allowed' : undefined}
+      oninput={(event) => onchange(event.currentTarget.value)}
+    />
+  {/if}
   {#if allowed.length > 0}
     <datalist id={id + '-allowed'}>
       {#each allowed as candidate (candidate)}
@@ -99,7 +126,8 @@
     color: var(--ink-muted);
   }
 
-  input {
+  input,
+  select {
     min-height: 3rem;
     padding: 0 0.75rem;
     font: inherit;
@@ -110,7 +138,8 @@
     border-radius: var(--radius);
   }
 
-  .refused input {
+  .refused input,
+  .refused select {
     border-left: 0.5rem solid var(--fault);
   }
 

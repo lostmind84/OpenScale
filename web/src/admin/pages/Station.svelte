@@ -123,7 +123,13 @@
     { path: 'station.name', name: 'le nom du poste' },
     { path: 'network.listen', name: 'l’adresse d’écoute' },
     { path: 'scale.options.port', name: 'le port de la balance' },
+    // Les TROIS clés d'appareil de l'imprimante, parce que l'export sans matériel efface
+    // les trois (§8.4, `Config.Export`). La ligne n'en nommait qu'une : sur un poste réglé
+    // sur `tcp`, « Recopier » emportait l'adresse de l'imprimante sans un mot, ce que cet
+    // encadré existe précisément pour dire.
     { path: 'printer.options.queue', name: 'la file d’impression' },
+    { path: 'printer.options.path', name: 'le nœud d’impression' },
+    { path: 'printer.options.address', name: 'l’adresse de l’imprimante' },
     { path: 'catalog.options.url', name: 'l’adresse du partage' },
     { path: 'catalog.options.username', name: 'le compte du partage' },
     { path: 'catalog.images.path', name: 'le chemin des images' },

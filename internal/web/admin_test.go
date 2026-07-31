@@ -549,11 +549,25 @@ func TestTheHardwareRoutesAnswerWhenThePlatformIsWired(t *testing.T) {
 	if len(printers.Printers) != 1 {
 		t.Fatalf("imprimantes = %+v", printers.Printers)
 	}
+	// The key travels with the name, and the two routes do not answer the same one. Without
+	// it the screen wrote every destination a volunteer clicked into printer.options.queue,
+	// address of a network printer included — a configuration nothing refuses and no
+	// transport can open.
+	if printers.Printers[0].Key != domain.DeviceKeyQueue {
+		t.Fatalf("file énumérée = %+v : elle doit dire qu'elle va dans %q",
+			printers.Printers[0], domain.DeviceKeyQueue)
+	}
 	discovered := decodeStatus[struct {
 		Printers []printerDeviceDTO `json:"printers"`
 	}](t, b.post("/admin/api/printers/discover", `{}`), http.StatusOK)
 	if len(discovered.Printers) != 2 {
 		t.Fatalf("découverte = %+v", discovered.Printers)
+	}
+	for _, found := range discovered.Printers {
+		if found.Key != domain.DeviceKeyAddress {
+			t.Errorf("candidat réseau %+v : il doit dire qu'il va dans %q",
+				found, domain.DeviceKeyAddress)
+		}
 	}
 
 	detected := decodeStatus[struct {
@@ -757,12 +771,18 @@ func (fakeHardware) Ports(context.Context) ([]PortInfo, error) {
 }
 
 func (fakeHardware) Printers(context.Context) ([]PrinterInfo, error) {
-	return []PrinterInfo{{Name: "SATO WS408_1", Detail: "file Windows", Default: true}}, nil
+	return []PrinterInfo{{Name: "SATO WS408_1", Key: domain.DeviceKeyQueue,
+		Detail: "file Windows", Default: true}}, nil
 }
 
+// DiscoverPrinters answers ADDRESSES, and that is the whole point of the route: the scan
+// reports hosts that replied on port 9100, not queues of the spooler. The two lists arrive
+// on the same screen and read alike — « 192.168.0.43:9100 » looks no less like a queue name
+// than « SATO WS408_2 » — which is why each entry says which key it goes into.
 func (fakeHardware) DiscoverPrinters(context.Context) ([]PrinterInfo, error) {
 	return []PrinterInfo{
-		{Name: "SATO WS408_1"}, {Name: "SATO WS408_2"},
+		{Name: "192.168.0.43:9100", Key: domain.DeviceKeyAddress},
+		{Name: "192.168.0.51:9100", Key: domain.DeviceKeyAddress},
 	}, nil
 }
 

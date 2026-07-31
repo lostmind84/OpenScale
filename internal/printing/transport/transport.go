@@ -85,12 +85,21 @@ var ErrClosed = errors.New("transport : ce transport est fermé")
 // It is what feeds domain.Registries.Transports, so that control 8 of Config.Validate
 // checks printer.options.transport against what the binary can actually do instead of a
 // list hard-coded in a screen.
+//
+// Each entry also names the key that DESIGNATES ITS DEVICE, which is the same one the
+// switch of New reads and the same one the constructor names when it refuses. That is what
+// the administration screen takes its device field from: one list, read once, instead of a
+// form that offered `queue` under a transport reading `address`.
 func Descriptors() []domain.DriverDescriptor {
 	return []domain.DriverDescriptor{
-		{ID: domain.TransportWinspool, Label: "File d'impression Windows (RAW)"},
-		{ID: domain.TransportDevfile, Label: "Nœud d'impression du système"},
-		{ID: domain.TransportTCP, Label: "Imprimante réseau, port 9100"},
-		{ID: domain.TransportFile, Label: "Fichier — développement, tests, support à distance"},
+		{ID: domain.TransportWinspool, Label: "File d'impression Windows (RAW)",
+			DeviceKey: domain.DeviceKeyQueue},
+		{ID: domain.TransportDevfile, Label: "Nœud d'impression du système",
+			DeviceKey: domain.DeviceKeyPath},
+		{ID: domain.TransportTCP, Label: "Imprimante réseau, port 9100",
+			DeviceKey: domain.DeviceKeyAddress},
+		{ID: domain.TransportFile, Label: "Fichier — développement, tests, support à distance",
+			DeviceKey: domain.DeviceKeyPath},
 	}
 }
 

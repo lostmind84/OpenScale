@@ -207,6 +207,51 @@ func TestAStationWithNoDriverRegistryAnnouncesNoSelfTest(t *testing.T) {
 	}
 }
 
+// TestTheDashboardCarriesWhereEachTransportWritesItsDevice.
+//
+// The Matériel page draws its transport list from here, and — this is the part that
+// matters — it takes from the SAME entry the printer.options key it writes the device
+// field into. It had neither: `transport` was a free text box, and the one device field
+// under it was wired to `queue` whatever was typed above. A station set to `tcp` saved its
+// printer's address into printer.options.queue, which no control refuses and no transport
+// reads, so the configuration was accepted and the station could not print.
+func TestTheDashboardCarriesWhereEachTransportWritesItsDevice(t *testing.T) {
+	b := newBench(t, func(o *benchOptions) {
+		o.transports = []domain.DriverDescriptor{
+			{ID: domain.TransportWinspool, Label: "File d'impression Windows (RAW)",
+				DeviceKey: domain.DeviceKeyQueue},
+			{ID: domain.TransportTCP, Label: "Imprimante réseau, port 9100",
+				DeviceKey: domain.DeviceKeyAddress},
+		}
+	})
+	got := decodeStatus[adminHealthDTO](t, b.get("/admin/api/health"), http.StatusOK)
+	want := []transportDTO{
+		{ID: domain.TransportWinspool, Label: "File d'impression Windows (RAW)",
+			Key: domain.DeviceKeyQueue},
+		{ID: domain.TransportTCP, Label: "Imprimante réseau, port 9100",
+			Key: domain.DeviceKeyAddress},
+	}
+	if !reflect.DeepEqual(got.PrinterTransports, want) {
+		t.Fatalf("transports annoncés = %+v, attendu %+v : c'est là-dessus que l'écran "+
+			"Matériel décide dans quelle clé écrire", got.PrinterTransports, want)
+	}
+}
+
+// TestAStationWithNoTransportRegistryAnnouncesNoTransport is the other end, and the same
+// answer as for the self-tests: an EMPTY list, never `null`, and a screen that draws no
+// drop-down rather than a broken one.
+func TestAStationWithNoTransportRegistryAnnouncesNoTransport(t *testing.T) {
+	b := newBench(t)
+	got := decodeStatus[adminHealthDTO](t, b.get("/admin/api/health"), http.StatusOK)
+	if got.PrinterTransports == nil {
+		t.Fatal("transports annoncés = null : toute liste de §14.5 s'écrit []")
+	}
+	if len(got.PrinterTransports) != 0 {
+		t.Fatalf("transports annoncés = %+v alors qu'aucun n'est déclaré dans ce binaire",
+			got.PrinterTransports)
+	}
+}
+
 // stubDashboard is the four facts of §14.4 a station gets from its composition root.
 type stubDashboard struct{ facts DashboardFacts }
 

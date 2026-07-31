@@ -6,6 +6,8 @@ import (
 	"context"
 	"path/filepath"
 	"sort"
+
+	"openscale/internal/domain"
 )
 
 // This is the twin §5.1 calls `_other.go`, and it does NOT refuse: the button « Lister
@@ -55,6 +57,7 @@ func PrintQueues(ctx context.Context) ([]PrintQueue, error) {
 			seen[path] = true
 			out = append(out, PrintQueue{
 				Name:   path,
+				Key:    domain.DeviceKeyPath,
 				Detail: "nœud d'impression, à déclarer dans printer.options.path (transport devfile)",
 			})
 		}
