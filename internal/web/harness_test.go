@@ -88,6 +88,47 @@ type benchOptions struct {
 	// cmd/openscale hands them over. Empty by default: a bench wires no driver registry,
 	// which is exactly the case §14.5 has to answer without inventing anything.
 	printers []domain.DriverDescriptor
+	// catalogSources are the catalog sources this bench declares its binary was built
+	// with. It carries the SHIPPED one by default, and that is not decoration: controls 39
+	// and 46 read the schema to learn which key names a drop directory, so a bench that
+	// declared no source would run the routes of a binary in which no directory is ever
+	// probed — and would prove the probe works by never running it (ADR-052).
+	//
+	// It is written out by hand rather than imported from internal/catalog/localdrop:
+	// internal/web names no concrete driver, which is the third cut of §5.2 and what
+	// `make boundary` enforces. What ties the two spellings together is a test in the
+	// localdrop package, on the side that owns the name.
+	catalogSources []domain.DriverDescriptor
+}
+
+// shippedCatalogSources is what cmd/openscale registers, as far as validating a
+// configuration is concerned: the two sources of §10.1, their option schemas, and the one
+// key whose USE a control acts on.
+func shippedCatalogSources() []domain.DriverDescriptor {
+	shared := []domain.OptionSchema{
+		{Key: "separator", Kind: domain.OptionText},
+		{Key: "poll_interval_s", Kind: domain.OptionInt, Min: 1, Max: 3600},
+		{Key: "stable_polls", Kind: domain.OptionInt, Min: 2, Max: 60},
+		{Key: "max_file_size_mb", Kind: domain.OptionInt, Min: 1, Max: 512},
+		{Key: "max_image_size_kb", Kind: domain.OptionInt, Min: 16, Max: 4096},
+		{Key: "min_readable_ratio", Kind: domain.OptionRatio, Min: 0, Max: 1000},
+		{Key: "max_weighable_drop", Kind: domain.OptionRatio, Min: 0, Max: 500},
+		{Key: "max_archives", Kind: domain.OptionInt, Min: 1, Max: 1000},
+		{Key: "archive_days", Kind: domain.OptionInt, Min: 1, Max: 3650},
+		{Key: "failures_before_reject", Kind: domain.OptionInt, Min: 1, Max: 100},
+	}
+	drop := append([]domain.OptionSchema{
+		{Key: "directory", Kind: domain.OptionText, Use: domain.UseDropDirectory},
+	}, shared...)
+	share := append([]domain.OptionSchema{
+		{Key: "url", Kind: domain.OptionURL, Required: true},
+		{Key: "username", Kind: domain.OptionText},
+		{Key: "password", Kind: domain.OptionText},
+	}, shared...)
+	return []domain.DriverDescriptor{
+		{ID: domain.CatalogSourceLocalDrop, Label: "Répertoire de dépôt local", Options: drop},
+		{ID: domain.CatalogSourceWebDAV, Label: "Partage WebDAV", Options: share},
+	}
 }
 
 // newBench starts a station, wires the routes over it and stops both when the test
@@ -96,7 +137,8 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 	t.Helper()
 
 	clock := fake.NewClock(epoch)
-	o := benchOptions{clock: clock, catalog: garlicCatalog(), images: fstest.MapFS{}}
+	o := benchOptions{clock: clock, catalog: garlicCatalog(), images: fstest.MapFS{},
+		catalogSources: shippedCatalogSources()}
 	for _, f := range tweak {
 		f(&o)
 	}
@@ -142,8 +184,10 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		Dashboard:  o.dashboard,
 		Update:     o.update,
 		Binder:     o.binder,
-		Registries: domain.Registries{Paths: o.paths, Printers: o.printers},
-		Version:    "test",
+		Registries: domain.Registries{
+			Paths: o.paths, Printers: o.printers, CatalogSources: o.catalogSources,
+		},
+		Version: "test",
 	}
 	if !o.noStore {
 		options.Store = b.store

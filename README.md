@@ -91,12 +91,13 @@ binaire — est dans [`docs/05-demarrage-rapide.md`](docs/05-demarrage-rapide.md
 
 | Fichier | Contenu |
 |---|---|
-| [`docs/02-architecture.md`](docs/02-architecture.md) | La référence : 22 sections, 51 ADR, le code des interfaces |
+| [`docs/02-architecture.md`](docs/02-architecture.md) | La référence : 22 sections, 52 ADR, le code des interfaces |
 | [`docs/03-glossaire.md`](docs/03-glossaire.md) | Le lexique de nommage, qui fait autorité |
 | [`docs/04-parametrage-sato.md`](docs/04-parametrage-sato.md) | Ce que l'imprimante a en mémoire, et la géométrie de l'étiquette |
 | [`docs/05-demarrage-rapide.md`](docs/05-demarrage-rapide.md) | La démonstration pas à pas, et les commandes du binaire |
 | [`docs/06-developpement.md`](docs/06-developpement.md) | Cibles de construction, règles vérifiées, fabrication et publication |
 | [`docs/07-ajouter-un-materiel.md`](docs/07-ajouter-un-materiel.md) | **Brancher une balance, une imprimante ou un transport non gérés** : la marche à suivre, le banc de conformité, les pièges déjà payés |
+| [`docs/08-ajouter-une-source-de-catalogue.md`](docs/08-ajouter-une-source-de-catalogue.md) | **Aller chercher les produits ailleurs que dans un CSV** : API d'un ERP, autre format, autre dépôt. Les deux axes, l'identité d'un lot, l'acquittement sans suppression |
 | [`docs/01-etat-des-lieux.md`](docs/01-etat-des-lieux.md) | L'application d'origine, ses règles et ses défauts |
 | [`docs/00-donnees-retirees.md`](docs/00-donnees-retirees.md) | Coordonnées et adresses retirées du dépôt, et pourquoi |
 | [`docs/reference-existant/`](docs/reference-existant/) | Analyse détaillée du legacy, à consulter au besoin |

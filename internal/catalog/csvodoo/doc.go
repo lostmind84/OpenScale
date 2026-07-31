@@ -18,7 +18,13 @@
 // bytes of base64. That is what lets the last-resort ceiling stay as low as 8 MB
 // (§10.1-3, bloquant-9).
 //
-// The package DECIDES nothing about a product: it translates the two pieces of Odoo
-// vocabulary — the category letter, the unit wording — and hands the row to
-// catalog.Qualify, which owns the three-outcome question of §10.3.
+// The package DECIDES nothing about a product. It is a catalog.RowReader: it translates
+// the two pieces of Odoo vocabulary — the category letter, the unit wording —, unwraps
+// the seventh column from its base64, and hands one row at a time to catalog.Assemble,
+// which owns the three-outcome question of §10.3 and owns it for every format (ADR-052).
+//
+// The one guard that stayed here is the CEILING OF THE FILE, because it is the only one
+// about a file: how big a decoded photo may be and how few unreadable lines a catalog may
+// carry hold for a producer that publishes no file at all, and they live next to the
+// assembler that applies them.
 package csvodoo

@@ -365,7 +365,8 @@ où `<paquet>.ID` et `<paquet>.Label` s'ajoutent dans la graphie exacte du regis
 
 ### Le contexte minimal à charger
 
-`02-architecture.md` pèse **580 Ko** et ne se lit pas en entier. Dans l'ordre :
+`02-architecture.md` pèse **617 Ko** — 632 637 octets, mesuré le 31/07/2026 — et ne se lit pas
+en entier. Dans l'ordre :
 `CLAUDE.md` ; `internal/scale/doc.go` **ou** `internal/printing/doc.go` ; le paquet
 `example/` correspondant, `TODO(driver):` compris ; les sections 1, 5, 7 et 8 d'ici ; et
 **seulement** les § cités par les commentaires du code rencontré.

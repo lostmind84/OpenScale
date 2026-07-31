@@ -65,7 +65,8 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `internal/catalogue/` | `internal/catalog/` | Orthographe US, cohérente avec le reste du code. |
 | `internal/catalogue/depot_local/` | `internal/catalog/localdrop/` | Répertoire de dépôt local. Go : pas d'underscore dans un nom de paquet. La valeur de configuration correspondante est `local_drop` (snake_case). |
 | `internal/catalogue/webdav/` | `internal/catalog/webdav/` | Protocole, inchangé. |
-| `internal/catalogue/csvodoo/` | `internal/catalog/csvodoo/` | Déjà neutre (format d'échange Odoo). |
+| `internal/catalogue/csvodoo/` | `internal/catalog/csvodoo/` | Déjà neutre (format d'échange Odoo). Depuis ADR-052 c'est un **`catalog.RowReader`** et rien d'autre : le format, pas ce qu'un catalogue décide. |
+| — | `internal/catalog/example/` | Paquet neuf (ADR-052) : une source qui lit un **ERP par HTTP**, pagine en flux, acquitte sans rien supprimer, et que **rien n'enregistre**. Nom aligné sur `internal/scale/example` et `internal/printing/example` — trois points d'enfichage, un mot. |
 | `internal/stockage/` | `internal/store/` | Go idiomatique : `store` plutôt que `storage` ou `persistence` pour une couche de dépôts SQLite. |
 | `internal/poste/` | `internal/station/` | « poste de pesée » = weighing station. `terminal` évoque un TTY, `till` une caisse enregistreuse (faux sens : ce poste n'encaisse pas). |
 | `internal/poste/hub.go` | `internal/station/hub.go` | Déjà anglais. |
@@ -206,7 +207,10 @@ mot français recouvre plusieurs concepts (ou l'inverse) ; la section
 | `Balance` (interface) | `Scale` |
 | `Imprimante` (interface) | `Printer` |
 | `Transport` (interface) | `Transport` |
-| `SourceCatalogue` (interface) | `CatalogSource` |
+| `SourceCatalogue` (interface) | `CatalogSource` — l'ACQUISITION seule depuis ADR-052 : où l'on va chercher, et ce qu'on doit au producteur ensuite |
+| — | `catalog.RowReader` (interface) — le FORMAT : `Next() (Row, []Finding, error)`, en flux, une ligne à la fois. `io.EOF` termine, `catalog.ErrRowUnreadable` écarte **une** ligne sans perdre les autres |
+| — | `catalog.Assemble` — ce qu'un CATALOGUE décide, une fois pour tous les formats. `AssembleOptions` / `AssembleOptionsFrom` / `PhotosWanted` l'accompagnent |
+| — | `catalog.Fingerprint` — l'identité d'un lot que personne n'a pu hacher en le lisant : elle porte sur les **produits**, jamais sur la sérialisation du producteur |
 | `Horloge` (interface) | `Clock` |
 | `JournalTechnique` (interface) | `TechnicalLog` |
 | `Decodeur` (interface) | `Decoder` |
@@ -490,7 +494,7 @@ portent.
 | Une photo, une décision humaine, un contenu banni | `Image.SHA256` / `ByteCount` / `Format` / `Width` / `Height` / `SeenAt` · `LocalDecision.ProductID` / `Offered` / `MinWeightG` / `Reason` / `DecidedAt` / `DecidedBy` · `QuarantineEntry.SHA256` / `FailureCount` / `FirstFailureAt` / `LastFailureAt` / `Code` / `Reason` |
 | Les blocs de la configuration, un champ par bloc de §11.2 | `Config.Version` / `Readme` / `ModifiedAt` / `Station` / `Network` / `UI` / `Scale` / `Printer` / `Pricing` / `Barcode` / `Limits` / `Stability` / `Catalog` / `Journal` / `Admin` / `Maintenance` |
 | Le contenu de chaque bloc | `StationConfig.Number` / `Name` / `Coop` · `NetworkConfig.Listen` / `AdminOnLAN` · `UIConfig.Language` / `Sound` / `IdleTimeoutSeconds` / `ReprintWindowSeconds` / `ShowGridPrices` · `ScaleConfig.Type` / `Present` / `ManualEntryAllowed` / `DegradeAfterSeconds` / `Options` · `PrinterConfig.Type` / `Template` / `Options` · `CatalogConfig.Type` / `Options` / `Images` / `Categories` / `FallbackCategory` · `ImagesConfig.Source` / `Path` · `JournalConfig.MaxRows` / `MaxDays` / `MaxTechnical` · `AdminConfig.PasswordHash` / `RecoveryCodeHash` / `SessionMinutes` / `AttemptsPerMinute` · `MaintenanceConfig.WeeklyIntegrityCheck` / `DiskAlertMB` · `BarcodeConfig.VerifyReferenceCheckDigit` |
-| Ce qu'un binaire sait charger, et ce qu'un driver déclare | `Registries.Scales` / `Printers` / `Transports` / `CatalogSources` / `Templates` / `Paths` · `DriverDescriptor.ID` / `Label` / `Options` · `OptionSchema.Key` / `Kind` / `Required` / `Min` / `Max` / `Values` / `Options` |
+| Ce qu'un binaire sait charger, et ce qu'un driver déclare | `Registries.Scales` / `Printers` / `Transports` / `CatalogSources` / `Templates` / `Paths` · `DriverDescriptor.ID` / `Label` / `Options` · `OptionSchema.Key` / `Kind` / `Required` / `Use` / `Min` / `Max` / `Values` / `Options` · `OptionUse` : `UseNone` / `UseDropDirectory` — ce que la valeur **désigne**, là où `Kind` dit quelle **forme** elle a (ADR-052) |
 | Les deux points d'injection d'une liaison série | `Options.Open` / `Clock` |
 
 ---
@@ -576,7 +580,7 @@ portent.
 | `stabilite{peremption_plancher_ms, peremption_plafond_ms, facteur_peremption, taux_min_bloquant, fenetre_taux_min_ms}` | `stability{expiry_floor_ms, expiry_ceiling_ms, expiry_factor, min_latch_rate, latch_rate_window_ms}` |
 | `catalogue.type : depot_local \| webdav` | `catalog.type : local_drop \| webdav` |
 | `catalogue.options{url, utilisateur, mot_de_passe, separateur}` | `catalog.options{url, username, password, separator}` |
-| clé sans équivalent dans l'existant, née d'ADR-038 : le répertoire surveillé par `depot_local` | `catalog.options.directory` — `local_drop` **seule** (contrôle 47) ; le paquet la déclare sous `localdrop.DirectoryOption`, et `internal/domain` la réécrit en `catalogDirectoryOption` parce que le noyau n'importe aucun driver |
+| clé sans équivalent dans l'existant, née d'ADR-038 : le répertoire surveillé par `depot_local` | `catalog.options.directory` — le paquet la déclare sous `localdrop.DirectoryOption`, **avec `Use: domain.UseDropDirectory`**. Depuis ADR-052 `internal/domain` ne l'épelle plus : les contrôles 39 et 46 lisent l'usage déclaré par le schéma, et une source qui ne surveille aucun répertoire n'est plus refusée par un `if` qui la nomme |
 | `catalogue.options{scrutation_s, stabilite_scrutations}` | `catalog.options{poll_interval_s, stable_polls}` |
 | `catalogue.options{taille_max_mo, taille_max_image_ko}` | `catalog.options{max_file_size_mb, max_image_size_kb}` |
 | `catalogue.options{taux_minimal_lisibles, baisse_max_pesables, echecs_avant_rejet}` | `catalog.options{min_readable_ratio, max_weighable_drop, failures_before_reject}` |
@@ -942,6 +946,74 @@ français.
 > supprimé) apparaissent dans des commentaires et des tests de L2/L3, portés par la couche
 > qui les émettra en L6/L7. Ils ne sont **pas** des constantes du code aujourd'hui. Le
 > numéro leur est réservé ; le libellé viendra avec l'émetteur.
+
+---
+
+## Vocabulaire de prose
+
+> Les sections précédentes traduisent des **identifiants**. Celle-ci concerne la **prose
+> française** des documents, qui obéit à une règle différente : elle ne traduit pas tout, et
+> ce qu'elle traduit était déjà décidé par l'usage avant d'être écrit ici.
+
+Cette table est **relevée, pas décrétée** — mesurée le 31/07/2026 sur les fichiers `.md` du
+dépôt, et reproductible :
+
+```bash
+grep -roiE "<motif>" --include='*.md' docs SUIVI.md README.md CLAUDE.md \
+  TROUBLESHOOTING.md INSTALLATION.md SECURITY.md | wc -l
+```
+
+Les occurrences anglaises comptées ci-dessous sont pour l'essentiel des **identifiants Go entre
+accents graves** — `ports.Batch`, `domain.Template`, `Finding`. C'est exactement la règle :
+**le mot français dans la phrase, l'identifiant anglais dans le code.**
+
+### Ce qui se dit en français
+
+| Prose | n | Concept anglais | n (surtout identifiants) |
+|---|---|---|---|
+| trame | 168 | frame | 64 |
+| gabarit | 174 | template | 82 |
+| banc | 152 | bench | 3 |
+| empreinte | 116 | fingerprint | 29 |
+| lot | 101 | batch | 34 |
+| garde-fou, garde | 80 | guard | 48 |
+| repli | 67 | fallback | 33 |
+| rayon | 40 | shelf | 0 |
+| signalement | 39 | finding | 28 |
+| quarantaine | 36 | quarantine | 13 |
+| acquittement | 33 | acknowledgement | 21 |
+| veille | 27 | watcher | 2 |
+| scrutation | 22 | polling | 17 |
+
+### Ce qui reste en anglais
+
+Aucun de ces mots n'a d'équivalent français **en usage** ; les traduire oblige un développeur
+francophone à relire la phrase pour deviner l'anglais derrière, ce qui est le seul effet
+mesurable de la traduction.
+
+| Anglais | n | Français « possible » | n | Pourquoi il est écarté |
+|---|---|---|---|---|
+| driver | 379 | pilote | 74 | « pilote » subsiste dans les textes anciens ; l'anglais l'emporte cinq contre un et c'est le mot du registre |
+| goroutine | 58 | fil d'exécution | 0 | terme du langage, intraduisible sans le trahir |
+| snapshot | 35 | instantané | 1 | « instantané » lit comme une photo |
+| timeout | 32 | délai d'attente | 0 | trois mots pour un |
+| upsert | 6 | — | 0 | aucun mot français ne dit « insérer ou mettre à jour » |
+| backoff | 6 | temporisation | 2 | « temporisation » perd la croissance de l'attente |
+| hook | — | crochet | — | « crochet » désigne le caractère `[` dans ce dépôt |
+| seam | — | couture | 0 | **écarté le 31/07/2026** : « couture » évoque la machine à coudre. Écrire ce que la chose **fait** — « le contrat entre le format et l'acquisition », « le point d'injection que laisse `Options.Open` » |
+
+### Trois mots interdits, et la date où ils ont été retirés
+
+| Écrit | Pour | Retiré le | Pourquoi |
+|---|---|---|---|
+| couture | *seam* | 31/07/2026 | pas un terme du métier en français ; évoque le textile |
+| assembleur | *assembler* | 31/07/2026 | **faux ami** : en français, l'assembleur est le langage d'assemblage. Dire « l'assemblage », ou nommer `catalog.Assemble` |
+| déballer | *unwrap* | 31/07/2026 | « déballer » est un colis. Dire « décoder » ou « extraire » |
+
+**Le test qui tranche, et il est le seul :** si un développeur francophone doit s'arrêter sur
+le mot pour deviner l'anglais derrière, le mot est mauvais. Trois issues, dans cet ordre —
+employer le mot maison de la première table ; garder l'anglais s'il est dans la seconde ;
+sinon **décrire ce que la chose fait** plutôt qu'inventer un néologisme.
 
 ---
 

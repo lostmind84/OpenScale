@@ -69,13 +69,6 @@ const (
 	ImageSourceNone = "none"
 )
 
-// catalogDirectoryOption is the key control 46 and control 47 both name.
-//
-// It is spelled here rather than imported from internal/catalog/localdrop: the domain
-// depends on NOTHING, and tools/boundary is what keeps that true. The two spellings are
-// tied together by a test in the localdrop package, which is the side that owns the name.
-const catalogDirectoryOption = "directory"
-
 // fingerprintLength is how many hexadecimal characters the dashboard shows.
 //
 // Eight is what makes "do the four stations display the same string?" a check
@@ -728,10 +721,41 @@ func (k OptionKind) String() string {
 // check the OPTIONS of a driver instead of only its type name: `port` among the
 // enumerated ports, `queue` among the queues REALLY visible, `address` as
 // host:port (§11.3).
+// OptionUse names what a value DESIGNATES, when knowing that lets a control judge it
+// without knowing which driver declared the key.
+//
+// Kind says what SHAPE a value has — text, a whole number, a web address. Use says what
+// it POINTS AT, and only the second lets Config.Validate probe a directory or refuse an
+// HTTP host on a key it has never heard of.
+//
+// It exists because the three controls that did this work were three `if` statements
+// naming `local_drop` and `webdav` INSIDE THE DOMAIN: a third catalog source could not
+// be added without editing this file, which is the exact opposite of a plug-in point.
+// The guards themselves have not moved an inch — what moved is who declares them
+// (ADR-052).
+type OptionUse uint8
+
+const (
+	// UseNone is the zero value, and what almost every option declares: the schema says
+	// nothing beyond the shape of the value.
+	UseNone OptionUse = iota
+	// UseDropDirectory is a directory ON THIS MACHINE the service must be able to list,
+	// write into and delete from — the acknowledgement of §10.1 IS a deletion.
+	//
+	// It carries the guard of important-11: a value that names an HTTP(S) host is refused
+	// outright. A "local" directory reached through an account and a password is the Z:
+	// drive of the legacy application under another name, and a source that fetches from
+	// a share is a different source, with a different acknowledgement.
+	UseDropDirectory
+)
+
 type OptionSchema struct {
 	Key      string
 	Kind     OptionKind
 	Required bool
+	// Use is what the value points at, when a control can act on knowing it. Almost every
+	// option leaves it at UseNone.
+	Use OptionUse
 	// Values is the closed list of an enum, and for an option the platform can
 	// enumerate -- a serial port, a print queue -- the values it REALLY found. An
 	// empty list means "we could not enumerate": the form is checked, membership is
@@ -898,6 +922,70 @@ func descriptorByID(list []DriverDescriptor, id string) *DriverDescriptor {
 	return nil
 }
 
+// optionsUsedAs reports the options a named driver declares for a given use.
+//
+// It is what lets a control act on WHAT A VALUE POINTS AT without naming a driver: the
+// key that carries a drop directory is `directory` in the source shipped today and may be
+// anything in the next one, and this file is not entitled to a second copy of that
+// decision. An unknown driver yields nothing, which is the honest behaviour of a
+// validation run against a registry that does not carry it.
+func optionsUsedAs(list []DriverDescriptor, id string, use OptionUse) []OptionSchema {
+	descriptor := descriptorByID(list, id)
+	if descriptor == nil {
+		return nil
+	}
+	var out []OptionSchema
+	for _, schema := range descriptor.Options {
+		if schema.Use == use {
+			out = append(out, schema)
+		}
+	}
+	return out
+}
+
+// sourcesFetchingByURL reports the sources that go and GET the catalog from an address.
+//
+// It is the suggestion control 39 offers when somebody types a web address into a drop
+// path: « choose the source that fetches from a share » is only useful if it can say
+// which one that is, and reading the schemas answers it for a source that did not exist
+// when the control was written.
+func sourcesFetchingByURL(list []DriverDescriptor) []string {
+	var out []string
+	for _, descriptor := range list {
+		for _, schema := range descriptor.Options {
+			if schema.Kind == OptionURL {
+				out = append(out, descriptor.ID)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// driversDeclaring reports which OTHER drivers of a list declare a given option key.
+//
+// It turns « option inconnue du driver "webdav" » into « … c'est "local_drop" qui la
+// déclare », which is the difference between a refusal and a piece of advice — and it
+// does it for every driver family and every key, where the control it replaces knew one
+// key and two sources by name.
+func driversDeclaring(list []DriverDescriptor, key, except string) []string {
+	var out []string
+	for _, descriptor := range list {
+		if descriptor.ID == except {
+			continue
+		}
+		for _, schema := range descriptor.Options {
+			if schema.Key == key {
+				out = append(out, descriptor.ID)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // --- Validation ----------------------------------------------------------------
 
 // Validate returns ALL the faults, not the first one: the administration screen is
@@ -985,11 +1073,11 @@ func (c *Config) Validate(reg Registries) []Fault {
 
 	// 6. scale.options validated by the schema the scale driver declares.
 	faults = append(faults, validateOptions("scale.options", c.Scale.Options,
-		descriptorByID(reg.Scales, c.Scale.Type))...)
+		descriptorByID(reg.Scales, c.Scale.Type), reg.Scales)...)
 
 	// 7. printer.options validated by the schema the printer driver declares.
 	faults = append(faults, validateOptions("printer.options", c.Printer.Options,
-		descriptorByID(reg.Printers, c.Printer.Type))...)
+		descriptorByID(reg.Printers, c.Printer.Type), reg.Printers)...)
 
 	// 8. printer.options.transport is one of the registered transports.
 	transport, hasTransport := c.Printer.Options.Text("transport")
@@ -1001,7 +1089,7 @@ func (c *Config) Validate(reg Registries) []Fault {
 
 	// 9. catalog.options validated by the schema the source declares.
 	faults = append(faults, validateOptions("catalog.options", c.Catalog.Options,
-		descriptorByID(reg.CatalogSources, c.Catalog.Type))...)
+		descriptorByID(reg.CatalogSources, c.Catalog.Type), reg.CatalogSources)...)
 
 	// 10. At least one tier. Dual pricing is not a boolean, it is the cardinality of
 	//     the grid (§6.3).
@@ -1273,24 +1361,26 @@ func (c *Config) Validate(reg Registries) []Fault {
 		}
 	}
 
-	// 39. No HTTP(S) host behind a drop path (important-11). local_drop is a
-	//     directory the service OWNS and CREATES: a "local" directory demanding an
-	//     account and a password would be the Z: drive of the legacy application under
-	//     another name.
-	if c.Catalog.Type == CatalogSourceLocalDrop {
-		for _, key := range c.Catalog.Options.Keys() {
-			if value, ok := c.Catalog.Options.Text(key); ok && isHTTPURL(value) {
-				failWith("catalog.options."+key, []string{CatalogSourceWebDAV},
-					"%q est un hôte HTTP(S) derrière un chemin de dépôt : c'est la source %q qu'il faut choisir",
-					value, CatalogSourceWebDAV)
-			}
-		}
-		for _, secret := range []string{"username", "password"} {
-			if c.Catalog.Options.Has(secret) {
-				failWith("catalog.options."+secret, []string{CatalogSourceWebDAV},
-					"%q ne porte ni utilisateur ni mot de passe : il n'y a aucun secret à porter pour lire un répertoire qu'on possède",
-					CatalogSourceLocalDrop)
-			}
+	// 39. No HTTP(S) host behind a DROP DIRECTORY (important-11). A source that declares
+	//     one watches a directory it can list and delete from; one that demands an account
+	//     and a password is a different source, with a different acknowledgement — and a
+	//     "local" directory reached that way would be the Z: drive of the legacy
+	//     application under another name.
+	//
+	//     The rule reads the SCHEMA and names no source. It used to be an `if` on
+	//     `local_drop`, which was true only because `local_drop` was the only source that
+	//     watched a directory; it now holds for the next one without this file being
+	//     edited (ADR-052).
+	//
+	//     Its second half — « local_drop carries neither user nor password » — is GONE
+	//     and not lost: control 9 already refuses a key the chosen source does not
+	//     declare, and it now names the source that does. Two controls for one fact is how
+	//     a third source ends up refused by the one nobody remembered to extend.
+	for _, schema := range optionsUsedAs(reg.CatalogSources, c.Catalog.Type, UseDropDirectory) {
+		if value, ok := c.Catalog.Options.Text(schema.Key); ok && isHTTPURL(value) {
+			failWith("catalog.options."+schema.Key, sourcesFetchingByURL(reg.CatalogSources),
+				"%q est un hôte HTTP(S) derrière un chemin de dépôt : c'est une source qui va chercher le fichier sur un partage qu'il faut choisir",
+				value)
 		}
 	}
 
@@ -1357,29 +1447,37 @@ func (c *Config) Validate(reg Registries) []Fault {
 		}
 	}
 
-	// 46. The NAMED drop directory must be one the SERVICE can really work in (§10.1).
+	// 46. A NAMED drop directory must be one the SERVICE can really work in (§10.1).
 	//     Empty is the shipped case -- <data>/catalog/incoming, which the service owns
 	//     and creates -- so there is nothing to probe. A nil probe means "we cannot
 	//     know": `openscale config validate` on a laptop validates the form and not the
 	//     existence, exactly like control 44 on catalog.images.path.
-	if c.Catalog.Type == CatalogSourceLocalDrop && reg.Paths != nil {
-		if directory, ok := c.Catalog.Options.Text(catalogDirectoryOption); ok {
+	//
+	//     Like 39 it reads the schema: WHICH key names a directory is the source's
+	//     declaration, and this file has no business holding a second copy of it.
+	if reg.Paths != nil {
+		for _, schema := range optionsUsedAs(reg.CatalogSources, c.Catalog.Type, UseDropDirectory) {
+			directory, ok := c.Catalog.Options.Text(schema.Key)
+			if !ok {
+				continue
+			}
 			if named := strings.TrimSpace(directory); named != "" {
 				if err := reg.Paths.Droppable(named); err != nil {
-					fail("catalog.options."+catalogDirectoryOption, "%s", err)
+					fail("catalog.options."+schema.Key, "%s", err)
 				}
 			}
 		}
 	}
 
-	// 47. The symmetry of 39: a drop directory means nothing to a WebDAV share, and a
-	//     key silently ignored is how a station ends up watching a directory nobody
-	//     believes it watches.
-	if c.Catalog.Type == CatalogSourceWebDAV && c.Catalog.Options.Has(catalogDirectoryOption) {
-		failWith("catalog.options."+catalogDirectoryOption, []string{CatalogSourceLocalDrop},
-			"%q ne surveille pas un répertoire de cette machine : c'est la source %q qui en surveille un",
-			CatalogSourceWebDAV, CatalogSourceLocalDrop)
-	}
+	// 47. REMOVED, and its number left as a hole the way 37's was (ADR-044): §11.3 names
+	//     its controls by number, so renumbering what follows would falsify every
+	//     reference written elsewhere.
+	//
+	//     It said « a drop directory means nothing to a WebDAV share ». That was true, and
+	//     it was already what control 9 refuses — a key the chosen source does not declare
+	//     — for every source, present and to come. The only thing 47 added was its
+	//     sentence, and that sentence moved into control 9, which now NAMES the source
+	//     that does declare the key.
 
 	// 48. update.repository is an owner/repo PAIR, never a URL.
 	//
@@ -1434,7 +1532,11 @@ func validateNumberingPlan(plan map[string]PrefixPlan) []Fault {
 // An unregistered driver -- no descriptor at all -- yields no fault: inventing a
 // schema for a driver that has not been written yet would be a second source of
 // truth for something the driver owns (ADR-025).
-func validateOptions(field string, options DriverOptions, descriptor *DriverDescriptor) []Fault {
+// family is the whole list the descriptor was drawn from — every scale, every printer,
+// every catalog source this binary carries. It is read for ONE purpose: telling somebody
+// which driver declares the key they typed under the wrong one.
+func validateOptions(field string, options DriverOptions, descriptor *DriverDescriptor,
+	family []DriverDescriptor) []Fault {
 	if descriptor == nil {
 		return nil
 	}
@@ -1462,15 +1564,35 @@ func validateOptions(field string, options DriverOptions, descriptor *DriverDesc
 		faults = append(faults, schema.check(path, raw)...)
 	}
 	for _, key := range options.Keys() {
-		if !declared[key] {
-			faults = append(faults, Fault{
-				Field:   field + "." + key,
-				Message: fmt.Sprintf("option inconnue du driver %q", descriptor.ID),
-				Values:  names,
-			})
+		if declared[key] {
+			continue
 		}
+		// A key nobody declared is a refusal; a key ANOTHER driver of the same family
+		// declares is a piece of advice, and it is the one that matters — `directory`
+		// under a WebDAV share, `username` under a local drop, `queue` under a TCP
+		// transport are all the same mistake: the right key, the wrong driver. Saying so
+		// is what the two dedicated controls that used to name `local_drop` and `webdav`
+		// by hand were really worth (ADR-052).
+		message := fmt.Sprintf("option inconnue du driver %q", descriptor.ID)
+		if declaredBy := driversDeclaring(family, key, descriptor.ID); len(declaredBy) > 0 {
+			message = fmt.Sprintf("%s : c'est %s qui la déclare", message,
+				quotedList(declaredBy))
+		}
+		faults = append(faults, Fault{Field: field + "." + key, Message: message, Values: names})
 	}
 	return faults
+}
+
+// quotedList spells a list of driver names the way a fault reads it aloud.
+func quotedList(names []string) string {
+	quoted := make([]string, 0, len(names))
+	for _, name := range names {
+		quoted = append(quoted, fmt.Sprintf("%q", name))
+	}
+	if len(quoted) < 2 {
+		return strings.Join(quoted, "")
+	}
+	return strings.Join(quoted[:len(quoted)-1], ", ") + " ou " + quoted[len(quoted)-1]
 }
 
 // isEmptyText reports whether a raw option value is the empty string, which is how a
@@ -1555,7 +1677,9 @@ func (s OptionSchema) check(field string, raw json.RawMessage) []Fault {
 		if !ok {
 			return fault("attendu : %s", s.Kind)
 		}
-		return validateOptions(field, nested, &DriverDescriptor{ID: s.Key, Options: s.Options})
+		// A nested group has no family: the only driver that could declare its keys is the
+		// one that declared the group, so there is nobody to point at.
+		return validateOptions(field, nested, &DriverDescriptor{ID: s.Key, Options: s.Options}, nil)
 	}
 	return nil
 }

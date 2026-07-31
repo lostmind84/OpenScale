@@ -421,7 +421,7 @@ func Descriptor() catalog.Source {
 		ID:    domain.CatalogSourceLocalDrop,
 		Label: Label,
 		Options: []domain.OptionSchema{
-			{Key: DirectoryOption, Kind: domain.OptionText},
+			{Key: DirectoryOption, Kind: domain.OptionText, Use: domain.UseDropDirectory},
 			{Key: "separator", Kind: domain.OptionText},
 			{Key: "poll_interval_s", Kind: domain.OptionInt, Min: 1, Max: 3600},
 			{Key: "stable_polls", Kind: domain.OptionInt, Min: 2, Max: 60},

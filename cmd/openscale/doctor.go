@@ -11,7 +11,6 @@ import (
 	"os"
 	"time"
 
-	"openscale/internal/catalog"
 	"openscale/internal/diag"
 	"openscale/internal/domain"
 	"openscale/internal/platform"
@@ -123,21 +122,6 @@ func doctorSettings(o doctorOptions, clock platform.SystemClock) diag.Options {
 		OpenDatabase: openDatabaseForDiagnosis(clock),
 		Migrations:   store.MigrationCount(),
 	}
-}
-
-// catalogSourceDescriptors is the catalog half of the registries a configuration is checked
-// against (§11.3).
-//
-// It is built HERE because the diagnosis needs it and `serve` does not build it: a control
-// that announced « configuration valide » without having looked at catalog.options would be
-// announcing something nobody verified, and the difference between « aucune faute » and
-// « aucune faute que j'aie su chercher » is the whole value of this control.
-func catalogSourceDescriptors() []domain.DriverDescriptor {
-	registry := catalog.NewRegistry()
-	for _, source := range catalogSources() {
-		registry.Register(source)
-	}
-	return registry.Descriptors()
 }
 
 // serviceAddress reports where the running station is asked.

@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -282,10 +283,9 @@ func checkDriverImports(root string, report func(string, ...any)) {
 	if len(drivers) == 0 {
 		report("coupe 2 : aucun paquet driver trouvé sous internal/.\n"+
 			"       Un paquet driver est un paquet qui expose une entrée de registre — une déclaration\n"+
-			"       exportée de type %s.Driver ou %s.Driver. Si ces types ont été renommés,\n"+
+			"       exportée de l'un des types %s. Si ces types ont été renommés,\n"+
 			"       renommez-les aussi dans tools/boundary/main.go : sans cela la coupe 2 passe au vert\n"+
-			"       sur n'importe quoi.",
-			shortName(scaleRegistryPackage), shortName(printerRegistryPackage))
+			"       sur n'importe quoi.", registryTypeNames())
 		return
 	}
 
@@ -321,25 +321,49 @@ func checkDriverImports(root string, report func(string, ...any)) {
 const cut2Violation = "%s:%d importe %s — coupe 2 : un seul fichier de l'arbre nomme un driver concret.\n" +
 	"       %s est un paquet driver parce qu'il expose une entrée de registre (%s).\n" +
 	"       Selon ce dont ce fichier a besoin :\n" +
-	"        1. un driver INSTANCIÉ — il ne le construit pas. Il reçoit un ports.Scale ou un\n" +
-	"           ports.Printer que la racine de composition lui passe ; cmd/openscale/serve.go\n" +
-	"           montre le câblage.\n" +
+	"        1. un driver INSTANCIÉ — il ne le construit pas. Il reçoit un ports.Scale, un\n" +
+	"           ports.Printer ou un ports.CatalogSource que la racine de composition lui passe ;\n" +
+	"           cmd/openscale/serve.go montre le câblage.\n" +
 	"        2. une fonction que ce paquet héberge SANS QU'ELLE SOIT LE DRIVER — elle n'a rien à\n" +
-	"           faire là. Remontez-la dans internal/printing ou internal/scale, qui ne sont pas\n" +
-	"           des paquets drivers, et importez celui-là. printing.EncodePNG a fait exactement\n" +
-	"           ce trajet : internal/printing/encode.go dit pourquoi.\n" +
-	"        3. ENREGISTRER un driver de plus — la ligne va dans scaleRegistry ou printerRegistry\n" +
-	"           de %s, et nulle part ailleurs. C'est la « ONE LINE » de §5.2.\n" +
+	"           faire là. Remontez-la dans internal/printing, internal/scale ou internal/catalog,\n" +
+	"           qui ne sont pas des paquets drivers, et importez celui-là. printing.EncodePNG a\n" +
+	"           fait exactement ce trajet : internal/printing/encode.go dit pourquoi.\n" +
+	"        3. ENREGISTRER un driver de plus — la ligne va dans scaleRegistry, printerRegistry ou\n" +
+	"           catalogSourceRegistry de %s, et nulle part ailleurs. C'est la « ONE LINE »\n" +
+	"           de §5.2.\n" +
 	"       La liste des paquets drivers n'est écrite nulle part et ne s'allonge pas à la main :\n" +
-	"       c'est tout paquet qui expose une valeur scale.Driver ou printing.Driver."
+	"       c'est tout paquet qui expose une valeur scale.Driver, printing.Driver ou\n" +
+	"       catalog.Source."
 
-// The two packages that DEFINE what a driver is. Neither can match itself: inside them
-// the type is spelled Driver, and what is looked for is the QUALIFIED name a package
-// from outside has to write.
-const (
-	scaleRegistryPackage   = modulePath + "/internal/scale"
-	printerRegistryPackage = modulePath + "/internal/printing"
-)
+// The packages that DEFINE what a driver is, and the type each one accepts into its
+// registry. None can match itself: inside them the type is spelled without a qualifier,
+// and what is looked for is the QUALIFIED name a package from outside has to write.
+//
+// A TABLE and not three tests, because that is the whole idea of cut 2: it COMPUTES what
+// a driver package is instead of reading a list of names. A plug-in point added to §5.2
+// is one entry here, and the walk, the failure message and the refusal to find nothing all
+// follow from it.
+//
+// catalog.Source is the third, and it was missing. Cut 2 protected the scale and the
+// printer while `internal/web` could have imported `internal/catalog/localdrop` without a
+// word — the same class of defect as the cut that was announced for six lots and switched
+// off, one plug-in point over (ADR-052).
+var registryTypes = map[string]string{
+	modulePath + "/internal/scale":    "Driver",
+	modulePath + "/internal/printing": "Driver",
+	modulePath + "/internal/catalog":  "Source",
+}
+
+// registryTypeNames spells those types the way the failure message reads them aloud,
+// sorted so that two runs cannot phrase the same refusal differently.
+func registryTypeNames() string {
+	names := make([]string, 0, len(registryTypes))
+	for pkg, typeName := range registryTypes {
+		names = append(names, shortName(pkg)+"."+typeName)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
 
 // modulePath is the module of go.mod, which is what turns a directory into an import
 // path.
@@ -438,12 +462,12 @@ func registryType(expr ast.Expr, aliases map[string]string) (string, bool) {
 			prefix, expr = prefix+"*", node.X
 		case *ast.SelectorExpr:
 			qualifier, named := node.X.(*ast.Ident)
-			if !named || node.Sel.Name != "Driver" {
+			if !named {
 				return "", false
 			}
-			switch aliases[qualifier.Name] {
-			case scaleRegistryPackage, printerRegistryPackage:
-				return prefix + qualifier.Name + ".Driver", true
+			if want, isRegistry := registryTypes[aliases[qualifier.Name]]; isRegistry &&
+				node.Sel.Name == want {
+				return prefix + qualifier.Name + "." + want, true
 			}
 			return "", false
 		default:

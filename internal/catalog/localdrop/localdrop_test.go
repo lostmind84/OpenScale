@@ -975,12 +975,18 @@ func TestANamedDirectoryIsTheOneTheStationReallyWatches(t *testing.T) {
 }
 
 // TestTheDescriptorDeclaresTheDropDirectory: an option the schema does not carry is
-// refused by control 9 long before it could ever be honoured.
+// refused by control 9 long before it could ever be honoured, and an option whose USE the
+// schema does not carry is one the drop probe of control 46 will never look at.
 func TestTheDescriptorDeclaresTheDropDirectory(t *testing.T) {
 	for _, option := range Descriptor().Options {
 		if option.Key == DirectoryOption {
 			if option.Kind != domain.OptionText {
 				t.Errorf("le répertoire est déclaré %q, attendu du texte", option.Kind)
+			}
+			if option.Use != domain.UseDropDirectory {
+				t.Errorf("le répertoire n'est pas déclaré comme répertoire de dépôt : "+
+					"les contrôles 39 et 46 lisent cet usage, et rien d'autre ne leur dit "+
+					"que %q nomme un répertoire", DirectoryOption)
 			}
 			return
 		}
@@ -988,24 +994,34 @@ func TestTheDescriptorDeclaresTheDropDirectory(t *testing.T) {
 	t.Errorf("le descripteur ne déclare pas %q", DirectoryOption)
 }
 
-// TestTheDomainAndThisPackageSpellTheOptionTheSameWay: the domain may not import this
-// package — the boundary is checked by tools/boundary — so the key is written twice.
-// This is what makes the second spelling a duplicate rather than a divergence.
+// TestTheDomainActsOnTheUseThisPackageDeclares.
 //
-// The registries are empty on purpose: control 9 would refuse an undeclared key by
-// itself, and only a bare validation lets control 47 be heard alone.
-func TestTheDomainAndThisPackageSpellTheOptionTheSameWay(t *testing.T) {
+// The tie between the two sides USED to be control 47, which spelled `directory` inside
+// internal/domain: one key written twice, and a third source that could not be added
+// without editing the domain. The tie is now the SCHEMA — this package says which of its
+// keys names a drop directory, and the controls act on that declaration without knowing
+// any source by name (ADR-052).
+//
+// So what has to be proved is no longer that two spellings match, but that the
+// declaration REACHES the control: an HTTP host typed into the drop path is refused
+// (control 39, important-11) on a registry that carries nothing but this package's own
+// descriptor.
+func TestTheDomainActsOnTheUseThisPackageDeclares(t *testing.T) {
+	registry := catalog.NewRegistry()
+	registry.Register(Descriptor())
+	registries := domain.Registries{CatalogSources: registry.Descriptors()}
+
 	config := domain.Config{Catalog: domain.CatalogConfig{
-		Type: domain.CatalogSourceWebDAV,
+		Type: domain.CatalogSourceLocalDrop,
 		Options: driverOptions(t,
-			`{"url":"https://dav.example.org/","`+DirectoryOption+`":`+
-				strconv.Quote(`D:\catalogue`)+`}`),
+			`{"`+DirectoryOption+`":`+strconv.Quote("https://dav.example.org/partage")+`}`),
 	}}
 
-	for _, fault := range config.Validate(domain.Registries{}) {
+	for _, fault := range config.Validate(registries) {
 		if fault.Field == "catalog.options."+DirectoryOption {
 			return
 		}
 	}
-	t.Fatalf("le contrôle 47 ne nomme pas la clé %q que ce paquet déclare", DirectoryOption)
+	t.Fatalf("un hôte HTTP derrière %q n'est pas refusé : l'usage déclaré par ce paquet "+
+		"n'atteint pas le contrôle 39", DirectoryOption)
 }
