@@ -85,7 +85,7 @@ func TestTheBootstrapUnblocksWhatItExtracted(t *testing.T) {
 
 // TestTheInstallerDeclaresEveryParameterTheBootstrapPasses closes a silent hole.
 //
-// A -SessionPassword the installer does not declare is dropped by PowerShell. The station
+// A -AccountPassword the installer does not declare is dropped by PowerShell. The station
 // would come out with a random password, the volunteer would type the one they chose, and
 // nobody would know why the session refuses it.
 func TestTheInstallerDeclaresEveryParameterTheBootstrapPasses(t *testing.T) {
@@ -110,21 +110,21 @@ func TestTheInstallerDeclaresEveryParameterTheBootstrapPasses(t *testing.T) {
 	}
 }
 
-// TestTheSessionPasswordNeverReachesALogOrACommandLine.
+// TestTheAccountPasswordNeverReachesALogOrACommandLine.
 //
 // install.log stays on the station; the installation sheet goes to the binder. And an
 // argument on a command line is readable in the process list by ANY user of the machine —
 // which is why the bootstrap refuses to elevate itself when a password was given.
-func TestTheSessionPasswordNeverReachesALogOrACommandLine(t *testing.T) {
+func TestTheAccountPasswordNeverReachesALogOrACommandLine(t *testing.T) {
 	for _, name := range []string{bootstrapPath, "install.ps1"} {
 		script := codeOnly(readFile(t, filepath.Join("windows", name)))
 		for _, line := range strings.Split(script, "\n") {
-			if !strings.Contains(line, "SessionPassword") {
+			if !strings.Contains(line, "AccountPassword") {
 				continue
 			}
 			for _, forbidden := range []string{"Write-Host", "Write-Step", "Start-Process"} {
 				if strings.Contains(line, forbidden) {
-					t.Errorf("%s fait passer le mot de passe de session par %s :\n  %s",
+					t.Errorf("%s fait passer le mot de passe du compte par %s :\n  %s",
 						name, forbidden, strings.TrimSpace(line))
 				}
 			}
@@ -132,24 +132,30 @@ func TestTheSessionPasswordNeverReachesALogOrACommandLine(t *testing.T) {
 	}
 }
 
-// TestTheSessionPasswordHasAFloorAndAConfirmation.
+// TestTheBootstrapAsksTheFloorInsteadOfSpellingIt.
 //
-// Four characters is the arbitrage of 31/07/2026 — the password is already in clear in
-// Winlogon\DefaultPassword, so shortening it changes nothing for whoever touches the
-// station. What it does NOT excuse is a password typed wrong: a station whose session
-// nobody can open is a station nobody can repair.
-func TestTheSessionPasswordHasAFloorAndAConfirmation(t *testing.T) {
+// Four characters is the arbitrage of common.ps1, and Resolve-AccountPassword is its
+// authority — it refuses what the bootstrap's loop refuses. A bootstrap that spelled the
+// number again would be the second place to correct the day the floor moves, and the first
+// to disagree in silence: the question would accept what the installer rejects three steps
+// later, on a station whose volunteer has already answered everything.
+func TestTheBootstrapAsksTheFloorInsteadOfSpellingIt(t *testing.T) {
 	script := codeOnly(readFile(t, filepath.Join("windows", bootstrapPath)))
-	if !strings.Contains(script, "MinimumPasswordLength = 4") {
-		t.Errorf("%s ne déclare pas « MinimumPasswordLength = 4 » : le plancher du "+
-			"31/07/2026 n'est plus lisible dans le script", bootstrapPath)
+	if regexp.MustCompile(`MinimumPasswordLength\s*=\s*\d`).MatchString(script) {
+		t.Errorf("%s redéclare le plancher du mot de passe : common.ps1 le porte déjà, et "+
+			"Resolve-AccountPassword en est l'autorité", bootstrapPath)
+	}
+	if !strings.Contains(script, "$script:MinimumPasswordLength") {
+		t.Errorf("%s ne lit pas le plancher de common.ps1 : la question qu'il pose ne dit "+
+			"donc pas la règle qu'install.ps1 applique", bootstrapPath)
 	}
 	if strings.Count(script, "Read-Host") < 2 {
 		t.Errorf("%s ne demande pas le mot de passe deux fois", bootstrapPath)
 	}
 	if !strings.Contains(script, "AsSecureString") {
 		t.Errorf("%s lit le mot de passe en clair : -AsSecureString existe pour qu'il ne "+
-			"reste ni dans la console ni dans l'historique", bootstrapPath)
+			"s'affiche pas à l'écran pendant qu'on le tape, devant les clients",
+			bootstrapPath)
 	}
 }
 
@@ -166,7 +172,7 @@ func TestTheBootstrapRefusesToElevateWithASecretOnTheCommandLine(t *testing.T) {
 		t.Fatalf("%s ne se relève jamais en administrateur", bootstrapPath)
 	}
 	// The guard is BEFORE the relaunch, or it guards nothing.
-	if !strings.Contains(script[:elevation], "SessionPassword") {
+	if !strings.Contains(script[:elevation], "AccountPassword") {
 		t.Errorf("%s se relève en administrateur sans avoir vérifié qu'aucun mot de passe "+
 			"ne lui a été passé : le secret partirait sur la ligne de commande", bootstrapPath)
 	}

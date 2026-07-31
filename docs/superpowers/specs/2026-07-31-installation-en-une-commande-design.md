@@ -66,7 +66,7 @@ flowchart TD
     A[Contrôles : Windows, amd64, PowerShell 5.1+, TLS 1.2] --> B{Administrateur ?}
     B -- non, interactif --> C[Se copie dans TEMP<br/>Start-Process -Verb RunAs]
     C --> D[Nouvelle fenêtre élevée]
-    B -- non, -SessionPassword fourni --> E[Refus : console élevée exigée]
+    B -- non, -AccountPassword fourni --> E[Refus : console élevée exigée]
     B -- oui --> F
     D --> F[GET api.github.com/releases/latest]
     F --> G[Télécharge le zip et SHA256SUMS-archives.txt]
@@ -86,7 +86,7 @@ Le one-liner est tapé dans une console non élevée neuf fois sur dix. Le scrip
 dans `%TEMP%` et se relance par `Start-Process -Verb RunAs` : une invite UAC, puis une
 nouvelle fenêtre où se déroulent les questions et l'installation.
 
-**Avec `-SessionPassword`, cette relance est refusée.** Relancer une fenêtre élevée fait
+**Avec `-AccountPassword`, cette relance est refusée.** Relancer une fenêtre élevée fait
 passer les paramètres par une ligne de commande, où n'importe quel utilisateur de la machine
 lit le mot de passe dans la liste des processus. Le mode scripté exige donc une console déjà
 élevée, et le dit. Ce n'est pas une limite technique qu'on lèvera plus tard : c'est le choix
@@ -109,9 +109,9 @@ Débloquer », et que personne ne fait du premier coup.
 
 ### `install.ps1` est appelé dans le même processus
 
-Le mot de passe de session ne transite ni par une ligne de commande, ni par un fichier, ni
-par une variable d'environnement : le script appelle `install.ps1` avec un `[securestring]`,
-dans le processus élevé où il vient d'être saisi.
+Le mot de passe du compte ne transite ni par une ligne de commande, ni par un fichier, ni
+par une variable d'environnement : la saisie est masquée à l'écran, et `install.ps1` est
+appelé par éclatement de table dans le processus élevé où elle vient d'être faite.
 
 ### Le dossier extrait survit à l'installation
 
@@ -129,7 +129,8 @@ aussi ce que `TROUBLESHOOTING.md` demande de retrouver quand il dit « relancez
 
 ```
 Mot de passe de la session Windows « openscale »
-  4 caractères minimum. Vide = tiré au sort (20 caractères).
+  4 caractères minimum. Vide = l'installeur décide (tirage sur un poste neuf,
+  mot de passe en place conservé sur un poste déjà installé).
   Il sera imprimé sur la fiche d'installation.
 > ****
 > **** (confirmation)
@@ -149,7 +150,7 @@ question posée aux quatre postes de la coopérative.
 
 | Question | Paramètre | Défaut |
 |---|---|---|
-| Mot de passe de session | `-SessionPassword` (`[securestring]`) | tiré au sort, 20 caractères |
+| Mot de passe du compte | `-AccountPassword` | `install.ps1` décide : tirage de 20 caractères sur un poste neuf, mot de passe en place conservé sur un poste déjà installé |
 | Production ou pilote | `-Pilot` | production |
 | Ouverture de session automatique | `-SkipAutoLogon` | activée |
 | — | `-Yes` | pose zéro question, prend les défauts |
@@ -159,12 +160,13 @@ question posée aux quatre postes de la coopérative.
 Fourni = pas demandé. **Sans console interactive et sans `-Yes`, le script échoue** au lieu
 de bloquer sur une invite que personne ne voit.
 
-## Le mot de passe de session à quatre caractères
+## Le mot de passe du compte à quatre caractères
 
 Le mot de passe du compte Windows `openscale` est déjà écrit **en clair** dans
 `Winlogon\DefaultPassword` — `install.ps1` l'y met lui-même, et l'assume en commentaire : sur
 un poste en libre-service, l'accès physique vaut déjà l'accès administrateur. Le raccourcir
-n'aggrave donc rien pour qui touche le poste ou en est administrateur.
+n'aggrave donc rien pour qui touche le poste ou en est administrateur. C'est l'arbitrage
+que `common.ps1` porte en toutes lettres, et ce document ne fait que le citer.
 
 Ce que ça change est l'accès **réseau** : un compte local Windows est joignable en SMB, et
 un mot de passe de quatre caractères tombe en quelques secondes depuis n'importe quel PC du
@@ -173,20 +175,29 @@ magasin. La parade — refuser à ce compte `SeDenyNetworkLogonRight` et
 réseau du magasin est un réseau de confiance et personne ne s'y connecte. C'est un choix
 assumé, écrit ici pour qu'il soit rouvrable et non redécouvert.
 
-Deux gardes restent nécessaires côté `install.ps1` :
-
-1. La stratégie locale peut imposer une longueur ou une complexité minimale (`net
-   accounts`). Hors domaine elle vaut zéro par défaut, donc quatre passe — mais quand elle
-   refuse, `New-LocalUser` lève une exception .NET qui ne nomme pas la cause. Le script la
-   nomme.
-2. La **longueur** et l'**origine** du mot de passe sont écrites dans `install.log`
-   (« mot de passe de session : 4 caractères, fourni »), jamais sa valeur. La valeur va sur
-   la fiche d'installation, qui part au classeur.
+La saisie est **masquée** (`Read-Host -AsSecureString`) et **confirmée**. Ce que le masque
+achète n'est pas un secret gardé — le mot de passe finit sur la fiche et dans le registre —
+mais un mot de passe qui ne s'affiche pas à l'écran d'un poste posé face aux clients, et qui
+ne reste pas dans l'historique de la console.
 
 ## Ce que devient `install.ps1`
 
-Un seul ajout : `[securestring]$SessionPassword`. Absent, `New-RandomPassword 20` comme
-aujourd'hui. Les 350 lignes éprouvées sur poste réel ne bougent pas.
+**Rien.** Cette section décrivait un paramètre `-SessionPassword` à ajouter ; `main` a livré
+le même jour, pour un autre défaut, un `-AccountPassword` qui fait le même travail **en
+mieux** — il conserve le mot de passe d'un poste réinstallé, le vérifie par
+`Test-LocalCredential`, et confie la décision à `Resolve-AccountPassword`, exerçable en test
+sans droits administrateur. Le bootstrap s'y branche.
+
+Deux conséquences pour ce document :
+
+- **le plancher de quatre caractères n'est pas dans le bootstrap.** Il est dans
+  `common.ps1`, `Resolve-AccountPassword` en est l'autorité, et la question le lit. Un
+  bootstrap qui le redirait accepterait ce que l'installeur refuse trois pas plus loin,
+  devant un bénévole ayant déjà tout répondu ;
+- **laisser la question vide ne veut plus dire « tirage au sort »** mais « `install.ps1`
+  décide » : tirage sur un poste neuf, mot de passe en place conservé sur un poste déjà
+  installé — la règle du code de secours, « la fiche déjà rangée dans le classeur doit
+  rester vraie ».
 
 ## Les tests
 
@@ -198,12 +209,12 @@ marque d'ordre des octets couvrent le nouveau fichier sans une ligne de plus.
 | Aucun numéro de version en dur dans le script | un amorçage qui installerait éternellement la v0.9 |
 | L'empreinte est comparée avant `Expand-Archive` | une archive écrite sur le disque avant d'être vérifiée |
 | `Unblock-File` est appelé sur le dossier extrait | le refus de la stratégie d'exécution, redécouvert sur place |
-| Tout paramètre passé à `install.ps1` y est déclaré | un `-SessionPassword` que l'installeur ignorerait en silence |
+| Tout paramètre passé à `install.ps1` y est déclaré | un `-AccountPassword` que l'installeur ignorerait en silence |
 | Le mot de passe n'est dans aucun `Write-Host` ni journal | un secret dans `install.log`, qui reste sur le poste |
 | `bootstrap.cmd` et `bootstrap.ps1` nomment la même URL | deux entrées qui divergent |
 | Le dépôt interrogé est `DefaultUpdateRepository`, l'hôte est `DefaultBaseURL` | un troisième endroit qui épelle `lostmind84/OpenScale` |
 | Le minimum est 4 et la confirmation est demandée | un mot de passe saisi de travers, sur un poste dont on ne peut plus ouvrir la session |
-| L'auto-relève est refusée quand `-SessionPassword` est fourni | un secret dans une ligne de commande |
+| L'auto-relève est refusée quand `-AccountPassword` est fourni | un secret dans une ligne de commande |
 
 ## La documentation
 

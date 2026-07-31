@@ -14,7 +14,7 @@
        première ligne coûte moins cher qu'échouer après le téléchargement.
     2. ÉLÉVATION. Le one-liner est tapé dans une console ordinaire neuf fois sur dix : ce
        script se recopie dans %TEMP% et se relance par Start-Process -Verb RunAs. Avec
-       -SessionPassword, cette relance est REFUSÉE — voir plus bas.
+       -AccountPassword, cette relance est REFUSÉE — voir plus bas.
     3. La dernière release, demandée à l'API. AUCUN NUMÉRO DE VERSION N'EST ÉCRIT ICI :
        l'URL ci-dessus pointe la branche main, ce fichier est donc téléchargé tel quel
        pendant des années, et une version figée s'installerait indéfiniment.
@@ -26,7 +26,7 @@
        « clic droit, Propriétés, Débloquer » — que personne ne fait du premier coup, et
        sans laquelle la stratégie d'exécution refuse install.ps1.
     6. Les trois questions qui appartiennent vraiment à un humain.
-    7. install.ps1, appelé DANS LE MÊME PROCESSUS : le mot de passe de session ne passe ni
+    7. install.ps1, appelé DANS LE MÊME PROCESSUS : le mot de passe du compte ne passe ni
        par une ligne de commande, ni par un fichier, ni par une variable d'environnement.
     8. Le dossier extrait est conservé sous ProgramData. install.ps1 ne copie aucun
        script : sans cette étape, le poste n'aurait ni désinstalleur ni script de mise à
@@ -35,9 +35,10 @@
   POUR UN POSTE SANS INTERNET, rien de tout cela ne sert : l'archive se copie sur une clé
   USB et install.ps1 se lance seul, comme avant. Voir INSTALLATION.md.
 
-.PARAMETER SessionPassword
-  Le mot de passe du compte Windows « openscale », en SecureString. Absent, il est
-  demandé ; refusé, il est tiré au sort sur 20 caractères.
+.PARAMETER AccountPassword
+  Le mot de passe du compte Windows « openscale ». Absent, il est demandé à l'écran, la
+  saisie masquée ; laissé vide, install.ps1 décide — tirage de 20 caractères sur un poste
+  neuf, mot de passe en place conservé sur un poste déjà installé.
 
   ★ LE FOURNIR INTERDIT L'AUTO-ÉLÉVATION, et ce n'est pas une limite qu'on lèvera : la
   relance élevée fait passer ses paramètres par une ligne de commande, que n'importe quel
@@ -71,7 +72,7 @@
 #>
 [CmdletBinding()]
 param(
-  [securestring]$SessionPassword,
+  [string]$AccountPassword,
   [switch]$Pilot,
   [switch]$SkipAutoLogon,
   [switch]$Yes,
@@ -94,13 +95,9 @@ $script:ArchiveSuffix = '-windows-amd64.zip'
 $script:ChecksumAsset = 'SHA256SUMS-archives.txt'
 $script:UserAgent = 'OpenScale-bootstrap'
 
-# Le plancher du mot de passe de session, et l'arbitrage du 31/07/2026 derrière lui : le
-# mot de passe du compte est DÉJÀ en clair dans Winlogon\DefaultPassword — install.ps1 l'y
-# écrit lui-même — donc sur un poste en libre-service, où l'accès physique vaut l'accès
-# administrateur, le raccourcir ne change rien pour qui touche la machine. Ce que ça ne
-# dispense pas de faire, c'est la confirmation : personne ne peut ouvrir la session d'un
-# poste dont le mot de passe a été tapé de travers.
-$script:MinimumPasswordLength = 4
+# Le plancher du mot de passe du compte n'est PAS ici : il est dans common.ps1, avec
+# l'arbitrage qui l'explique, et Resolve-AccountPassword en est l'autorité. Ce script le lit
+# après avoir chargé common.ps1, plus bas — il pose la question, il ne fixe pas la règle.
 
 function Test-Elevated {
   <#
@@ -130,34 +127,31 @@ function Write-Progression {
   Write-Host "  $Message"
 }
 
-function Test-SameSecret {
+function ConvertTo-PlainText {
   <#
   .SYNOPSIS
-    Vrai si les deux saisies sont le même mot de passe.
+    Le contenu d'une saisie masquée, en clair.
   .DESCRIPTION
-    Le passage par Marshal est ce qui rend cette comparaison possible sous WINDOWS
-    POWERSHELL 5.1 : « ConvertFrom-SecureString -AsPlainText » n'existe qu'à partir de
-    PowerShell 7, et un script d'installation qui ne tourne pas sur le PowerShell livré
-    avec Windows ne sert à rien.
+    La saisie est masquée à l'écran — Read-Host -AsSecureString — mais install.ps1 attend
+    une chaîne : « -AccountPassword » est un [string], et ce mot de passe finit de toute
+    façon en clair dans Winlogon\DefaultPassword et sur la fiche d'installation. Ce que
+    -AsSecureString achète n'est donc pas un secret gardé, c'est un mot de passe qui ne
+    s'affiche pas devant les clients pendant qu'on le tape.
 
-    Les deux chaînes en clair vivent le temps de la comparaison et la mémoire non gérée
-    est remise à zéro dans un finally — y compris si la comparaison lève.
+    Le passage par Marshal est ce qui rend cette lecture possible sous WINDOWS POWERSHELL
+    5.1 : « ConvertFrom-SecureString -AsPlainText » n'existe qu'à partir de PowerShell 7,
+    et un script d'installation qui ne tourne pas sur le PowerShell livré avec Windows ne
+    sert à rien. La mémoire non gérée est remise à zéro dans un finally.
   #>
-  param(
-    [Parameter(Mandatory)][securestring]$First,
-    [Parameter(Mandatory)][securestring]$Second)
+  param([Parameter(Mandatory)][securestring]$Secure)
 
-  $firstPointer = [IntPtr]::Zero
-  $secondPointer = [IntPtr]::Zero
+  $pointer = [IntPtr]::Zero
   try {
-    $firstPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($First)
-    $secondPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Second)
-    [Runtime.InteropServices.Marshal]::PtrToStringBSTR($firstPointer) -ceq
-    [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secondPointer)
+    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
+    [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
   }
   finally {
-    if ($firstPointer -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($firstPointer) }
-    if ($secondPointer -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secondPointer) }
+    if ($pointer -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
   }
 }
 
@@ -199,8 +193,8 @@ if (-not (Test-Elevated)) {
   # ★ LE REFUS, ET SA RAISON. Relancer une fenêtre élevée fait passer les paramètres par
   # une ligne de commande, visible dans la liste des processus par n'importe quel
   # utilisateur de la machine. Un mot de passe n'y va pas.
-  if ($SessionPassword) {
-    throw 'avec -SessionPassword, la console doit DÉJÀ être ouverte en administrateur : ' +
+  if ($AccountPassword) {
+    throw 'avec -AccountPassword, la console doit DÉJÀ être ouverte en administrateur : ' +
     'l''auto-élévation ferait passer le mot de passe par une ligne de commande, où il ' +
     'est lisible par tout le monde. Menu Démarrer, tapez powershell, clic droit, ' +
     'Exécuter en tant qu''administrateur.'
@@ -344,26 +338,35 @@ if (-not $Yes) {
   Write-Host ''
 }
 
-if (-not $Yes -and -not $SessionPassword) {
+if (-not $Yes -and -not $AccountPassword) {
+  # Le plancher et la règle viennent de common.ps1, chargé quelques lignes plus haut :
+  # Resolve-AccountPassword refuse ce que cette boucle refuse, et c'est elle l'autorité. Ce
+  # qui se joue ici est de le refuser AVANT l'installation plutôt qu'au milieu, et de
+  # demander une confirmation — personne ne peut ouvrir la session d'un poste dont le mot
+  # de passe a été tapé de travers.
   Write-Host " Mot de passe de la session Windows « $script:AccountName »"
   Write-Host "   $script:MinimumPasswordLength caractères minimum. Vide = tiré au sort (20 caractères)."
   Write-Host '   Il sera imprimé sur la fiche d''installation, à ranger dans le classeur.'
+  Write-Host '   Sur un poste DÉJÀ installé, laisser vide ne touche pas au mot de passe en place.'
   while ($true) {
-    $first = Read-Host ' Mot de passe' -AsSecureString
-    if ($first.Length -eq 0) {
-      Write-Progression 'mot de passe tiré au sort'
+    $first = ConvertTo-PlainText (Read-Host ' Mot de passe' -AsSecureString)
+    if ($first -eq '') {
+      Write-Progression 'mot de passe laissé à l''installeur'
       break
+    }
+    if ($first -ne $first.Trim()) {
+      Write-Host '   il commence ou finit par une espace : personne ne le retapera juste depuis la fiche.'
+      continue
     }
     if ($first.Length -lt $script:MinimumPasswordLength) {
       Write-Host "   trop court : $script:MinimumPasswordLength caractères au minimum."
       continue
     }
-    $second = Read-Host ' Confirmation' -AsSecureString
-    if (-not (Test-SameSecret -First $first -Second $second)) {
+    if ($first -cne (ConvertTo-PlainText (Read-Host ' Confirmation' -AsSecureString))) {
       Write-Host '   les deux saisies diffèrent.'
       continue
     }
-    $SessionPassword = $first
+    $AccountPassword = $first
     break
   }
   Write-Host ''
@@ -387,10 +390,10 @@ if (-not $Yes -and -not $SkipAutoLogon) {
 
 # --- 7. install.ps1, dans le même processus -----------------------------------------
 # ★ LE MOT DE PASSE NE SORT PAS DE CE PROCESSUS. Pas de ligne de commande, pas de fichier
-# temporaire, pas de variable d'environnement : un SecureString passé à un script appelé
-# par l'opérateur d'appel.
+# temporaire, pas de variable d'environnement : une valeur passée par éclatement de table à
+# un script appelé par l'opérateur d'appel, dans le processus où elle vient d'être saisie.
 $installerArguments = @{
-  SessionPassword = $SessionPassword
+  AccountPassword = $AccountPassword
   Pilot           = $Pilot
   SkipAutoLogon   = $SkipAutoLogon
   InstallDir      = $InstallDir
@@ -410,8 +413,8 @@ foreach ($key in @($installerArguments.Keys)) {
   if ($installerText -notmatch "\`$$key\b") {
     $installerArguments.Remove($key)
     Write-Progression "la version $($release.tag_name) ne connaît pas l'option -$key : elle est ignorée."
-    if ($key -eq 'SessionPassword') {
-      Write-Progression 'le mot de passe de session sera tiré au sort et imprimé sur la fiche.'
+    if ($key -eq 'AccountPassword') {
+      Write-Progression 'le mot de passe du compte sera tiré au sort et imprimé sur la fiche.'
     }
   }
 }

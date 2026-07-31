@@ -71,8 +71,11 @@ La commande télécharge la dernière version, **vérifie son empreinte**, la d�
 vous pose **trois questions** :
 
 1. **Le mot de passe de la session Windows du poste.** Quatre caractères au minimum, tapé
-   deux fois. Si vous validez sans rien taper, il est tiré au sort — c'est très bien, il
-   sera imprimé sur la fiche d'installation.
+   deux fois, et il ne s'affiche pas pendant que vous le tapez. Si vous validez sans rien
+   taper, l'installeur décide : sur un poste neuf il en tire un de vingt caractères et
+   l'imprime sur la fiche, sur un poste déjà installé il **garde celui qui est en place**
+   — la fiche déjà rangée au classeur reste vraie. Voir « Le mot de passe du compte
+   Windows » juste après cette étape.
 2. **Production ou pilote.** Répondez *1* (production), sauf si on vous a demandé que
    l'ancienne application reste utilisable : dans ce cas *2*, et le poste ne prendra pas
    le port série à chaque démarrage.
@@ -85,7 +88,8 @@ par ligne. Elle :
 
 - **sauvegarde** tous les réglages Windows qu'elle va modifier, pour pouvoir les remettre
   le jour où vous désinstallerez ;
-- crée un compte Windows dédié, `openscale`, **sans droits administrateur** ;
+- crée un compte Windows dédié, `openscale`, **sans droits administrateur** — et sur un
+  poste déjà installé, il **ne touche pas** à son mot de passe (voir plus bas) ;
 - installe le poste comme **service Windows** : il démarre avant toute ouverture de
   session et survit à une déconnexion ;
 - configure **l'ouverture de session automatique** — c'est ce qui fait revenir l'écran
@@ -108,6 +112,25 @@ désinstallation, et c'est là que ce document vous renverra.
 > (SmartScreen)** : c'est normal, le binaire n'est pas signé par un certificat
 > commercial. Cliquez sur **Informations complémentaires**, puis **Exécuter quand même**.
 
+### Le mot de passe du compte Windows
+
+C'est la **première question** de l'étape 1, et elle mérite un mot d'explication. Sans
+réponse, l'installeur en tire un de **20 caractères au hasard** et l'imprime sur la fiche :
+parfait tant que le poste ouvre sa session tout seul, mais le jour où quelqu'un ferme ou
+verrouille la session, il faut aller chercher le classeur et recopier vingt caractères. En
+donner un que l'équipe retient, et **le même sur les quatre postes**, se paye quatre
+secondes à l'installation et se rembourse le premier samedi.
+
+Quatre caractères suffisent. Ce compte n'a **aucun droit** : il ouvre une session sur un
+poste en libre-service, il ne permet rien d'autre. Le mot de passe d'administration, lui,
+est une tout autre affaire — c'est celui de l'étape 3, il en faut huit, et il protège le
+droit de *changer* le poste.
+
+**Réinstaller ne change pas ce mot de passe.** La fiche déjà rangée au classeur reste donc
+valable. L'installeur ne le renouvelle que dans deux cas : à la première installation, et
+sur un poste dont il ne retrouve plus le mot de passe en place — il l'écrit alors en
+toutes lettres à la fin, et il faut remplacer la fiche du classeur.
+
 ### Installer un poste sans Internet
 
 Le poste de pesée est **hors ligne par conception** : il n'a besoin du réseau qu'à
@@ -126,12 +149,11 @@ USB, et rien de ce qui suit ne change.
 
 ```powershell
 cd "$env:USERPROFILE\Desktop\openscale-<version>-windows-amd64"
-.\install.ps1
+.\install.ps1 -AccountPassword 'poire-balance-samedi'
 ```
 
-`install.ps1` ne pose aucune question : le mot de passe de la session est alors tiré au
-sort et imprimé sur la fiche. Pour le choisir, ajoutez `-SessionPassword (Read-Host 'Mot
-de passe' -AsSecureString)`. Pour la période pilote, ajoutez `-Pilot`.
+`install.ps1` ne pose aucune question : sans `-AccountPassword`, le mot de passe de la
+session est tiré au sort et imprimé sur la fiche. Pour la période pilote, ajoutez `-Pilot`.
 
 ## Étape 2 — La recette obligatoire : redémarrer (3 min)
 
