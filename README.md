@@ -14,6 +14,34 @@ la caisse, la géométrie de l'étiquette — mais aucune ligne de code.
 en service.** Il reste la recette sur un poste pilote. Ce qui est prouvé, ce qui ne
 l'est pas et ce qui reste ouvert : [SUIVI.md](SUIVI.md).
 
+## Installer un poste
+
+Sur un Windows nu, sans dépôt, sans Go et sans archive à décompresser. Les droits
+administrateur sont demandés en cours de route :
+
+```powershell
+irm https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/windows/bootstrap.ps1 | iex
+```
+
+<details>
+<summary>Depuis une invite de commandes (<code>cmd</code>)</summary>
+
+```cmd
+curl -fsSL https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/windows/bootstrap.cmd -o %TEMP%\openscale.cmd && %TEMP%\openscale.cmd
+```
+
+</details>
+
+La commande prend la dernière version publiée, **vérifie son empreinte avant de la
+décompresser**, pose trois questions — mot de passe de la session du poste, production ou
+pilote, ouverture de session automatique — puis installe tout : compte Windows dédié,
+service, tâche du kiosque, réglages d'alimentation, fiche d'installation à ranger dans le
+classeur du magasin. Comptez **15 minutes** jusqu'à la première étiquette, matériel branché.
+
+Le parcours complet du bénévole — redémarrage de recette, balance, imprimante, catalogue,
+et **l'installation par clé USB d'un poste sans Internet** — est dans
+[`INSTALLATION.md`](INSTALLATION.md). Sous Linux, `deploy/linux/install.sh`.
+
 ## Essayer, sans balance et sans imprimante
 
 Un poste complet tourne sur votre machine en quatre commandes. **Les deux colonnes font
@@ -123,34 +151,6 @@ Code et commentaires en **anglais**, documentation et messages utilisateur en
 **français**. Les cibles, les coupes architecturales vérifiées par `make boundary` et le
 détecteur de course sont détaillés dans
 [`docs/06-developpement.md`](docs/06-developpement.md).
-
-## Installer un poste
-
-Sur un Windows nu, sans dépôt, sans Go et sans archive à décompresser — les droits
-administrateur sont demandés en cours de route :
-
-```powershell
-irm https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/windows/bootstrap.ps1 | iex
-```
-
-<details>
-<summary>Depuis une invite de commandes (<code>cmd</code>)</summary>
-
-```cmd
-curl -fsSL https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/windows/bootstrap.cmd -o %TEMP%\openscale.cmd && %TEMP%\openscale.cmd
-```
-
-</details>
-
-La commande prend la dernière version publiée, **vérifie son empreinte avant de la
-décompresser**, pose trois questions — mot de passe de la session du poste, production ou
-pilote, ouverture de session automatique — puis installe tout : compte Windows dédié,
-service, tâche du kiosque, réglages d'alimentation, fiche d'installation à ranger dans le
-classeur du magasin.
-
-Le parcours complet du bénévole — redémarrage de recette, balance, imprimante, catalogue,
-et **l'installation par clé USB d'un poste sans Internet** — est dans
-[`INSTALLATION.md`](INSTALLATION.md).
 
 ## Déployer
 
