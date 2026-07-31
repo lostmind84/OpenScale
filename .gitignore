@@ -19,6 +19,10 @@ coverage.out
 /web/.svelte-kit/
 # NB : /internal/web/dist est COMMITE (embed.FS en a besoin au build)
 
+# Site de documentation — sortie de `mkdocs build`, reconstruite par la CI à chaque
+# push. La SOURCE est handbook/, et elle est commitée.
+/site/
+
 # Données locales d'un poste — jamais dans le dépôt
 /data/
 *.db

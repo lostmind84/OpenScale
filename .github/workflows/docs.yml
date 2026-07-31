@@ -1,0 +1,71 @@
+# Publication du handbook sur GitHub Pages — voir ODR-0002.
+#
+# Ce workflow ne publie QUE handbook/, parce que c'est ce que `mkdocs.yml` déclare en
+# docs_dir. Le dossier docs/ n'entre jamais dans l'artefact.
+#
+# `mkdocs build --strict` échoue sur un lien interne cassé. C'est délibéré : un lien mort
+# publié est un lien mort que personne ne signale.
+#
+# LES ACTIONS SONT ÉPINGLÉES SUR UN SHA DE COMMIT, jamais sur un tag — même règle que
+# ci.yml et release.yml, et pour la même raison : un tag est un pointeur que son
+# propriétaire déplace quand il veut, et ce dépôt est public. Le tag lisible reste en
+# commentaire pour l'humain qui relit ; dependabot fait monter les deux ensemble.
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+    # Le site ne se reconstruit que si quelque chose du site a bougé. Retirez ce bloc
+    # si vous préférez publier à chaque commit de main.
+    paths:
+      - handbook/**
+      - mkdocs.yml
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Une seule publication à la fois, et on ne coupe pas celle qui est en cours : une
+# annulation en plein déploiement Pages laisse le site dans un état intermédiaire.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Construire le site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: handbook/requirements.txt
+
+      - name: Installer mkdocs-material
+        run: pip install -r handbook/requirements.txt
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: mkdocs build --strict
+        run: mkdocs build --strict
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    name: Déployer sur Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

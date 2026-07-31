@@ -1,0 +1,8 @@
+# Dépendances du SITE de documentation, et d'elles seules. Elles ne touchent ni au
+# binaire, ni au front : `go build` et `npm ci` ignorent ce fichier.
+#
+# La version est ÉPINGLÉE À L'EXACT, comme les actions GitHub le sont sur un SHA. Une
+# borne souple ferait construire le site publié avec un thème que personne n'a relu, et
+# la seule chose qui échouerait serait la mise en page — c'est-à-dire rien de visible
+# depuis une PR.
+mkdocs-material==9.7.7

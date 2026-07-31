@@ -1,0 +1,98 @@
+# Site de documentation POUR LES HUMAINS (ODR-0002).
+#
+# docs_dir POINTE SUR handbook/, ET C'EST L'ESSENTIEL DE CE FICHIER. Le dossier docs/
+# est la référence technique du projet : volumineuse, écrite pour être interrogée par
+# morceaux, et jamais publiée. La valeur par défaut de MkDocs est précisément `docs`,
+# si bien qu'un fichier de configuration distrait publierait exactement ce qu'on ne veut
+# pas publier. La ligne ci-dessous est donc une décision, pas un réglage.
+#
+# Corollaire : tout renvoi de handbook/ vers docs/ est une URL GitHub ABSOLUE. Un chemin
+# relatif serait un lien mort sur le site.
+
+site_name: OpenScale
+site_description: Poste de pesée libre-service pour épicerie coopérative — documentation développeur
+site_url: https://lostmind84.github.io/OpenScale/
+copyright: AGPL-3.0-or-later
+
+docs_dir: handbook
+site_dir: site
+
+repo_url: https://github.com/lostmind84/OpenScale
+repo_name: lostmind84/OpenScale
+edit_uri: edit/main/handbook/
+
+# strict transforme le moindre avertissement en échec : un lien interne cassé arrête la
+# publication au lieu de la réussir en silence.
+strict: true
+
+theme:
+  name: material
+  language: fr
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Passer au thème sombre
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Passer au thème clair
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.indexes
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+
+nav:
+  - Accueil: index.md
+  - Démarrer: getting-started.md
+  - Architecture: architecture.md
+  - Décisions d'architecture:
+      - odr/README.md
+      - ODR-0001 — Zéro cgo: odr/ODR-0001-zero-cgo.md
+      - ODR-0002 — Deux documentations: odr/ODR-0002-deux-documentations.md
+      - Gabarit: odr/template.md
+  - Contribuer: contributing.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      permalink_title: Lien vers cette section
+  # pymdownx.details porte les blocs « ??? » repliés de la page Démarrer.
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  # Le custom fence est ce qui fait rendre ```mermaid par le navigateur au lieu de
+  # l'afficher comme un bloc de code. Les schémas du dépôt sont en Mermaid et rien
+  # d'autre.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  # alternate_style est obligatoire pour que les onglets « Linux · macOS / Windows »
+  # s'affichent en onglets.
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/lostmind84/OpenScale
+      name: Le dépôt
