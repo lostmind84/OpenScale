@@ -31,6 +31,12 @@ var errRebootArmed = errors.New("web: a reboot is already armed")
 type rebootPlan struct {
 	clock  ports.Clock
 	reboot func() error
+	// failed is called when the machine REFUSED to restart, which is the one outcome
+	// nobody would otherwise ever learn about: the screen has already said « l'ordinateur
+	// redémarre », the answer was sent thirty seconds ago, and the browser is watching a
+	// countdown that is about to expire on nothing at all. Under Linux this is the
+	// nominal state of a station whose polkit rule was never posed.
+	failed func(error)
 
 	mu       sync.Mutex
 	deadline time.Time
@@ -42,9 +48,10 @@ type rebootPlan struct {
 	cancelled chan struct{}
 }
 
-// newRebootPlan builds a plan that calls reboot once its countdown elapses.
-func newRebootPlan(clock ports.Clock, reboot func() error) *rebootPlan {
-	return &rebootPlan{clock: clock, reboot: reboot}
+// newRebootPlan builds a plan that calls reboot once its countdown elapses, and failed
+// when the machine refuses.
+func newRebootPlan(clock ports.Clock, reboot func() error, failed func(error)) *rebootPlan {
+	return &rebootPlan{clock: clock, reboot: reboot, failed: failed}
 }
 
 // Arm starts the countdown and reports when it will fire.
@@ -73,10 +80,14 @@ func (p *rebootPlan) Arm() (time.Time, error) {
 			// failed when the whole suite ran. What decides is the same lock the
 			// cancellation takes, never the select.
 			if p.claim(cancelled) {
-				// The error is dropped deliberately: nobody is left to read it. This
-				// process is about to be ended by what it just asked for, and the
-				// demand was written to the technical journal before the countdown.
-				_ = p.reboot()
+				// A SUCCESSFUL reboot never returns anything anybody reads — this
+				// process ends with the machine. A REFUSED one returns to a station
+				// that is still running and has just told a volunteer, thirty seconds
+				// ago, that the computer was restarting. Swallowing it would leave
+				// them watching a countdown expire on nothing.
+				if err := p.reboot(); err != nil && p.failed != nil {
+					p.failed(err)
+				}
 			}
 		case <-cancelled:
 		}

@@ -449,7 +449,7 @@ func New(o Options) (*Server, error) {
 		sessions: newSessionStore(o.Clock),
 	}
 	if o.Reboot != nil {
-		s.rebootPlan = newRebootPlan(o.Clock, o.Reboot.Reboot)
+		s.rebootPlan = newRebootPlan(o.Clock, o.Reboot.Reboot, s.reportRebootRefused)
 	}
 	s.handler = s.routes()
 	return s, nil

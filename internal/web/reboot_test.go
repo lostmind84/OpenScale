@@ -15,7 +15,7 @@ import (
 func TestTheCountdownFiresWhenItElapses(t *testing.T) {
 	clock := fake.NewClock(epoch)
 	fired := make(chan struct{}, 1)
-	plan := newRebootPlan(clock, func() error { fired <- struct{}{}; return nil })
+	plan := newRebootPlan(clock, func() error { fired <- struct{}{}; return nil }, nil)
 
 	if _, err := plan.Arm(); err != nil {
 		t.Fatalf("Arm : %v", err)
@@ -40,7 +40,7 @@ func TestCancellingBeforeTheDeadlineStopsIt(t *testing.T) {
 	for range 100 {
 		clock := fake.NewClock(epoch)
 		fired := make(chan struct{}, 1)
-		plan := newRebootPlan(clock, func() error { fired <- struct{}{}; return nil })
+		plan := newRebootPlan(clock, func() error { fired <- struct{}{}; return nil }, nil)
 
 		if _, err := plan.Arm(); err != nil {
 			t.Fatalf("Arm : %v", err)
@@ -58,10 +58,39 @@ func TestCancellingBeforeTheDeadlineStopsIt(t *testing.T) {
 	}
 }
 
+// TestAMachineThatREFUSESToRestartSaysSo.
+//
+// This is the nominal state of a Linux station whose polkit rule was never posed, and it
+// is the worst kind of silence there is: the screen said « l'ordinateur redémarre »
+// thirty seconds ago, the answer went out long before the call was made, and the
+// volunteer is watching a countdown expire on nothing. Nobody would ever learn why.
+func TestAMachineThatREFUSESToRestartSaysSo(t *testing.T) {
+	clock := fake.NewClock(epoch)
+	refusal := errors.New("Interactive authentication required")
+	reported := make(chan error, 1)
+	plan := newRebootPlan(clock,
+		func() error { return refusal },
+		func(err error) { reported <- err })
+
+	if _, err := plan.Arm(); err != nil {
+		t.Fatalf("Arm : %v", err)
+	}
+	clock.Advance(rebootDelay)
+
+	select {
+	case got := <-reported:
+		if !errors.Is(got, refusal) {
+			t.Fatalf("refus signalé = %v, attendu %v", got, refusal)
+		}
+	case <-time.After(hang):
+		t.Fatal("l'ordinateur a refusé de redémarrer et rien ne l'a signalé")
+	}
+}
+
 // TestArmingTwiceIsRefused: a second countdown would be a machine restarting while
 // somebody believes they cancelled the one they saw.
 func TestArmingTwiceIsRefused(t *testing.T) {
-	plan := newRebootPlan(fake.NewClock(epoch), func() error { return nil })
+	plan := newRebootPlan(fake.NewClock(epoch), func() error { return nil }, nil)
 
 	if _, err := plan.Arm(); err != nil {
 		t.Fatalf("premier armement : %v", err)
@@ -74,7 +103,7 @@ func TestArmingTwiceIsRefused(t *testing.T) {
 // TestCancellingNothingSaysSo: the screen has to tell « je l'ai arrêté » from « il n'y
 // avait rien à arrêter », because the second means the machine is already going.
 func TestCancellingNothingSaysSo(t *testing.T) {
-	plan := newRebootPlan(fake.NewClock(epoch), func() error { return nil })
+	plan := newRebootPlan(fake.NewClock(epoch), func() error { return nil }, nil)
 
 	if plan.Cancel() {
 		t.Fatal("annuler sans rien d'armé a répondu « annulé »")
@@ -84,7 +113,7 @@ func TestCancellingNothingSaysSo(t *testing.T) {
 // TestArmingAgainAfterACancellationIsAllowed: somebody who cancelled by mistake must
 // not have to restart the service to get the button back.
 func TestArmingAgainAfterACancellationIsAllowed(t *testing.T) {
-	plan := newRebootPlan(fake.NewClock(epoch), func() error { return nil })
+	plan := newRebootPlan(fake.NewClock(epoch), func() error { return nil }, nil)
 
 	if _, err := plan.Arm(); err != nil {
 		t.Fatalf("premier armement : %v", err)
@@ -99,7 +128,7 @@ func TestArmingAgainAfterACancellationIsAllowed(t *testing.T) {
 // that read the wall clock would drift from the countdown the screen is showing.
 func TestTheDeadlineIsThirtySecondsAway(t *testing.T) {
 	clock := fake.NewClock(epoch)
-	plan := newRebootPlan(clock, func() error { return nil })
+	plan := newRebootPlan(clock, func() error { return nil }, nil)
 
 	deadline, err := plan.Arm()
 	if err != nil {

@@ -20,6 +20,13 @@ const codeRestartUnsupervised = "ERR-SYS-10"
 // codeRebootUnsupported is what a platform with no reboot of its own answers.
 const codeRebootUnsupported = "ERR-SYS-11"
 
+// codeRebootRefused is a machine that WOULD not restart, which is not the same fact.
+//
+// Two codes because the remedies have nothing in common: -11 says « ce poste ne sait pas
+// faire », -12 says « il a demandé et on lui a dit non », and under Linux the second one
+// is answered by posing the polkit rule of deploy/linux.
+const codeRebootRefused = "ERR-SYS-12"
+
 // reloadConfigFromDisk is POST /admin/api/config/reload: the file, as somebody has just
 // edited it, enters service without the station being stopped.
 //
@@ -188,6 +195,18 @@ func (s *Server) cancelReboot(w http.ResponseWriter, _ *http.Request) {
 		"Redémarrage de l'ordinateur annulé.", "")
 	writeJSON(w, http.StatusOK, actionDTO{
 		Done: true, Message: "Le redémarrage est annulé."})
+}
+
+// reportRebootRefused records a machine that would not restart.
+//
+// It is the ONLY trace such a refusal leaves. The 202 went out thirty seconds earlier,
+// this station is still running, and the volunteer is watching a countdown expire on
+// nothing — under Linux, that is exactly what a missing polkit rule looks like. The
+// level is critical because the act was deliberate and it did not happen.
+func (s *Server) reportRebootRefused(err error) {
+	s.technical.Technical(domain.LevelError, "system", codeRebootRefused,
+		"L'ordinateur a refusé de redémarrer. Le poste, lui, fonctionne toujours.",
+		err.Error())
 }
 
 // secretsLostBy names the credentials this file would erase.

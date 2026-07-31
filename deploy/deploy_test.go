@@ -319,6 +319,60 @@ func TestTheKioskUnitIsWantedByAThingThatExists(t *testing.T) {
 	}
 }
 
+// TestTheRebootRuleGrantsOneActionToOneAccount.
+//
+// This file is a privilege, shipped in an installer and applied by root on a machine
+// nobody audits afterwards. What bounds it is written here rather than left to a review
+// that will not happen: one action, one account, and NOT the power-off — a station
+// switched off from the screen does not switch itself back on, and nothing offers it.
+func TestTheRebootRuleGrantsOneActionToOneAccount(t *testing.T) {
+	rule := readFile(t, filepath.Join("linux", "49-openscale-reboot.rules"))
+
+	if !strings.Contains(rule, "org.freedesktop.login1.reboot") {
+		t.Fatal("la règle n'accorde pas le redémarrage : le bouton sera refusé sur tout poste Linux")
+	}
+	if !strings.Contains(rule, "subject.user === 'openscale'") {
+		t.Error("la règle ne se limite pas au compte du service")
+	}
+	for _, forbidden := range []string{"power-off", "ignore-inhibit", "multiple-sessions"} {
+		// The comments name these three to say they are EXCLUDED, so only the code is
+		// searched: a test reading the whole file would fail on its own documentation.
+		if strings.Contains(rulesCode(rule), forbidden) {
+			t.Errorf("la règle accorde aussi %q, qui n'a jamais été demandé", forbidden)
+		}
+	}
+}
+
+// rulesCode strips the comments of a polkit rule, so that what it SAYS is not read as
+// what it does.
+func rulesCode(rule string) string {
+	var code strings.Builder
+	for _, line := range strings.Split(rule, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		code.WriteString(line)
+		code.WriteString("\n")
+	}
+	return code.String()
+}
+
+// TestInstallPosesTheRebootRule: without it the button answers « accès refusé » on a
+// station where everything else works, which is the failure nobody would diagnose.
+func TestInstallPosesTheRebootRule(t *testing.T) {
+	script := readFile(t, filepath.Join("linux", "install.sh"))
+	if !strings.Contains(script, "49-openscale-reboot.rules") {
+		t.Fatal("install.sh ne pose pas la règle polkit")
+	}
+	if !strings.Contains(script, "/etc/polkit-1/rules.d") {
+		t.Error("install.sh ne nomme pas le répertoire où polkit lit ses règles")
+	}
+	removal := readFile(t, filepath.Join("linux", "uninstall.sh"))
+	if !strings.Contains(removal, "49-openscale-reboot.rules") {
+		t.Error("uninstall.sh laisse la règle polkit derrière lui : un privilège survit au poste")
+	}
+}
+
 // TestTheUdevRuleDoesNotInventAVendorIdentifier holds the line §15.3 draws: « les
 // idVendor sont relevés par lsusb sur site — on ne les invente pas ».
 //
@@ -1299,6 +1353,7 @@ func TestTheDeliveredArchiveHasEverythingSection17_2Lists(t *testing.T) {
 		filepath.Join("linux", "openscale.service"),
 		filepath.Join("linux", "openscale-kiosk.service"),
 		filepath.Join("linux", "99-openscale.rules"),
+		filepath.Join("linux", "49-openscale-reboot.rules"),
 		filepath.Join("linux", "install.sh"),
 		filepath.Join("linux", "update.sh"),
 		filepath.Join("linux", "uninstall.sh"),

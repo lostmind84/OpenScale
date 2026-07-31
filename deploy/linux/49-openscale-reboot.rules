@@ -1,0 +1,27 @@
+// Autorisation de redémarrage de l'ordinateur — docs/02-architecture.md §15.3.
+//
+// POURQUOI ELLE EXISTE : le service tourne en « openscale », shell nologin, et l'écran
+// client tourne sous cage, dont l'unité dit qu'« il n'y a littéralement rien vers quoi
+// s'échapper ». Sans cette règle, le bouton « Redémarrer l'ordinateur » de l'écran
+// d'administration est refusé par polkit, et le seul recours d'un bénévole devant un
+// poste figé redevient la coupure de courant.
+//
+// LA PORTÉE EST LA PLUS ÉTROITE POSSIBLE, et chaque restriction est délibérée :
+//
+//   - un seul utilisateur, celui du service, et pas un groupe ;
+//   - une seule action, org.freedesktop.login1.reboot ;
+//   - PAS org.freedesktop.login1.power-off : un poste éteint à distance ne se rallume
+//     pas à distance, et l'écran n'offre pas ce bouton ;
+//   - PAS les variantes *-multiple-sessions ni *-ignore-inhibit : un poste de pesée n'a
+//     qu'une session, et passer outre un inhibiteur reviendrait à couper une mise à jour
+//     du système en cours.
+//
+// Installée par install.sh dans /etc/polkit-1/rules.d/49-openscale-reboot.rules. Le 49
+// la place avant les règles 50-* de la distribution, qui est ce que polkit demande d'une
+// règle qui ACCORDE.
+
+polkit.addRule(function (action, subject) {
+  if (action.id === 'org.freedesktop.login1.reboot' && subject.user === 'openscale') {
+    return polkit.Result.YES
+  }
+})
