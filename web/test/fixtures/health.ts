@@ -119,6 +119,9 @@ export function nominalHealth(overrides: Partial<HealthDTO> = {}): HealthDTO {
     counters: { unlogged_weighings_count: 0, journal_rows_count: 1236 },
     events: [],
     catalog: FLV_IMPORT,
+    // Un poste nominal vient d'appliquer ce fichier : les signalements en vigueur sont
+    // les siens. Ils ne s'en séparent que sur une ligne « inchangé » ou « échec ».
+    catalog_findings_id: FLV_IMPORT.id,
     catalog_motives: [
       { code: 'PREPACKAGED_PRODUCT', value: '', count: 7 },
       { code: 'INTERNAL_CODE_NOT_WEIGHABLE', value: '0490', count: 1 },

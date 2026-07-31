@@ -345,9 +345,19 @@
     reloadWatch.observe(health)
   })
 
-  /** Reads the import history, the findings of the last one, and the catalog in service. */
+  /**
+   * Reads the import history, the findings IN FORCE, and the catalog in service.
+   *
+   * « In force » and not « of the last import », because the two part company on the most
+   * ordinary event there is: a producer who drops a byte-identical export a second night
+   * has that file recorded « inchangé », it swaps nothing, and it writes no finding of its
+   * own — they belong to the import that produced the grid, one row above. The station
+   * names the row to read (`catalog_findings_id`), because it is the only side that can
+   * see past the twenty imports this page is served.
+   */
   async function load(): Promise<void> {
-    const history = await admin.load(() => api.fetchImports(health.catalog?.id))
+    const shown = health.catalog_findings_id
+    const history = await admin.load(() => api.fetchImports(shown === 0 ? undefined : shown))
     if (history === null) {
       historyState = 'unread'
     } else {

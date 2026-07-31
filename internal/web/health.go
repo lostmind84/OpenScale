@@ -180,6 +180,15 @@ type adminHealthDTO struct {
 	Events []technicalLineDTO `json:"events"`
 	// Catalog is the one-line inventory of the last import.
 	Catalog *importDTO `json:"catalog"`
+	// CatalogFindings names the import whose findings DESCRIBE THE CATALOG IN SERVICE,
+	// and it is not always the one above. Zero when there is none to read.
+	//
+	// A byte-identical export dropped a second night is recorded 'unchanged' and writes no
+	// finding of its own — they belong to the import that produced the grid, one row above
+	// (importer.unchanged) — and a batch the database refused writes none either. Reading
+	// the last row emptied every list of the Catalogue page on the most ordinary event
+	// there is, while its counters kept announcing sixteen anomalies to correct.
+	CatalogFindings int64 `json:"catalog_findings_id"`
 	// CatalogMotives breaks the « non pesables » figure down by motive, because that is
 	// how §14.4 writes the line: « 8 non pesables — préemballés (7), code interne 0490
 	// (1) ». Empty when there is no import to read it from.
@@ -409,7 +418,8 @@ func (s *Server) fillHealthFromStore(ctx context.Context, body *adminHealthDTO) 
 	}
 	if last := s.lastImport(ctx); last != nil {
 		body.Catalog = last
-		if findings, err := s.store.Findings(ctx, last.ID); err == nil {
+		body.CatalogFindings = s.findingsInForce(ctx, *last)
+		if findings, err := s.store.Findings(ctx, body.CatalogFindings); err == nil {
 			body.CatalogMotives = motivesOf(findings)
 		}
 	}
@@ -433,6 +443,33 @@ func (s *Server) lastImport(ctx context.Context) *importDTO {
 	}
 	last := importOf(list[0])
 	return &last
+}
+
+// findingsInForce names the import whose findings describe the catalog in service.
+//
+// Two of the four outcomes speak for themselves and are answered with their own row: an
+// APPLIED import produced the grid, and a REJECTED one wrote no product at all — its
+// remarks are exactly what somebody must fix for the next file to get in (§10.5), and
+// answering a refusal with the remarks of a healthy catalog would be the wrong list
+// entirely.
+//
+// The other two wrote NO finding, on purpose, and it is the catalog in service they leave
+// alone: 'unchanged' saw a file this station had already applied, and 'failed' rolled the
+// transaction back. What describes the grid is then the last applied import, which is the
+// same row the client screen dates itself from (ADR-053) — two screens, one line of one
+// table, and no way left for them to disagree.
+//
+// Zero when a station has never applied one: the screen says « aucun » rather than draw
+// the findings of some other import.
+func (s *Server) findingsInForce(ctx context.Context, last importDTO) int64 {
+	if last.Result == domain.ImportApplied || last.Result == domain.ImportRejected {
+		return last.ID
+	}
+	applied, err := s.store.LastAppliedImport(ctx)
+	if err != nil {
+		return 0
+	}
+	return applied.ID
 }
 
 // watchedCatalog is the permanent catalog line of §14.4, or an empty string.
