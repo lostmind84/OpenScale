@@ -20,6 +20,9 @@ import (
 // bootstrapPath is the script the one-liner downloads and runs.
 const bootstrapPath = "bootstrap.ps1"
 
+// bootstrapShell is its Linux counterpart, which installs AND updates.
+const bootstrapShell = "bootstrap.sh"
+
 // TestTheBootstrapNeverNamesAVersion is what makes the one-liner survive a release.
 //
 // The URL of the command points at `main`, not at a release asset: the file is downloaded
@@ -273,5 +276,251 @@ func TestTheBootstrapSurvivesAnOlderInstaller(t *testing.T) {
 		t.Errorf("%s appelle install.ps1 sans avoir lu quels paramètres il déclare : une "+
 			"version antérieure ferait échouer l'appel après les trois questions",
 			bootstrapPath)
+	}
+}
+
+// --- Linux --------------------------------------------------------------------------
+//
+// La même commande installe un poste neuf et met à jour un poste installé. Ce que Debian
+// seule peut prouver — apt-get, systemd, le service qui démarre — reste la recette de
+// §15.3 ; ce qui se lit dans le texte du script se lit ici.
+
+// linuxBootstrap is deploy/linux/bootstrap.sh, read as code.
+func linuxBootstrap(t *testing.T) string {
+	t.Helper()
+	return codeOnly(readFile(t, filepath.Join("linux", bootstrapShell)))
+}
+
+// TestTheLinuxBootstrapNeverNamesAVersion is what makes the one-liner survive a release.
+//
+// The URL of the command points at `main`: the file is downloaded as it is today, forever.
+// A version number written anywhere in it would install v0.9 on a station set up in two
+// years, and the installation would succeed — which is why nobody would notice.
+func TestTheLinuxBootstrapNeverNamesAVersion(t *testing.T) {
+	script := linuxBootstrap(t)
+	hardCoded := regexp.MustCompile(`['"]v?\d+\.\d+(\.\d+)?['"]`)
+	for _, line := range strings.Split(script, "\n") {
+		if found := hardCoded.FindString(line); found != "" {
+			t.Errorf("%s fige une version (%s) : le one-liner pointe main et doit demander "+
+				"la dernière release à chaque exécution\n  %s",
+				bootstrapShell, found, strings.TrimSpace(line))
+		}
+	}
+	if !strings.Contains(script, "releases/latest") {
+		t.Errorf("%s ne demande pas /releases/latest : c'est le seul point de l'API qui "+
+			"exclut les brouillons et les pré-versions par contrat", bootstrapShell)
+	}
+}
+
+// TestTheLinuxBootstrapChecksTheFingerprintBeforeItExtracts is an ORDER, and nothing else
+// in the file recalls it to whoever edits it.
+//
+// `unzip` on an unverified archive writes files to the disk before anyone knows where they
+// came from — and the next line runs one of them AS ROOT. The two steps are written out
+// straight, in the body of the script and not inside functions, so that the order on the
+// page is the order of execution and this test means something.
+func TestTheLinuxBootstrapChecksTheFingerprintBeforeItExtracts(t *testing.T) {
+	script := linuxBootstrap(t)
+	// « unzip -q » et non « unzip » : le contrôle préalable qui installe le paquet nomme la
+	// commande bien avant qu'elle serve, et ce test dirait alors le contraire de la vérité.
+	digest := strings.Index(script, "sha256sum")
+	extract := strings.Index(script, "unzip -q")
+	if digest < 0 {
+		t.Fatalf("%s ne calcule aucune empreinte : il décompresse ce que le réseau lui a "+
+			"donné, puis l'exécute en root", bootstrapShell)
+	}
+	if extract < 0 {
+		t.Fatalf("%s ne décompresse rien", bootstrapShell)
+	}
+	if digest > extract {
+		t.Errorf("%s décompresse (position %d) AVANT de vérifier l'empreinte (position %d)",
+			bootstrapShell, extract, digest)
+	}
+	if !strings.Contains(script, "SHA256SUMS-archives.txt") {
+		t.Errorf("%s ne télécharge pas SHA256SUMS-archives.txt : il n'a rien à quoi comparer",
+			bootstrapShell)
+	}
+}
+
+// TestTheLinuxBootstrapChoosesTheArchitectureBeforeItDownloads.
+//
+// The fleet has amd64 mini-PCs and arm64 Raspberry Pis, and release.yml publishes an
+// archive for each. Downloading the wrong one produces « cannot execute binary file: Exec
+// format error », a message that accuses the binary when the mistake was made three steps
+// earlier — and after several dozen megabytes.
+func TestTheLinuxBootstrapChoosesTheArchitectureBeforeItDownloads(t *testing.T) {
+	script := linuxBootstrap(t)
+	architecture := strings.Index(script, "uname -m")
+	release := strings.Index(script, "releases/latest")
+	if architecture < 0 {
+		t.Fatalf("%s ne lit pas l'architecture de la machine : il téléchargera la même "+
+			"archive pour un Raspberry Pi et pour un mini-PC", bootstrapShell)
+	}
+	if release >= 0 && architecture > release {
+		t.Errorf("%s interroge l'API (position %d) avant de savoir quelle architecture il "+
+			"installe (position %d)", bootstrapShell, release, architecture)
+	}
+	for _, machine := range []string{"x86_64", "aarch64"} {
+		if !strings.Contains(script, machine) {
+			t.Errorf("%s ne reconnaît pas « %s », que « uname -m » répond", bootstrapShell, machine)
+		}
+	}
+}
+
+// TestTheLinuxBootstrapNeitherAsksNorReads.
+//
+// `curl … | sh` feeds the script to the shell on its STANDARD INPUT. A `read` there does
+// not wait for a human: it consumes the rest of the script. The three Windows questions
+// have no Linux equivalent — the openscale account has neither password nor shell, there is
+// no pilot mode, and the kiosk is a unit install.sh always enables — so there is nothing to
+// ask, and this test keeps it that way.
+func TestTheLinuxBootstrapNeitherAsksNorReads(t *testing.T) {
+	script := linuxBootstrap(t)
+	forbidden := regexp.MustCompile(`(?m)^\s*read\s|/dev/tty`)
+	if found := forbidden.FindString(script); found != "" {
+		t.Errorf("%s lit une réponse (« %s ») : sous « curl … | sh » l'entrée standard EST "+
+			"le script, et cette lecture en avalerait la suite", bootstrapShell,
+			strings.TrimSpace(found))
+	}
+}
+
+// TestTheLinuxBootstrapUpdatesInsteadOfReinstalling is the difference between a bad
+// Saturday morning and a normal one.
+//
+// install.sh is idempotent, so calling it on an installed station would « work ». It would
+// also lose everything that distinguishes an update from an installation: the controlled
+// stop on the budget of §13.4, the TIMESTAMPED BACKUP of the binary, the /healthz check and
+// the automatic restoration of the previous version. A faulty binary would leave the
+// station down, with nothing to put back.
+func TestTheLinuxBootstrapUpdatesInsteadOfReinstalling(t *testing.T) {
+	script := linuxBootstrap(t)
+	for what, needle := range map[string]string{
+		"l'installation d'un poste neuf":     "install.sh",
+		"la mise à jour d'un poste installé": "update.sh",
+		"la détection du binaire déjà posé":  "/usr/local/bin/openscale",
+		"la détection de l'unité systemd":    "openscale.service",
+		"la réparation forcée d'un poste":    "force-install",
+	} {
+		if !strings.Contains(script, needle) {
+			t.Errorf("%s ne fait pas %s (« %s » absent)", bootstrapShell, what, needle)
+		}
+	}
+}
+
+// TestTheLinuxBootstrapLeavesAnUpToDateStationAlone.
+//
+// This one-liner will be re-run by reflex, on stations that are already up to date. Without
+// a guard, each of those runs would stop the service, replace the binary with the same
+// bytes and restart it — IN THE MIDDLE OF A SELLING DAY, for nothing.
+func TestTheLinuxBootstrapLeavesAnUpToDateStationAlone(t *testing.T) {
+	script := linuxBootstrap(t)
+	if !strings.Contains(script, "INSTALLED_VERSION") {
+		t.Errorf("%s ne lit pas la version déjà installée : il ne peut donc pas savoir que "+
+			"le poste est à jour", bootstrapShell)
+	}
+	if !strings.Contains(script, "--version") {
+		t.Errorf("%s ne demande pas sa version au binaire installé", bootstrapShell)
+	}
+	if !strings.Contains(script, "FORCE") {
+		t.Errorf("%s n'offre aucune façon de passer outre : un poste dont le binaire est "+
+			"corrompu porte pourtant le bon numéro de version", bootstrapShell)
+	}
+}
+
+// TestTheLinuxBootstrapAsksTheRepositoryTheBinaryWasBuiltFor.
+//
+// « lostmind84/OpenScale » and « api.github.com » are spelled in the Go code and in
+// bootstrap.ps1; a fourth place that spells them is a fourth place to forget the day the
+// repository moves.
+func TestTheLinuxBootstrapAsksTheRepositoryTheBinaryWasBuiltFor(t *testing.T) {
+	script := linuxBootstrap(t)
+	if !strings.Contains(script, domain.DefaultUpdateRepository) {
+		t.Errorf("%s n'interroge pas %s, le dépôt que internal/domain/config.go compile",
+			bootstrapShell, domain.DefaultUpdateRepository)
+	}
+	host := strings.TrimPrefix(update.DefaultBaseURL, "https://")
+	if !strings.Contains(script, host) {
+		t.Errorf("%s n'interroge pas %s, l'hôte que internal/update/github.go compile",
+			bootstrapShell, host)
+	}
+}
+
+// TestTheLinuxInstallerScriptsSurviveTheInstallation is the same hole as on Windows.
+//
+// install.sh copies the binary, the units, the delivered configuration and the notices. It
+// copies NO script: update.sh and uninstall.sh survive today only because the archive stays
+// in the home directory of whoever unzipped it. A bootstrap that cleaned its temporary
+// directory would leave a station with no uninstaller.
+func TestTheLinuxInstallerScriptsSurviveTheInstallation(t *testing.T) {
+	script := linuxBootstrap(t)
+	if !regexp.MustCompile(`(?i)(mv|cp)[^\n]*installer`).MatchString(script) {
+		t.Errorf("%s ne déplace pas le dossier extrait vers un emplacement durable : le "+
+			"poste n'aura plus de désinstalleur ni de script de mise à jour", bootstrapShell)
+	}
+	if !strings.Contains(script, "/var/lib/openscale/installer") {
+		t.Errorf("%s ne conserve pas les scripts sous /var/lib/openscale/installer, où "+
+			"TROUBLESHOOTING.md les fera chercher", bootstrapShell)
+	}
+}
+
+// TestTheUpdaterDelegatesTheDownloadInsteadOfRepeatingIt, and does not loop.
+//
+// « résoudre la release, comparer l'empreinte, décompresser » exists once in this
+// repository, in the one file that must be able to do it with nothing to source —
+// bootstrap.sh lives OUTSIDE the archive. update.sh --latest therefore calls it back.
+//
+// The loop that must not exist: bootstrap.sh calls update.sh in its LOCAL mode, on the
+// binary extracted beside it. If it ever passed --latest, the two scripts would call each
+// other until the station ran out of something.
+func TestTheUpdaterDelegatesTheDownloadInsteadOfRepeatingIt(t *testing.T) {
+	updater := codeOnly(readFile(t, filepath.Join("linux", "update.sh")))
+	if !strings.Contains(updater, "--latest") {
+		t.Fatalf("update.sh n'a pas de mode --latest : le seul chemin de mise à jour d'un " +
+			"poste Linux exige encore un binaire posé à la main à côté du script")
+	}
+	if !strings.Contains(updater, bootstrapShell) {
+		t.Errorf("update.sh --latest ne rappelle pas %s : il duplique donc la résolution de "+
+			"la release et la vérification de l'empreinte", bootstrapShell)
+	}
+	if strings.Contains(updater, "SHA256SUMS-archives.txt") {
+		t.Error("update.sh vérifie lui-même l'empreinte de l'archive : c'est le travail de " +
+			bootstrapShell + ", et deux implémentations divergent")
+	}
+
+	script := linuxBootstrap(t)
+	// Une ligne d'affichage a le droit de nommer la commande : c'est même ce que le script
+	// conseille à la fin. Ce qui est interdit est de l'EXÉCUTER.
+	display := regexp.MustCompile(`^\s*(printf|echo|log|fail)\b`)
+	for _, line := range strings.Split(script, "\n") {
+		if display.MatchString(line) {
+			continue
+		}
+		if strings.Contains(line, "update.sh") && strings.Contains(line, "--latest") {
+			t.Errorf("%s appelle « update.sh --latest », qui le rappellera : les deux "+
+				"scripts s'appelleraient sans fin\n  %s", bootstrapShell, strings.TrimSpace(line))
+		}
+	}
+}
+
+// TestTheLinuxOneLinerIsTheSameEverywhereItIsWritten.
+//
+// The command is copied by hand into three documents. A README that names a file the
+// repository does not carry is a first impression that fails on the first line.
+func TestTheLinuxOneLinerIsTheSameEverywhereItIsWritten(t *testing.T) {
+	expected := "https://raw.githubusercontent.com/" + domain.DefaultUpdateRepository +
+		"/main/deploy/linux/" + bootstrapShell
+	for _, document := range []string{
+		filepath.Join("..", "README.md"),
+		filepath.Join("..", "INSTALLATION.md"),
+		filepath.Join("..", "handbook", "getting-started.md"),
+	} {
+		if !strings.Contains(readFile(t, document), expected) {
+			t.Errorf("%s ne porte pas la commande d'installation Linux (« %s » absent)",
+				document, expected)
+		}
+	}
+	if !strings.Contains(linuxBootstrap(t), "/main/deploy/linux/"+bootstrapShell) {
+		t.Errorf("%s ne nomme pas sa propre adresse : update.sh --latest ne saurait pas où "+
+			"le retélécharger", bootstrapShell)
 	}
 }
