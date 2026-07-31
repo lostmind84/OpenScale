@@ -345,9 +345,10 @@ if (-not $Yes -and -not $AccountPassword) {
   # demander une confirmation — personne ne peut ouvrir la session d'un poste dont le mot
   # de passe a été tapé de travers.
   Write-Host " Mot de passe de la session Windows « $script:AccountName »"
-  Write-Host "   $script:MinimumPasswordLength caractères minimum. Vide = tiré au sort (20 caractères)."
+  Write-Host "   $script:MinimumPasswordLength caractères minimum, et il ne s'affiche pas pendant que vous le tapez."
   Write-Host '   Il sera imprimé sur la fiche d''installation, à ranger dans le classeur.'
-  Write-Host '   Sur un poste DÉJÀ installé, laisser vide ne touche pas au mot de passe en place.'
+  Write-Host '   Laissé VIDE, l''installeur décide : il en tire un de 20 caractères sur un poste'
+  Write-Host '   neuf, et garde celui en place sur un poste déjà installé.'
   while ($true) {
     $first = ConvertTo-PlainText (Read-Host ' Mot de passe' -AsSecureString)
     if ($first -eq '') {
