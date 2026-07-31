@@ -1195,6 +1195,16 @@ func TestTheUninstallerPutsBackWhatTheInstallerOverwrote(t *testing.T) {
 	if !strings.Contains(uninstaller, "Purge") || !strings.Contains(uninstaller, "CONSERVÉES") {
 		t.Error("uninstall.ps1 ne dit pas que les données sont conservées sans -Purge")
 	}
+	// Les stratégies de navigation vivent dans la ruche du COMPTE DU POSTE, que la
+	// désinstallation conserve par défaut. Les laisser derrière soi, c'est laisser un compte
+	// Windows dont le navigateur ne peut plus ouvrir qu'une adresse que plus rien ne sert
+	// (ADR-056).
+	for _, needle := range []string{`Software\Policies\Microsoft\Edge`, "HKEY_USERS"} {
+		if !strings.Contains(uninstaller, needle) {
+			t.Errorf("uninstall.ps1 ne retire pas les stratégies de navigation du kiosque "+
+				"(« %s » absent) : le compte conservé garde un navigateur verrouillé", needle)
+		}
+	}
 }
 
 // TestTheInstallersRefuseToRunWithoutAdministrator keeps a half-installed station from

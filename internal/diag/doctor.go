@@ -167,6 +167,7 @@ func (d *Doctor) Run(ctx context.Context) Report {
 		d.checkSystemClock(loaded),
 		d.checkPowerSettings(ctx),
 		d.checkRebootPermission(ctx),
+		d.checkNavigationLock(ctx),
 	}
 	for i := range report.Controls {
 		report.Controls[i].Rank = i + 1
@@ -1251,6 +1252,69 @@ func (d *Doctor) checkRebootPermission(ctx context.Context) Control {
 // codeRebootRefused is ERR-SYS-12, and internal/web allocates it to the same fact: the
 // machine was asked to restart and said no.
 const codeRebootRefused = "ERR-SYS-12"
+
+// --- 17. The client screen cannot leave the application ---------------------
+
+// checkNavigationLock is the seventeenth control, and it is the only one that reports a
+// station where EVERYTHING ELSE IS GREEN.
+//
+// The panne, in full: a right click on the administration screen — the one surface where
+// the context menu is deliberately left alive, so that « Copier » works on an error a
+// volunteer is reading over the telephone — offers « Rechercher sur le web ». One click,
+// and the kiosk window is on a search engine. No address bar, no back button, and the
+// browser is perfectly alive: the service answers, the task is running, the window is full
+// screen, and the poste sells nothing. It happened on a real station on 31/07/2026.
+//
+// What it reads is the belt, not the guarantee. The braces are the supervisor's watch over
+// the attached client screen, which brings the poste back inside AbsenceGrace whatever the
+// browser did with these keys — which is why an unreadable answer here is amber and never
+// red.
+func (d *Doctor) checkNavigationLock(ctx context.Context) Control {
+	control := Control{ID: ControlNavigationLock,
+		Checked: "Écran client verrouillé sur l'application"}
+	state, err := d.o.Machine.NavigationLock(ctx)
+	switch {
+	case err != nil:
+		control.Status, control.Observed = StatusUnknown,
+			"les stratégies de navigation n'ont pas pu être lues : "+err.Error()
+		control.Remedy = navigationLockRemedy
+	case !state.Applicable:
+		control.Status = StatusNotApplicable
+		control.Observed = "sur ce système, l'écran client tourne sous un compositeur " +
+			"mono-application (§15.3) et la stratégie du navigateur appartient à " +
+			"l'installeur, pas au compte du poste"
+	case !state.Determined:
+		control.Status, control.Observed = StatusUnknown, state.Detail
+		control.Remedy = navigationLockRemedy
+	case state.Locked:
+		control.Status = StatusPass
+		control.Observed = "compte « " + state.Account + " » : " + state.Detail +
+			" Un clic droit ne peut plus emmener le poste hors de l'application."
+	default:
+		control.Status, control.Code = StatusFail, codeNavigationOpen
+		control.Observed = "compte « " + state.Account + " » : " + state.Detail +
+			" Le navigateur peut être emmené hors de l'application — un clic droit, " +
+			"« Rechercher sur le web », et il n'y a ni barre d'adresse ni bouton retour " +
+			"pour revenir."
+		control.Remedy = navigationLockRemedy
+	}
+	return control
+}
+
+// navigationLockRemedy is one gesture, and it is the same one for the three branches that
+// carry it: the policies are posed by the kiosk at every logon, so making them exist again
+// is making the kiosk start again.
+const navigationLockRemedy = "Fermez puis rouvrez la session du poste — le kiosque pose " +
+	"ses stratégies à chaque ouverture. Si le contrôle reste rouge, le journal " +
+	"kiosk.log dit sur quelle clé il a échoué."
+
+// codeNavigationOpen is ERR-KSK-03: the kiosk window can be taken out of the application.
+//
+// A code of its own, and the third of the kiosk family: ERR-KSK-02 says « l'affichage
+// n'arrive pas à rester ouvert », which is the opposite failure, and reading one for the
+// other over the telephone sends a volunteer to look at a browser that crashes when the
+// browser is doing fine.
+const codeNavigationOpen = "ERR-KSK-03"
 
 // --- 15. Sleep and USB selective suspend ------------------------------------
 

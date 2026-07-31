@@ -21,10 +21,19 @@ const (
 	// AwakePeriod is how often the sleep inhibition is renewed — belt over the braces
 	// of powercfg (§15.2).
 	AwakePeriod = 30 * time.Second
-	// StationRecheck is how often the rescue page asks whether the station is back.
+	// StationRecheck is how often the rescue page asks whether the station is back, and
+	// how often the client screen is asked whether it is still attached.
 	// One second: a customer watching « Le poste redémarre… » is watching a station
 	// that is about to work, and the wait must not be added to the service's own.
 	StationRecheck = 1 * time.Second
+	// AbsenceGrace is how long the client screen may be gone before the browser is
+	// relaunched on it.
+	//
+	// It is the time a customer spends in front of a page that is not the grid, so it is
+	// short; and it is the time a screen may take to reconnect its stream after a hiccup,
+	// so it is not one second. Fifteen covers the reconnection of an EventSource — which
+	// retries on its own, in units of seconds — without covering a browser that LEFT.
+	AbsenceGrace = 15 * time.Second
 	// StartGrace is how long a station that has NEVER answered is given before anything
 	// is put on the screen.
 	//
@@ -71,6 +80,19 @@ type Options struct {
 	// /healthz, and it is NEVER /readyz: a printer with no paper must not put the
 	// rescue page in front of a customer (§15.3).
 	Alive func(ctx context.Context) bool
+	// Attached answers « how many client screens are looking at this station, and did
+	// the station answer at all? ». In production it is one GET on /api/v1/screens.
+	//
+	// It is what sees a browser that LEFT the application — the search a context menu
+	// offered, a link — which is the one failure the process watch above is blind to: the
+	// browser is alive, full screen, and showing something else. A false answer here
+	// costs a relaunch in front of a customer, so the two return values are separate:
+	// « the station did not answer » is never read as « no screen ».
+	//
+	// Nil is legitimate and turns the watch off. It is what a supervisor built by a test
+	// that is not about presence passes, and what a station whose service is too old to
+	// serve the route falls back to.
+	Attached func(ctx context.Context) (int, bool)
 	// Awake renews the sleep inhibition. Nil is legitimate — it is what a Linux
 	// station passes (§15.2 note on platform.KeepAwake).
 	Awake func() error
@@ -235,6 +257,13 @@ func (s *Supervisor) showOnce(ctx context.Context) {
 		// browser WE killed because the station came back. Counting either would walk a
 		// station that recovered normally into the rescue page.
 		return
+	case wandered:
+		// Nor is this one, and it is the one that would hurt most: a station whose screen
+		// keeps being brought back would count its own repairs as failures and end up on
+		// ERR-KSK-02 — « prévenez un responsable » about a poste that repaired itself.
+		s.logf("plus aucun écran client attaché depuis %s : le navigateur a quitté l'application, relance dans %s",
+			AbsenceGrace, RelaunchDelay)
+		return
 	}
 
 	lifetime := s.options.Clock.Now().Sub(started)
@@ -256,19 +285,46 @@ const (
 	// switched is us killing the browser because the station started answering while
 	// the rescue page was showing.
 	switched
+	// wandered is us killing the browser because it is no longer showing the client
+	// screen — the one failure a process watch cannot see, since nothing died.
+	wandered
 )
 
-// watch waits for the browser to die, for the station to come back, or for the
-// supervisor to be stopped.
+// screenWatch is what the supervisor remembers between two presence questions.
+//
+// It lives for ONE showing of the browser and is dropped with it: a relaunch starts from
+// « no screen has been seen yet », which is exactly what a browser that has just been
+// started is.
+type screenWatch struct {
+	// seen is true once a client screen has been attached during this showing.
+	//
+	// Without it, the fifteen seconds of grace would be counted from the launch of the
+	// browser — and a station slow enough to spend them opening the page would kill the
+	// browser that was about to appear, then do it again, and again. The watch is for a
+	// screen that WAS there and went away, and nothing else.
+	seen bool
+	// absentSince is when the last attached screen went away. Zero while one is there.
+	absentSince time.Time
+}
+
+// watch waits for the browser to die, for the station to come back, for the client screen
+// to leave the application, or for the supervisor to be stopped.
+//
+// The two questions the ticker asks are EXCLUSIVE, and which one it asks is which page is
+// showing. On the rescue page, « is the station back? » ends the wait; on the client
+// screen, that question has no meaning — the station is answering, that is why the screen
+// is up — and the one worth asking is « is anybody still looking at it? ».
 func (s *Supervisor) watch(ctx context.Context, process Process, exited <-chan struct{}, onRescue bool) outcome {
-	// The ticker only exists while the rescue page is showing. On the client screen
-	// there is nothing to recheck, and a ticker nobody reads is a timer that leaks.
+	// The ticker only exists when one of the two questions is live: a ticker nobody
+	// reads is a timer that leaks.
+	watching := !onRescue && s.options.Attached != nil
 	var recheck <-chan time.Time
-	if onRescue {
+	if onRescue || watching {
 		ticks, stop := s.options.Clock.Ticker(StationRecheck)
 		defer stop()
 		recheck = ticks
 	}
+	screen := screenWatch{}
 
 	for {
 		select {
@@ -280,14 +336,57 @@ func (s *Supervisor) watch(ctx context.Context, process Process, exited <-chan s
 			s.logf("superviseur arrêté")
 			return stopped
 		case <-recheck:
-			if s.answering(ctx) {
-				s.logf("le poste répond de nouveau : retour à l'écran client")
+			if onRescue {
+				if s.answering(ctx) {
+					s.logf("le poste répond de nouveau : retour à l'écran client")
+					_ = process.Kill()
+					<-exited
+					return switched
+				}
+				continue
+			}
+			if s.screenLeft(ctx, &screen) {
 				_ = process.Kill()
 				<-exited
-				return switched
+				return wandered
 			}
 		}
 	}
+}
+
+// screenLeft reports whether the browser has stopped showing the client screen for longer
+// than the grace.
+//
+// It is written to be WRONG IN ONE DIRECTION ONLY. Every uncertainty — a station that did
+// not answer, a screen that has never attached during this showing — resets or holds the
+// count, because the cost of not firing is a page a volunteer closes by hand, and the cost
+// of firing wrongly is a browser killed in front of a customer in the middle of weighing.
+func (s *Supervisor) screenLeft(ctx context.Context, screen *screenWatch) bool {
+	probeCtx, cancel := ports.WithBudget(ctx, s.options.Clock, ProbeBudget)
+	defer cancel()
+
+	attached, answered := s.options.Attached(probeCtx)
+	if !answered {
+		// Nothing is known about the screen. A station that is restarting must not have
+		// its browser killed on top of it — and when the station really is gone, the
+		// rescue page of target() is what covers the customer, not this.
+		screen.absentSince = time.Time{}
+		return false
+	}
+	if attached > 0 {
+		screen.seen = true
+		screen.absentSince = time.Time{}
+		return false
+	}
+	if !screen.seen {
+		return false
+	}
+	now := s.options.Clock.Now()
+	if screen.absentSince.IsZero() {
+		screen.absentSince = now
+		return false
+	}
+	return now.Sub(screen.absentSince) >= AbsenceGrace
 }
 
 // target decides what the browser opens, and reports whether the supervisor should

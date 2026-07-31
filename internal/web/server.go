@@ -499,6 +499,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /images/{name}", s.image)
 
 	mux.HandleFunc("GET /api/v1/stream", s.stream)
+	mux.HandleFunc("GET /api/v1/screens", s.screens)
 	mux.HandleFunc("GET /api/v1/catalog", s.catalogPage)
 	mux.HandleFunc("POST /api/v1/weigh", s.weigh)
 	mux.HandleFunc("POST /api/v1/reprint", s.reprint)

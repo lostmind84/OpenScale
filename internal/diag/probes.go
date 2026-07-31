@@ -14,6 +14,7 @@ import (
 
 	serialport "go.bug.st/serial"
 
+	"openscale/internal/kiosk"
 	"openscale/internal/platform"
 	"openscale/internal/station/ports"
 )
@@ -447,6 +448,106 @@ func (hostMachine) RebootPermission(context.Context) (RebootPermissionState, err
 		return RebootPermissionState{Applicable: false}, nil
 	}
 	return RebootPermissionState{Allowed: allowed, Detail: detail, Applicable: true}, nil
+}
+
+// --- The navigation lock ----------------------------------------------------
+
+// profileListKey is where Windows records which SID owns which profile directory, and it
+// is the only way from « openscale » to « S-1-5-21-…-1001 » that does not need a Windows
+// API call this package has no other reason to make.
+const profileListKey = `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList`
+
+// NavigationLock reports whether the browser of the station account is held on the client
+// screen.
+//
+// ★ IT READS ANOTHER ACCOUNT'S HIVE, AND THAT IS THE WHOLE DIFFICULTY. The policies are
+// posed by the kiosk under HKEY_CURRENT_USER — its own, which is the station account's —
+// and `openscale doctor` is typed by a technician logged on as somebody else. Reading the
+// caller's own HKCU would report on the technician's browser and call a wide-open station
+// green, which is exactly the mistake the kiosk task's principal cost once already.
+//
+// The hive of an account that is not logged on is NOT mounted, and nothing here loads it:
+// mounting another user's registry from a diagnosis would be a write on a machine somebody
+// asked a question of. Not knowing is then the answer, and it carries the gesture that
+// resolves it.
+func (m hostMachine) NavigationLock(ctx context.Context) (NavigationLockState, error) {
+	if runtime.GOOS != "windows" {
+		// §15.3 poses the Linux policy as a root-owned file, from install.sh. There is no
+		// per-account hive to read, and inventing a requirement here would be worse than
+		// saying nothing.
+		return NavigationLockState{}, nil
+	}
+	state := NavigationLockState{Applicable: true}
+	state.Account = m.kioskAccount(ctx)
+	if state.Account == "" {
+		state.Detail = "le compte qui ouvre l'écran client n'a pas pu être nommé."
+		return state, nil
+	}
+
+	profiles, _ := m.run.Run(ctx, "reg.exe", "query", profileListKey, "/s", "/v", "ProfileImagePath")
+	sid := profileSID(profiles, state.Account)
+	if sid == "" {
+		state.Detail = "aucun profil Windows au nom de « " + state.Account +
+			"  » : ce compte n'a encore jamais ouvert de session sur ce poste."
+		return state, nil
+	}
+
+	for _, vendor := range kiosk.PolicyVendors {
+		output, _ := m.run.Run(ctx, "reg.exe", "query",
+			`HKU\`+sid+`\`+vendor.Root+`\URLBlocklist`, "/v", "1")
+		value, found := registryValue(output, "1")
+		if !found {
+			continue
+		}
+		state.Determined, state.Browser = true, vendor.Label
+		state.Locked = value == "*"
+		state.Detail = vendor.Label + " : URLBlocklist = " + or(value, "(vide)") + "."
+		return state, nil
+	}
+	state.Detail = "aucune stratégie de navigation sous le compte « " + state.Account +
+		" » — soit le kiosque ne les a jamais posées, soit sa session n'est pas ouverte " +
+		"et sa ruche n'est pas montée."
+	return state, nil
+}
+
+// kioskAccount names the account the client screen runs under.
+//
+// The task's principal first, because it is what ACTUALLY runs the kiosk; DefaultUserName
+// second, because a station whose task was registered with a SID leaves the principal
+// unreadable (parseTaskUserID) and the autologon still names the account §15.2 installed.
+func (m hostMachine) kioskAccount(ctx context.Context) string {
+	taskXML, _ := m.run.Run(ctx, "schtasks.exe", "/query", "/tn", windowsKioskTask, "/xml", "ONE")
+	if account := parseTaskUserID(taskXML); account != "" {
+		return account
+	}
+	output, _ := m.run.Run(ctx, "reg.exe", "query", winlogonKey, "/v", "DefaultUserName")
+	account, _ := registryValue(output, "DefaultUserName")
+	return account
+}
+
+// profileSID finds the SID whose profile directory carries this account name.
+//
+// The listing pairs a key line — which ENDS with the SID — with the ProfileImagePath
+// underneath it, so the SID is remembered until a path answers. Matching on the last
+// segment of the path and not on the whole of it is what survives a station whose profiles
+// are not under C:\Users.
+func profileSID(output, account string) string {
+	sid := ""
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "HKEY_") {
+			sid = trimmed[strings.LastIndex(trimmed, `\`)+1:]
+			continue
+		}
+		path, found := registryValue(trimmed, "ProfileImagePath")
+		if !found || sid == "" {
+			continue
+		}
+		if strings.EqualFold(path[strings.LastIndex(path, `\`)+1:], account) {
+			return sid
+		}
+	}
+	return ""
 }
 
 // Power reports the sleep and USB selective suspend settings.

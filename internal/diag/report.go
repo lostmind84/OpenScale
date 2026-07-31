@@ -40,6 +40,10 @@ const (
 	// rule stands between it and the right, so its absence is a button that answers
 	// « accès refusé » on a station where everything else works.
 	ControlRebootPermission = "reboot-permission"
+	// ControlNavigationLock is the seventeenth, and it names the one failure of §15.2
+	// that leaves every other control green: a browser that is alive, full screen, and
+	// showing a search engine instead of the grid.
+	ControlNavigationLock = "navigation-lock"
 )
 
 // ControlOrder is the identifiers in the order §15.4 lists them, and the
@@ -54,7 +58,7 @@ var ControlOrder = []string{
 	ControlConfiguration, ControlDatabase, ControlMigrations,
 	ControlSerialPort, ControlPrintQueue, ControlScaleRate,
 	ControlCatalogSource, ControlSystemClock, ControlPowerSettings,
-	ControlRebootPermission,
+	ControlRebootPermission, ControlNavigationLock,
 }
 
 // Control is what one of the controls reports: what was checked, how it came

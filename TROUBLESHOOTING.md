@@ -154,6 +154,30 @@ Comptez ensuite une minute avant que l'écran revienne.
 Réessayez dans un instant. » Attendez que le client ait retiré son sac : couper là
 perdrait son étiquette.
 
+## L'écran est parti sur une page qui n'est pas celle du poste
+
+Un clic droit sur l'écran d'administration propose « Rechercher sur le web ». Cliqué, il
+emmène la fenêtre du kiosque sur un moteur de recherche — et **il n'y a ni barre d'adresse
+ni bouton retour** pour revenir.
+
+**Ne faites rien : l'écran client revient tout seul en une quinzaine de secondes.** Le
+poste surveille en permanence qu'un écran client regarde bien son flux d'état ; quand plus
+personne ne le tient, il relance le navigateur sur la grille. Rien n'est perdu, aucune
+pesée n'est en jeu — la pesée en cours vit dans le service, pas dans la page.
+
+**Si ça se reproduit, le verrou du navigateur est tombé.** Lancez `openscale doctor` :
+le contrôle **« écran client verrouillé sur l'application »** le dit.
+
+| Ce que dit `doctor` | Ce que ça veut dire | Quoi faire |
+|---|---|---|
+| **OUI** | le navigateur ne peut plus ouvrir que l'adresse de ce poste | rien |
+| **NON** (`ERR-KSK-03`) | les stratégies ne sont pas en place : un clic peut sortir de l'application | fermer puis rouvrir la session du poste — le kiosque les repose à chaque ouverture |
+| **je ne sais pas** (orange) | la session du poste n'est pas ouverte, donc rien à lire | ouvrir la session du poste, puis relancer `doctor` |
+
+Le journal `C:\ProgramData\OpenScale\kiosk.log` porte la ligne
+« *N stratégies de navigation posées sous …* » à chaque ouverture de session, et dit sur
+quoi il a échoué quand il en manque.
+
 ## Le poids ne s'affiche pas, ou l'écran dit « Vous pouvez saisir le poids à la main »
 
 Le poste continue de fonctionner : on tape le poids, l'étiquette sort. Ce n'est pas une
@@ -538,6 +562,7 @@ Ils ne servent **pas** à chercher : ils servent à confirmer qu'on parle de la 
 | `ERR-SYS-11` | ce système ne sait pas redémarrer l'ordinateur depuis l'écran |
 | `ERR-SYS-12` | l'ordinateur a REFUSÉ de redémarrer — sous Linux, la règle d'autorisation manque : relancez `sudo ./install.sh` |
 | `ERR-KSK-02` | l'affichage n'arrive pas à rester ouvert |
+| `ERR-KSK-03` | **le navigateur peut être emmené hors de l'application** — un clic droit, « Rechercher sur le web », et il n'y a pas de bouton retour |
 | `ERR-UI-01` | l'écran client a rencontré une erreur d'affichage |
 | `ERR-UPD-01` | le serveur des versions est injoignable — la connexion du magasin, le plus souvent |
 | `ERR-UPD-02` | le fichier téléchargé est abîmé ; **rien n'a été installé** |
