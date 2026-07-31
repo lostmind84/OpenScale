@@ -1239,6 +1239,29 @@ SIGKILL que §13.4 raconte.
    demandée dans `C:\Temp\banc` se fait dans `C:\Program Files\OpenScale`, sans un mot.
    Ces paramètres n'existent que pour permettre un poste d'essai à côté d'un poste réel, et
    c'est exactement ce qu'ils ne permettent pas. **Non corrigé.**
+6. **Le mot de passe du compte Windows était renouvelé à CHAQUE exécution de
+   `install.ps1`** (31/07/2026). Trois étapes plus loin, le même script conserve le code de
+   secours d'un poste déjà installé, avec sa raison écrite : « la fiche déjà rangée dans le
+   classeur doit rester vraie ». Le mot de passe Windows violait cette règle — et relancer
+   `install.ps1` est précisément ce que `TROUBLESHOOTING.md` et `doctor` recommandent sur un
+   poste dont l'ouverture de session automatique a disparu. **Le geste recommandé périmait
+   donc en silence toutes les fiches classées**, et ces vingt caractères tirés au sort sont
+   la seule façon de rouvrir la session Windows. **Corrigé le 31/07/2026** : le mot de passe
+   en place est relu dans `DefaultPassword` **et vérifié** par `Test-LocalCredential` — le
+   recopier sans le vérifier aurait cassé l'ouverture de session automatique d'un poste dont
+   quelqu'un a changé le mot de passe à la main —, et il n'est réécrit que dans deux cas,
+   première installation ou mot de passe introuvable. Le second **le dit** : la fiche
+   devient fausse, et un poste passé par `harden.ps1 -AutologonSecret` garde l'ancien dans
+   les secrets LSA, donc son ouverture de session automatique cesserait sans un mot.
+   `harden.ps1` dit maintenant de relancer l'installeur **avant** sa procédure, pas après.
+   **Et le défaut de fond, qui est d'usage** : vingt caractères tirés au sort ne se
+   mémorisent pas, la fiche est au classeur et pas devant l'écran de connexion.
+   `install.ps1 -AccountPassword` pose donc un mot de passe choisi, le même sur les quatre
+   postes. Son plancher est de **4 caractères** et non les 8 d'`openscale config password` :
+   les deux protègent des choses différentes — l'un le droit de *changer* le poste, l'autre
+   une session **sans aucun droit** sur une machine en libre-service dont l'accès physique
+   vaut déjà l'accès administrateur. La décision est celle du 31/07/2026 ; le rendre
+   difficile ne protégeait rien et rendait le poste inaccessible le samedi.
 
 **Ce qui reste ouvert sur ce lot :** `flv_demo.csv` (§17.2) n'existe pas ; les
 identifiants USB de l'imprimante ne sont pas relevés, donc sa règle udev est livrée

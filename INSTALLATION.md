@@ -104,7 +104,8 @@ Le script parle français et dit ce qu'il fait, ligne par ligne. Il :
 
 - **sauvegarde** tous les réglages Windows qu'il va modifier, pour pouvoir les remettre
   le jour où vous désinstallerez ;
-- crée un compte Windows dédié, `openscale`, **sans droits administrateur** ;
+- crée un compte Windows dédié, `openscale`, **sans droits administrateur** — et sur un
+  poste déjà installé, il **ne touche pas** à son mot de passe (voir plus bas) ;
 - installe le poste comme **service Windows** : il démarre avant toute ouverture de
   session et survit à une déconnexion ;
 - configure **l'ouverture de session automatique** — c'est ce qui fait revenir l'écran
@@ -123,6 +124,27 @@ Le script parle français et dit ce qu'il fait, ligne par ligne. Il :
 **Pendant la période pilote**, si on vous a demandé que l'ancienne application reste
 utilisable, lancez plutôt `.\install.ps1 -Pilot` : le service ne démarrera pas tout
 seul, et vous le démarrerez à la demande.
+
+### Le mot de passe du compte Windows
+
+Par défaut, l'installeur en tire un de **20 caractères au hasard** et l'imprime sur la
+fiche. C'est parfait tant que le poste ouvre sa session tout seul — mais le jour où
+quelqu'un ferme ou verrouille la session, il faut aller chercher le classeur et recopier
+vingt caractères. Pour donner à la place un mot de passe que l'équipe retient, et le
+**même sur les quatre postes** :
+
+```powershell
+.\install.ps1 -AccountPassword 'poire-balance-samedi'
+```
+
+Ce compte n'a **aucun droit** : il ouvre une session sur un poste en libre-service, il ne
+permet rien d'autre. Le mot de passe d'administration, lui, est une tout autre affaire —
+c'est celui de l'étape 4, et il protège le droit de *changer* le poste.
+
+**Relancer `install.ps1` ne change pas ce mot de passe.** La fiche déjà rangée au classeur
+reste donc valable. L'installeur ne renouvelle le mot de passe que dans deux cas : à la
+première installation, et sur un poste dont il ne retrouve plus le mot de passe en place —
+il l'écrit alors en toutes lettres à la fin, et il faut remplacer la fiche du classeur.
 
 ## Étape 3 — La recette obligatoire : redémarrer (3 min)
 
