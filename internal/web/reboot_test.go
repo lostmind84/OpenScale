@@ -31,23 +31,30 @@ func TestTheCountdownFiresWhenItElapses(t *testing.T) {
 
 // TestCancellingBeforeTheDeadlineStopsIt: thirty seconds is what somebody who touched
 // the wrong button has, and that button is what makes this act offerable at all.
+//
+// It runs a hundred times, and that is not padding. A cancellation and a deadline that
+// land together leave BOTH cases of a select ready, and Go then picks one at random: the
+// single-run version of this test passed on its own and failed once the whole suite ran,
+// which is the shape of a defect that would have restarted a machine somebody saved.
 func TestCancellingBeforeTheDeadlineStopsIt(t *testing.T) {
-	clock := fake.NewClock(epoch)
-	fired := make(chan struct{}, 1)
-	plan := newRebootPlan(clock, func() error { fired <- struct{}{}; return nil })
+	for range 100 {
+		clock := fake.NewClock(epoch)
+		fired := make(chan struct{}, 1)
+		plan := newRebootPlan(clock, func() error { fired <- struct{}{}; return nil })
 
-	if _, err := plan.Arm(); err != nil {
-		t.Fatalf("Arm : %v", err)
-	}
-	if !plan.Cancel() {
-		t.Fatal("l'annulation a été refusée alors que l'échéance n'était pas passée")
-	}
-	clock.Advance(2 * rebootDelay)
+		if _, err := plan.Arm(); err != nil {
+			t.Fatalf("Arm : %v", err)
+		}
+		if !plan.Cancel() {
+			t.Fatal("l'annulation a été refusée alors que l'échéance n'était pas passée")
+		}
+		clock.Advance(2 * rebootDelay)
 
-	select {
-	case <-fired:
-		t.Fatal("l'ordinateur a redémarré après une annulation")
-	case <-time.After(50 * time.Millisecond):
+		select {
+		case <-fired:
+			t.Fatal("l'ordinateur a redémarré après une annulation")
+		case <-time.After(time.Millisecond):
+		}
 	}
 }
 

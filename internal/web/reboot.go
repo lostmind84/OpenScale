@@ -66,14 +66,38 @@ func (p *rebootPlan) Arm() (time.Time, error) {
 	go func() {
 		select {
 		case <-elapsed:
-			// The error is dropped deliberately: nobody is left to read it. This
-			// process is about to be ended by what it just asked for, and the demand
-			// was written to the technical journal before the countdown started.
-			_ = p.reboot()
+			// claim AND NOT « the deadline won the select ». Both cases can be ready
+			// at the same instant — a cancellation landing as the clock passes the
+			// deadline — and Go then picks one AT RANDOM. MEASURED: one run in two
+			// restarted a machine somebody had just cancelled, and the test only
+			// failed when the whole suite ran. What decides is the same lock the
+			// cancellation takes, never the select.
+			if p.claim(cancelled) {
+				// The error is dropped deliberately: nobody is left to read it. This
+				// process is about to be ended by what it just asked for, and the
+				// demand was written to the technical journal before the countdown.
+				_ = p.reboot()
+			}
 		case <-cancelled:
 		}
 	}()
 	return p.deadline, nil
+}
+
+// claim reports whether this countdown is still the one in force, and closes it.
+//
+// It is what the goroutine asks before restarting the machine, under the lock Cancel
+// takes: a plan cancelled — or armed a second time after a cancellation — must never be
+// restarted by the goroutine of a countdown nobody is waiting for any more.
+func (p *rebootPlan) claim(cancelled chan struct{}) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cancelled != cancelled {
+		return false
+	}
+	p.cancelled = nil
+	p.deadline = time.Time{}
+	return true
 }
 
 // Cancel calls the countdown off, and reports whether there was one.
