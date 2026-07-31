@@ -234,6 +234,56 @@ func TestTheKioskAccountIsReadFromTheTaskXMLBecauseItIsTheOnlyPartNotLocalised(t
 	}
 }
 
+func TestTheKioskAccountIsReadFromThePrincipalAndNotFromTheTrigger(t *testing.T) {
+	// The XML Windows hands back is NOT the one install.ps1 wrote: the scheduler
+	// normalises the trigger's UserId to a SID. Reading the FIRST <UserId> of the document
+	// therefore read the trigger — a SID that can never equal « openscale » — and doctor
+	// accused a healthy station of opening its session onto the wrong account. Observed on
+	// the station, 31/07/2026.
+	//
+	// The <Principal> is the one that answers the question the control asks: it says under
+	// which account the task RUNS. The trigger only says which logon wakes it.
+	xml := `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>S-1-5-21-1004336348-1177238915-682003330-1001</UserId>
+      <Delay>PT5S</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>PESEE-2\openscale</UserId>
+      <LogonType>InteractiveToken</LogonType>
+    </Principal>
+  </Principals>
+</Task>`
+	if account := parseTaskUserID(xml); account != "openscale" {
+		t.Errorf("compte du kiosque lu %q, attendu openscale", account)
+	}
+}
+
+func TestASIDIsNotAnAccountNameAndIsNotComparedToOne(t *testing.T) {
+	// The scheduler may normalise the PRINCIPAL to a SID too. There is nothing to compare
+	// then: DefaultUserName is spelled « openscale », and a SID is never equal to it. The
+	// honest answer is « je ne sais pas », which doctor already handles — its mismatch
+	// branch is guarded by Expected != "". Answering the SID instead turns an unknown into
+	// an accusation, which is the defect this whole change removes.
+	xml := `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-21-1004336348-1177238915-682003330-1001</UserId>
+      <LogonType>InteractiveToken</LogonType>
+    </Principal>
+  </Principals>
+</Task>`
+	if account := parseTaskUserID(xml); account != "" {
+		t.Errorf("compte du kiosque lu %q, attendu vide", account)
+	}
+}
+
 func TestLinuxUnattendedRestartDemandsBothUnits(t *testing.T) {
 	state := parseLinuxUnattendedRestart("enabled\n", "enabled\n")
 	if !state.Determined || !state.Enabled {
