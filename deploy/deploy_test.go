@@ -850,6 +850,59 @@ if ((Get-SnapshotValue $old.winlogon 'DefaultUserName') -ne 'ancien') {
   throw 'Get-SnapshotValue perd une valeur presente'
 }
 
+# --- 10. Le mot de passe du compte Windows : ce qui le renouvelle, et ce qui ne le
+# renouvelle PAS. La règle vient du code de secours, trois étapes plus loin dans
+# install.ps1 : « la fiche déjà rangée dans le classeur doit rester vraie ». Le mot de
+# passe Windows la violait — un install.ps1 relancé, geste que TROUBLESHOOTING.md
+# recommande, rendait fausses toutes les fiches classées.
+$neuf = Resolve-AccountPassword -AccountExists $false
+if (-not $neuf.Change) { throw 'un compte qui n''existe pas doit recevoir un mot de passe' }
+if ($neuf.Password.Length -ne 20) { throw "mot de passe tiré de $($neuf.Password.Length) caractères" }
+if ((Resolve-AccountPassword -AccountExists $false).Password -eq $neuf.Password) {
+  throw 'deux tirages rendent le même mot de passe'
+}
+
+$garde = Resolve-AccountPassword -AccountExists $true -KnownPassword 'AncienMotDePasse'
+if ($garde.Change) { throw 'une réinstallation renouvelle le mot de passe : les fiches classées deviennent fausses' }
+if ($garde.Password -ne 'AncienMotDePasse') { throw 'le mot de passe conservé n''est pas celui du poste' }
+if ($garde.Warning) { throw 'conserver le mot de passe n''est pas un incident' }
+
+$choisi = Resolve-AccountPassword -AccountExists $true -KnownPassword 'AncienMotDePasse' -Requested 'poire-balance-samedi'
+if (-not $choisi.Change) { throw '-AccountPassword n''a pas été appliqué' }
+if ($choisi.Password -ne 'poire-balance-samedi') { throw 'le mot de passe demandé n''a pas été retenu' }
+
+# Sans trace du mot de passe en place, il FAUT en poser un nouveau — mais en le disant :
+# la fiche classée devient fausse, et un poste passé par « harden.ps1 -AutologonSecret »
+# garde l'ancien dans les secrets LSA, donc son ouverture de session automatique cesse.
+$perdu = Resolve-AccountPassword -AccountExists $true
+if (-not $perdu.Change) { throw 'sans trace du mot de passe, il faut bien en poser un nouveau' }
+if (-not $perdu.Warning) { throw 'un renouvellement silencieux casse la fiche classée sans le dire' }
+
+# Le plancher est LU, pas recopié : il vaut 4 parce qu'un compte sans droits sur un poste
+# en libre-service doit s'ouvrir facilement, et ce banc doit rester vrai le jour où ce
+# raisonnement change. Ce qui est vérifié, c'est qu'il y en a un et qu'il tient.
+$plancher = $script:MinimumPasswordLength
+$juste = 'a' * $plancher
+if ((Resolve-AccountPassword -AccountExists $true -Requested $juste).Password -ne $juste) {
+  throw "un mot de passe de $plancher caractères, le plancher exactement, a été refusé"
+}
+try { Resolve-AccountPassword -AccountExists $true -Requested ('a' * ($plancher - 1)) | Out-Null; throw 'ECHEC ATTENDU' }
+catch { if ($_.Exception.Message -eq 'ECHEC ATTENDU') { throw 'un mot de passe plus court que le plancher a été accepté' } }
+try { Resolve-AccountPassword -AccountExists $true -Requested '            ' | Out-Null; throw 'ECHEC ATTENDU' }
+catch { if ($_.Exception.Message -eq 'ECHEC ATTENDU') { throw 'un mot de passe fait d''espaces a été accepté' } }
+
+# --- 11. La fiche dit si le mot de passe a changé ---------------------------------
+# Un bénévole qui range la nouvelle fiche à côté de l'ancienne doit savoir laquelle
+# ouvre la session. C'est la fiche qui le porte, pas le journal, qui reste sur le poste.
+$sheet = Join-Path $work 'install-sheet.txt'
+Write-InstallSheet -Path $sheet -Account 'openscale' -Password 'MOT-DE-PASSE-TEST' -PasswordChanged $false | Out-Null
+$text = Get-Content -Path $sheet -Raw
+if ($text -notmatch 'INCHANG') { throw 'la fiche ne dit pas que le mot de passe n''a pas changé' }
+Write-InstallSheet -Path $sheet -Account 'openscale' -Password 'MOT-DE-PASSE-TEST' -PasswordChanged $true | Out-Null
+$text = Get-Content -Path $sheet -Raw
+if ($text -match 'INCHANG') { throw 'la fiche annonce inchangé un mot de passe qui vient d''être posé' }
+if ($text -notmatch 'fiches? pr') { throw 'la fiche ne dit pas que les fiches précédentes sont périmées' }
+
 Write-Output 'TOUT-EST-VERIFIE'
 `
 			writeScript(t, harness, body)
@@ -981,6 +1034,58 @@ func TestTheInstallerLeavesAWayIntoTheAdministration(t *testing.T) {
 			t.Errorf("install.ps1 écrit le code de secours dans le journal : %s",
 				strings.TrimSpace(line))
 		}
+	}
+}
+
+// TestAReinstallLeavesTheSheetInTheBinderTrue guards the rule install.ps1 already applies
+// to the recovery code, three steps further down, and used to break for the Windows
+// password: « la fiche déjà rangée dans le classeur doit rester vraie ».
+//
+// The old line reset the account password on EVERY run. Relaunching install.ps1 is what
+// TROUBLESHOOTING.md and `openscale doctor` recommend on a station whose automatic logon
+// is gone — so the recommended gesture silently invalidated every sheet already filed, and
+// the twenty random characters on them are the only way back into the Windows session.
+func TestAReinstallLeavesTheSheetInTheBinderTrue(t *testing.T) {
+	installer := codeOnly(readFile(t, filepath.Join("windows", "install.ps1")))
+	for what, needle := range map[string]string{
+		"la décision de renouveler ou non":         "Resolve-AccountPassword",
+		"le mot de passe choisi par l'équipe":      "$AccountPassword",
+		"la relecture du mot de passe en place":    "Get-RegistryValue $script:WinlogonKey 'DefaultPassword'",
+		"le contrôle qu'il ouvre encore le compte": "Test-LocalCredential",
+		"la remise à la fiche de ce qui a changé":  "-PasswordChanged",
+	} {
+		if !strings.Contains(installer, needle) {
+			t.Errorf("install.ps1 ne fait pas %s (« %s » absent)", what, needle)
+		}
+	}
+	// Set-LocalUser -Password reste possible — un poste dont personne ne connaît plus le
+	// mot de passe doit pouvoir en recevoir un —, mais JAMAIS inconditionnellement.
+	lines := strings.Split(installer, "\n")
+	for number, line := range lines {
+		if !strings.Contains(line, "Set-LocalUser") || !strings.Contains(line, "-Password") {
+			continue
+		}
+		guarded := false
+		for lookback := number; lookback >= 0 && lookback >= number-6; lookback-- {
+			if strings.Contains(lines[lookback], "Change") {
+				guarded = true
+				break
+			}
+		}
+		if !guarded {
+			t.Errorf("install.ps1 ligne %d : le mot de passe du compte est réécrit sans condition, "+
+				"donc toute fiche déjà classée devient fausse\n    %s", number+1, strings.TrimSpace(line))
+		}
+	}
+	// Le plancher du mot de passe choisi est DÉCLARÉ, et il est délibérément plus bas que
+	// celui du mot de passe d'administration : le premier ouvre une session sans droits sur
+	// un poste en libre-service, le second donne le droit de changer le poste. Le banc
+	// PowerShell lit la constante et vérifie qu'elle tient ; ce qui est gardé ici, c'est
+	// qu'elle existe — sans elle, ce banc ne mesurerait rien.
+	common := readFile(t, filepath.Join("windows", "common.ps1"))
+	if !regexp.MustCompile(`\$script:MinimumPasswordLength = \d+`).MatchString(common) {
+		t.Fatal("common.ps1 ne déclare plus $script:MinimumPasswordLength : -AccountPassword " +
+			"n'aurait plus de plancher, et le banc PowerShell n'aurait plus rien à lire")
 	}
 }
 

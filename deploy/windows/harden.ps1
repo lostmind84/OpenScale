@@ -133,4 +133,10 @@ if ($AutologonSecret) {
   Write-Host ''
   Write-Host 'openscale doctor continue de dire OUI : il lit AutoAdminLogon, pas le mot de'
   Write-Host 'passe. C''est la recette du point 4 qui fait foi.'
+  Write-Host ''
+  Write-Host 'CE QUE ÇA COÛTE PLUS TARD : install.ps1 relit DefaultPassword pour NE PAS'
+  Write-Host 'renouveler le mot de passe du compte, afin que la fiche du classeur reste vraie.'
+  Write-Host 'Une fois le secret déplacé, il ne le retrouve plus : la prochaine réinstallation'
+  Write-Host 'en posera un nouveau, le dira, et il faudra relancer Autologon.exe avec ce'
+  Write-Host 'nouveau mot de passe. Relancez donc install.ps1 AVANT cette procédure, pas après.'
 }

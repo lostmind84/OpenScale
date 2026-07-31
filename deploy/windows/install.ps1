@@ -41,15 +41,29 @@
   n'est PAS en libre-service : sans elle, le poste reste sur l'écran de connexion de
   Windows après une coupure de courant, /healthz répond 200, et le poste est inutilisable.
 
+.PARAMETER AccountPassword
+  Pose CE mot de passe sur le compte Windows du poste, au lieu d'en tirer un au sort.
+
+  À utiliser pour en donner un que l'équipe retient, et le même sur les quatre postes.
+  Sans lui, le compte porte vingt caractères tirés au sort : parfaits tant que le poste
+  ouvre sa session tout seul, inutilisables le samedi où quelqu'un a fermé la session et
+  où la fiche est restée au classeur. Le tirage reste le défaut parce qu'un poste installé
+  sans y penser vaut mieux avec un mot de passe fort qu'avec « balance ».
+
+  Il finit dans l'historique du shell : à taper sur un poste, pas dans un script partagé.
+
 .EXAMPLE
   .\install.ps1
 .EXAMPLE
   .\install.ps1 -Pilot
+.EXAMPLE
+  .\install.ps1 -AccountPassword 'poire-balance-samedi'
 #>
 [CmdletBinding()]
 param(
   [switch]$Pilot,
   [switch]$SkipAutoLogon,
+  [string]$AccountPassword,
   [string]$InstallDir,
   [string]$DataRoot)
 
@@ -89,18 +103,47 @@ else {
 
 # --- 1. Compte local dédié, sans droits administrateur ------------------------------
 # ★ AVANT l'ACL de l'étape 2, qui le nomme.
-$password = New-RandomPassword 20
-$secure = ConvertTo-SecureString $password -AsPlainText -Force
-if (Get-LocalUser -Name $script:AccountName -ErrorAction Ignore) {
-  Set-LocalUser -Name $script:AccountName -Password $secure -PasswordNeverExpires $true
-  Write-Step "compte local $($script:AccountName) : mot de passe renouvelé" $paths.LogFile
+#
+# Le mot de passe n'est PAS renouvelé à chaque exécution, et c'est la même règle que celle
+# que l'étape 2 ter applique au code de secours : « la fiche déjà rangée dans le classeur
+# doit rester vraie ». Relancer cet installeur est ce que TROUBLESHOOTING.md recommande sur
+# un poste dont l'ouverture de session automatique a disparu — le geste recommandé périmait
+# donc en silence toutes les fiches classées.
+$accountExists = [bool](Get-LocalUser -Name $script:AccountName -ErrorAction Ignore)
+
+# Le mot de passe en place se relit là où l'étape 3 l'a écrit — et il se VÉRIFIE. Le
+# recopier sans le vérifier suffirait à casser l'ouverture de session automatique d'un
+# poste dont quelqu'un a changé le mot de passe à la main : DefaultPassword porterait une
+# valeur périmée, et Windows resterait sur l'écran de connexion sans rien expliquer.
+$knownPassword = ''
+if ($accountExists -and -not $AccountPassword) {
+  $stored = Get-RegistryValue $script:WinlogonKey 'DefaultPassword'
+  if (Test-LocalCredential -Account $script:AccountName -Password $stored) { $knownPassword = $stored }
 }
-else {
+
+$decision = Resolve-AccountPassword -AccountExists $accountExists `
+  -KnownPassword $knownPassword -Requested $AccountPassword
+$password = $decision.Password
+
+if (-not $accountExists) {
+  $secure = ConvertTo-SecureString $password -AsPlainText -Force
   New-LocalUser -Name $script:AccountName -Password $secure -PasswordNeverExpires `
     -AccountNeverExpires -FullName 'Poste de pesée OpenScale' `
     -Description 'Compte du kiosque. Sans droits administrateur.' | Out-Null
   Write-Step "compte local $($script:AccountName) créé" $paths.LogFile
 }
+elseif ($decision.Change) {
+  $secure = ConvertTo-SecureString $password -AsPlainText -Force
+  Set-LocalUser -Name $script:AccountName -Password $secure -PasswordNeverExpires $true
+  Write-Step "compte local $($script:AccountName) : $($decision.Reason)" $paths.LogFile
+}
+else {
+  Write-Step "compte local $($script:AccountName) : mot de passe INCHANGÉ, la fiche déjà classée reste valable" $paths.LogFile
+}
+# L'avertissement n'est pas décoratif : il nomme les deux choses qu'un renouvellement non
+# demandé casse, la fiche du classeur et l'Autologon de harden.ps1. Il est répété à la fin,
+# parce qu'à ce stade de l'installation il aura défilé.
+if ($decision.Warning) { Write-Step $decision.Warning $paths.LogFile }
 # Le groupe des utilisateurs ordinaires, par son SID : « Utilisateurs » sur un Windows
 # français, « Users » sur un anglais, et un installeur qui nomme le groupe en clair
 # échoue sur la moitié du parc.
@@ -327,7 +370,7 @@ if (Test-Path $paths.Config) {
 $stationNumber = '(à choisir dans l''assistant de premier démarrage)'
 Write-InstallSheet -Path $paths.InstallSheet -Account $script:AccountName -Password $password `
   -Fingerprint $fingerprint -StationNumber $stationNumber -Version "$version" -Address $address `
-  -RecoveryCode $recoveryCode | Out-Null
+  -RecoveryCode $recoveryCode -PasswordChanged $decision.Change | Out-Null
 Write-Step "fiche d'installation écrite dans $($paths.InstallSheet)" $paths.LogFile
 
 Write-Host ''
@@ -345,5 +388,10 @@ Write-Host "    barre du bas —, page « Matériel », « Détecter automatique
 Write-Host "    demande alors le code de secours de la fiche et le mot de passe"
 Write-Host "    d'administration à poser. Réglez ensuite la balance, l'imprimante et le"
 Write-Host '    catalogue. Voir INSTALLATION.md.'
+if ($decision.Warning) {
+  Write-Host ''
+  Write-Host ' ATTENTION'
+  Write-Host " $($decision.Warning)"
+}
 Write-Host ''
 Write-Host " Journal de cette installation : $($paths.LogFile)"

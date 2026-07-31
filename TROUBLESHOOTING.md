@@ -75,7 +75,16 @@ vérifiez que le poste revient seul**. C'est la recette obligatoire de l'install
 c'est la seule preuve qui compte.
 
 **Pour ouvrir la session en attendant** : le compte est `openscale`, et son mot de passe
-est sur la **fiche d'installation**, dans le classeur du magasin.
+est sur la **fiche d'installation**, dans le classeur du magasin. Relancer `install.ps1`
+**ne le change pas** : la fiche déjà classée reste valable. Si l'installeur annonce à la
+fin qu'il a dû le **renouveler**, c'est qu'il ne l'a pas retrouvé — imprimez la nouvelle
+fiche et jetez l'ancienne.
+
+> **Si personne ne veut aller chercher le classeur**, c'est que le mot de passe tiré au
+> hasard n'est pas le bon outil pour ce poste. Un responsable peut en poser un que
+> l'équipe retient, le même sur les quatre postes, en relançant l'installeur en
+> administrateur avec `.\install.ps1 -AccountPassword 'poire-balance-samedi'`. Ce compte
+> n'a aucun droit : il ouvre une session, rien de plus.
 
 **Pour vérifier sans attendre la prochaine coupure** : l'écran de dépannage affiche
 « redémarrage sans intervention : **NON CONFIGURÉ** » en orange, avec le code

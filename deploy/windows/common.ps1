@@ -45,6 +45,17 @@ $script:ServiceControlKey = 'HKLM:\SYSTEM\CurrentControlSet\Control'
 # faisait attendre le kiosque deux minutes après une coupure de courant.
 $script:AutoStartDelaySeconds = 20
 
+# Le plancher d'un mot de passe posé à la main sur le compte Windows du poste.
+#
+# QUATRE, et DÉLIBÉRÉMENT plus bas que les 8 caractères qu'« openscale config password »
+# tient pour le mot de passe d'administration (§14.4). Les deux protègent des choses
+# différentes : celui-là garde le droit de CHANGER le poste, celui-ci ouvre une session
+# Windows SANS AUCUN DROIT, sur une machine en libre-service dans un magasin, dont l'accès
+# physique vaut déjà l'accès administrateur (§15.2, et l'écart assumé de install.ps1
+# étape 3). Le rendre difficile ne protège rien et rend le poste inaccessible le samedi.
+# C'est le plancher d'un mot de passe CHOISI ; le tirage automatique en fait toujours 20.
+$script:MinimumPasswordLength = 4
+
 # La suspension USB sélective : le GUID du sous-groupe « Paramètres USB » et celui du
 # réglage lui-même. Ils sont RECOPIÉS de docs/02-architecture.md §15.2 — on ne devine pas
 # un GUID.
@@ -171,6 +182,103 @@ function New-RandomPassword {
   $bytes = New-Object byte[] $Length
   [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
   -join ($bytes | ForEach-Object { $alphabet[$_ % $alphabet.Length] })
+}
+
+function Test-LocalCredential {
+  <#
+  .SYNOPSIS
+    Dit si ce mot de passe ouvre encore ce compte local.
+  .DESCRIPTION
+    Sert à UNE chose : décider si le mot de passe relu dans le registre est encore celui
+    du compte. Sans ce contrôle, une réinstallation qui conserve le mot de passe le
+    recopierait tel quel dans DefaultPassword — et sur un poste dont quelqu'un a changé
+    le mot de passe à la main, l'ouverture de session automatique cesserait de marcher
+    sans que rien ne le dise. La conserver et la vérifier vont ensemble.
+
+    Le contrôle passe par LogonUser côté système, pas par une comparaison : personne ne
+    peut relire le mot de passe d'un compte Windows. Il rend $false plutôt que d'échouer
+    quand l'assembly manque ou que le compte est absent — l'appelant en pose alors un
+    nouveau, ce qui est le comportement sûr.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string]$Account, [string]$Password)
+
+  if ([string]::IsNullOrEmpty($Password)) { return $false }
+  try {
+    Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+    $context = New-Object System.DirectoryServices.AccountManagement.PrincipalContext 'Machine'
+    try { $context.ValidateCredentials($Account, $Password) }
+    finally { $context.Dispose() }
+  }
+  catch { $false }
+}
+
+function Resolve-AccountPassword {
+  <#
+  .SYNOPSIS
+    Décide quel mot de passe porte le compte du poste, et s'il faut le réécrire.
+  .DESCRIPTION
+    LA RÈGLE EST CELLE DU CODE DE SECOURS, et install.ps1 se l'appliquait à lui-même
+    trois étapes plus loin sans l'appliquer ici : « la fiche déjà rangée dans le classeur
+    doit rester vraie ». Le mot de passe du compte Windows était renouvelé à CHAQUE
+    exécution — or relancer install.ps1 est le geste que TROUBLESHOOTING.md et
+    « openscale doctor » recommandent sur un poste dont l'ouverture de session automatique
+    a disparu. Le geste recommandé périmait donc en silence toutes les fiches classées, et
+    ces vingt caractères tirés au sort sont la seule façon de rouvrir la session Windows.
+
+    Quatre cas, et un seul renouvelle sans qu'on l'ait demandé :
+
+      -Requested            un mot de passe choisi par l'équipe, identique sur les quatre
+                            postes et MÉMORISABLE — c'est ce que la fiche seule ne donne
+                            pas le samedi matin. Posé tel quel.
+      compte absent         première installation : tirage de 20 caractères.
+      mot de passe retrouvé réinstallation : rien n'est réécrit, les fiches restent vraies.
+      rien à quoi se raccrocher  un nouveau est tiré, et .Warning le dit : la fiche
+                            classée devient fausse, et un poste passé par
+                            « harden.ps1 -AutologonSecret » garde l'ancien dans les
+                            secrets LSA, donc son ouverture de session automatique cesse.
+
+    Cette fonction ne touche NI au compte NI au registre : elle décide, l'appelant agit.
+    C'est ce qui la rend exerçable dans deploy_test.go, sans droits administrateur.
+  #>
+  [CmdletBinding()]
+  param(
+    [bool]$AccountExists,
+    [string]$KnownPassword = '',
+    [string]$Requested = '')
+
+  # Un -AccountPassword vide de sens est REFUSÉ, jamais ignoré : le tirage silencieux
+  # laisserait l'opérateur croire qu'il a posé le mot de passe qu'il vient de taper, et
+  # personne ne s'en apercevrait avant le samedi où il faut ouvrir la session.
+  if ($Requested -ne '') {
+    if ($Requested -ne $Requested.Trim()) {
+      throw '-AccountPassword commence ou finit par une espace : c''est un mot de passe que ' +
+      'personne ne retapera juste depuis la fiche'
+    }
+    if ($Requested.Length -lt $script:MinimumPasswordLength) {
+      throw "-AccountPassword doit faire au moins $($script:MinimumPasswordLength) caractères"
+    }
+    return [pscustomobject]@{ Password = $Requested; Change = $true; Warning = ''
+      Reason = 'mot de passe fourni à l''installation' }
+  }
+  if (-not $AccountExists) {
+    return [pscustomobject]@{ Password = (New-RandomPassword 20); Change = $true; Warning = ''
+      Reason = 'compte créé' }
+  }
+  if (-not [string]::IsNullOrEmpty($KnownPassword)) {
+    return [pscustomobject]@{ Password = $KnownPassword; Change = $false; Warning = ''
+      Reason = 'mot de passe du poste conservé' }
+  }
+  [pscustomobject]@{
+    Password = (New-RandomPassword 20)
+    Change   = $true
+    Warning  = 'le mot de passe du compte a dû être RENOUVELÉ : le poste n''en gardait ' +
+    'aucune trace exploitable. Les fiches déjà rangées au classeur sont périmées, ' +
+    'remplacez-les par celle-ci. Si ce poste avait été passé à ' +
+    '« harden.ps1 -AutologonSecret », relancez Autologon.exe avec le nouveau mot ' +
+    'de passe, sinon il ne rouvrira plus sa session tout seul.'
+    Reason   = 'mot de passe renouvelé'
+  }
 }
 
 function Save-Snapshot {
@@ -735,7 +843,17 @@ function Write-InstallSheet {
     [string]$StationNumber = '(à choisir dans l''assistant de premier démarrage)',
     [string]$Version = '(inconnue)',
     [string]$Address = 'http://127.0.0.1:8085',
-    [string]$RecoveryCode = '')
+    [string]$RecoveryCode = '',
+    [bool]$PasswordChanged = $true)
+
+  # Deux fiches côte à côte dans le classeur, et une seule ouvre la session : c'est la
+  # fiche qui doit dire laquelle, pas le journal d'installation, qui reste sur le poste.
+  $passwordLine = if ($PasswordChanged) {
+    "  Il vient d'être posé : les fiches précédentes sont PÉRIMÉES, jetez-les."
+  }
+  else {
+    "  INCHANGÉ par cette réinstallation : la fiche déjà classée reste valable."
+  }
 
   # Le code n'existe en clair QU'ICI : le poste n'en garde que l'empreinte argon2id.
   $recoveryLine = if ([string]::IsNullOrWhiteSpace($RecoveryCode)) {
@@ -764,8 +882,12 @@ Adresse de l'écran ......... $Address
 COMPTE WINDOWS DU POSTE
   Nom d'utilisateur ........ $Account
   Mot de passe ............. $Password
+$passwordLine
   Ce compte n'est PAS administrateur. Il ouvre la session tout seul au démarrage :
-  c'est ce qui fait revenir l'écran client après une coupure de courant.
+  c'est ce qui fait revenir l'écran client après une coupure de courant. On ne tape
+  ce mot de passe que si la session a été fermée ou verrouillée à la main — d'où
+  cette feuille, et d'où « install.ps1 -AccountPassword » pour en poser un que
+  l'équipe retient.
 
 CONFIGURATION
   Numéro de poste .......... $StationNumber
