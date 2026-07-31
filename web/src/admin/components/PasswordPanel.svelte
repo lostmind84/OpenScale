@@ -11,8 +11,9 @@
    * ne demander le mot de passe qu'une fois par demi-heure, au moment où il sert.
    *
    * Deux formes, et le service dit laquelle : une session à rouvrir (401), ou un poste
-   * qui n'a jamais eu de mot de passe (409). Le second cas n'a rien à taper — il a une
-   * fiche d'installation, et le code de secours qui y est imprimé.
+   * qui n'a jamais eu de mot de passe (409 portant `ERR-CFG-02` — le statut seul ne suffit
+   * pas, il sert aussi aux conflits de configuration). Le second cas n'a rien à taper : il
+   * a une fiche d'installation, et le code de secours qui y est imprimé.
    */
   interface Props {
     admin: Admin

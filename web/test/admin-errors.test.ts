@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CODE_NO_PASSWORD } from '../src/admin/lib/api'
 import { Admin } from '../src/admin/lib/session.svelte'
 
 /**
@@ -14,12 +15,17 @@ import { Admin } from '../src/admin/lib/session.svelte'
 afterEach(() => vi.unstubAllGlobals())
 
 /** Un service qui répond au tableau de bord et refuse tout le reste. */
-function serviceRefusing(status: number, message: string, headers: HeadersInit = {}): void {
+function serviceRefusing(
+  status: number,
+  message: string,
+  headers: HeadersInit = {},
+  code = '',
+): void {
   vi.stubGlobal('fetch', async (route: string) => {
     if (String(route).includes('/health')) {
       return new Response(JSON.stringify({ station: 1 }), { status: 200 })
     }
-    return new Response(JSON.stringify({ message }), { status, headers })
+    return new Response(JSON.stringify({ message, code }), { status, headers })
   })
 }
 
@@ -71,11 +77,23 @@ describe('les refus que le front ne savait pas lire', () => {
   })
 
   it('renvoie vers le code de secours quand aucun mot de passe n’est posé', async () => {
-    serviceRefusing(409, 'Ce poste n’a pas encore de mot de passe.')
+    serviceRefusing(409, 'Ce poste n’a pas encore de mot de passe.', {}, CODE_NO_PASSWORD)
     const admin = new Admin(60_000)
 
     await admin.login('openscale')
 
     expect(admin.needsFirstPassword).toBe(true)
+  })
+
+  // Et pas sur les autres 409 : le poste a un mot de passe, la fiche d'installation n'a
+  // rien à faire ici, et le seul geste utile est celui que la phrase du service nomme.
+  it('n’y renvoie pas sur un 409 qui n’est pas l’absence de mot de passe', async () => {
+    serviceRefusing(409, 'Aucune confirmation n’est attendue.')
+    const admin = new Admin(60_000)
+
+    await admin.login('openscale')
+
+    expect(admin.needsFirstPassword).toBe(false)
+    expect(admin.actionError).toBe('Aucune confirmation n’est attendue.')
   })
 })

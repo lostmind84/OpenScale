@@ -206,7 +206,11 @@ func (s *Server) authenticated(next http.HandlerFunc) http.HandlerFunc {
 			// does not exist in this code — so the sentence sent a volunteer looking for
 			// a screen nobody had written. The way in that DOES exist is the recovery
 			// code drawn at installation and printed on the sheet (§5.5).
-			writeProblem(w, http.StatusConflict, "",
+			//
+			// codeNoPassword because the status alone does not carry it: the routes
+			// behind this middleware answer 409 for their own conflicts, and a screen
+			// reading the status would offer the installation sheet for a countdown.
+			writeProblem(w, http.StatusConflict, codeNoPassword,
 				"Ce poste n'a pas encore de mot de passe. Saisissez le code de secours "+
 					"de la fiche d'installation pour en poser un.")
 			return

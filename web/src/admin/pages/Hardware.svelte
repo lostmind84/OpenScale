@@ -816,7 +816,7 @@
 
   /** Vrai quand un refus se règle en s'authentifiant : il REMONTE jusqu'à `protect`. */
   function isCredentialRefusal(failure: unknown): boolean {
-    return failure instanceof AdminError && (failure.status === 401 || failure.status === 409)
+    return failure instanceof AdminError && failure.needsCredentials
   }
 
   /** Les trois auto-tests de §8.6, et le nom français de chacun. */

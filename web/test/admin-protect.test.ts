@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AdminError } from '../src/admin/lib/api'
+import { AdminError, CODE_NO_PASSWORD } from '../src/admin/lib/api'
 import { Admin } from '../src/admin/lib/session.svelte'
 
 /**
@@ -51,7 +51,9 @@ describe('un acte protégé demande le mot de passe, puis se rejoue', () => {
     let attempts = 0
     const action = async (): Promise<string> => {
       attempts += 1
-      if (attempts === 1) throw new AdminError(409, 'Ce poste n’a pas encore de mot de passe.')
+      if (attempts === 1) {
+        throw new AdminError(409, 'Ce poste n’a pas encore de mot de passe.', CODE_NO_PASSWORD)
+      }
       return 'enregistré'
     }
 
@@ -64,6 +66,36 @@ describe('un acte protégé demande le mot de passe, puis se rejoue', () => {
 
     expect(await promise).toBe('enregistré')
     expect(attempts).toBe(2)
+  })
+
+  /**
+   * Un 409 qui n'est PAS l'absence de mot de passe ne réclame pas la fiche d'installation.
+   *
+   * Le statut était le seul critère, et 409 est ce que répondent aussi un compte à rebours
+   * déjà armé, une confirmation que personne n'attend et une mise à jour sur un poste
+   * occupé. Un exploitant authentifié depuis dix minutes voyait donc « Ce poste n'a pas
+   * encore de mot de passe » sur un double appui de « Confirmer », abandonnait, recliquait,
+   * et l'acte suivant passait sans rien demander : les trois symptômes d'un même bug.
+   */
+  it.each([
+    ['une confirmation que personne n’attend', 'Aucune confirmation n’est attendue.'],
+    ['un compte à rebours déjà armé', 'Une confirmation est attendue.'],
+    ['un poste occupé', 'Une pesée est en cours.'],
+  ])('laisse le refus à l’écran quand le 409 est %s', async (_situation, message) => {
+    serviceAcceptingSession()
+    const admin = new Admin(60_000)
+    let attempts = 0
+
+    const done = await admin.protect(async () => {
+      attempts += 1
+      throw new AdminError(409, message)
+    })
+
+    expect(done).toBeNull()
+    expect(admin.pending).toBeNull()
+    expect(admin.needsFirstPassword).toBe(false)
+    expect(admin.actionError).toBe(message)
+    expect(attempts).toBe(1)
   })
 
   it('ne demande rien quand la session est déjà ouverte', async () => {

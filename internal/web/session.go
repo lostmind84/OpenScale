@@ -45,6 +45,16 @@ const (
 	argonSaltLen = 16
 )
 
+// codeNoPassword names the ONE 409 that is a question of authentication.
+//
+// The screen asks for the installation sheet's recovery code when a protected act comes
+// back with « aucun mot de passe n'est posé », and 409 is also what a countdown already
+// armed (§11.4), a confirmation nobody is waiting for and an update on a busy station
+// answer. Read on the status alone, a double tap on « Confirmer » told an operator
+// authenticated ten minutes earlier that the station had never had a password. The status
+// stays what it is — those really are conflicts — and this code is what tells them apart.
+const codeNoPassword = "ERR-CFG-02"
+
 // errBadHash reports a stored hash this binary cannot read.
 var errBadHash = errors.New("web: empreinte argon2id illisible")
 
@@ -366,7 +376,7 @@ func (s *Server) openSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cfg.Admin.PasswordHash == "" {
-		writeProblem(w, http.StatusConflict, "",
+		writeProblem(w, http.StatusConflict, codeNoPassword,
 			"Aucun mot de passe n'est défini sur ce poste : lancez l'assistant de premier démarrage.")
 		return
 	}

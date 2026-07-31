@@ -3,6 +3,25 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Les actes protégés ne réclament plus la fiche d'installation sur un conflit de
+configuration (31/07/2026).** Signalé depuis l'exploitation : « on me demande le code de
+secours + un nouveau mot de passe alors que j'avais saisi le mien il y a dix minutes ; je
+reclique, ça passe sans rien demander ». Ce n'était pas la session — elle n'a jamais été
+perdue —, c'était le **statut 409 lu nu**. L'écran ouvrait son panneau « ce poste n'a pas
+encore de mot de passe » dès qu'un acte protégé répondait 409 ; or le service en émet six,
+et un seul concerne l'authentification. Les cinq autres sont des conflits **métier** : un
+compte à rebours déjà armé (`PUT /admin/api/config`), une confirmation que personne n'attend
+(`POST /admin/api/config/confirm` — le double appui, exactement le geste rapporté), une
+restauration pendant la fenêtre, un poste occupé et une version périmée (`update/apply`). Le
+refus « aucun mot de passe posé » porte désormais **`ERR-CFG-02`**, et le front lit le code,
+plus jamais le statut seul.
+
+**Le prédicat était écrit en trois exemplaires, et les trois se sont trompées ensemble** —
+`session.svelte.ts`, `draft.svelte.ts`, `Hardware.svelte`. Il vit maintenant en un point,
+`AdminError.needsCredentials`, à côté des deux getters qu'il compose. Le banc de
+`admin-two-levels` simulait le 409 **sans son code** : il aurait laissé passer la lecture
+fautive, il dit maintenant ce que le service dit.
+
 **L'origine des produits est enfichable, et le CSV n'en est plus qu'un mode (31/07/2026).**
 Le commanditaire demande de pouvoir aller chercher les produits par les API d'Odoo, ou de
 n'importe quel ERP demain. `ports.CatalogSource` était annoncé comme le point d'enfichage et

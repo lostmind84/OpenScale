@@ -1,6 +1,7 @@
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/admin/App.svelte'
+import { CODE_NO_PASSWORD } from '../src/admin/lib/api'
 import { nominalHealth } from './fixtures/health'
 
 /**
@@ -87,8 +88,11 @@ function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
   const writes = init?.method !== undefined && init.method !== 'GET'
   if (writes || GUARDED.some((guarded) => route.startsWith(guarded))) {
     if (noPassword) {
+      // Avec son CODE : c'est lui, et non le statut, qui distingue « ce poste n'a jamais
+      // eu de mot de passe » des autres 409 du service (compte à rebours armé, poste
+      // occupé). Un banc qui l'omettrait ferait passer la lecture fautive.
       return refusal(409, 'Ce poste n’a pas encore de mot de passe. Saisissez le code de ' +
-        'secours de la fiche d’installation pour en poser un.')
+        'secours de la fiche d’installation pour en poser un.', CODE_NO_PASSWORD)
     }
     if (!session) return refusal(401, 'Cette adresse demande une session ouverte.')
   }
@@ -112,8 +116,8 @@ function json(body: unknown): Promise<Response> {
 }
 
 /** Un refus, dans la forme exacte de `problem` (`internal/web/server.go`). */
-function refusal(status: number, message: string): Promise<Response> {
-  return Promise.resolve(new Response(JSON.stringify({ code: '', message }), { status }))
+function refusal(status: number, message: string, code = ''): Promise<Response> {
+  return Promise.resolve(new Response(JSON.stringify({ code, message }), { status }))
 }
 
 /** Monte l'écran et attend que le tableau de bord soit vraiment dessiné. */

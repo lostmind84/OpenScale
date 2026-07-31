@@ -224,10 +224,11 @@ function faultsOfLastRefusal(admin: Admin): FaultDTO[] {
 /**
  * Vrai quand un refus se règle en s'authentifiant, et non en corrigeant sa saisie.
  *
- * Ces deux-là REMONTENT jusqu'à `Admin.protect`, qui demande de quoi s'authentifier puis
- * rejoue l'acte. Tous les autres — un 422 et ses contrôles en tête — s'affichent ici :
- * rouvrir un panneau de mot de passe par-dessus cacherait la faute qu'il faut lire.
+ * Ceux-là REMONTENT jusqu'à `Admin.protect`, qui demande de quoi s'authentifier puis rejoue
+ * l'acte. Tous les autres — un 422 et ses contrôles en tête, mais aussi le 409 d'un compte
+ * à rebours déjà armé — s'affichent ici : rouvrir un panneau de mot de passe par-dessus
+ * cacherait la faute qu'il faut lire.
  */
 function isCredentialRefusal(failure: unknown): boolean {
-  return failure instanceof AdminError && (failure.status === 401 || failure.status === 409)
+  return failure instanceof AdminError && failure.needsCredentials
 }
