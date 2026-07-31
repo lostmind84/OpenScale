@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"openscale/internal/domain"
 	"openscale/internal/station"
@@ -15,6 +16,9 @@ import (
 // purpose », the other « it would not come back », and a volunteer looking either up in
 // TROUBLESHOOTING.md must not land on the other.
 const codeRestartUnsupervised = "ERR-SYS-10"
+
+// codeRebootUnsupported is what a platform with no reboot of its own answers.
+const codeRebootUnsupported = "ERR-SYS-11"
 
 // reloadConfigFromDisk is POST /admin/api/config/reload: the file, as somebody has just
 // edited it, enters service without the station being stopped.
@@ -126,6 +130,64 @@ func (s *Server) restart(w http.ResponseWriter, _ *http.Request) {
 	// does after an update.
 	writeJSON(w, http.StatusAccepted, actionDTO{
 		Done: true, Message: "Le poste redémarre. L'écran revient tout seul."})
+}
+
+// rebootDTO is the countdown, as the screen reads it.
+type rebootDTO struct {
+	At          string `json:"at"`
+	SecondsLeft int    `json:"seconds_left"`
+}
+
+// armReboot is POST /admin/api/reboot: the machine restarts in thirty seconds.
+//
+// Thirty seconds and not none. This is the one act of the administration that nothing
+// undoes afterwards — the station cannot answer for a machine that is off — and the
+// button that cancels it is what makes it offerable at all.
+func (s *Server) armReboot(w http.ResponseWriter, _ *http.Request) {
+	if s.rebootPlan == nil {
+		writeProblem(w, http.StatusNotImplemented, codeRebootUnsupported,
+			"Ce poste ne sait pas redémarrer l'ordinateur depuis l'écran.")
+		return
+	}
+	if allowed, reason := s.hub.DowntimeGuard(); !allowed {
+		writeProblem(w, http.StatusConflict, "", reason)
+		return
+	}
+	deadline, err := s.rebootPlan.Arm()
+	if err != nil {
+		writeProblem(w, http.StatusConflict, "",
+			"L'ordinateur redémarre déjà. Touchez « Annuler » si ce n'est pas ce que vous vouliez.")
+		return
+	}
+	// Written BEFORE the countdown, and not after the reboot: after, there is nobody
+	// left to write anything. This line is what says, on the station that comes back,
+	// that the machine went down because somebody asked.
+	s.technical.Technical(domain.LevelWarn, "system", "",
+		"Redémarrage de l'ordinateur demandé depuis l'écran d'administration.", "")
+	writeJSON(w, http.StatusAccepted, rebootDTO{
+		At:          deadline.Format(time.RFC3339),
+		SecondsLeft: int(rebootDelay / time.Second),
+	})
+}
+
+// cancelReboot is DELETE /admin/api/reboot.
+func (s *Server) cancelReboot(w http.ResponseWriter, _ *http.Request) {
+	if s.rebootPlan == nil {
+		writeProblem(w, http.StatusNotImplemented, codeRebootUnsupported,
+			"Ce poste ne sait pas redémarrer l'ordinateur depuis l'écran.")
+		return
+	}
+	if !s.rebootPlan.Cancel() {
+		// 409 and not 404: on this screen, nothing armed means either that somebody
+		// else cancelled it or that it is already too late, and both deserve the
+		// sentence rather than a bare « not found » about a route that exists.
+		writeProblem(w, http.StatusConflict, "", "Aucun redémarrage n'est en attente.")
+		return
+	}
+	s.technical.Technical(domain.LevelInfo, "system", "",
+		"Redémarrage de l'ordinateur annulé.", "")
+	writeJSON(w, http.StatusOK, actionDTO{
+		Done: true, Message: "Le redémarrage est annulé."})
 }
 
 // secretsLostBy names the credentials this file would erase.

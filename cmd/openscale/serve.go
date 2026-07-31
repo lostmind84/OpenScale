@@ -524,6 +524,9 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		// Nil on a station nobody supervises, and the route then says so rather than
 		// stopping a process that would stay stopped (restarterFor).
 		Restart: restarterFor(restarter),
+		// The thirty-second countdown before the machine goes down lives in the HTTP
+		// layer, on the injected clock; this is only what it calls at the end.
+		Reboot: rebooterFor(),
 	})
 	if err != nil {
 		_ = binder.Close()

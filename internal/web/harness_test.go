@@ -85,6 +85,9 @@ type benchOptions struct {
 	// an unsupervised station honestly is: the route then answers 501 rather than
 	// stopping a process nobody would relaunch.
 	restarter Restarter
+	// rebooter restarts the machine. Nil is the default, and it is what a platform with
+	// no reboot honestly is: the two routes then answer 501.
+	rebooter Rebooter
 	// paths is the filesystem probe controls 44 and 46 run through. Nil is the default
 	// and is what a bench standing on no disk honestly is: « we cannot know ».
 	paths domain.PathChecker
@@ -197,6 +200,7 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		Dashboard:  o.dashboard,
 		Update:     o.update,
 		Restart:    o.restarter,
+		Reboot:     o.rebooter,
 		Binder:     o.binder,
 		Registries: domain.Registries{
 			Paths: o.paths, Printers: o.printers, Transports: o.transports,

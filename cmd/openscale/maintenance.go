@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"sync"
 
 	"openscale/internal/platform"
@@ -54,4 +55,28 @@ func restarterFor(r *stationRestarter) web.Restarter {
 		return nil
 	}
 	return r
+}
+
+// machineRebooter is platform.Reboot, as the HTTP layer asks for it.
+//
+// A type of one method and no field: internal/web names no platform package (cut 3 of
+// §5.2), so the composition root is where the two are introduced.
+type machineRebooter struct{}
+
+// Reboot restarts the machine.
+func (machineRebooter) Reboot() error { return platform.Reboot() }
+
+// rebooterFor returns what the HTTP layer should be given for the two reboot routes.
+//
+// ★ A NIL INTERFACE and never a typed nil, for the reason restarterFor gives just above.
+//
+// The platforms are named here rather than deduced from a failed call: the screen must
+// know BEFORE it draws the button whether this station can restart, and finding out at
+// the last click would mean a volunteer confirming an irreversible-looking act for
+// nothing.
+func rebooterFor() web.Rebooter {
+	if runtime.GOOS != "windows" && runtime.GOOS != "linux" {
+		return nil
+	}
+	return machineRebooter{}
 }

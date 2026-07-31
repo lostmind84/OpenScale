@@ -55,6 +55,13 @@ type Hub interface {
 	Catalog() *domain.Catalog
 	// CatalogUpdatedAt returns when that catalog entered service, or the zero time.
 	CatalogUpdatedAt() time.Time
+	// DowntimeGuard reports whether the station may be taken down, and says in French
+	// why not when it may not.
+	//
+	// The rule belongs to the station and is asked, never deduced: an HTTP layer that
+	// read a state to conclude « somebody is weighing » would hold a second copy of a
+	// rule that already has an owner.
+	DowntimeGuard() (bool, string)
 }
 
 // Controller is what the HTTP layer needs from the station AROUND the loop: the
@@ -319,6 +326,17 @@ type Restarter interface {
 	Restart() error
 }
 
+// Rebooter restarts THE MACHINE.
+//
+// Declared here, on the consumer's side; platform.Reboot satisfies it once adapted. Nil
+// answers 501: a station whose platform cannot restart must say so rather than offer a
+// button that fails at the last click, and « ce poste ne sait pas faire » is a different
+// piece of news from « ça n'a pas marché ».
+type Rebooter interface {
+	// Reboot restarts the machine. It returns as soon as the demand is accepted.
+	Reboot() error
+}
+
 // Options is everything the HTTP layer is given. Clock and Hub are required; every
 // other collaborator is optional and its absence is answered honestly.
 type Options struct {
@@ -349,6 +367,8 @@ type Options struct {
 	// Restart stops the station so that its supervisor starts it again. Nil answers
 	// 501 on that route: see Restarter.
 	Restart Restarter
+	// Reboot restarts the machine, after the countdown of rebootPlan. Nil answers 501.
+	Reboot Rebooter
 
 	// Assets is the built front end (internal/web/dist through //go:embed). Nil
 	// serves a placeholder page rather than a 404: a station whose front end has not
@@ -384,11 +404,14 @@ type Server struct {
 	dashboard       Dashboard
 	updater         Updater
 	restarter       Restarter
-	assets          fs.FS
-	images          fs.FS
-	registries      domain.Registries
-	binder          *Binder
-	version         string
+	// rebootPlan is the countdown before the machine restarts, or nil on a platform
+	// that cannot restart — which is what the two reboot routes answer 501 on.
+	rebootPlan *rebootPlan
+	assets     fs.FS
+	images     fs.FS
+	registries domain.Registries
+	binder     *Binder
+	version    string
 
 	// subscribers counts the SSE streams in flight. An atomic and not a mutex: the
 	// only question asked of it is « are there already eight? », and it is asked
@@ -424,6 +447,9 @@ func New(o Options) (*Server, error) {
 		assets:    o.Assets, images: o.Images, registries: o.Registries,
 		binder: o.Binder, version: o.Version,
 		sessions: newSessionStore(o.Clock),
+	}
+	if o.Reboot != nil {
+		s.rebootPlan = newRebootPlan(o.Clock, o.Reboot.Reboot)
 	}
 	s.handler = s.routes()
 	return s, nil
@@ -537,6 +563,8 @@ func (s *Server) routes() http.Handler {
 		"POST /admin/api/config/restore":               s.restoreConfig,
 		"POST /admin/api/config/reload":                s.reloadConfigFromDisk,
 		"POST /admin/api/restart":                      s.restart,
+		"POST /admin/api/reboot":                       s.armReboot,
+		"DELETE /admin/api/reboot":                     s.cancelReboot,
 		"POST /admin/api/troubleshooting/manual-entry": s.manualEntry,
 		"POST /admin/api/catalog/import":               s.importCatalog,
 		"POST /admin/api/printers/discover":            s.discoverPrinters,

@@ -323,4 +323,8 @@ var stubCatalogAt = time.Date(2026, 7, 27, 8, 6, 48, 0, time.UTC)
 
 func (stubHub) CatalogUpdatedAt() time.Time { return stubCatalogAt }
 
+// DowntimeGuard lets everything through: this stub serves the DTO tests, which never
+// stop a station, and a refusal here would be a rule invented outside its owner.
+func (stubHub) DowntimeGuard() (bool, string) { return true, "" }
+
 var _ Hub = stubHub{}
