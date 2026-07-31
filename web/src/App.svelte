@@ -117,7 +117,7 @@
     snapshot !== null && HOLDING.includes(snapshot.state) ? (snapshot.product?.id ?? null) : null,
   )
 
-  /** When the catalog on screen entered service, shown permanently (§14.3). */
+  /** When the catalog on screen was imported, shown permanently (§14.3, ADR-053). */
   const catalogAt = $derived(catalogStamp(catalog?.updated_at ?? ''))
 
   $effect(() => {

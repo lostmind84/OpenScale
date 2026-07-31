@@ -313,6 +313,7 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		// front of an empty grid that looks like a catalog with nothing in it.
 		catalog = nil
 	}
+	catalogAt := lastCatalogImport(ctx, db, log)
 
 	// The catalog is the last thing wired, and the only one whose absence is not a
 	// refusal to start: a station with no source still weighs what it already knows.
@@ -361,6 +362,7 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		Clock:        clock,
 		Config:       cfg,
 		Catalog:      catalog,
+		CatalogAt:    catalogAt,
 		OutOfService: outOfService,
 		// The same registries that decided the station was out of service decide when it
 		// stops being: the answer must not depend on which of the two moments asked.
@@ -536,6 +538,37 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	<-returned
 	fmt.Fprintf(out, "openscale : arrêt terminé en %s\n", st.StopDuration())
 	return fatal
+}
+
+// lastCatalogImport reads back WHEN the catalog in the base was imported.
+//
+// The client screen shows that instant permanently, and it answers one question:
+// « quand le catalogue a-t-il été importé et mis à jour pour la dernière fois ? »
+// (§14.3). The station used to stamp it with the clock at start-up, so every reboot,
+// every update and every crash recovery re-dated a catalog nobody had touched — and the
+// date §14.3 relies on to reveal a station that receives nothing quietly caught up
+// every morning instead.
+//
+// « Applied » and not « last »: a file identical to the one in service is recorded
+// 'unchanged' and changes nothing, so it must not move the date either. The row this
+// reads is written in the SAME TRANSACTION as the catalog, which is what makes the two
+// impossible to disagree.
+//
+// A station that has never applied one gets the zero instant, and §14.3 has a sentence
+// for that: « Catalogue en attente ».
+func lastCatalogImport(ctx context.Context, db *store.DB, log ports.TechnicalLog) time.Time {
+	last, err := db.LastAppliedImport(ctx)
+	if err == nil {
+		return last.OccurredAt
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		// Not fatal, and deliberately: a station whose history cannot be read still
+		// weighs, prints and serves its grid. What it loses is one line of a status bar.
+		log.Technical(domain.LevelWarn, "catalog", "",
+			"Date du dernier import illisible : l'écran client ne datera pas sa grille.",
+			err.Error())
+	}
+	return time.Time{}
 }
 
 // listen opens the socket and tells the TWO failures apart.

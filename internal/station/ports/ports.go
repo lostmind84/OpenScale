@@ -303,6 +303,14 @@ type BatchResult struct {
 	Result string
 	Code   string
 	Reason string
+	// AppliedAt is the occurred_at of the history row this import wrote, and it is set
+	// on an APPLIED result only.
+	//
+	// It exists so that the instant the screen shows and the instant the base holds are
+	// THE SAME NUMBER, never two clock readings a few milliseconds apart: a restart
+	// reads the date back from the base, and a catalog that changed date by one second
+	// on every reboot would be a catalog nobody trusts (§14.3).
+	AppliedAt time.Time
 }
 
 // CatalogSource yields whole catalogs, full replace, one batch at a time.

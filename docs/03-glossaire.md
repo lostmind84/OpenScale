@@ -477,9 +477,9 @@ portent.
 | Ce que la balance déclare savoir faire | `Capabilities.Tare` / `Stability` / `Overload` |
 | Tout ce que la machine retient entre deux événements, au-delà du produit et du poids figé | `Model.State` / `Source` / `Tare` / `Units` / `Latch` / `LatchState` / `ArmedAt` / `StartedAt` / `JobID` / `IdempotencyKey` / `Diagnostics` / `FaultCode` / `LastLabel` / `LastPrintedAt` / `Reprinted` |
 | La réponse rendue à une commande | `Ack.Accepted` / `State` / `Code` / `Message` / `JobID` · `AckEffect.Ack` / `Key` |
-| Le contenu d'un effet | `MessageEffect.Level` / `Code` / `Text` / `Duration` · `TechnicalLogEffect.Level` / `Source` / `Code` / `Message` / `Detail` · `PrintEffect.Label` / `Reprint` · `RecordEffect.Weighing` · `ApplyCatalogEffect.Catalog` · `ArmTimerEffect.Duration` · `SoundEffect.Name` |
+| Le contenu d'un effet | `MessageEffect.Level` / `Code` / `Text` / `Duration` · `TechnicalLogEffect.Level` / `Source` / `Code` / `Message` / `Detail` · `PrintEffect.Label` / `Reprint` · `RecordEffect.Weighing` · `ApplyCatalogEffect.Catalog` / `ImportedAt` · `ArmTimerEffect.Duration` · `SoundEffect.Name` |
 | Ce qu'un événement d'IHM transporte | `ProductTapped.ProductID` / `Tare` / `Units` / `SeenWeight` / `MeasurementSeq` / `Key` · `TareConfirmed.Tare` / `Key` · `ManualWeightConfirmed.Weight` / `Key` · `ReprintRequested.JobID` / `Key` |
-| Ce qu'un événement de matériel transporte | `MeasurementReceived.M` · `ScaleDisconnected.Err` · `PrintFinished.JobID` / `Duration` / `Err` · `CatalogReady.Catalog` |
+| Ce qu'un événement de matériel transporte | `MeasurementReceived.M` · `ScaleDisconnected.Err` · `PrintFinished.JobID` / `Duration` / `Err` · `CatalogReady.Catalog` / `ImportedAt` |
 | Tout ce qu'`Evaluate` a le droit de lire | `CheckInput.ProductID` / `ProductOffered` / `ProductMinWeight` / `Mode` / `EncodesPrice` / `Gross` / `Tare` / `Quantity` / `Overload` / `Stability` / `StabilityBlocking` / `MeasurementAge` / `Expiry` / `PrimaryAmount` / `ReferenceAmount` |
 | Une réponse à « cette pesée peut-elle produire une étiquette ? » | `Diagnostic.Code` / `Message` / `Severity` / `ProductID` |
 | Les bornes numériques d'un poste | `WeighingLimits.EmptyMax` / `BasketCheckEnabled` / `BasketMin` / `BasketMax` / `MinWeight` / `MaxWeight` / `MaxTare` / `MinUnits` / `MaxUnits` / `MaxAmount` |
@@ -836,7 +836,7 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `PrinterUnknown` | La réponse **honnête** d'un transport unidirectionnel : on ne sait pas. Elle existe pour qu'aucun code n'ait à mentir « prête » faute de canal de retour. |
 | `NopTechnicalLog` | Journal technique qui jette tout. Il existe pour qu'un driver sous test ne déréférence jamais un `nil`, et pour qu'un appelant n'ait pas à en fabriquer un. |
 | `Batch` | Un catalogue entier prêt à remplacer celui en service : `ID`, `Source`, `FileName`, `Bytes`, `RowsRead`, `UnreadableRows`, `Products`, `Images`, `Findings`. |
-| `BatchResult` | Ce que le poste a fait d'un lot, et ce que `Acknowledge` reçoit : `Result`, `Code`, `Reason`. |
+| `BatchResult` | Ce que le poste a fait d'un lot, et ce que `Acknowledge` reçoit : `Result`, `Code`, `Reason`, et `AppliedAt` sur un lot appliqué — l'instant que l'écran client montre (ADR-053). |
 | `PrintJob` | Une étiquette à imprimer : `Label`, `Template`, `Copies`, `Locale`. |
 | `PrintReceipt` | Un travail **remis à un transport** : `JobID`, `Bytes`, `Duration`. Jamais « imprimé » — voir « Reçu » → `PrintReceipt`. |
 | `PrinterStatus` | Ce que l'appareil dit de lui-même : `Health`, `Detail`, `PendingJobs`, `Raw`. |

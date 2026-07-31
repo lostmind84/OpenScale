@@ -217,7 +217,10 @@ func newHub(o Options) *Hub {
 	h.cfg.Store(&cfg)
 	h.nominalRate.Store(int64(o.NominalRate))
 	if o.Catalog != nil {
-		h.storeCatalog(o.Catalog, o.Clock.Now())
+		// The instant comes from the STORE and not from the clock: the catalog this
+		// station starts with was imported once, possibly days ago, and the screen says
+		// so permanently (§14.3).
+		h.storeCatalog(o.Catalog, o.CatalogAt)
 		h.model.State = domain.Idle
 	}
 	if o.OutOfService {
@@ -294,10 +297,11 @@ func updateGuardFor(state domain.State, catalogWaiting bool) (bool, string) {
 // Catalog returns the catalog in service, or nil before the first one.
 func (h *Hub) Catalog() *domain.Catalog { return h.catalog.Load() }
 
-// CatalogUpdatedAt returns when the catalog in service was put in service.
+// CatalogUpdatedAt returns when the catalog in service was IMPORTED.
 //
-// The zero time means « none has been », which is a station whose first file has
-// not arrived: the screen then has a sentence for it and no date to show (§14.3).
+// The zero time means « no import has ever applied one », which is a station whose
+// first file has not arrived: the screen then has a sentence for it and no date to
+// show (§14.3).
 func (h *Hub) CatalogUpdatedAt() time.Time {
 	nanos := h.catalogAt.Load()
 	if nanos == 0 {
@@ -306,12 +310,20 @@ func (h *Hub) CatalogUpdatedAt() time.Time {
 	return time.Unix(0, nanos)
 }
 
-// storeCatalog publishes a snapshot and stamps the instant it entered service.
+// storeCatalog publishes a snapshot and stamps the import that produced it.
 //
 // The three places that swap a catalog go through here, so that the stamp cannot
 // be forgotten by the fourth one somebody writes later.
+//
+// An unknown instant is stored as zero rather than as time.Time{}.UnixNano(), which
+// is a very large NEGATIVE number and would have CatalogUpdatedAt hand out the year
+// 1754 instead of the « pas de date à montrer » the screen knows how to say.
 func (h *Hub) storeCatalog(catalog *domain.Catalog, at time.Time) {
 	h.catalog.Store(catalog)
+	if at.IsZero() {
+		h.catalogAt.Store(0)
+		return
+	}
 	h.catalogAt.Store(at.UnixNano())
 }
 
@@ -520,7 +532,7 @@ func (h *Hub) run(ctx context.Context, ticks <-chan time.Time) {
 				// under, and a station showing « Catalogue vide » must serve the
 				// moment it can, so the first catalog goes THROUGH THE MACHINE —
 				// which is also what takes it out of Initializing.
-				ev = domain.CatalogReady{Catalog: batch.Catalog}
+				ev = domain.CatalogReady{Catalog: batch.Catalog, ImportedAt: batch.ImportedAt}
 
 			case req := <-h.subscriptions:
 				h.applySubscription(req)
@@ -682,7 +694,9 @@ func (h *Hub) applyPendingBatch(now time.Time) {
 	if now.Sub(h.lastInteraction) < domain.MaxSwitchIdle {
 		return
 	}
-	h.storeCatalog(h.pendingBatch.Catalog, now)
+	// The batch's own instant, and NOT `now`: the swap is deliberately later than the
+	// import — that is what MaxSwitchIdle buys — and the screen states the import.
+	h.storeCatalog(h.pendingBatch.Catalog, h.pendingBatch.ImportedAt)
 	h.pendingBatch = nil
 	h.catalogWaiting.Store(false)
 }
@@ -783,7 +797,7 @@ func (h *Hub) execute(ef domain.Effect, now time.Time) domain.Event {
 		h.armExpiresAt = now.Add(e.Duration)
 
 	case domain.ApplyCatalogEffect:
-		h.storeCatalog(e.Catalog, now)
+		h.storeCatalog(e.Catalog, e.ImportedAt)
 	}
 	return nil
 }

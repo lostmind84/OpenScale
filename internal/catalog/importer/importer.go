@@ -181,8 +181,13 @@ func (a *Applier) refuse(ctx context.Context, batch *ports.Batch, report catalog
 // which the batch knows anything about.
 func (a *Applier) replace(ctx context.Context, cfg domain.Config, batch *ports.Batch,
 	report catalog.Report, started time.Time) (*domain.Catalog, ports.BatchResult, error) {
+	// The row is built ONCE and its instant is handed back to the caller: the date the
+	// client screen shows and the date the imports table holds are then the same number,
+	// and a restart that reads it back from the base cannot contradict the running
+	// station by a second (§14.3).
+	applied := a.importRow(batch, report, started, domain.ImportApplied)
 	written := store.Batch{
-		Import:     a.importRow(batch, report, started, domain.ImportApplied),
+		Import:     applied,
 		Categories: cfg.Catalog.Categories,
 		Images:     batch.Images,
 		Products:   batch.Products,
@@ -216,12 +221,14 @@ func (a *Applier) replace(ctx context.Context, cfg domain.Config, batch *ports.B
 		a.log.Technical(domain.LevelWarn, "catalog", codeDatabase,
 			"Catalogue appliqué mais non relu : la grille en service reste la précédente.",
 			err.Error())
-		return nil, ports.BatchResult{Result: domain.ImportApplied}, nil
+		return nil, ports.BatchResult{Result: domain.ImportApplied,
+			AppliedAt: applied.OccurredAt}, nil
 	}
 	a.log.Technical(domain.LevelInfo, "catalog", "",
 		fmt.Sprintf("Catalogue appliqué : %d tuiles sur %d lignes reçues.",
 			snapshot.WeighableCount(), report.RowsRead), batch.FileName)
-	return snapshot, ports.BatchResult{Result: domain.ImportApplied}, nil
+	return snapshot, ports.BatchResult{Result: domain.ImportApplied,
+		AppliedAt: applied.OccurredAt}, nil
 }
 
 // The two codes an import ends on.

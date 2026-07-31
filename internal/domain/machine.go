@@ -258,7 +258,15 @@ type ReprintRequested struct {
 }
 
 // CatalogReady carries the first usable catalog snapshot.
-type CatalogReady struct{ Catalog *Catalog }
+//
+// ImportedAt is the instant of the import that produced it, which the client screen
+// shows permanently (§14.3). It travels with the catalog rather than being read off
+// the clock at the far end: the two moments are not the same one, and the screen
+// answers « quand ce catalogue a-t-il été importé ? ».
+type CatalogReady struct {
+	Catalog    *Catalog
+	ImportedAt time.Time
+}
 
 // Cancel clears the selection. It leads to a model with no product and no label
 // from every state (invariant 1 of §6.7).
@@ -359,7 +367,13 @@ type ArmTimerEffect struct{ Duration time.Duration }
 // It is emitted from Initializing and from Idle only. Emitting it from a weighing
 // state would reorder the tiles under a customer's finger, which is exactly what
 // the deferred swap of §10.8 exists to prevent.
-type ApplyCatalogEffect struct{ Catalog *Catalog }
+//
+// ImportedAt is carried through from the event, untouched: the effect publishes what
+// an import produced, and it dates it from that import and not from its own moment.
+type ApplyCatalogEffect struct {
+	Catalog    *Catalog
+	ImportedAt time.Time
+}
 
 func (PrintEffect) effect()        {}
 func (RecordEffect) effect()       {}
@@ -616,7 +630,7 @@ func initializing(m Model, ev Event, ctx TransitionContext) (Model, []Effect) {
 		return m, nil
 	}
 	next := m.clear(Idle)
-	return next, []Effect{ApplyCatalogEffect{Catalog: e.Catalog}}
+	return next, []Effect{ApplyCatalogEffect{Catalog: e.Catalog, ImportedAt: e.ImportedAt}}
 }
 
 // idle serves the resting state: scale empty, nothing selected.
@@ -648,7 +662,7 @@ func idle(m Model, ev Event, ctx TransitionContext) (Model, []Effect) {
 		if e.Catalog == nil || e.Catalog.Len() == 0 {
 			return m, nil
 		}
-		return m, []Effect{ApplyCatalogEffect{Catalog: e.Catalog}}
+		return m, []Effect{ApplyCatalogEffect{Catalog: e.Catalog, ImportedAt: e.ImportedAt}}
 
 	case Tick:
 		// A station that declares it has no scale and allows manual entry has no
@@ -1115,7 +1129,7 @@ func scaleLost(m Model, ev Event, ctx TransitionContext) (Model, []Effect) {
 		if e.Catalog == nil || e.Catalog.Len() == 0 {
 			return m, nil
 		}
-		return m, []Effect{ApplyCatalogEffect{Catalog: e.Catalog}}
+		return m, []Effect{ApplyCatalogEffect{Catalog: e.Catalog, ImportedAt: e.ImportedAt}}
 
 	case ProductTapped:
 		// The manual entry a volunteer reaches through the troubleshooting button

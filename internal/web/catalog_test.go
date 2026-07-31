@@ -69,8 +69,9 @@ func TestTheCatalogCarriesTheApplicationVersion(t *testing.T) {
 // TestTheCatalogSaysWhenItEnteredService: « ces prix datent de quand ? » is the one
 // question a volunteer asks in front of a grid, and §14.3 now answers it permanently.
 //
-// The instant is the one of the SWAP and not a date read in a file: a station that
-// received nothing for three days says so by not moving.
+// The instant is the one of the IMPORT that produced the catalog, read back from the
+// imports table, and never a date read in a file nor a clock read at start-up: a station
+// that received nothing for three days says so by not moving.
 func TestTheCatalogSaysWhenItEnteredService(t *testing.T) {
 	b := newBench(t)
 
