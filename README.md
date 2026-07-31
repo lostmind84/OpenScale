@@ -14,6 +14,34 @@ la caisse, la géométrie de l'étiquette — mais aucune ligne de code.
 en service.** Il reste la recette sur un poste pilote. Ce qui est prouvé, ce qui ne
 l'est pas et ce qui reste ouvert : [SUIVI.md](SUIVI.md).
 
+## Installer un poste
+
+Sur un Windows nu, sans dépôt, sans Go et sans archive à décompresser. Les droits
+administrateur sont demandés en cours de route :
+
+```powershell
+irm https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/windows/bootstrap.ps1 | iex
+```
+
+<details>
+<summary>Depuis une invite de commandes (<code>cmd</code>)</summary>
+
+```cmd
+curl -fsSL https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/windows/bootstrap.cmd -o %TEMP%\openscale.cmd && %TEMP%\openscale.cmd
+```
+
+</details>
+
+La commande prend la dernière version publiée, **vérifie son empreinte avant de la
+décompresser**, pose trois questions — mot de passe de la session du poste, production ou
+pilote, ouverture de session automatique — puis installe tout : compte Windows dédié,
+service, tâche du kiosque, réglages d'alimentation, fiche d'installation à ranger dans le
+classeur du magasin. Comptez **15 minutes** jusqu'à la première étiquette, matériel branché.
+
+Le parcours complet du bénévole — redémarrage de recette, balance, imprimante, catalogue,
+et **l'installation par clé USB d'un poste sans Internet** — est dans
+[`INSTALLATION.md`](INSTALLATION.md). Sous Linux, `deploy/linux/install.sh`.
+
 ## Essayer, sans balance et sans imprimante
 
 Un poste complet tourne sur votre machine en quatre commandes. **Les deux colonnes font
@@ -129,10 +157,10 @@ détecteur de course sont détaillés dans
 Un poste ne s'installe pas en copiant `openscale.exe` : il lui faut les scripts, la tâche
 planifiée ou les unités systemd, la configuration et les documents du bénévole.
 `make release` assemble le tout en une archive par plateforme, et pousser un tag de
-version fait la même chose sur la page *Releases*.
+version fait la même chose sur la page *Releases*. C'est cette archive que la commande
+ci-dessus télécharge.
 
-L'installation elle-même est décrite dans [`INSTALLATION.md`](INSTALLATION.md), écrit pour
-un bénévole ; la fabrication des archives dans
+La fabrication des archives est décrite dans
 [`docs/06-developpement.md`](docs/06-developpement.md).
 
 ## Licence

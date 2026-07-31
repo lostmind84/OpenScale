@@ -6,38 +6,15 @@ de passe d'administrateur Windows, et lire ce qui s'affiche.
 
 **Ce dont vous avez besoin avant de commencer :**
 
-- le PC du poste, la balance branchée en USB, l'imprimante d'étiquettes branchée et
-  allumée, avec un rouleau ;
-- l'archive `openscale-2.0.0-windows-amd64.zip` sur une clé USB — **si vous ne l'avez
-  pas, voir juste en dessous** ;
+- le PC du poste, **branché à Internet le temps de l'installation**, la balance branchée
+  en USB, l'imprimante d'étiquettes branchée et allumée, avec un rouleau ;
 - **une étiquette imprimée par l'ancienne application**, pour comparer ;
 - un compte administrateur sur ce PC ;
 - une imprimante ordinaire pour imprimer la fiche d'installation. À défaut, un stylo.
 
-> ### D'où vient l'archive, et qui la fabrique
->
-> **Vous n'avez rien à construire pour installer un poste.** L'archive est préparée une
-> fois par la personne qui suit le logiciel, et c'est elle que vous copiez sur la clé USB
-> pour les quatre postes. Si on vous l'a remise, passez à l'étape 1.
->
-> **Si vous devez la fabriquer vous-même**, il faut le dépôt et Go 1.26.5 — c'est le seul
-> moment où un outil de développement est nécessaire, et cela n'a lieu qu'une fois par
-> version :
->
-> ```
-> git clone https://github.com/lostmind84/OpenScale.git
-> cd OpenScale
-> git tag -a 2.0.0 -m "Version 2.0.0"        # le nom de l'archive vient de ce tag
-> pwsh -File ./make.ps1 release              # sous Linux ou macOS : make release
-> ```
->
-> Les trois archives apparaissent dans `dist/`, une par plateforme. Prenez
-> `openscale-2.0.0-windows-amd64.zip`. Le détail est dans
-> [`README.md`](README.md#déployer).
->
-> **Sans le tag**, l'archive porte le numéro de révision du dépôt au lieu de la version —
-> par exemple `openscale-473ebed-windows-amd64.zip`. Elle s'installe aussi bien, mais
-> personne ne saura dire six mois plus tard ce qu'elle contenait.
+Vous n'avez **rien à télécharger et rien à décompresser** : la commande de l'étape 1 s'en
+charge. **Si le poste n'a pas Internet**, tout se fait depuis une clé USB — voir
+« Installer un poste sans Internet », plus bas.
 
 ---
 
@@ -45,18 +22,16 @@ de passe d'administrateur Windows, et lire ce qui s'affiche.
 
 | Étape | Durée | Ce que vous faites |
 |---|---|---|
-| 1 | 2 min | Décompresser l'archive et débloquer les fichiers |
-| 2 | 3 min | Lancer `install.ps1` en administrateur |
-| 3 | 3 min | **Redémarrer et vérifier que le poste revient seul sur l'écran client** |
-| 4 | 2 min | Poser le mot de passe d'administration avec le code de secours de la fiche |
-| 5 | 1 min | Balance → *Détecter automatiquement* |
-| 6 | 4 min | Imprimante → étiquette de test, superposer, régler le décalage |
-| 7 | 2 min | Catalogue → source, numéro de poste, *Importer maintenant* |
+| 1 | 3 min | Coller **une commande** dans PowerShell et répondre à trois questions |
+| 2 | 3 min | **Redémarrer et vérifier que le poste revient seul sur l'écran client** |
+| 3 | 2 min | Poser le mot de passe d'administration avec le code de secours de la fiche |
+| 4 | 1 min | Balance → *Détecter automatiquement* |
+| 5 | 4 min | Imprimante → étiquette de test, superposer, régler le décalage |
+| 6 | 2 min | Catalogue → source, numéro de poste, *Importer maintenant* |
 
-**Total : 17 minutes** pour le premier poste.
+**Total : 15 minutes** pour le premier poste.
 
-**C'est deux minutes de plus que les 15 minutes annoncées, et c'est dit ici plutôt que
-découvert sur place.** L'étape qui dépasse est l'étape 6 : superposer une étiquette
+L'étape la plus longue est l'étape 5, et elle le restera : superposer une étiquette
 neuve sur une étiquette de l'ancienne application et régler le décalage au dot près
 demande trois ou quatre essais, et personne ne le fait en une minute la première fois.
 Les deux autres postes vont plus vite (voir « Les postes suivants », **environ
@@ -70,39 +45,48 @@ d'impression de l'imprimante d'étiquettes si elle n'est pas déjà installée
 
 ---
 
-## Étape 1 — Décompresser et débloquer (2 min)
+## Étape 1 — Une commande (3 min)
 
-1. Copiez le fichier `.zip` de la clé USB vers le Bureau.
-2. Clic droit sur le fichier → **Propriétés**. Si vous voyez une case
-   **« Débloquer »** en bas, cochez-la et validez. Windows marque comme « venant
-   d'Internet » tout fichier arrivé par une clé, et refuse ensuite de lancer les
-   scripts qu'il contient.
-3. Clic droit → **Extraire tout**. Extrayez sur le Bureau.
-
-**Si Windows affiche un écran bleu « Windows a protégé votre ordinateur »
-(SmartScreen)** en lançant le programme : c'est normal, le binaire n'est pas signé par
-un certificat commercial. Cliquez sur **Informations complémentaires**, puis sur
-**Exécuter quand même**. Si vous préférez tout débloquer d'un coup, ouvrez PowerShell
-dans le dossier extrait et tapez :
+Ouvrez le menu Démarrer, tapez `powershell`, ouvrez **Windows PowerShell** — inutile de
+faire un clic droit, la commande demandera elle-même les droits qu'il lui faut. Collez
+ceci et validez :
 
 ```powershell
-Get-ChildItem -Recurse | Unblock-File
+irm https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/windows/bootstrap.ps1 | iex
 ```
 
-## Étape 2 — Lancer l'installation (3 min)
+<details>
+<summary>Depuis une invite de commandes (<code>cmd</code>) plutôt que PowerShell</summary>
 
-1. Ouvrez le menu Démarrer, tapez `powershell`, **clic droit** sur *Windows PowerShell*
-   → **Exécuter en tant qu'administrateur**. Répondez *Oui* à la demande de Windows.
-2. Placez-vous dans le dossier extrait et lancez l'installation :
-
-```powershell
-cd "$env:USERPROFILE\Desktop\openscale-2.0.0-windows-amd64"
-.\install.ps1
+```cmd
+curl -fsSL https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/windows/bootstrap.cmd -o %TEMP%\openscale.cmd && %TEMP%\openscale.cmd
 ```
 
-Le script parle français et dit ce qu'il fait, ligne par ligne. Il :
+</details>
 
-- **sauvegarde** tous les réglages Windows qu'il va modifier, pour pouvoir les remettre
+**Windows demande l'autorisation d'administrateur**, et une nouvelle fenêtre s'ouvre :
+c'est dans celle-là que la suite se passe. Répondez *Oui*.
+
+La commande télécharge la dernière version, **vérifie son empreinte**, la décompresse, et
+vous pose **trois questions** :
+
+1. **Le mot de passe de la session Windows du poste.** Quatre caractères au minimum, tapé
+   deux fois, et il ne s'affiche pas pendant que vous le tapez. Si vous validez sans rien
+   taper, l'installeur décide : sur un poste neuf il en tire un de vingt caractères et
+   l'imprime sur la fiche, sur un poste déjà installé il **garde celui qui est en place**
+   — la fiche déjà rangée au classeur reste vraie. Voir « Le mot de passe du compte
+   Windows » juste après cette étape.
+2. **Production ou pilote.** Répondez *1* (production), sauf si on vous a demandé que
+   l'ancienne application reste utilisable : dans ce cas *2*, et le poste ne prendra pas
+   le port série à chaque démarrage.
+3. **L'ouverture de session automatique.** Répondez *oui*, sauf si ce poste n'est pas en
+   libre-service : c'est elle qui fait revenir l'écran client tout seul après une coupure
+   de courant.
+
+Puis l'installation se déroule seule. Elle parle français et dit ce qu'elle fait, ligne
+par ligne. Elle :
+
+- **sauvegarde** tous les réglages Windows qu'elle va modifier, pour pouvoir les remettre
   le jour où vous désinstallerez ;
 - crée un compte Windows dédié, `openscale`, **sans droits administrateur** — et sur un
   poste déjà installé, il **ne touche pas** à son mot de passe (voir plus bas) ;
@@ -115,38 +99,63 @@ Le script parle français et dit ce qu'il fait, ligne par ligne. Il :
 - interdit à Windows Update de redémarrer le PC entre 7 h et 21 h ;
 - écrit la **fiche d'installation**.
 
-À la fin, il affiche trois choses à faire. **Faites-les dans l'ordre.**
+À la fin, elle affiche trois choses à faire. **Faites-les dans l'ordre.** Elle vous donne
+aussi le dossier où les scripts du poste sont rangés,
+`C:\ProgramData\OpenScale\installer\` : c'est là que vivent la mise à jour et la
+désinstallation, et c'est là que ce document vous renverra.
 
-> **Si le script s'arrête sur un message rouge**, lisez-le : il nomme ce qui a échoué.
-> Le plus fréquent est *« doit être lancé en ADMINISTRATEUR »* — reprenez au point 1.
-> Rien n'est à moitié installé : le script refuse avant d'écrire.
-
-**Pendant la période pilote**, si on vous a demandé que l'ancienne application reste
-utilisable, lancez plutôt `.\install.ps1 -Pilot` : le service ne démarrera pas tout
-seul, et vous le démarrerez à la demande.
+> **Si la commande s'arrête sur un message rouge**, lisez-le : il nomme ce qui a échoué.
+> Rien n'est à moitié installé — l'archive est vérifiée avant d'être décompressée, et
+> l'installation refuse avant d'écrire.
+>
+> **Si Windows affiche un écran bleu « Windows a protégé votre ordinateur »
+> (SmartScreen)** : c'est normal, le binaire n'est pas signé par un certificat
+> commercial. Cliquez sur **Informations complémentaires**, puis **Exécuter quand même**.
 
 ### Le mot de passe du compte Windows
 
-Par défaut, l'installeur en tire un de **20 caractères au hasard** et l'imprime sur la
-fiche. C'est parfait tant que le poste ouvre sa session tout seul — mais le jour où
-quelqu'un ferme ou verrouille la session, il faut aller chercher le classeur et recopier
-vingt caractères. Pour donner à la place un mot de passe que l'équipe retient, et le
-**même sur les quatre postes** :
+C'est la **première question** de l'étape 1, et elle mérite un mot d'explication. Sans
+réponse, l'installeur en tire un de **20 caractères au hasard** et l'imprime sur la fiche :
+parfait tant que le poste ouvre sa session tout seul, mais le jour où quelqu'un ferme ou
+verrouille la session, il faut aller chercher le classeur et recopier vingt caractères. En
+donner un que l'équipe retient, et **le même sur les quatre postes**, se paye quatre
+secondes à l'installation et se rembourse le premier samedi.
+
+Quatre caractères suffisent. Ce compte n'a **aucun droit** : il ouvre une session sur un
+poste en libre-service, il ne permet rien d'autre. Le mot de passe d'administration, lui,
+est une tout autre affaire — c'est celui de l'étape 3, il en faut huit, et il protège le
+droit de *changer* le poste.
+
+**Réinstaller ne change pas ce mot de passe.** La fiche déjà rangée au classeur reste donc
+valable. L'installeur ne le renouvelle que dans deux cas : à la première installation, et
+sur un poste dont il ne retrouve plus le mot de passe en place — il l'écrit alors en
+toutes lettres à la fin, et il faut remplacer la fiche du classeur.
+
+### Installer un poste sans Internet
+
+Le poste de pesée est **hors ligne par conception** : il n'a besoin du réseau qu'à
+l'installation et aux mises à jour. Un poste qui n'y a pas droit s'installe depuis une clé
+USB, et rien de ce qui suit ne change.
+
+1. Depuis un PC connecté, téléchargez `openscale-<version>-windows-amd64.zip` sur la
+   [page des versions](https://github.com/lostmind84/OpenScale/releases/latest) et copiez-le
+   sur la clé.
+2. Sur le poste : copiez le `.zip` sur le Bureau, **clic droit → Propriétés → cochez
+   « Débloquer »**, puis clic droit → **Extraire tout**.
+3. Ouvrez PowerShell **en administrateur** (clic droit sur *Windows PowerShell* →
+   *Exécuter en tant qu'administrateur*), placez-vous dans le dossier extrait et lancez
+   l'installation — c'est exactement ce que fait la commande de l'étape 1, une fois
+   l'archive sur place :
 
 ```powershell
+cd "$env:USERPROFILE\Desktop\openscale-<version>-windows-amd64"
 .\install.ps1 -AccountPassword 'poire-balance-samedi'
 ```
 
-Ce compte n'a **aucun droit** : il ouvre une session sur un poste en libre-service, il ne
-permet rien d'autre. Le mot de passe d'administration, lui, est une tout autre affaire —
-c'est celui de l'étape 4, et il protège le droit de *changer* le poste.
+`install.ps1` ne pose aucune question : sans `-AccountPassword`, le mot de passe de la
+session est tiré au sort et imprimé sur la fiche. Pour la période pilote, ajoutez `-Pilot`.
 
-**Relancer `install.ps1` ne change pas ce mot de passe.** La fiche déjà rangée au classeur
-reste donc valable. L'installeur ne renouvelle le mot de passe que dans deux cas : à la
-première installation, et sur un poste dont il ne retrouve plus le mot de passe en place —
-il l'écrit alors en toutes lettres à la fin, et il faut remplacer la fiche du classeur.
-
-## Étape 3 — La recette obligatoire : redémarrer (3 min)
+## Étape 2 — La recette obligatoire : redémarrer (3 min)
 
 **Ne sautez pas cette étape.** C'est la seule preuve que le poste se relèvera d'une
 coupure de courant, et c'est la panne la plus coûteuse du poste : le PC redémarre, reste
@@ -168,7 +177,7 @@ passe, et le poste est inutilisable alors que tout va bien à l'intérieur.
 > recommence, voir TROUBLESHOOTING.md, « Après un redémarrage, le poste reste sur
 > l'écran de connexion de Windows ».
 
-## Étape 4 — Le mot de passe d'administration (2 min)
+## Étape 3 — Le mot de passe d'administration (2 min)
 
 **Prenez la fiche d'installation** : l'installeur y a imprimé un **code de secours de
 8 caractères**. Il n'est écrit nulle part ailleurs — le poste n'en garde qu'une empreinte
@@ -190,7 +199,7 @@ réglage qui fait apparaître la question.
    puis touchez **Poser ce mot de passe**. Prenez-en un que l'équipe connaît, pas celui
    de votre boîte mail. Huit caractères au minimum.
 4. **Le geste que vous veniez de faire repart tout seul** : la détection de la balance se
-   lance sans que vous ayez à retoucher le bouton. L'étape 5 est déjà commencée.
+   lance sans que vous ayez à retoucher le bouton. L'étape 4 est déjà commencée.
 5. **Rangez la fiche dans le classeur du magasin.** Gardez le code : il n'y a pas de
    « mot de passe oublié » sur un poste hors ligne. **Attention** : une fois un mot de
    passe posé, ce code ne se saisit plus à l'écran — l'écran ne le redemande qu'à un
@@ -198,7 +207,7 @@ réglage qui fait apparaître la question.
    ci-dessous.
 
 > **Le poste affiche encore « Poste hors service » à ce stade, et c'est normal** : sa
-> configuration est incomplète tant que les étapes 5 à 7 n'ont pas été faites. Il revient
+> configuration est incomplète tant que les étapes 4 à 6 n'ont pas été faites. Il revient
 > en service tout seul, sans redémarrage, dès qu'il ne reste plus une seule faute.
 
 > **Si la fiche a été perdue avant d'avoir servi**, ou **si le mot de passe est perdu
@@ -211,10 +220,10 @@ réglage qui fait apparaître la question.
 > Start-Service OpenScale
 > ```
 
-## Étape 5 — La balance (1 min)
+## Étape 4 — La balance (1 min)
 
 1. Page **Matériel**, encadré **Balance** → **Détecter automatiquement**. C'est le geste
-   que l'étape 4 vient de lancer : s'il tourne encore, laissez-le finir.
+   que l'étape 3 vient de lancer : s'il tourne encore, laissez-le finir.
 2. Le poste liste les ports série qu'il voit et essaie de lire des trames sur chacun.
    Il vous propose celui qui répond.
 3. Posez un objet sur la balance : le poids doit s'afficher et bouger.
@@ -222,7 +231,7 @@ réglage qui fait apparaître la question.
 > **Si aucun port ne répond** : la balance est-elle allumée et branchée ? Voir
 > TROUBLESHOOTING.md, « Le poids ne s'affiche pas ».
 
-## Étape 6 — L'imprimante et le décalage d'étiquette (4 min)
+## Étape 5 — L'imprimante et le décalage d'étiquette (4 min)
 
 C'est l'étape la plus longue, et celle qui décide de la qualité du résultat.
 
@@ -241,7 +250,7 @@ C'est l'étape la plus longue, et celle qui décide de la qualité du résultat.
 > « pour l'utilisateur » et non pour la machine. Le service ne la voit alors pas. Voir
 > TROUBLESHOOTING.md, « L'imprimante n'apparaît pas dans la liste ».
 
-## Étape 7 — Le catalogue (2 min)
+## Étape 6 — Le catalogue (2 min)
 
 1. Page **Catalogue**. Choisissez la **source** (partage WebDAV, ou dépôt local) et le
    **numéro de ce poste**.
@@ -276,11 +285,11 @@ premier.
 |---|---|
 | Page **Poste** → **Exporter la configuration** | |
 | Décochez **« inclure le matériel »** | |
-| Le fichier part sur une clé USB | Étapes 1 à 4 ci-dessus (installation, redémarrage, mot de passe) |
+| Le fichier part sur une clé USB | Étapes 1 à 3 ci-dessus (installation, redémarrage, mot de passe) |
 | | Page **Poste** → **Importer**, glissez le fichier |
 | | Le poste montre le **diff champ par champ**. Lisez-le, confirmez. |
-| | Étapes 5 et 6 : balance et imprimante (le décalage est déjà bon) |
-| | Étape 7 : **numéro de ce poste** |
+| | Étapes 4 et 5 : balance et imprimante (le décalage est déjà bon) |
+| | Étape 6 : **numéro de ce poste** |
 
 > **Le décalage voyage vraiment** : il est dans la configuration livrée, avec le
 > noircissement, la vitesse et les réglages série de la balance. Vérifiez-le sur la
@@ -290,11 +299,11 @@ premier.
 une **empreinte de 8 caractères**. Les quatre postes doivent afficher **exactement la
 même chaîne**.
 
-> **Comparez-la seulement quand les sept étapes sont finies.** Tant que le numéro de
+> **Comparez-la seulement quand les six étapes sont finies.** Tant que le numéro de
 > poste, la balance et l'imprimante ne sont pas réglés, la configuration est incomplète :
 > le poste tourne en **configuration d'usine** et affiche l'empreinte de cette
 > configuration-là, pas celle du fichier. Ce n'est pas une panne, et c'est aussi pour ça
-> que l'étape 3 — le redémarrage — se fait avant : à ce moment-là, l'écran client affiche
+> que l'étape 2 — le redémarrage — se fait avant : à ce moment-là, l'écran client affiche
 > « Poste en configuration d'usine » et c'est normal.
 
 ```
@@ -394,6 +403,10 @@ affichée au tableau de bord en tient compte, et deux postes qui suivent deux d�
 différents n'affichent pas la même.
 
 ## Désinstaller un poste
+
+Les scripts du poste sont sous `C:\ProgramData\OpenScale\installer\`, dans un dossier par
+version installée — l'installation les y a rangés pour ce jour-là. PowerShell **en
+administrateur**, dans ce dossier :
 
 ```powershell
 .\uninstall.ps1
