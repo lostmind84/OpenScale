@@ -61,7 +61,7 @@ func runService(args []string, out io.Writer) error {
 	}
 	if len(positional) != 1 {
 		fs.Usage()
-		return errors.New("service prend une action : install, uninstall, start, stop ou status")
+		return errors.New("service prend une action : install, uninstall, start, stop, restart ou status")
 	}
 
 	clock := platform.NewSystemClock()
@@ -87,14 +87,41 @@ func runService(args []string, out io.Writer) error {
 		}
 		fmt.Fprintf(out, "service %s arrêté.\n", platform.ServiceName)
 		return nil
+	case "restart":
+		return restartService(out, platform.ServiceName,
+			func() error {
+				return platform.StopService(clock, platform.ServiceName, serviceStopBudget())
+			},
+			func() error { return platform.StartService(platform.ServiceName) })
 	case "status":
 		return reportServiceState(out)
 	}
 	fs.Usage()
-	return fmt.Errorf("action inconnue %q : install, uninstall, start, stop ou status", positional[0])
+	return fmt.Errorf("action inconnue %q : install, uninstall, start, stop, restart ou status", positional[0])
 }
 
-const serviceUsage = `Usage : openscale service <install|uninstall|start|stop|status> [options]
+// restartService stops the service, waits for it to have stopped, then starts it.
+//
+// THE ERROR OF THE STOP IS RETURNED WITHOUT TRYING THE START. A service nobody managed
+// to stop is not restarted, and chaining would answer a second message — « le service
+// est déjà démarré » — about a failure the first one already named, which is « accès
+// refusé » nine times out of ten.
+//
+// The two halves travel as functions so that the rule above is provable: platform.Stop
+// and platform.StartService talk to the SCM, and a test that called them would stop the
+// OpenScale a developer has installed on their own machine.
+func restartService(out io.Writer, name string, stop, start func() error) error {
+	if err := stop(); err != nil {
+		return err
+	}
+	if err := start(); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "service %s redémarré.\n", name)
+	return nil
+}
+
+const serviceUsage = `Usage : openscale service <install|uninstall|start|stop|restart|status> [options]
 
 Enregistre le poste comme service Windows, ou le retire. Sous Linux, ce travail est
 celui de l'unité systemd livrée dans deploy/linux.
@@ -104,6 +131,7 @@ Actions :
   uninstall   arrête et retire le service, SANS toucher aux données
   start       démarre le service
   stop        arrête le service et attend qu'il soit vraiment arrêté
+  restart     arrête le service, attend son arrêt, puis le redémarre
   status      dit si le service est installé, son mode de démarrage et son état
 
 Options d'install :
