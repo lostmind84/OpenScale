@@ -45,6 +45,14 @@ Internet s'installe toujours depuis une clé USB, exactement comme aujourd'hui.
 irm https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/windows/bootstrap.ps1 | iex
 ```
 
+**Cette commande a échoué sur sa première ligne du 31/07/2026 au 01/08/2026** : elle donne
+au parseur la marque d'ordre des octets **avec** le texte, et Windows PowerShell 5.1 la
+colle au `<#` qui ouvre l'en-tête — le bloc de commentaire ne s'ouvre jamais et toute la
+prose du `.SYNOPSIS` est lue comme du code. Ce n'est pas la commande qui a changé, c'est le
+fichier : `bootstrap.ps1` est le seul `.ps1` du dépôt **sans marque et sans accent dans son
+code**, comme `bootstrap.cmd`, parce qu'il est le seul lu comme un flux et non sur un
+disque. Sa prose garde les siens : un commentaire n'est jamais analysé comme du code.
+
 ```cmd
 curl -fsSL https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/windows/bootstrap.cmd -o %TEMP%\openscale.cmd && %TEMP%\openscale.cmd
 ```

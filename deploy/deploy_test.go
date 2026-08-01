@@ -655,6 +655,16 @@ func TestEveryPowerShellScriptCarriesTheMarkWindowsPowerShellNeeds(t *testing.T)
 	}
 
 	for _, script := range scripts {
+		// bootstrap.ps1 est la seule exception, et c'est la règle INVERSE plutôt qu'une
+		// absence de règle : c'est le seul .ps1 que personne ne lit sur un disque — « irm …
+		// | iex » le donne au parseur comme un FLUX, où la marque se colle au « <# » de son
+		// en-tête et fait lire tout le fichier comme du code. Il ne porte donc pas la
+		// marque, et pas d'accent dans son code non plus, ce qui est exactement ce qui rend
+		// une relecture en CP1252 sans effet. Les deux moitiés sont tenues par
+		// TestTheBootstrapIsReadAsAStreamSoItCarriesNeitherMarkNorAccent.
+		if filepath.Base(script) == bootstrapPath {
+			continue
+		}
 		raw, err := os.ReadFile(script)
 		if err != nil {
 			t.Errorf("lecture de %s : %v", script, err)
