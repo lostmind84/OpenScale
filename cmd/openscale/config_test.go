@@ -561,6 +561,63 @@ func TestMigrateLeavesARefusedKeyInPlace(t *testing.T) {
 	}
 }
 
+// TestMigrateMixesTwoKindsOfRefusalWithoutDuplicating surveille une COÏNCIDENCE, pas une
+// règle : le dédoublonnage de migrateConfig entre les notes de Migrate et cfg.Retired()
+// fonctionne parce que carryCoefficientToDiscount (configmigration.go) et scanRetired
+// (config.go) construisent le même chemin pointé pour le même champ -- deux fonctions
+// indépendantes qui ne se citent pas l'une l'autre. Si l'une des deux change de gabarit un
+// jour sans que l'autre suive, le dédoublonnage casse EN SILENCE : une clé apparaîtrait
+// deux fois, sous deux messages différents, sans qu'aucun test ne le remarque. Celui-ci
+// mélange les deux familles de refus dans le même fichier pour l'attraper.
+//
+// pricing.tiers[0].coef_num ET pricing.tiers[0].coef_den restent tous les deux dans le
+// document (carryCoefficientToDiscount ne les retire que dans la branche qui réussit), donc
+// scanRetired les trouve tous les deux -- mais Migrate n'a écrit qu'UNE note, sous
+// "pricing.tiers[0].coef_num". Le dédoublonnage n'annule donc que celle-là : coef_den, lui,
+// reçoit sa propre ligne, avec sa propre raison (ADR-034, « il n'y a plus de dénominateur »).
+// Ce n'est pas un message dupliqué -- c'est un troisième point, sur une troisième clé JSON
+// bel et bien encore présente -- et c'est ce que ce test fixe aussi, pour qu'un futur
+// lecteur ne le prenne pas pour un bug le jour où il le découvre.
+func TestMigrateMixesTwoKindsOfRefusalWithoutDuplicating(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	before := []byte(`{"version":1,"pricing":{"tiers":[
+		{"code":"X","label":"X","abbrev":"X","coef_num":3,"coef_den":7,"rank":1}
+	]},"barcode":{"weight_decimals":3}}`)
+	if err := os.WriteFile(path, before, 0o644); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+
+	var out bytes.Buffer
+	err := runConfig([]string{"migrate", path}, nil, &out)
+	if err == nil {
+		t.Fatal("un fichier portant deux familles de clés refusées doit rendre un code non nul")
+	}
+
+	printed := out.String()
+	for _, key := range []string{
+		"pricing.tiers[0].coef_num", "pricing.tiers[0].coef_den", "barcode.weight_decimals",
+	} {
+		if count := strings.Count(printed, key); count != 1 {
+			t.Errorf("%s apparaît %d fois dans la sortie, attendu 1 :\n%s", key, count, printed)
+		}
+	}
+	if !strings.Contains(printed, "3 changement(s)") {
+		t.Errorf("le compte de points refusés n'est pas 3 (coef_num, coef_den, weight_decimals) :\n%s", printed)
+	}
+	if !strings.Contains(err.Error(), "3 point(s)") {
+		t.Errorf("l'erreur ne nomme pas les 3 points refusés : %v", err)
+	}
+
+	after, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("relecture : %v", readErr)
+	}
+	if string(after) != string(before) {
+		t.Errorf("le fichier a été modifié alors qu'un point reste refusé :\navant : %s\naprès : %s",
+			before, after)
+	}
+}
+
 func collectStrings(path string, value any, out map[string]string) {
 	switch typed := value.(type) {
 	case string:

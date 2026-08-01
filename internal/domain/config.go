@@ -118,6 +118,29 @@ var retiredKeys = map[string]string{
 	"tile_size":         "la densité de la grille s'adapte en continu à l'écran (clamp CSS), il n'y a plus de palier à choisir (ADR-035, remplace ADR-031) ; ce qui se règle désormais est le nombre de colonnes, ui.grid_columns, un entier (ADR-057)",
 }
 
+// RetiredKeyReason reports why the key at the end of a dotted path -- "barcode.weight_decimals",
+// exactly as scanRetired and Config.Retired name it -- was retired, in the French an
+// operator reads.
+//
+// It exists so that a reason written ONCE in retiredKeys is read everywhere a refusal is
+// shown, instead of being copied a second time by whoever writes the next one: control 20
+// below and `openscale config migrate` (cmd/openscale/config.go) both name a key this
+// binary will not convert, and they have to say the SAME thing, word for word, or a
+// volunteer comparing the two would read them as two different problems.
+//
+// The extraction is the one control 20 already did before this function existed: the last
+// segment of the path, because retiredKeys is indexed by the bare key and not by where it
+// was found. A path this binary never retired -- unreachable through Config.Retired, which
+// only ever names a key of retiredKeys -- reports that plainly rather than an empty string,
+// which would truncate whatever sentence names it.
+func RetiredKeyReason(path string) string {
+	key := path[strings.LastIndexByte(path, '.')+1:]
+	if reason, known := retiredKeys[key]; known {
+		return reason
+	}
+	return "clé retirée dont la raison n'est plus documentée"
+}
+
 // retiredScaleTypes are the two values that LEFT the scale enumeration (§9.3),
 // each with the reason it left.
 //
@@ -1246,8 +1269,7 @@ func (c *Config) Validate(reg Registries) []Fault {
 	// 20. A configuration still carrying a retired key -- numbering plan or pricing
 	//     coefficient -- is REFUSED.
 	for _, path := range c.retired {
-		key := path[strings.LastIndexByte(path, '.')+1:]
-		fail(path, "clé supprimée : %s", retiredKeys[key])
+		fail(path, "clé supprimée : %s", RetiredKeyReason(path))
 	}
 
 	// 21. template.media.dots_per_mm is the SINGLE source of resolution (mineur-3):

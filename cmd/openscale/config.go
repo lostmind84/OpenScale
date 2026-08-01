@@ -332,10 +332,11 @@ func exportConfig(out io.Writer, cfg domain.Config, hardware bool, output string
 // already at this schema must come out of it with its file untouched -- rotating five
 // versions over a no-operation is how the version that mattered falls off the end.
 //
-// A refused point is a non-zero status and NOT a refusal to write: what could be carried is
-// carried in memory, but nothing at all is written to disk while one point is still
-// refused -- see the comment on the refusal branch below for why that has to hold even for
-// a file that carries both a point migrate CAN write and one it cannot.
+// A refused point suspends the WHOLE write, not only its own key: what could be carried
+// stays computed, correctly, in the cfg this run holds in memory, but nothing at all
+// reaches disk while a single point is still refused -- see the comment on the refusal
+// branch below for why that has to hold even for a file that carries one point migrate CAN
+// write and one it cannot.
 func migrateConfig(out io.Writer, path string) error {
 	cfg, notes, _, err := platform.LoadConfig(path)
 	if err != nil {
@@ -359,8 +360,7 @@ func migrateConfig(out io.Writer, path string) error {
 			continue
 		}
 		notes = append(notes, domain.MigrationNote{
-			Key: key, Action: domain.MigrationRefused,
-			Message: "clé refusée par ce binaire, qui n'invente pas de traduction pour elle",
+			Key: key, Action: domain.MigrationRefused, Message: domain.RetiredKeyReason(key),
 		})
 	}
 
