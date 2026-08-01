@@ -157,6 +157,16 @@ func TestMigrateRefusesAnUnusableCoefficient(t *testing.T) {
 		{"dénominateur nul", `{"code":"M","coef_num":1,"coef_den":0}`},
 		{"dénominateur absent", `{"code":"M","coef_num":1}`},
 		{"numérateur plus grand que le dénominateur", `{"code":"M","coef_num":3,"coef_den":2}`},
+		// 2^61: chosen so that denominator*FullDiscount is an exact multiple of 2^64, the
+		// modulus Go's silent int64 wraparound uses. Before the overflow guard this makes
+		// (denominator-0)*1000 wrap to EXACTLY 0, which the exactness test then reads as
+		// "divides evenly" and a discount of 0 % gets CARRIED -- a member entitled to a
+		// coefficient of 0 (their whole tier free) would silently pay full catalogue price.
+		// coef_num at 0 makes denominator-numerator maximal, and it is also the value whose
+		// TRUE answer is always exact (0/den is always a 100 % discount, for any den), so any
+		// refusal below can only come from the overflow guard, never from the exactness test.
+		{"dénominateur qui ferait déborder le calcul",
+			`{"code":"M","coef_num":0,"coef_den":2305843009213693952}`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			before := []byte(`{"version":1,"pricing":{"tiers":[` + c.tier + `]}}`)

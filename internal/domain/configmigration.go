@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 )
 
 // This file owns what happens to a config.json written by an EARLIER version of this
@@ -198,6 +199,20 @@ func carryCoefficientToDiscount(document map[string]any) []MigrationNote {
 		denominator, haveDenominator := wholeNumber(tier["coef_den"])
 
 		switch {
+		// Go does not panic on a signed integer overflow, it wraps in silence: past this
+		// bound, (denominator-numerator)*int64(FullDiscount) below can land anywhere in the
+		// int64 range, including a value the modulo test reads as exact and the division
+		// after it turns into a discount inside [0, FullDiscount] -- one that control 13
+		// would accept even though no file declared it. The bound is on the DENOMINATOR
+		// alone, not on the size of the fraction: 1000/2000 stays a perfectly legal 50 %.
+		case denominator > math.MaxInt64/int64(FullDiscount):
+			notes = append(notes, MigrationNote{
+				Key: path, Action: MigrationRefused,
+				Message: fmt.Sprintf("le dénominateur %d est trop grand pour être converti "+
+					"sans déborder le calcul : écrivez la remise de ce tarif en "+
+					"pourcentage, au dixième de point (discount_percent, ADR-034)",
+					denominator),
+			})
 		case !haveNumerator || !haveDenominator || denominator <= 0 || numerator < 0 ||
 			numerator > denominator:
 			notes = append(notes, MigrationNote{
