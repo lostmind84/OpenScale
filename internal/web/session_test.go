@@ -189,6 +189,12 @@ func TestTheRecoveryCodeResetsThePasswordFromTheScreen(t *testing.T) {
 // sheet. And that station runs the NEUTRAL PROFILE in memory while its file keeps the
 // cooperative's tariffs, safeguards and categories (§11.3). Writing the running
 // configuration back would have wiped all of it on the single gesture meant to rescue it.
+//
+// It proves the ROUTE and not the read: configStore is an in-memory double here, so the
+// other half of the property -- a file whose block fell back on the factory one must not
+// come back from ConfigStore.Read as if it had been read -- is held by
+// TestReadRefusesAFileWhoseBlockFellBackOnTheFactoryOne (internal/platform). Both halves
+// are needed, and this one alone stayed green through the whole time the other was open.
 func TestARescueDoesNotReplaceTheShopsConfigurationWithTheFactoryOne(t *testing.T) {
 	shop := loadConfig(t)
 	saved := &savedConfig{}

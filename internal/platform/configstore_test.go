@@ -276,13 +276,14 @@ func TestTheFirstSaveOfAFreshInstallationHasNoPreviousVersion(t *testing.T) {
 }
 
 // TestReadSaysWhichFileItCannotRead is what a support call works from: a station has six
-// of these files, and a MISSING one is refused by name so a volunteer looks at the right
-// one.
+// of these files, and « JSON invalide » without a name sends a volunteer to the wrong one.
 //
-// A file that exists and will not decode is NOT refused any more -- that is porte 1
-// (LoadConfig, TestLoadConfigOfATruncatedFileIsNotAnError of configload_test.go) -- and
-// Read comes back with the neutral profile the station itself would fall back to, rather
-// than the JSON parse error this test used to require.
+// Read is NOT LoadConfig, and the difference is deliberate (readConfigFile). serve, doctor
+// and the two `openscale config` commands want the tolerant reading, because a station
+// serving its fault list is worth more than a station that will not come up. The six
+// callers of Read want the opposite: every one of them either SHOWS the file to a
+// volunteer or WRITES IT BACK WHOLE, and a configuration that merely looks like the file
+// is the one thing none of them may be handed.
 func TestReadSaysWhichFileItCannotRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	store := newStore(t, path)
@@ -298,13 +299,109 @@ func TestReadSaysWhichFileItCannotRead(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{"), 0o644); err != nil {
 		t.Fatalf("écriture : %v", err)
 	}
-	cfg, err := store.Read(context.Background())
+	_, err = store.Read(context.Background())
+	if err == nil || !strings.Contains(err.Error(), path) {
+		t.Fatalf("un JSON tronqué doit être refusé en nommant le fichier : %v", err)
+	}
+}
+
+// TestReadRefusesAFileWhoseBlockFellBackOnTheFactoryOne is the rescue of a locked station,
+// on the REAL read path.
+//
+// A station that started out of service runs the neutral profile while its file keeps the
+// cooperative's tariffs (§11.3), and the recovery code is the only door left. That gesture
+// re-reads the file and WRITES IT BACK WHOLE. Since decoding became block by block, a file
+// with one bad block comes back looking like the shop's own — same station.coop, same
+// name — with the factory grid quietly in place of that block; err was nil, the rescue
+// wrote it, and the members' discount was gone at the next start.
+//
+// internal/web pins the same property against an in-memory double, which never touches
+// this function: the guarantee has to be held HERE, where the substitution happens.
+func TestReadRefusesAFileWhoseBlockFellBackOnTheFactoryOne(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	shop := writeStation(t, path, 3)
+	writeWithAnUnreadablePricingBlock(t, path)
+
+	cfg, err := newStore(t, path).Read(context.Background())
+	if err == nil {
+		t.Fatalf("un fichier dont le bloc pricing est illisible a été rendu comme s'il "+
+			"avait été lu : %d tarif(s), coop %q", len(cfg.Pricing.Tiers), cfg.Station.Coop)
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("le refus ne nomme pas le fichier : %v", err)
+	}
+	if !strings.Contains(err.Error(), "pricing") {
+		t.Errorf("le refus ne nomme pas le bloc en cause : %v", err)
+	}
+	// The shop's file is untouched on disk: refusing to READ it is not refusing to keep it.
+	if onDisk := readRaw(t, path); !strings.Contains(string(onDisk), shop.Station.Coop) {
+		t.Error("la lecture refusée a abîmé le fichier")
+	}
+}
+
+// TestABackupWithOneUnreadableBlockShowsNoFingerprint: Versions promises the fingerprint
+// « est inconnue, pas inventée » (§14.4). One substituted block is enough to make it
+// invented — the eight characters would then describe a grid the backup never carried, and
+// an operator picks the version to restore by comparing them.
+func TestABackupWithOneUnreadableBlockShowsNoFingerprint(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "config.json")
+	writeStation(t, path, 1)
+	writeStation(t, path+".1", 2)
+	writeWithAnUnreadablePricingBlock(t, path+".1")
+
+	versions, err := newStore(t, path).Versions(context.Background())
 	if err != nil {
-		t.Fatalf("un JSON tronqué ne doit plus être une erreur (porte 1) : %v", err)
+		t.Fatalf("Versions : %v", err)
 	}
-	if cfg.Network.Listen != domain.NeutralProfile().Network.Listen {
-		t.Fatalf("listen = %q, attendu celui du profil neutre sur un document illisible", cfg.Network.Listen)
+	if len(versions) != 1 {
+		t.Fatalf("%d version(s), attendu 1", len(versions))
 	}
+	if versions[0].Fingerprint != "" {
+		t.Fatalf("empreinte %q sur une sauvegarde dont un bloc n'a pas décodé : elle est "+
+			"inconnue, pas inventée", versions[0].Fingerprint)
+	}
+}
+
+// writeWithAnUnreadablePricingBlock rewrites the file at path with its pricing block made
+// undecodable, and nothing else touched.
+//
+// "bankers" is not one of the three rounding words, so RoundingPolicy.UnmarshalJSON
+// refuses it: exactly ONE of the fourteen blocks falls back on the neutral profile, which
+// is the case block-by-block decoding introduced and the reason this file needs guarding.
+func writeWithAnUnreadablePricingBlock(t *testing.T, path string) {
+	t.Helper()
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(readRaw(t, path), &document); err != nil {
+		t.Fatalf("décodage de %s : %v", path, err)
+	}
+	var pricing map[string]json.RawMessage
+	if err := json.Unmarshal(document["pricing"], &pricing); err != nil {
+		t.Fatalf("décodage du bloc pricing : %v", err)
+	}
+	pricing["amount_rounding"] = json.RawMessage(`"bankers"`)
+
+	raw, err := json.Marshal(pricing)
+	if err != nil {
+		t.Fatalf("encodage du bloc pricing : %v", err)
+	}
+	document["pricing"] = raw
+	if raw, err = json.Marshal(document); err != nil {
+		t.Fatalf("encodage du document : %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+}
+
+// readRaw reads the bytes of a file, or fails the test naming it.
+func readRaw(t *testing.T, path string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("lecture de %s : %v", path, err)
+	}
+	return raw
 }
 
 // TestTheWrittenFileIsReadableByAHumanBeing is not cosmetic: §11.1 keeps the

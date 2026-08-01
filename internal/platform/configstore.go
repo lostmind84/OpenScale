@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"openscale/internal/domain"
@@ -159,10 +160,12 @@ func (s *ConfigStore) Versions(_ context.Context) ([]ConfigVersion, error) {
 			return nil, fmt.Errorf("version %d illisible : %w", version, err)
 		}
 		entry := ConfigVersion{Version: version, ModifiedAt: info.ModTime()}
-		// LoadConfig is read directly here, and not through readConfigFile, for its faults:
-		// a backup that will not decode AT ALL now comes back as the neutral profile rather
-		// than an error (porte 1), and a fingerprint computed off it would be INVENTED, not
-		// read off the backup -- the one thing this screen must never show (§14.4).
+		// LoadConfig is read directly here, and not through readConfigFile, because a
+		// backup that will not decode is LISTED rather than refused -- readConfigFile's
+		// error is the right answer for the six callers that write the file back, and the
+		// wrong one for a screen whose whole job is to offer that backup for restoring.
+		// The verdict is the same one, though: documentUnreadable, so « pas d'empreinte »
+		// and « pas de lecture » cannot come to mean two different things.
 		if cfg, _, faults, err := LoadConfig(path); err == nil && !documentUnreadable(faults) {
 			entry.Fingerprint = cfg.Fingerprint()
 			if !cfg.ModifiedAt.IsZero() {
@@ -263,21 +266,48 @@ func writeTemporary(directory string, content []byte) (string, error) {
 // the reason LoadConfig exists: `openscale config password` used to read the file with a
 // copy of its own, find a retired key there, and have Save refuse the very rescue it was
 // performing.
+//
+// It keeps LoadConfig's parsing and REFUSES its tolerance, and that asymmetry is the whole
+// point. serve, doctor, `config validate` and `config migrate` want a Config out of any
+// file at all, because a station serving its fault list is worth more than a station that
+// will not come up. Every caller of Read wants the opposite: `GET /admin/api/config` shows
+// the file to a volunteer « la différence entre le réparer et le détruire », the recovery
+// code and `openscale config password` REWRITE IT WHOLE, POST /admin/api/config/reload
+// puts it in service, and Restore hands a backup back. A configuration that merely LOOKS
+// like the file -- same station.coop, same name, one block silently the factory one -- is
+// the single value none of them may be handed, because each of them turns it into the
+// truth at the next write.
+//
+// The error therefore names the file AND the blocks, so the six report something a
+// volunteer can act on rather than « configuration illisible ».
 func readConfigFile(path string) (domain.Config, error) {
-	cfg, _, _, err := LoadConfig(path)
-	return cfg, err
+	cfg, _, faults, err := LoadConfig(path)
+	if err != nil {
+		return domain.Config{}, err
+	}
+	if documentUnreadable(faults) {
+		blocks := make([]string, 0, len(faults))
+		for _, fault := range faults {
+			blocks = append(blocks, fault.Field)
+		}
+		return domain.Config{}, fmt.Errorf(
+			"%s : le bloc %s n'a pas pu être lu, et ce qui en tient lieu est la configuration "+
+				"d'usine", path, strings.Join(blocks, ", "))
+	}
+	return cfg, nil
 }
 
-// documentUnreadable reports whether one of the faults names the DOCUMENT itself
-// (domain.WholeDocumentField) rather than a single block inside it -- the one case Versions
-// must show no fingerprint for. A document that fell back to the neutral profile because
-// one block was bad still fingerprints the rest honestly; one that never decoded at all
-// would fingerprint the neutral profile alone, which is invented, not read off the backup.
+// documentUnreadable reports whether the decoding faults make the Config that came with
+// them a configuration NOBODY WROTE. It is the one criterion of this file, read by Versions
+// and by readConfigFile, so that the screen and the six rescue paths cannot drift apart on
+// what counts as unreadable.
+//
+// One fault is enough, and the criterion was narrower for a while: only a fault on
+// domain.WholeDocumentField counted, on the idea that a document with one bad block « still
+// fingerprints the rest honestly ». It does not. The fingerprint covers the shared settings,
+// a substituted block puts factory values among them, and the eight characters then describe
+// a configuration the backup never carried -- which is precisely what Versions promises they
+// never do (§14.4): « elle est inconnue, pas inventée ».
 func documentUnreadable(faults []domain.Fault) bool {
-	for _, fault := range faults {
-		if fault.Field == domain.WholeDocumentField {
-			return true
-		}
-	}
-	return false
+	return len(faults) > 0
 }
