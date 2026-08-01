@@ -32,16 +32,38 @@ faute et le poste sert ERR-CFG-01, exactement comme n'importe quelle autre confi
 invalide (§11.3 est corrigé sur ce point précis). `platform.LoadConfig` devient la
 **porte unique** par laquelle les octets d'un fichier deviennent une `Config` : il y en
 avait quatre avant ce lot, et c'est cette quadruplication qui a permis à l'incident
-d'exister. Le démarrage **n'écrit toujours pas** : seule `openscale config migrate` —
+d'exister. **Une porte unique n'est pas un verdict unique, et l'oublier a coûté quatre
+défauts (02/08/2026)** : elle rend *quatre* valeurs, dont les fautes de décodage, et trois
+de ses cinq appelants jetaient la quatrième. Un bloc illisible devient alors une valeur
+d'usine plausible que personne n'a déclarée — et `openscale config migrate`, que
+`update.ps1` lance après chaque mise à jour réussie, la rendait **définitive** : mesuré, la
+remise de 10 % des adhérents disparaissait pendant que la commande annonçait un changement
+sans rapport et sortait 0. `config migrate` et `config validate` comptent désormais ces
+fautes, et `ConfigStore.Read` — dont les six appelants **montrent** le fichier ou le
+**réécrivent entier** — refuse de nouveau, en nommant le fichier et le bloc. Le démarrage **n'écrit toujours pas** : seule `openscale config migrate` —
 lancée à la main ou par `update.ps1`/`update.sh` une fois le poste debout, sur le
 **chemin de réussite uniquement** et sans jamais changer le code de sortie de la mise à
 jour elle-même — touche le disque. `TestEveryRetiredKeyHasADeclaredVerdict` tient la
 promesse dans la durée : retirer une dixième clé demain sans lui donner de verdict fait
 échouer ce test, pas seulement une relecture humaine.
 
-**Vérifié à la clôture de ce lot (01/08/2026) :** `go test ./... -short -count=1` —
+**Ce qui n'est PAS fait, et n'est pas à croire fait.** Le **bandeau de l'écran
+d'administration** — l'endroit où un exploitant apprendrait, sans ouvrir un terminal, que
+son fichier n'est pas au schéma de son binaire — n'existe pas : il demande du Svelte et un
+`make front`, donc un cycle de vérification que ce lot n'a pas ouvert, et `openscale
+doctor` porte l'information en attendant. Le **corpus `testdata/config/`** de la conception
+n'a pas été créé — le répertoire n'existe pas —, les documents de migration étant écrits
+**en ligne dans les tests** : chacun tient en une ligne, et un fichier par forme rendrait
+moins lisible ce qu'un test vérifie ; le prix est qu'aucun de ces documents n'est
+réutilisable hors du paquet qui le porte. Et la propriété « **`config-lacagette.json` migre
+vers lui-même** » n'est testée **nulle part** : le fichier livré est resté à
+`"version": 1`, donc une migration le réécrit — l'estampille seule, sans note — et rien ne
+retiendrait un pas de migration futur qui toucherait au fichier témoin.
+
+**Vérifié à la clôture de ce lot (02/08/2026) :** `go test ./... -short -count=1` —
 **35 paquets testés, 0 échec** (2 paquets sans fichier de test, `internal/scale/corpus`
-et `tools/boundary`, comme avant ce lot) ; `go vet ./...` silencieux.
+et `tools/boundary`, comme avant ce lot) ; `go vet ./...` silencieux ; `boundary` et `deps`
+verts ; `gofmt -l cmd internal deploy tools` sans sortie.
 
 **Le nombre de colonnes de la grille devient un réglage, et l'automatique reste le défaut
 (01/08/2026).** Le magasin voulait moins de défilement : sur le poste installé, les 331

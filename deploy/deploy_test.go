@@ -1805,7 +1805,7 @@ func TestUpdateScriptsMigrateTheConfigurationAfterTheHealthCheck(t *testing.T) {
 			}
 			health := strings.Index(body, c.health)
 			if health < 0 || migrate < health {
-				t.Errorf("« config migrate » vient avant le contrôle de santé : "+
+				t.Error("« config migrate » vient avant le contrôle de santé : " +
 					"un retour arrière relirait un fichier déjà migré")
 			}
 			rollback := strings.Index(body, c.rollback)
@@ -1814,7 +1814,7 @@ func TestUpdateScriptsMigrateTheConfigurationAfterTheHealthCheck(t *testing.T) {
 					"prouve plus rien", c.path)
 			}
 			if migrate < rollback {
-				t.Errorf("« config migrate » vient avant la fin du bloc de retour arrière : "+
+				t.Error("« config migrate » vient avant la fin du bloc de retour arrière : " +
 					"un binaire restauré relirait un fichier déjà migré")
 			}
 		})
