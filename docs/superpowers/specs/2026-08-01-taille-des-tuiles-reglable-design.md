@@ -15,6 +15,13 @@ aujourd'hui en une dizaine d'écrans (§14.3-1) ; en montrer davantage d'un coup
 arbitrage entre densité et lisibilité, et cet arbitrage appartient à ceux qui connaissent
 leur clientèle et leur catalogue.
 
+**La demande est arrivée en rangées et en colonnes, et c'est ainsi qu'elle se vérifie.** Sur
+l'écran 1920 × 1080 du poste, la grille montre aujourd'hui **5 colonnes et à peine 2
+rangées** ; ce qui est demandé est **6 à 7 colonnes et 3 rangées**, soit une vingtaine de
+tuiles d'un coup contre une dizaine. Ce couple n'est pas une illustration : c'est le
+**repère de terrain** contre lequel les bornes du réglage se jugent (§1), et c'est dans ce
+vocabulaire que l'écran d'administration répond (§4).
+
 Aujourd'hui, personne ne peut le rendre. La densité est **continue et non réglable** :
 
 ```css
@@ -86,6 +93,21 @@ Ces cinq pièces portent le réglage sans être repensées. Ce qui suit s'y bran
 confortable sur 1920 × 1080 (5 aujourd'hui). **Ces deux nombres sont une hypothèse, pas la
 décision** : les vrais sortent de la mesure décrite en §5, et c'est elle qui les écrit dans
 le code.
+
+### Le repère de terrain, qui juge les bornes
+
+Les deux critères ci-dessus bornent les **extrémités** — ils disent où le curseur cesse
+d'avoir un sens. Ils ne disent pas que l'intervalle contient ce dont le magasin a besoin.
+C'est le rôle du repère :
+
+> **Sur 1920 × 1080, l'intervalle doit contenir un cran donnant 6 à 7 colonnes et 3
+> rangées.**
+
+Aujourd'hui : 5 colonnes, à peine 2 rangées. Un facteur unique déplace les deux dans le même
+sens — la largeur d'une tuile et sa hauteur descendent ensemble —, donc les deux cibles sont
+compatibles par construction ; ce qui n'est **pas** acquis, c'est qu'elles tombent au **même
+cran**. La mesure de §5 le vérifie explicitement, et **si aucun cran ne rend le couple, ce
+sont les bornes qui sont fausses**, pas la demande.
 
 **Les deux bornes sont des multiples de 5**, comme le pas du curseur (§4) : une borne à 72 %
 donnerait une position de curseur qu'aucun autre cran ne rejoint, et un exploitant qui
@@ -194,25 +216,54 @@ sait peser »*. Pas de page neuve, pas de panneau neuf. Le mot de passe vient av
 curseur au pourcent près promettrait une finesse qui n'existe pas. Le fichier reste lisible
 — `70`, `75`, … `130`.
 
+**Ce que l'écran affiche en grand n'est pas le pourcentage.** L'exploitant ne choisit pas
+« 85 % », il choisit **« 7 × 3 »** — c'est en rangées et en colonnes que la demande est
+arrivée, et c'est en rangées et en colonnes qu'un bénévole regarde sa grille. Le pourcentage
+reste écrit, en petit : c'est ce que porte le fichier, et quelqu'un qui compare quatre
+postes en a besoin.
+
 **La phrase chiffrée**, qui suit le **brouillon** et non le fichier enregistré, sur le
 modèle de `byUnitSentence` (`Catalog.svelte:169`) :
 
-> Sur cet écran (1920 px) : **7 colonnes**. Les 331 pesables tiennent en **12 écrans**.
+> **7 colonnes × 3 rangées** — 21 tuiles d'un coup, sur cet écran (1920 × 1080). *(85 %)*
+> Les 331 pesables tiennent en **16 écrans**.
 > **4 noms sur 355** atteignent le plancher de 16 px : leurs 4 rangées sont plus hautes que
 > les autres.
 
 *(Nombres illustratifs. Ceux qui s'afficheront sont mesurés à l'exécution.)*
 
-La seconde ligne est le **« ce qu'on perd »** qu'ADR-025 exige. Elle est aussi la seule
+La dernière ligne est le **« ce qu'on perd »** qu'ADR-025 exige. Elle est aussi la seule
 façon honnête de vendre le bout compact : la densité s'y paie en rangées irrégulières, et
 l'exploitant doit voir combien.
 
-**D'où viennent les colonnes.** Pas d'une réimplémentation d'`auto-fill` en JavaScript :
-une sonde invisible large de `100vw` porte la vraie déclaration
-`repeat(auto-fill, minmax(…))` à l'échelle du brouillon, et on lit
-`getComputedStyle(...).gridTemplateColumns`. **C'est le navigateur qui répond** — la même
-règle que `Grid.svelte` applique déjà à la largeur du nom (« asked of the layout rather than
-recomputed »). Un `auto-fill` qui changerait demain n'aurait pas deux versions à corriger.
+**D'où viennent ces nombres — de la mise en page, jamais d'une arithmétique parallèle.**
+
+- **Les colonnes** : une sonde invisible large de `100vw` porte la vraie déclaration
+  `repeat(auto-fill, minmax(…))` à l'échelle du brouillon, et on lit
+  `getComputedStyle(...).gridTemplateColumns`. **C'est le navigateur qui répond**, pas une
+  réimplémentation d'`auto-fill` — la même règle que `Grid.svelte` applique déjà à la
+  largeur du nom (« asked of the layout rather than recomputed »).
+- **Les rangées** : deux sondes de plus, aussi vides que la première — l'une haute de
+  `calc(100vh - var(--banner-height) - var(--category-height) - var(--status-height))`,
+  qui est la hauteur que la grille occupe chez le client, l'autre de `var(--tile-height)` à
+  l'échelle du brouillon. Le quotient, écart de gouttière compris, donne les rangées
+  entières. **Les trois barres de l'écran client ne sont donc pas recopiées ici en
+  pixels** : leurs jetons sont lus, et le jour où l'une d'elles change de hauteur, ce compte
+  suit sans qu'on y pense.
+
+Un `auto-fill`, un jeton de barre ou une hauteur de tuile qui changeraient demain n'auraient
+pas deux versions à corriger.
+
+**Deux crans voisins peuvent annoncer le même nombre de colonnes, et il faut le dire avant
+que quelqu'un le signale comme une panne.** `auto-fill` distribue la largeur disponible :
+tant que `--tile-min` reste dans la même tranche, le nombre de colonnes ne bouge pas et
+**la largeur réelle d'une tuile non plus** — elle vaut toujours la largeur de l'écran
+divisée par ce nombre. Ce qui bouge quand même, sur ces crans-là, c'est la **hauteur** : la
+photo, le bloc de nom et le rembourrage suivent l'échelle en continu, donc la tuile
+raccourcit et les **rangées** changent. Le curseur n'est jamais mort — mais il agit tantôt
+en colonnes, tantôt en rangées, et **c'est le couple affiché en grand qui le montre**. Un
+écran qui n'aurait annoncé que les colonnes aurait paru bloqué trois crans d'affilée, ce
+qui est précisément la conclusion « ce réglage ne fait rien » que §3 combat par ailleurs.
 
 **L'honnêteté du « sur cet écran », et elle est gratuite.** `admin_on_lan` permet d'ouvrir
 cette page depuis un portable. Si `location.hostname` n'est ni `localhost` ni `127.0.0.1`,
@@ -260,7 +311,11 @@ Sur `flv.csv` (355 produits, nom le plus long 69 caractères), **aux deux bornes
 1. combien de noms atteignent le plancher, et **combien de rangées grandissent** de ce fait ;
 2. **rien n'est jamais tronqué** — l'exigence de §14.2 qui, elle, ne bouge pas ;
 3. l'uniformité d'ADR-030 tient **rangée par rangée** ;
-4. relevé des colonnes, des rangées visibles et du nombre d'écrans de défilement.
+4. **le relevé `colonnes × rangées` cran par cran**, et non seulement aux bornes : c'est la
+   table qui dit quel cran rend le repère de terrain — **6 à 7 colonnes et 3 rangées sur
+   1920 × 1080** — et si aucun ne le rend, les bornes changent avant que le code soit écrit ;
+5. le point de départ mesuré, pour que le gain soit un écart et non une impression : la
+   grille d'aujourd'hui à 100 %, annoncée à 5 colonnes et à peine 2 rangées.
 
 **C'est cette mesure qui fixe les bornes et le plancher**, et elle est menée avant qu'un
 seul de ces nombres soit écrit dans le code. Playwright est disponible pour la conduire.
