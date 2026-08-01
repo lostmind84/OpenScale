@@ -22,6 +22,50 @@ qui est demandé est de l'ordre de **6 à 7 colonnes et 3 rangées**. Mais ce co
 que l'intervalle offert aille du très aéré au très dense — de l'ordre de **3 × 2 à 10 × 5**
 — et que se tromper ne coûte rien d'autre que d'y revenir.
 
+## La mesure du 01/08/2026, et les quatre points de cette spec qu'elle casse
+
+La campagne annoncée en §5 a été menée sur le front livré (condensat `8046538`, front
+identique à `HEAD`), 355 produits réels, **11 grilles × 3 résolutions × 3 planchers**. Ce
+qui suit remplace ce que ce document affirmait ; les passages concernés y renvoient.
+
+**Ce qui tient.** Aucun nom n'est **jamais** tronqué — zéro sur les 99 relevés, y compris à
+12 colonnes sur un 15″ (colonne de 103,9 px). L'uniformité d'ADR-030 tient partout : aucune
+rangée à deux hauteurs. Le point de départ est confirmé : automatique = **5 / 5 / 10**
+colonnes et **1 / 2 / 5** rangées sur 1366 / 1920 / 3840.
+
+**1. Le repère de terrain n'existe pas tel qu'il était écrit.** Sur 1920, **7 colonnes
+donnent 7 × 2**, pas 7 × 3 ; les 3 rangées commencent à **8 colonnes**. Le couple « 6 à 7
+colonnes et 3 rangées » n'est donc pas atteignable — et la raison est le point 2.
+
+**2. Ce qui casse la densité, c'est le PRIX, pas le nom.** §3 n'énumérait que quatre jetons
+et oubliait le bloc des prix, dont les `1.75rem` et `1.25rem` restent constants pendant que
+la tuile rétrécit. Il **sort de la tuile** dès 10 colonnes sur 1920 (196 tuiles sur 331) et
+dès 7 sur 1366, et l'écran client acquiert une **barre de défilement horizontale** — 22 px
+à 12 colonnes sur 1920, 66 px sur 1366. Sur la capture à 12 colonnes, le suffixe se lit
+« 20,09 €/ » : le texte est rogné par le bord de l'écran. **Un kiosque n'a pas de barre de
+défilement horizontale.** Le bloc des prix suit donc `--tile-scale` comme le reste de la
+tuile, avec le même plancher de lisibilité que le nom.
+
+**3. L'aperçu de §4 aurait annoncé un nombre de rangées faux.** La sonde de
+`var(--tile-height)` ignore le bloc des prix : 189,3 px annoncés contre **245,5 px**
+réellement dessinés à 7 colonnes sur 1920, **30 % d'écart**. L'écran aurait dit « 7 × 3 =
+21 tuiles » là où la grille en montre 14. Contre-épreuve : **prix masqués**, la même grille
+donne exactement 7 × 3 = 21 tuiles et 16 écrans — c'est-à-dire les nombres de la maquette
+de §4, écrite pour une tuile sans prix alors que le profil d'usine les affiche. **La sonde
+doit porter une tuile, pas un jeton.**
+
+**4. Le plafond passe sous le plancher.** `NAME_SIZE_MAX_PX × échelle` vaut **17,6 px** à 10
+colonnes sur 1920 pour un plancher de 18, et casse dès 9 colonnes sur 1366. `fitNameSize`
+partirait d'un plafond inférieur à son propre plancher : la boucle ne s'exécute pas, tous
+les noms sortent au plancher, et rien ne le signale. Le plafond mis à l'échelle est **borné
+par le bas par le plancher**.
+
+**Ce qui reste suspendu à une seconde campagne.** La correction du bloc des prix raccourcit
+les rangées : elle rejuge donc **la borne haute de 12** — aujourd'hui fausse sur 1920 et sur
+1366, largement tenable sur 4K où 12 colonnes font encore des tuiles de 310 px — **et** la
+question de savoir si 7 × 3 devient atteignable sur l'écran de référence. Aucun de ces deux
+nombres n'est écrit dans le code avant.
+
 ## Ce que la densité fait déjà toute seule, et qu'il ne faut pas défaire
 
 `--tile-min` vaut `clamp(15rem, 19vw, 22rem)`. Le nombre de colonnes qu'`auto-fill` en tire
@@ -110,11 +154,38 @@ de la longueur serait un no-op : seuls les noms longs l'atteignent jamais.
 indépendante du réglage** — la lisibilité à 60–80 cm ne se négocie pas au curseur — mais
 elle **cesse d'être figée à 18 px**. 16 px est l'attendu, 14 px si la mesure le demande.
 
-**Pourquoi elle doit descendre.** À 7 colonnes sur 1920, la tuile perd un quart de sa
-largeur et le bloc de nom un quart de sa hauteur : le nom de 69 caractères demanderait
-quatre lignes à 18 px et n'en aurait plus que trois. Garder 18 px rendrait 7 colonnes
-laides pour une valeur qui n'a jamais été un calcul — seulement le plus petit corps que
-l'échelle de §14.2 déclarait.
+**Pourquoi elle doit descendre — et l'argument écrit ici d'abord était faux.** Ce document
+disait qu'à 7 colonnes sur 1920, garder 18 px « rendrait 7 colonnes laides ». **La mesure
+dit le contraire** : à 7 colonnes sur 1920, 18 px met **un seul nom sur 331** au plancher —
+la tomme de 69 caractères, sur quatre lignes — et fait grandir **une seule rangée sur 48**.
+16 px n'y change rien : mêmes 1 et 1.
+
+Le plancher doit descendre **ailleurs**, et c'est là que le fait est massif :
+
+| Écran, densité | à 18 px | à 16 px |
+|---|---|---|
+| 1920, 8 colonnes | **60 noms** au plancher, **7 rangées** grandies | **3 noms, 2 rangées** |
+| 1366, 6 colonnes | **84 noms**, **35 rangées** — un tiers de la grille | **6 noms, 4 rangées** |
+
+Et la ligne qui montre ce que coûtent vraiment les rangées irrégulières : **1366 à 11
+colonnes**, deux rangées tiendraient (194,4 × 2 + 8 = 397 px dans 409), mais l'une des deux
+a grandi et il n'en reste **qu'une** — 11 tuiles d'un coup au lieu de 22, 31 écrans de
+défilement au lieu de 16. À 16 px, la même grille en montre bien deux.
+
+**Donc : 16 px, pour le 15″ et pour les densités ≥ 8, jamais pour la cible du magasin.** 14
+px n'achète plus rien là où ça compte — son seul gain propre est à 9 colonnes sur 1920, et
+partout ailleurs il ne rattrape que des densités déjà cassées par le débordement du prix.
+**ADR-055 doit le dire dans ces termes**, et non reprendre l'argument commode qui était
+écrit ici.
+
+**Un fait pour §14.2, qui ne doit rien à ce chantier** : sur un 15″ en mode automatique,
+**3 noms atteignent déjà le plancher de 18 px aujourd'hui**, sans qu'aucun réglage existe,
+et l'un d'eux fait déjà grandir sa rangée.
+
+**Le plafond est borné par le plancher.** `NAME_SIZE_MAX_PX × échelle` tombe à 17,6 px dès
+10 colonnes sur 1920 : sans cette borne, `fitNameSize` part d'un plafond inférieur à son
+propre plancher, la boucle ne s'exécute pas, et **tous** les noms sortent au plancher sans
+que rien ne le dise.
 
 **Et le plafond, lui, suit la tuile.** `NAME_SIZE_MAX_PX` (34 px) est une **proportion**, pas
 une limite de lisibilité : à 4 colonnes sur un grand écran, une tuile deux fois plus grande
@@ -173,6 +244,14 @@ Les quatre jetons de densité portent alors le facteur :
 | `--tile-name` | `clamp(4.5rem, 5vw, 6rem)` | idem |
 | `--tile-pad` | `clamp(0.875rem, 1vw, 1.25rem)` | idem |
 | `--tile-min` | `clamp(15rem, 19vw, 22rem)` | inchangé — il **calibre** l'échelle, et sert encore la grille en mode automatique |
+
+**Et le bloc des prix, que ce tableau oubliait.** `Tile.svelte` fixe `.price` à `1.75rem`,
+`.price.secondary` à `1.25rem`, plus une gouttière et un `padding-top` en rem constants :
+ils ne rétrécissaient pas avec la tuile, et **c'est ce qui donnait une barre de défilement
+horizontale à un kiosque** dès 10 colonnes sur 1920 (§ « La mesure du 01/08/2026 »). Le
+bloc suit donc `--tile-scale` comme le reste, **avec le même plancher de lisibilité que le
+nom** : un prix illisible n'est pas plus acceptable qu'un nom illisible, et le secondaire
+garde son rapport au primaire.
 
 `--tile-height` se recompose de ces jetons et n'a rien à apprendre. **Les deux littéraux de
 son `calc` ne sont pas mis à l'échelle** : le `0.5rem` entre plaque et nom, et les `2px` de
@@ -264,12 +343,20 @@ et l'exploitant doit voir combien avant d'enregistrer, pas après.
   grille du brouillon, et on lit `getComputedStyle(...).gridTemplateColumns`. **C'est le
   navigateur qui répond**, y compris sur « Automatique », où le nombre n'est connu de
   personne d'autre.
-- **Les rangées** : deux sondes de plus, aussi vides — l'une haute de
+- **Les rangées** : deux sondes de plus — l'une haute de
   `calc(100vh - var(--banner-height) - var(--category-height) - var(--status-height))`, qui
-  est la hauteur que la grille occupe chez le client, l'autre de `var(--tile-height)` au
-  brouillon. Le quotient, gouttière comprise, donne les rangées entières. **Les trois barres
+  est la hauteur que la grille occupe chez le client ; l'autre **une tuile réelle**, avec sa
+  plaque, son bloc de nom et son bloc de prix, rendue invisible et mesurée par sa hauteur
+  effective. Le quotient, gouttière comprise, donne les rangées entières. **Les trois barres
   de l'écran client ne sont donc pas recopiées ici en pixels** : leurs jetons sont lus, et le
   jour où l'une d'elles change de hauteur, ce compte suit sans qu'on y pense.
+
+  **Une tuile et non `var(--tile-height)`, et c'est un fait mesuré, pas une préférence** :
+  ce jeton ignore le bloc des prix, 189,3 px annoncés contre 245,5 px dessinés à 7 colonnes
+  sur 1920 — **30 % d'écart**, soit « 7 × 3 = 21 tuiles » là où l'écran en montre 14. Une
+  tuile réelle suit en outre `show_grid_prices` du brouillon, la mise à l'échelle du bloc
+  des prix et le plancher typographique **sans qu'on y revienne** : c'est la vraie raison,
+  les 30 % n'en sont que le symptôme du jour.
 
 **L'honnêteté du « sur cet écran », et elle est gratuite.** `admin_on_lan` permet d'ouvrir
 cette page depuis un portable. Si `location.hostname` n'est ni `localhost` ni `127.0.0.1`,
