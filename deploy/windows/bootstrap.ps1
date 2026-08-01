@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Installe un poste de pesée OpenScale en une seule commande.
 
@@ -7,6 +7,25 @@
   d'une traite, depuis n'importe quelle console, élevée ou non :
 
       irm https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/windows/bootstrap.ps1 | iex
+
+  ★ ET C'EST POURQUOI CE FICHIER N'A NI MARQUE D'ORDRE DES OCTETS, NI ACCENT DANS SON CODE.
+  Les autres .ps1 du dépôt portent la marque et ils la doivent, parce qu'ils sont lus SUR LE
+  DISQUE : sans elle, Windows PowerShell 5.1 les lit en CP1252, et le premier tiret cadratin
+  d'une chaîne y devient un guillemet fermant qui arrête l'analyse — c'est la panne de v0.1,
+  et TestEveryPowerShellScriptCarriesTheMarkWindowsPowerShellNeeds interdit d'y revenir.
+  Celui-ci est lu comme un FLUX. Invoke-RestMethod rend la marque AVEC le texte, le
+  découpeur de 5.1 la colle au « <# » qui ouvre cet en-tête, le bloc de commentaire ne
+  s'ouvre jamais, toute cette prose est lue comme du code, et la commande sort neuf erreurs
+  de syntaxe sans avoir rien téléchargé. La marque part donc — et ce qui la rendait
+  nécessaire part avec : les messages de ce script s'écrivent SANS ACCENT, exactement comme
+  ceux de bootstrap.cmd, et un test de deploy/ le vérifie lettre par lettre.
+
+  Cette prose-ci garde les siens, et ce n'est pas une inconséquence : un commentaire n'est
+  jamais analysé comme du code, et aucun octet UTF-8 relu en CP1252 ne peut produire la
+  paire qui referme un bloc de commentaire — tout octet d'une séquence multi-octets vaut au
+  moins 0x80. Le test ne regarde donc que le code, par le codeOnly qu'il emploie déjà
+  partout ailleurs. Et la paire en question ne s'écrit pas non plus dans cette phrase : la
+  poser ici fermerait l'en-tête à cette ligne, ce qui est exactement le défaut d'un jour.
 
   Ce qu'il fait, dans cet ordre :
 
@@ -172,10 +191,10 @@ function Get-Answer {
 
 # --- 1. Contrôles préalables --------------------------------------------------------
 if ($PSVersionTable.PSVersion.Major -lt 5) {
-  throw "OpenScale demande Windows PowerShell 5.1 ou plus récent (trouvé : $($PSVersionTable.PSVersion))."
+  throw "OpenScale demande Windows PowerShell 5.1 ou plus recent (trouve : $($PSVersionTable.PSVersion))."
 }
 if (-not [Environment]::Is64BitOperatingSystem) {
-  throw 'OpenScale est publié pour Windows 64 bits, et ce système est en 32 bits.'
+  throw 'OpenScale est publie pour Windows 64 bits, et ce systeme est en 32 bits.'
 }
 # TLS 1.2 n'est pas le défaut de .NET sous Windows PowerShell 5.1, et raw.githubusercontent
 # comme api.github.com refusent tout ce qui est en dessous : sans cette ligne, le premier
@@ -185,7 +204,7 @@ if (-not [Environment]::Is64BitOperatingSystem) {
 
 Write-Host ''
 Write-Host '========================================================================='
-Write-Host ' Installation d''un poste de pesée OpenScale'
+Write-Host ' Installation d''un poste de pesee OpenScale'
 Write-Host '========================================================================='
 
 # --- 2. Élévation -------------------------------------------------------------------
@@ -194,10 +213,10 @@ if (-not (Test-Elevated)) {
   # une ligne de commande, visible dans la liste des processus par n'importe quel
   # utilisateur de la machine. Un mot de passe n'y va pas.
   if ($AccountPassword) {
-    throw 'avec -AccountPassword, la console doit DÉJÀ être ouverte en administrateur : ' +
-    'l''auto-élévation ferait passer le mot de passe par une ligne de commande, où il ' +
-    'est lisible par tout le monde. Menu Démarrer, tapez powershell, clic droit, ' +
-    'Exécuter en tant qu''administrateur.'
+    throw 'avec -AccountPassword, la console doit DEJA etre ouverte en administrateur : ' +
+    'l''auto-elevation ferait passer le mot de passe par une ligne de commande, ou il ' +
+    'est lisible par tout le monde. Menu Demarrer, tapez powershell, clic droit, ' +
+    'Executer en tant qu''administrateur.'
   }
 
   $relaunched = Join-Path $env:TEMP 'openscale-bootstrap.ps1'
@@ -217,7 +236,7 @@ if (-not (Test-Elevated)) {
   if ($DataRoot) { $arguments += @('-DataRoot', $DataRoot) }
 
   Write-Host ''
-  Write-Progression 'droits administrateur requis : une fenêtre va s''ouvrir, répondez Oui.'
+  Write-Progression 'droits administrateur requis : une fenetre va s''ouvrir, repondez Oui.'
   try {
     Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $arguments
   }
@@ -225,11 +244,11 @@ if (-not (Test-Elevated)) {
     # Refuser l'invite de Windows lève « L'opération a été annulée par l'utilisateur »,
     # message d'API qui laisserait croire à une panne. Ce n'en est pas une : rien n'a été
     # téléchargé, rien n'a été écrit, et recliquer suffit.
-    throw 'l''autorisation d''administrateur a été refusée, et rien n''a été installé. ' +
-    'Un poste de pesée crée un compte Windows, un service et une tâche planifiée : ' +
-    'aucun de ces trois gestes n''existe sans elle. Relancez la commande et répondez Oui.'
+    throw 'l''autorisation d''administrateur a ete refusee, et rien n''a ete installe. ' +
+    'Un poste de pesee cree un compte Windows, un service et une tache planifiee : ' +
+    'aucun de ces trois gestes n''existe sans elle. Relancez la commande et repondez Oui.'
   }
-  Write-Progression 'l''installation continue dans la nouvelle fenêtre.'
+  Write-Progression 'l''installation continue dans la nouvelle fenetre.'
   return
 }
 
@@ -244,13 +263,13 @@ else {
 }
 
 Write-Host ''
-Write-Progression 'recherche de la version à installer...'
+Write-Progression 'recherche de la version a installer...'
 try {
   $release = Invoke-RestMethod -Uri $releaseUrl -Headers @{ 'User-Agent' = $script:UserAgent } -UseBasicParsing
 }
 catch {
   throw "impossible de joindre $script:ApiHost ($($_.Exception.Message)). Ce poste a-t-il " +
-  'accès à Internet ? Sinon, installez depuis une clé USB : voir INSTALLATION.md.'
+  'acces a Internet ? Sinon, installez depuis une cle USB : voir INSTALLATION.md.'
 }
 
 $archiveAsset = $release.assets | Where-Object { $_.name.EndsWith($script:ArchiveSuffix) } | Select-Object -First 1
@@ -260,9 +279,9 @@ if (-not $archiveAsset) {
 }
 if (-not $checksumAsset) {
   throw "la release $($release.tag_name) ne publie pas $script:ChecksumAsset : il n'y a " +
-  'rien à quoi comparer ce qui va être téléchargé, et rien ne sera installé.'
+  'rien a quoi comparer ce qui va etre telecharge, et rien ne sera installe.'
 }
-Write-Progression "version $($release.tag_name) — $($archiveAsset.name)"
+Write-Progression "version $($release.tag_name) - $($archiveAsset.name)"
 
 # --- 4. Téléchargement, puis vérification AVANT toute extraction --------------------
 $workspace = Join-Path $env:TEMP "openscale-$($release.tag_name)"
@@ -271,7 +290,7 @@ New-Item -ItemType Directory -Path $workspace -Force | Out-Null
 
 $archive = Join-Path $workspace $archiveAsset.name
 $checksums = Join-Path $workspace $script:ChecksumAsset
-Write-Progression "téléchargement ($([math]::Round($archiveAsset.size / 1MB, 1)) Mo)..."
+Write-Progression "telechargement ($([math]::Round($archiveAsset.size / 1MB, 1)) Mo)..."
 # La barre de progression d'Invoke-WebRequest divise son débit par dix sur un gros
 # fichier : elle repeint la console à chaque bloc reçu.
 $previousProgress = $ProgressPreference
@@ -297,10 +316,10 @@ if (-not $expected) {
 $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
 if ($actual -ne $expected.ToUpperInvariant()) {
   Remove-Item -LiteralPath $archive -Force
-  throw "l'archive téléchargée ne correspond pas à son empreinte publiée. Attendu " +
-  "$expected, obtenu $actual. Rien n'a été installé, et le fichier a été supprimé."
+  throw "l'archive telechargee ne correspond pas a son empreinte publiee. Attendu " +
+  "$expected, obtenu $actual. Rien n'a ete installe, et le fichier a ete supprime."
 }
-Write-Progression 'empreinte vérifiée'
+Write-Progression 'empreinte verifiee'
 
 # --- 5. Extraction, puis déblocage --------------------------------------------------
 Expand-Archive -LiteralPath $archive -DestinationPath $workspace -Force
@@ -311,7 +330,7 @@ if (-not $extracted) { throw "l'archive $($archiveAsset.name) ne contient aucun 
 # stratégie d'exécution refuse alors install.ps1 avec un message qui parle de « fichier
 # téléchargé depuis Internet » et jamais d'OpenScale.
 Get-ChildItem -LiteralPath $extracted.FullName -Recurse -File | Unblock-File
-Write-Progression "décompressé dans $($extracted.FullName)"
+Write-Progression "decompresse dans $($extracted.FullName)"
 
 $installer = Join-Path $extracted.FullName 'install.ps1'
 if (-not (Test-Path $installer)) {
@@ -329,12 +348,12 @@ else { Get-OpenScalePaths }
 # --- 6. Les trois questions ---------------------------------------------------------
 if (-not $Yes -and -not [Environment]::UserInteractive) {
   throw 'aucune console interactive : ce script ne peut pas poser ses questions. ' +
-  'Relancez-le avec -Yes, ou donnez ses réponses en paramètres.'
+  'Relancez-le avec -Yes, ou donnez ses reponses en parametres.'
 }
 
 if (-not $Yes) {
   Write-Host ''
-  Write-Host ' Trois questions, puis l''installation se déroule seule.'
+  Write-Host ' Trois questions, puis l''installation se deroule seule.'
   Write-Host ''
 }
 
@@ -344,15 +363,15 @@ if (-not $Yes -and -not $AccountPassword) {
   # qui se joue ici est de le refuser AVANT l'installation plutôt qu'au milieu, et de
   # demander une confirmation — personne ne peut ouvrir la session d'un poste dont le mot
   # de passe a été tapé de travers.
-  Write-Host " Mot de passe de la session Windows « $script:AccountName »"
-  Write-Host "   $script:MinimumPasswordLength caractères minimum, et il ne s'affiche pas pendant que vous le tapez."
-  Write-Host '   Il sera imprimé sur la fiche d''installation, à ranger dans le classeur.'
-  Write-Host '   Laissé VIDE, l''installeur décide : il en tire un de 20 caractères sur un poste'
-  Write-Host '   neuf, et garde celui en place sur un poste déjà installé.'
+  Write-Host " Mot de passe de la session Windows '$script:AccountName'"
+  Write-Host "   $script:MinimumPasswordLength caracteres minimum, et il ne s'affiche pas pendant que vous le tapez."
+  Write-Host '   Il sera imprime sur la fiche d''installation, a ranger dans le classeur.'
+  Write-Host '   Laisse VIDE, l''installeur decide : il en tire un de 20 caracteres sur un poste'
+  Write-Host '   neuf, et garde celui en place sur un poste deja installe.'
   while ($true) {
     $first = ConvertTo-PlainText (Read-Host ' Mot de passe' -AsSecureString)
     if ($first -eq '') {
-      Write-Progression 'mot de passe laissé à l''installeur'
+      Write-Progression 'mot de passe laisse a l''installeur'
       break
     }
     if ($first -ne $first.Trim()) {
@@ -360,11 +379,11 @@ if (-not $Yes -and -not $AccountPassword) {
       continue
     }
     if ($first.Length -lt $script:MinimumPasswordLength) {
-      Write-Host "   trop court : $script:MinimumPasswordLength caractères au minimum."
+      Write-Host "   trop court : $script:MinimumPasswordLength caracteres au minimum."
       continue
     }
     if ($first -cne (ConvertTo-PlainText (Read-Host ' Confirmation' -AsSecureString))) {
-      Write-Host '   les deux saisies diffèrent.'
+      Write-Host '   les deux saisies ne sont pas les memes.'
       continue
     }
     $AccountPassword = $first
@@ -375,16 +394,16 @@ if (-not $Yes -and -not $AccountPassword) {
 
 if (-not $Yes -and -not $Pilot) {
   Write-Host ' Type d''installation'
-  Write-Host '   [1] Production — le poste démarre seul à chaque allumage (défaut)'
-  Write-Host '   [2] Pilote — service en démarrage manuel, l''application Access reste relançable'
+  Write-Host '   [1] Production - le poste demarre seul a chaque allumage (defaut)'
+  Write-Host '   [2] Pilote - service en demarrage manuel, l''application Access reste relancable'
   if ((Read-Host ' Votre choix').Trim() -eq '2') { $Pilot = [switch]::Present }
   Write-Host ''
 }
 
 if (-not $Yes -and -not $SkipAutoLogon) {
   Write-Host ' Ouverture de session automatique'
-  Write-Host '   C''est elle qui fait revenir le poste sur l''écran client après une coupure'
-  Write-Host '   de courant. Répondez non seulement si ce poste n''est PAS en libre-service.'
+  Write-Host '   C''est elle qui fait revenir le poste sur l''ecran client apres une coupure'
+  Write-Host '   de courant. Repondez non seulement si ce poste n''est PAS en libre-service.'
   if (-not (Get-Answer -Question ' L''activer ?' -Default $true)) { $SkipAutoLogon = [switch]::Present }
   Write-Host ''
 }
@@ -413,9 +432,9 @@ $installerText = Get-Content -LiteralPath $installer -Raw
 foreach ($key in @($installerArguments.Keys)) {
   if ($installerText -notmatch "\`$$key\b") {
     $installerArguments.Remove($key)
-    Write-Progression "la version $($release.tag_name) ne connaît pas l'option -$key : elle est ignorée."
+    Write-Progression "la version $($release.tag_name) ne connait pas l'option -$key : elle est ignoree."
     if ($key -eq 'AccountPassword') {
-      Write-Progression 'le mot de passe du compte sera tiré au sort et imprimé sur la fiche.'
+      Write-Progression 'le mot de passe du compte sera tire au sort et imprime sur la fiche.'
     }
   }
 }
@@ -435,10 +454,10 @@ Move-Item -LiteralPath $extracted.FullName -Destination $installerHome -Force
 Remove-Item -LiteralPath $workspace -Recurse -Force -ErrorAction Ignore
 
 Write-Host ''
-Write-Host " Les scripts de ce poste (mise à jour, désinstallation, durcissement) sont dans :"
+Write-Host " Les scripts de ce poste (mise a jour, desinstallation, durcissement) sont dans :"
 Write-Host "      $installerHome"
 
 if ($Relaunched) {
   Write-Host ''
-  Read-Host ' Appuyez sur Entrée pour fermer cette fenêtre'
+  Read-Host ' Appuyez sur Entree pour fermer cette fenetre'
 }

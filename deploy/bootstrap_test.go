@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -243,19 +244,71 @@ func TestTheInstallerScriptsSurviveTheInstallation(t *testing.T) {
 
 // TestTheOneLinerIsTheSameEverywhereItIsWritten.
 //
-// The command is copied by hand into three documents. A README that names a file the
-// repository does not carry is a first impression that fails on the first line.
+// The command is copied by hand into three documents, and a fourth time into the header of
+// the script itself. A README that names a file the repository does not carry is a first
+// impression that fails on the first line — and so is one that names it in a form which
+// does not parse, which is what happened between 31/07/2026 and 01/08/2026.
 func TestTheOneLinerIsTheSameEverywhereItIsWritten(t *testing.T) {
-	expected := "https://raw.githubusercontent.com/" + domain.DefaultUpdateRepository +
-		"/main/deploy/windows/" + bootstrapPath
+	expected := "irm https://raw.githubusercontent.com/" + domain.DefaultUpdateRepository +
+		"/main/deploy/windows/" + bootstrapPath + " | iex"
+
+	// The header of the script publishes the same command in .DESCRIPTION and in .EXAMPLE:
+	// it is read by whoever comes to copy it, exactly like the three documents.
 	for _, document := range []string{
 		filepath.Join("..", "README.md"),
 		filepath.Join("..", "INSTALLATION.md"),
 		filepath.Join("..", "handbook", "getting-started.md"),
+		filepath.Join("windows", bootstrapPath),
 	} {
 		if !strings.Contains(readFile(t, document), expected) {
 			t.Errorf("%s ne porte pas la commande d'installation (« %s » absent)",
 				document, expected)
+		}
+	}
+}
+
+// TestTheBootstrapIsReadAsAStreamSoItCarriesNeitherMarkNorAccent is the regression of
+// 01/08/2026, and it states the OPPOSITE of the rule that governs every other .ps1.
+//
+// The one-liner published on 31/07/2026 never worked: `irm … | iex` hands the file to the
+// parser as a string, byte order mark included, and Windows PowerShell 5.1 glues that mark
+// to the « <# » which opens the header. The first token becomes a command name instead of
+// a block comment, the eighty lines of the .SYNOPSIS are read as code, and the command
+// dies on nine syntax errors having downloaded nothing. Measured on a station, then at the
+// tokenizer: « Generic [<mark><#] » where a mark-less read gives « Comment ».
+//
+// So the mark goes — and what made it necessary goes with it. The mark is what keeps 5.1
+// from reading a .ps1 as CP1252, where « — » (E2 80 94) becomes U+201D, a closing double
+// quote that ends a string literal in the middle of a message. Every other script keeps
+// both the mark and its accents; this one keeps neither, exactly like bootstrap.cmd, whose
+// own test has forbidden accents letter by letter since the first day. It is the same rule
+// for the same reason: these two files are the only ones that live outside the archive.
+//
+// Comments are exempt ON PURPOSE, and that is not a hole. Nothing parses them — a `#`
+// comment ends at the newline, a block comment at the first « #> » — and no UTF-8 byte
+// re-read as CP1252 can produce either, every byte of a multi-byte sequence being ≥ 0x80.
+// The header therefore keeps its French, which is where the reasoning of this script lives.
+func TestTheBootstrapIsReadAsAStreamSoItCarriesNeitherMarkNorAccent(t *testing.T) {
+	path := filepath.Join("windows", bootstrapPath)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("lecture de %s : %v", bootstrapPath, err)
+	}
+
+	if strings.HasPrefix(string(raw), byteOrderMark) {
+		t.Errorf("%s porte de nouveau la marque d'ordre des octets : « irm … | iex » la "+
+			"donnera au parseur avec le texte, et tout son en-tête sera lu comme du code",
+			bootstrapPath)
+	}
+
+	for number, line := range strings.Split(codeOnly(string(raw)), "\n") {
+		for _, letter := range line {
+			if letter > 127 {
+				t.Errorf("%s, ligne %d : « %c » n'est pas de l'ASCII, et ce fichier est lu "+
+					"SANS marque — Windows PowerShell 5.1 le lira en CP1252.\n      %s",
+					bootstrapPath, number+1, letter, strings.TrimSpace(line))
+				break
+			}
 		}
 	}
 }
