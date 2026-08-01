@@ -1135,6 +1135,37 @@ describe('les colonnes de la grille, réglables sans cesser d’être automatiqu
     return draft
   }
 
+  it('offre exactement les valeurs que le noyau accepte, sans les recopier de tête', () => {
+    // Les bornes vivent dans `internal/domain/config.go` — c'est lui qui refuse, par le
+    // contrôle 49, ce que cet écran ne devrait pas proposer. Elles étaient jusqu'ici
+    // écrites une seconde fois ici, sans rien pour les relier : le jour où la mesure
+    // déplace la borne haute, un écran qui offre encore l'ancienne valeur produit un choix
+    // que l'enregistrement REFUSE — un bouton dont la seule réponse possible est un refus,
+    // ce qu'ADR-049 nomme comme un contrôle qui n'aurait pas dû exister.
+    //
+    // Lire le Go depuis un banc du front est le geste que ce fichier emploie déjà pour les
+    // jetons d'import (JOURNAL_GO plus haut).
+    const configGo = readFileSync(resolve(HERE, '../../internal/domain/config.go'), 'utf8')
+    const bound = (name: string): number => {
+      const found = new RegExp(String.raw`\b${name}\s*=\s*(\d+)`, 'u').exec(configGo)
+      if (found === null) throw new Error(`${name} introuvable dans config.go`)
+      return Number(found[1])
+    }
+
+    const declared = /GRID_COLUMNS_CHOICES = \[([\d, ]+)\]/u.exec(PAGE)?.[1]
+    if (declared === undefined) throw new Error('GRID_COLUMNS_CHOICES introuvable dans la page')
+    const offered = declared.split(',').map((n) => Number(n.trim()))
+
+    const min = bound('MinGridColumns')
+    const max = bound('MaxGridColumns')
+    const expected = Array.from({ length: max - min + 1 }, (_, i) => min + i)
+    expect(offered).toEqual(expected)
+
+    // Et « Automatique » est le zéro du noyau, pas un treizième choix inventé par l'écran.
+    expect(bound('GridColumnsAutomatic')).toBe(0)
+    expect(offered).not.toContain(0)
+  })
+
   it('offre onze choix visibles d’un coup, et non une glissière', async () => {
     open()
     await settle()

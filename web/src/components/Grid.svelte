@@ -251,10 +251,18 @@
     // which is exactly the first paint, where the probe answers and the factor
     // drops from 1 to its real value. MEASURED 01/08/2026: names were fitted
     // against an unscaled tile and laid out in a scaled one, « SUCRE RAPADURA
-    // COMPLET - » needing 330,03 px of a 328,35 px block at 5 columns on 1920;
-    // at 3 columns, 63 rows out of 111 grew, 51 of them by a whole line. Same
-    // family as the defect the estimate below already tells: a name fitted
-    // against one width and drawn in another.
+    // COMPLET - » needing 330,03 px of a 328,35 px block at 5 columns on 1920.
+    //
+    // WHERE IT REALLY BIT, and it is not where it was first thought to. A station
+    // mounts its grid EMPTY and receives its catalogue after, and that second
+    // beat already re-triggered this measure through `products.length` — so a
+    // page load was never wrong. What no beat covered is the gesture this very
+    // lot adds: changing `ui.grid_columns` HOT, where neither the grid width nor
+    // the product count moves. Measured on 1920 in two tiers, 12 -> 3 columns
+    // hot gave bodies of 18,3 to 48,8 px against 36,8 to 60,3 after a reload —
+    // names a quarter too small, on the screen an operator is looking at the
+    // moment they have just set it. Same family as the defect the estimate below
+    // already tells: a name fitted against one width and drawn in another.
     void columnWidthPx
     void tileScale
     void products.length
