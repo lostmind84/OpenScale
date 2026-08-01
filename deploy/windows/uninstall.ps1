@@ -44,11 +44,16 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# Mis à l'abri AVANT le point-source : common.ps1 pose $script:InstallDir et
+# $script:DataRoot, qui portent le nom de deux paramètres de ce script et les écraseraient.
+# L'arbitrage entier est en tête de common.ps1.
+$requestedInstallDir = $InstallDir
+$requestedDataRoot = $DataRoot
 . (Join-Path $PSScriptRoot 'common.ps1')
 
-$paths = if ($InstallDir -and $DataRoot) { Get-OpenScalePaths -InstallDir $InstallDir -DataRoot $DataRoot }
-elseif ($InstallDir) { Get-OpenScalePaths -InstallDir $InstallDir }
-elseif ($DataRoot) { Get-OpenScalePaths -DataRoot $DataRoot }
+$paths = if ($requestedInstallDir -and $requestedDataRoot) { Get-OpenScalePaths -InstallDir $requestedInstallDir -DataRoot $requestedDataRoot }
+elseif ($requestedInstallDir) { Get-OpenScalePaths -InstallDir $requestedInstallDir }
+elseif ($requestedDataRoot) { Get-OpenScalePaths -DataRoot $requestedDataRoot }
 else { Get-OpenScalePaths }
 
 if (-not (Test-Administrator)) {

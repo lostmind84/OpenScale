@@ -111,7 +111,11 @@ $script:Repository = 'lostmind84/OpenScale'
 $script:ApiHost = 'api.github.com'
 $script:RawUrl = "https://raw.githubusercontent.com/$script:Repository/main/deploy/windows/bootstrap.ps1"
 $script:ArchiveSuffix = '-windows-amd64.zip'
-$script:ChecksumAsset = 'SHA256SUMS-archives.txt'
+# ★ CE NOM PORTE « Name », ET CE N'EST PAS UNE VERBOSITÉ. Les noms de variables PowerShell
+# sont INSENSIBLES À LA CASSE, et une affectation non qualifiée écrite à la racine d'un
+# script écrit dans la portée du script : $checksumAsset — l'actif trouvé dans la release —
+# et $script:ChecksumAsset auraient été la MÊME variable, la seconde écrasant la première.
+$script:ChecksumAssetName = 'SHA256SUMS-archives.txt'
 $script:UserAgent = 'OpenScale-bootstrap'
 
 # Le plancher du mot de passe du compte n'est PAS ici : il est dans common.ps1, avec
@@ -273,12 +277,12 @@ catch {
 }
 
 $archiveAsset = $release.assets | Where-Object { $_.name.EndsWith($script:ArchiveSuffix) } | Select-Object -First 1
-$checksumAsset = $release.assets | Where-Object { $_.name -eq $script:ChecksumAsset } | Select-Object -First 1
+$checksumAsset = $release.assets | Where-Object { $_.name -eq $script:ChecksumAssetName } | Select-Object -First 1
 if (-not $archiveAsset) {
   throw "la release $($release.tag_name) ne publie aucune archive *$script:ArchiveSuffix."
 }
 if (-not $checksumAsset) {
-  throw "la release $($release.tag_name) ne publie pas $script:ChecksumAsset : il n'y a " +
+  throw "la release $($release.tag_name) ne publie pas $script:ChecksumAssetName : il n'y a " +
   'rien a quoi comparer ce qui va etre telecharge, et rien ne sera installe.'
 }
 Write-Progression "version $($release.tag_name) - $($archiveAsset.name)"
@@ -289,7 +293,7 @@ if (Test-Path $workspace) { Remove-Item -LiteralPath $workspace -Recurse -Force 
 New-Item -ItemType Directory -Path $workspace -Force | Out-Null
 
 $archive = Join-Path $workspace $archiveAsset.name
-$checksums = Join-Path $workspace $script:ChecksumAsset
+$checksums = Join-Path $workspace $script:ChecksumAssetName
 Write-Progression "telechargement ($([math]::Round($archiveAsset.size / 1MB, 1)) Mo)..."
 # La barre de progression d'Invoke-WebRequest divise son débit par dix sur un gros
 # fichier : elle repeint la console à chaque bloc reçu.
@@ -311,7 +315,7 @@ foreach ($line in Get-Content -LiteralPath $checksums) {
   }
 }
 if (-not $expected) {
-  throw "$script:ChecksumAsset ne porte aucune empreinte pour $($archiveAsset.name)."
+  throw "$script:ChecksumAssetName ne porte aucune empreinte pour $($archiveAsset.name)."
 }
 $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
 if ($actual -ne $expected.ToUpperInvariant()) {
@@ -339,10 +343,20 @@ if (-not (Test-Path $installer)) {
 # common.ps1 est chargé pour Get-OpenScalePaths, et pour elle seule : un script qui
 # reconstruirait « C:\ProgramData\OpenScale » à la main serait le second endroit à
 # corriger le jour où ce chemin bouge.
+#
+# ★ MAIS UN POINT-SOURCE EXÉCUTE CHEZ SON APPELANT, ET LES PARAMÈTRES D'UN SCRIPT VIVENT
+# DANS LA PORTÉE DE CE SCRIPT. common.ps1 pose $script:InstallDir et $script:DataRoot —
+# les noms exacts de deux paramètres déclarés en haut de ce fichier —, donc la ligne
+# suivante REMPLACE ce que l'opérateur a demandé par les emplacements d'usine. Mesuré :
+# -InstallDir D:\OpenScale ressort en C:\Program Files\OpenScale, et les trois branches
+# ci-dessous prennent alors toujours la première. Ce qui a été demandé est donc mis à
+# l'abri sous des noms que common.ps1 ne connaît pas, AVANT de le charger.
+$requestedInstallDir = $InstallDir
+$requestedDataRoot = $DataRoot
 . (Join-Path $extracted.FullName 'common.ps1')
-$paths = if ($InstallDir -and $DataRoot) { Get-OpenScalePaths -InstallDir $InstallDir -DataRoot $DataRoot }
-elseif ($InstallDir) { Get-OpenScalePaths -InstallDir $InstallDir }
-elseif ($DataRoot) { Get-OpenScalePaths -DataRoot $DataRoot }
+$paths = if ($requestedInstallDir -and $requestedDataRoot) { Get-OpenScalePaths -InstallDir $requestedInstallDir -DataRoot $requestedDataRoot }
+elseif ($requestedInstallDir) { Get-OpenScalePaths -InstallDir $requestedInstallDir }
+elseif ($requestedDataRoot) { Get-OpenScalePaths -DataRoot $requestedDataRoot }
 else { Get-OpenScalePaths }
 
 # --- 6. Les trois questions ---------------------------------------------------------
@@ -416,8 +430,8 @@ $installerArguments = @{
   AccountPassword = $AccountPassword
   Pilot           = $Pilot
   SkipAutoLogon   = $SkipAutoLogon
-  InstallDir      = $InstallDir
-  DataRoot        = $DataRoot
+  InstallDir      = $requestedInstallDir
+  DataRoot        = $requestedDataRoot
 }
 foreach ($key in @($installerArguments.Keys)) {
   if (-not $installerArguments[$key]) { $installerArguments.Remove($key) }
