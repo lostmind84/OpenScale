@@ -137,7 +137,10 @@ var serialTransports = []string{"serial", "rs232", "rs-232", "com"}
 
 // Config is the whole configuration of a station, and it is the file on disk.
 type Config struct {
-	// Version is the schema version of the file, not the version of the binary.
+	// Version is the schema version of the FILE, not the version of the binary, and
+	// domain.Migrate is what reads it (configmigration.go). It was written and never read
+	// until 01/08/2026, which is why the migration steps are driven by the keys a document
+	// carries rather than by this number.
 	Version int `json:"version"`
 	// Readme is the mode d'emploi that JSON cannot carry as a comment. It describes
 	// the FILE and not the station, so it stays out of the fingerprint.

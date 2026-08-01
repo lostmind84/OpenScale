@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -204,5 +205,64 @@ func TestEveryRetiredKeyHasADeclaredVerdict(t *testing.T) {
 		if _, retired := retiredKeys[key]; !retired {
 			t.Errorf("retiredVerdicts déclare %q, que retiredKeys ne retire pas", key)
 		}
+	}
+}
+
+// TestMigrateStampsTheSchemaVersionItProduces: version was written and NEVER READ -- only
+// profiles.go set it, to 1 -- so every file in the field announces 1 whatever its age. That
+// is why the steps are driven by the KEYS PRESENT and not by this number; the number is
+// bookkeeping, written on the way out so the next binary has a fast path.
+func TestMigrateStampsTheSchemaVersionItProduces(t *testing.T) {
+	after, _, err := Migrate([]byte(`{"version":1,"ui":{"tile_size":"large"}}`))
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	var cfg Config
+	if err := json.Unmarshal(after, &cfg); err != nil {
+		t.Fatalf("le document migré ne se décode pas : %v", err)
+	}
+	if cfg.Version != CurrentSchemaVersion {
+		t.Errorf("version = %d, attendu %d", cfg.Version, CurrentSchemaVersion)
+	}
+}
+
+// TestMigrateOfAnUpToDateDocumentChangesNothing: idempotence, and the fast path. A file
+// this binary already speaks comes back byte for byte, with no note.
+func TestMigrateOfAnUpToDateDocumentChangesNothing(t *testing.T) {
+	first, _, err := Migrate([]byte(`{"version":1,"ui":{"tile_size":"large"},"pricing":{"tiers":[
+		{"code":"MEMBER","coef_num":9,"coef_den":10}]}}`))
+	if err != nil {
+		t.Fatalf("première migration : %v", err)
+	}
+	second, notes, err := Migrate(first)
+	if err != nil {
+		t.Fatalf("seconde migration : %v", err)
+	}
+	if len(notes) != 0 {
+		t.Errorf("la seconde migration a eu %d note(s) : %+v", len(notes), notes)
+	}
+	if !bytes.Equal(first, second) {
+		t.Errorf("Migrate n'est pas idempotente :\n1 : %s\n2 : %s", first, second)
+	}
+}
+
+// TestMigrateNeverRefusesAFileFromAFutureBinary: a station whose binary was rolled back
+// reads a file stamped higher than it speaks. Refusing would put that station on the floor
+// over a number, so it is a note and never a fault.
+func TestMigrateNeverRefusesAFileFromAFutureBinary(t *testing.T) {
+	future := []byte(`{"version":999,"ui":{"sound":true}}`)
+	after, notes, err := Migrate(future)
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	var cfg Config
+	if err := json.Unmarshal(after, &cfg); err != nil {
+		t.Fatalf("le document migré ne se décode pas : %v", err)
+	}
+	if cfg.Version != 999 {
+		t.Errorf("version = %d : une version future ne se rabaisse pas", cfg.Version)
+	}
+	if len(notes) != 1 || notes[0].Action != MigrationRefused {
+		t.Fatalf("notes = %+v, attendu une note qui dit le retour arrière", notes)
 	}
 }

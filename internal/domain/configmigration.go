@@ -19,6 +19,19 @@ import (
 // Migrate is pure, and what it cannot decide it REFUSES by doing nothing, which is what
 // leaves control 20 free to speak the sentence it already speaks.
 
+// CurrentSchemaVersion is the shape of config.json this binary speaks.
+//
+// It is BOOKKEEPING and not an authority, and the difference matters. The field existed
+// from the start (config.go:141) and nobody ever read it: only NeutralProfile set it, to 1.
+// Every file in the field therefore announces 1 whatever its age, so a chain driven by this
+// number could do nothing for any of them. The steps are driven by the KEYS PRESENT, are
+// idempotent, and this number is written on the way out so that the next binary has a fast
+// path and a volunteer has something to compare.
+//
+// 2 and not 1: the shape changed with ADR-034 and ADR-057, and a file this binary has been
+// through has to be distinguishable from one it has not.
+const CurrentSchemaVersion = 2
+
 // MigrationAction is what this binary does with a key a file still carries.
 type MigrationAction uint8
 
@@ -122,6 +135,7 @@ func Migrate(document []byte) ([]byte, []MigrationNote, error) {
 	for _, step := range migrationSteps {
 		notes = append(notes, step(decoded)...)
 	}
+	notes = append(notes, stampSchemaVersion(decoded)...)
 
 	migrated, err := json.Marshal(decoded)
 	if err != nil {
@@ -245,6 +259,27 @@ func carryCoefficientToDiscount(document map[string]any) []MigrationNote {
 		}
 	}
 	return notes
+}
+
+// stampSchemaVersion writes the version this binary produced, and reports the ONE case it
+// will not touch.
+//
+// A file stamped HIGHER than this binary speaks comes from a station whose binary was
+// rolled back -- update.ps1 and update.sh both do that on their own when a station does not
+// answer. Lowering the number would erase the trace of it, and refusing outright would put
+// that station on the floor over a number. So it is left alone, with a note that says why.
+func stampSchemaVersion(document map[string]any) []MigrationNote {
+	declared, ok := wholeNumber(document["version"])
+	if ok && declared > CurrentSchemaVersion {
+		return []MigrationNote{{
+			Key: "version", Action: MigrationRefused,
+			Message: fmt.Sprintf("ce fichier a été écrit par une version plus récente "+
+				"(schéma %d, ce binaire parle le %d) : il est lu tel quel, et rien n'y est "+
+				"changé", declared, CurrentSchemaVersion),
+		}}
+	}
+	document["version"] = json.Number(fmt.Sprint(CurrentSchemaVersion))
+	return nil
 }
 
 // wholeNumber reports a decoded JSON value as a whole number, and whether it really was
