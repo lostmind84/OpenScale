@@ -116,6 +116,13 @@ type loadedConfig struct {
 	Parsed bool
 	Config domain.Config
 	Faults []domain.Fault
+	// DecodeFaults are the ones DecodeConfigBlockByBlock produced. They are also in Faults,
+	// and they are kept apart because they carry a consequence no Validate fault carries: a
+	// decoding fault means a BLOCK WAS REPLACED by the neutral profile, so anything computed
+	// over the configuration AS A WHOLE -- the fingerprint above all -- then describes a
+	// document nobody wrote. A file whose every block decoded describes itself perfectly
+	// well even when every value in it is wrong.
+	DecodeFaults []domain.Fault
 	// MigrationNotes is what platform.LoadConfig had to change to bring the document up
 	// to the schema this binary speaks. It is the ONLY trace left of that once Config is
 	// built: LoadConfig migrates the document BEFORE decoding it, so Config.Version reads
@@ -152,7 +159,13 @@ func (d *Doctor) Run(ctx context.Context) Report {
 		StationName: loaded.Config.Station.Name,
 		Coop:        loaded.Config.Station.Coop,
 	}
-	if loaded.Parsed {
+	// No fingerprint when a block was substituted, which is the rule ConfigStore.Versions
+	// already holds on the other document support reads (§14.4): « elle est inconnue, pas
+	// inventée ». The eight characters would otherwise describe a configuration nobody
+	// declared, in the header of the very file four stations get compared with -- and right
+	// above a red control saying so. Nothing is refused by leaving it out: the report is
+	// still produced, and the configuration control still names the block.
+	if loaded.Parsed && len(loaded.DecodeFaults) == 0 {
 		report.Fingerprint = loaded.Config.Fingerprint()
 	}
 
@@ -233,7 +246,11 @@ func (d *Doctor) readConfiguration() loadedConfig {
 		return out
 	}
 	out.Parsed = true
-	out.Faults = append(decodeFaults, out.Config.Validate(d.o.Registries)...)
+	out.DecodeFaults = decodeFaults
+	// A fresh slice rather than appending onto decodeFaults: the two fields would otherwise
+	// share a backing array, and a future append on one would be reading the other.
+	out.Faults = append(append([]domain.Fault{}, decodeFaults...),
+		out.Config.Validate(d.o.Registries)...)
 	return out
 }
 

@@ -1111,3 +1111,87 @@ func TestALinuxStationIsNotJudgedOnAPolicyItDoesNotOwn(t *testing.T) {
 		t.Error("le contrôle ne dit pas ce qu'il a vu")
 	}
 }
+
+// TestTheReportShowsNoFingerprintWhenABlockWasSubstituted is the rule ConfigStore.Versions
+// already holds, on the other document support reads: « elle est inconnue, pas inventée »
+// (§14.4).
+//
+// A block that will not decode falls back on the neutral profile, so the eight characters
+// in the header of doctor.txt and diagnostic.zip would describe a configuration NOBODY
+// DECLARED — next to a red control saying so, on the very document four stations get
+// compared with. Showing none refuses nothing: the report is still produced, and the
+// control still names the block.
+func TestTheReportShowsNoFingerprintWhenABlockWasSubstituted(t *testing.T) {
+	b := newBench(t)
+	b.writeConfig()
+	substituteAnUnreadablePricingBlock(t, b.configPath)
+
+	doctor, err := New(b.options())
+	if err != nil {
+		t.Fatalf("construction du doctor : %v", err)
+	}
+	report := doctor.Run(context.Background())
+
+	if report.Fingerprint != "" {
+		t.Errorf("empreinte %q sur un fichier dont un bloc n'a pas décodé : elle est "+
+			"inconnue, pas inventée", report.Fingerprint)
+	}
+	// The diagnosis still happens, and still names the block: this is not a refusal.
+	found := control(t, report, ControlConfiguration)
+	if found.Status != StatusFail {
+		t.Errorf("contrôle de configuration = %s, attendu ÉCHEC", found.Status)
+	}
+	if !strings.Contains(found.Observed, "pricing") {
+		t.Errorf("le contrôle ne nomme pas le bloc : %q", found.Observed)
+	}
+}
+
+// TestAnInvalidButFullyReadFileKeepsItsFingerprint is the other half, and the reason the
+// criterion is « une faute de DÉCODAGE » and not « une faute ».
+//
+// A file whose every block decoded and whose values are wrong describes itself perfectly
+// well: its eight characters are read off what the operator declared, so they stay. Losing
+// them would take the fingerprint away from the ordinary broken station, which is most of
+// them.
+func TestAnInvalidButFullyReadFileKeepsItsFingerprint(t *testing.T) {
+	b := newBench(t).tweak(func(cfg *domain.Config) { cfg.Journal.MaxRows = -1 })
+
+	report := b.run()
+
+	if report.Fingerprint == "" {
+		t.Error("un fichier entièrement lu mais invalide a perdu son empreinte")
+	}
+	if found := control(t, report, ControlConfiguration); found.Status != StatusFail {
+		t.Errorf("contrôle de configuration = %s, attendu ÉCHEC", found.Status)
+	}
+}
+
+// substituteAnUnreadablePricingBlock rewrites the file with its pricing block made
+// undecodable, and nothing else touched. "bankers" is not one of the three rounding words,
+// so RoundingPolicy.UnmarshalJSON refuses it and exactly ONE of the fourteen blocks falls
+// back on the neutral profile.
+func substituteAnUnreadablePricingBlock(t *testing.T, path string) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("lecture de %s : %v", path, err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("décodage de %s : %v", path, err)
+	}
+	var pricing map[string]json.RawMessage
+	if err := json.Unmarshal(document["pricing"], &pricing); err != nil {
+		t.Fatalf("décodage du bloc pricing : %v", err)
+	}
+	pricing["amount_rounding"] = json.RawMessage(`"bankers"`)
+	if document["pricing"], err = json.Marshal(pricing); err != nil {
+		t.Fatalf("encodage du bloc pricing : %v", err)
+	}
+	if raw, err = json.Marshal(document); err != nil {
+		t.Fatalf("encodage de %s : %v", path, err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("écriture de %s : %v", path, err)
+	}
+}

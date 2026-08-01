@@ -77,8 +77,17 @@ func runConfig(args []string, in io.Reader, out io.Writer) error {
 	case "validate":
 		return validateConfig(out, path, cfg, notes, decodeFaults)
 	case "export":
+		if err := refuseWhatWasNotRead(path, decodeFaults,
+			"l'export emporterait la configuration d'usine à sa place vers les autres postes"); err != nil {
+			return err
+		}
 		return exportConfig(out, cfg, *hardware, *output)
 	case "fingerprint":
+		if err := refuseWhatWasNotRead(path, decodeFaults,
+			"l'empreinte porterait sur la configuration d'usine à sa place, et les huit "+
+				"caractères que les postes comparent ne diraient plus rien de ce fichier"); err != nil {
+			return err
+		}
 		fmt.Fprintf(out, "%s\n", cfg.Fingerprint())
 		return nil
 	case "migrate":
@@ -182,6 +191,29 @@ func reportPendingMigrations(out io.Writer, path string, notes []domain.Migratio
 	for _, note := range notes {
 		fmt.Fprintf(out, "  %s\n", note)
 	}
+}
+
+// refuseWhatWasNotRead stops an action that would ANSWER ABOUT a file this binary did not
+// read whole.
+//
+// `fingerprint` and `export` are the two, and neither has any way of saying « sauf ce
+// bloc-là ». One produces the eight characters four stations of a cooperative compare BY
+// EYE to know they share a configuration (ADR-012, §11.4); the other produces the FILE
+// those stations are configured from (§11.5). A block that fell back on the neutral
+// profile makes the first answer about a configuration NOBODY DECLARED — measured, 428807b3
+// becomes 7b386ddb in silence — and makes the second CLONE it onto the three others. That
+// is the failure `config migrate` was just stopped from writing, propagated by the copying
+// instead.
+//
+// `validate` is not in this list and must not be: its job is precisely to NAME the faults,
+// so it reports them rather than refusing to look.
+func refuseWhatWasNotRead(path string, faults []domain.Fault, consequence string) error {
+	if len(faults) == 0 {
+		return nil
+	}
+	return &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf(
+		"%s : %s. Corrigez-le, ou repartez de %s.1, la version d'avant",
+		unreadablePart(path, faults), consequence, path)}
 }
 
 // unreadablePart names what did not decode, in the French of the two cases §11.3 keeps

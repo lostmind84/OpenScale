@@ -40,7 +40,14 @@ d'usine plausible que personne n'a déclarée — et `openscale config migrate`,
 remise de 10 % des adhérents disparaissait pendant que la commande annonçait un changement
 sans rapport et sortait 0. `config migrate` et `config validate` comptent désormais ces
 fautes, et `ConfigStore.Read` — dont les six appelants **montrent** le fichier ou le
-**réécrivent entier** — refuse de nouveau, en nommant le fichier et le bloc. Le démarrage **n'écrit toujours pas** : seule `openscale config migrate` —
+**réécrivent entier** — refuse de nouveau, en nommant le fichier et le bloc. **Trois portes
+de plus disaient la même chose autrement** : `config fingerprint` rendait `7b386ddb` là où
+le fichier sain donne `428807b3`, en silence et code 0, alors que ces huit caractères sont
+ce que quatre postes comparent à l'œil ; `config export` écrivait le fichier **destiné à
+être recopié sur les autres postes**, donc partait cloner la grille d'usine ; et l'empreinte
+en tête d'`openscale doctor` et de `diagnostic.zip` était inventée de la même façon. Les
+deux premières refusent, la troisième n'est plus affichée — `doctor` ne refusant toujours
+rien. Le démarrage **n'écrit toujours pas** : seule `openscale config migrate` —
 lancée à la main ou par `update.ps1`/`update.sh` une fois le poste debout, sur le
 **chemin de réussite uniquement** et sans jamais changer le code de sortie de la mise à
 jour elle-même — touche le disque. `TestEveryRetiredKeyHasADeclaredVerdict` tient la

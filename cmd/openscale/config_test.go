@@ -753,3 +753,79 @@ func TestValidateReportsTheDecodingFaultsTheStationWouldStartWith(t *testing.T) 
 		t.Errorf("le bloc illisible n'est pas nommé :\n%s", out.String())
 	}
 }
+
+// TestFingerprintRefusesAConfigurationItDidNotReadWhole.
+//
+// The eight characters are what four stations of one cooperative compare BY EYE to know
+// they share a configuration (ADR-012, §11.4). Measured on the delivered file with an
+// unreadable pricing block: 428807b3 sain, 7b386ddb abîmé, code de retour 0 — a different,
+// plausible answer, in silence, about a configuration nobody declared.
+func TestFingerprintRefusesAConfigurationItDidNotReadWhole(t *testing.T) {
+	path := shopFileWithAnUnreadablePricingBlock(t)
+	sane := fingerprintOf(t, deliveredConfig(t))
+
+	var out bytes.Buffer
+	err := runConfig([]string{"fingerprint", path}, nil, &out)
+	if err == nil {
+		t.Fatalf("une empreinte a été rendue sur un fichier non lu en entier : %q", out.String())
+	}
+	if exitCodeFor(err) == 0 {
+		t.Fatal("code de sortie nul sur une empreinte qui ne peut pas être garantie")
+	}
+	if !strings.Contains(err.Error(), "pricing") {
+		t.Errorf("le refus ne nomme pas le bloc en cause : %v", err)
+	}
+	// Nothing that looks like an answer: eight characters printed next to a refusal
+	// would be copied onto the installation sheet anyway.
+	if strings.Contains(out.String(), sane) || len(strings.TrimSpace(out.String())) != 0 {
+		t.Errorf("la commande a quand même écrit quelque chose : %q", out.String())
+	}
+}
+
+// TestExportRefusesAConfigurationItDidNotReadWhole is the same defect where it does the
+// most damage: `export` writes the file that gets COPIED onto the other stations (§11.5).
+// One unreadable block on one station, and the factory grid goes off to be cloned onto the
+// three others — the failure of `config migrate`, propagated by the cloning.
+func TestExportRefusesAConfigurationItDidNotReadWhole(t *testing.T) {
+	path := shopFileWithAnUnreadablePricingBlock(t)
+	written := filepath.Join(t.TempDir(), "export.json")
+
+	var out bytes.Buffer
+	err := runConfig([]string{"export", path, "--output", written}, nil, &out)
+	if err == nil {
+		t.Fatal("un export a été produit depuis un fichier non lu en entier")
+	}
+	if exitCodeFor(err) == 0 {
+		t.Fatal("code de sortie nul sur un export qui emporterait la configuration d'usine")
+	}
+	if !strings.Contains(err.Error(), "pricing") {
+		t.Errorf("le refus ne nomme pas le bloc en cause : %v", err)
+	}
+	if _, statErr := os.Stat(written); statErr == nil {
+		t.Error("le fichier d'export a été écrit alors que la commande refuse")
+	}
+}
+
+// TestTheDeliveredFileStillExportsAndFingerprints keeps the two refusals above from
+// becoming a refusal of everything: the file of §17.2 is sound, and both commands must
+// answer on it exactly as before.
+func TestTheDeliveredFileStillExportsAndFingerprints(t *testing.T) {
+	written := filepath.Join(t.TempDir(), "export.json")
+
+	var printed bytes.Buffer
+	if err := runConfig([]string{"fingerprint", deliveredConfig(t)}, nil, &printed); err != nil {
+		t.Fatalf("empreinte du fichier livré : %v", err)
+	}
+	if len(strings.TrimSpace(printed.String())) != 8 {
+		t.Errorf("empreinte %q, attendu huit caractères", strings.TrimSpace(printed.String()))
+	}
+
+	var exported bytes.Buffer
+	if err := runConfig([]string{"export", deliveredConfig(t), "--output", written}, nil,
+		&exported); err != nil {
+		t.Fatalf("export du fichier livré : %v", err)
+	}
+	if _, statErr := os.Stat(written); statErr != nil {
+		t.Errorf("l'export du fichier livré n'a rien écrit : %v", statErr)
+	}
+}
