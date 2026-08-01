@@ -173,7 +173,7 @@ ce motif il a raison : `clamp()` fait ce travail mieux qu'un exploitant, et **il
 le faire**, puisqu'il reste le défaut. Le motif d'aujourd'hui est autre : **combien de
 produits voir d'un coup**. Aucune mesure d'écran ne répond à cette question ; c'est une
 décision de magasin, et ADR-025 en autorise donc un réglage. Même argument
-qu'`ui.show_by_unit_products` (ADR-053) : *un exploitant a ici une décision à prendre, et
+qu'`ui.show_by_unit_products` (ADR-041) : *un exploitant a ici une décision à prendre, et
 l'écran sait dire ce qu'on gagne **et** ce qu'on perd.*
 
 **Ce qui n'est pas rouvert pour autant.** `ui.tile_size` **reste une clé retirée** : un

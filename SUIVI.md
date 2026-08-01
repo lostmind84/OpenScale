@@ -3,6 +3,79 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Le nombre de colonnes de la grille devient un réglage, et l'automatique reste le défaut
+(01/08/2026).** Le magasin voulait moins de défilement : sur le poste installé, les 331
+pesables se parcourent en **34 écrans**, à 10 tuiles d'un coup. **ADR-057** ouvre
+`ui.grid_columns` — `0` pour automatique, 3 à 12 pour ce nombre de colonnes sur n'importe
+quel écran — et **n'annule pas ADR-035** : à `0`, qui est le défaut et ce que fait un
+fichier écrit avant ce réglage, la déclaration de grille est celle d'hier **mot pour mot**.
+`ui.tile_size` reste une clé **retirée**, refusée par le contrôle 20, et un test de
+non-régression l'exige pour que l'aller-retour ADR-031 → ADR-035 → ADR-057 ne se rejoue pas
+par la bande.
+
+**Ce que la réouverture doit à ADR-025, et pas au commanditaire.** ADR-035 avait retiré un
+réglage dont le motif était *l'hétérogénéité du parc d'écrans*, et sur ce motif il a
+raison — `clamp()` fait ce travail mieux qu'un exploitant, et il le fait toujours, puisqu'il
+reste le défaut. La question d'aujourd'hui est autre : **combien de produits voir d'un
+coup**. Aucune mesure d'écran n'y répond.
+
+**Le réglage retenu, 8 colonnes, et son coût entier.** Mesuré au navigateur sur `flv.csv`,
+1920 × 1080, **en double tarif** — la configuration du poste installé, dont le tarif
+solidaire ajoute une seconde ligne au bloc des prix :
+
+| | Automatique (aujourd'hui) | 8 colonnes |
+|---|---|---|
+| Grille | 5 × 2 | **8 × 3** |
+| Tuiles d'un coup | 10 | **24** |
+| Écrans pour les 331 pesables | 34 | **14** |
+| Noms au plancher | 0 | **1 sur 331** — la tomme de 69 caractères |
+| Rangées plus hautes | 0 | **1 sur 42**, de 11,1 px |
+
+**Et `7 × 3` n'existe pas en double tarif.** Il faudrait une rangée sous 240 px ; elle en
+fait 256,5 à un plancher de 18 px et 252,8 à 14. La seconde ligne de prix vaut 22,8 px à
+elle seule : aucun plancher ne comble l'écart, et les trois rangées commencent à 8 colonnes.
+
+**Le plancher typographique descend de 18 à 16 px, et l'argument n'est pas celui qu'on
+croit.** Depuis que ce plancher borne **aussi** les deux corps du bloc des prix, il ne décide
+plus de la seule lisibilité : il décide de la **borne haute du réglage**. À 18 px, 12
+colonnes sur un 15″ coupent **38 prix** de 8,7 px et donnent au kiosque une barre de
+défilement horizontale, qu'un poste en kiosque ne doit pas avoir. **L'argument commode est
+écrit comme FAUX** pour que personne ne le restaure : à 7 colonnes sur 1920, 18 px ne met
+qu'**un seul nom sur 331** au plancher. Il descend pour le 15″ et pour le prix, jamais pour
+la cible du magasin — et accessoirement pour le rythme de l'écran là où ça compte : à 8
+colonnes, 18 px met 53 noms au plancher et fait grandir 6 rangées, contre 1 et 1 à 16.
+
+**Le plafond du corps de nom suit la tuile ; le plancher, non.** Les deux bouts de la
+descente ne sont pas de même nature — le plancher est une limite de lisibilité, le plafond
+une **proportion**. Sans cela, aller vers l'aéré offrirait une plus belle photo et exactement
+le même texte. Le plafond mis à l'échelle est borné par le bas par le plancher : il tombe à
+17,6 px dès 10 colonnes sur 1920, et sans cette borne tous les noms seraient sortis au
+plancher en silence.
+
+**Deux chiffres que la campagne finale RETIRE, et qui avaient servi.** (1) Les « 63 rangées
+grandies à 3 colonnes » mesuraient un banc qui livrait les 331 produits d'emblée ; le poste
+réel monte la grille **vide** puis reçoit son catalogue, et ce second temps redéclenchait
+déjà la relecture — sur le code d'avant le correctif, ces nombres tombent à zéro. Le
+correctif reste nécessaire pour le geste que ce lot ajoute et pour lui seul : changer
+`ui.grid_columns` **à chaud**, où ni la largeur de la grille ni le nombre de produits ne
+bougent, et où 12 → 3 donnait des noms d'un quart trop petits sur l'écran qu'un exploitant
+regarde au moment précis où il vient de régler. (2) Les « 196 » et « 330 » tuiles au prix
+débordant comptaient un dépassement de la **zone de contenu**, padding retiré — ce qu'un
+client ne voit pas. Seuls le rognage et le défilement horizontal décrivent un défaut visible,
+et ceux-là étaient réels.
+
+**Trois faits qui n'ont pas bougé de toute la campagne.** Aucun nom n'est **jamais** tronqué,
+jusqu'à des colonnes de 103,9 px. L'uniformité d'ADR-030 tient partout : aucune rangée à
+deux hauteurs, sur aucun relevé. Et au réglage final — plancher 16, double tarif — il n'y a
+**aucun défilement horizontal et aucun prix rogné**, de 3 à 12 colonnes, sur 1366, 1920 et
+3840.
+
+**Ce qui est dit plutôt que caché : la borne basse de 3 est fausse sur un 15″.** En double
+tarif, aucune tuile n'y est visible en entier — 439,6 px pour 424 px disponibles. Ce n'est
+pas un défaut, c'est la géométrie, et c'est exactement ce que l'aperçu de la page Catalogue
+existe pour montrer **avant** l'enregistrement. Aucun couple de bornes ne peut être vrai pour
+tout le parc ; ce qui protège l'exploitant entre les deux n'est pas la borne, c'est l'écran.
+
 **Un clic droit sortait le poste de l'application, et rien ne le voyait (01/08/2026).** Sur
 un poste en service : clic droit, « Rechercher sur le web », et la fenêtre du kiosque part
 sur un moteur de recherche. `--kiosk` ne donne ni barre d'adresse ni bouton retour, donc
