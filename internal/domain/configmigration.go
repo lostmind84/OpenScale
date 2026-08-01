@@ -94,6 +94,7 @@ var retiredVerdicts = map[string]MigrationAction{
 // which they do it would then depend on the iteration order of a map, which is random.
 var migrationSteps = []func(document map[string]any) []MigrationNote{
 	retireTileSize,
+	carryCoefficientToDiscount,
 }
 
 // Migrate brings a configuration DOCUMENT up to the schema this binary speaks, and reports
@@ -155,4 +156,94 @@ func retireTileSize(document map[string]any) []MigrationNote {
 			"qui est le défaut de ui.grid_columns, est celle qu'il affiche depuis la "+
 			"version 0.4 (ADR-035, ADR-057)", size),
 	}}
+}
+
+// carryCoefficientToDiscount turns the rational coefficient of the tiers written before
+// ADR-034 into the percentage that replaced it.
+//
+// The keys are PER TIER and never global -- PriceTier.CoefNum and CoefDen, up to cc3c604 --
+// so a station running v0.1 to v0.3 carries one pair per line of its price grid.
+//
+// It converts EXACTLY OR NOT AT ALL. A discount is written to the tenth of a point
+// (pricing.go:15), so 2/3 has no exact form, and rounding a cooperative's discount without
+// telling it is the very thing ADR-034 refuses. What cannot be written exactly is refused,
+// the two numbers stay in the document, and control 20 says so with the sentence it already
+// has.
+//
+// A tier at coef 1/1 comes out with NO KEY AT ALL rather than a zero: ADR-034 holds that
+// the absence of discount_percent IS the statement "this tier carries the catalogue price",
+// which is also why the field is omitempty.
+func carryCoefficientToDiscount(document map[string]any) []MigrationNote {
+	pricing, ok := document["pricing"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	tiers, ok := pricing["tiers"].([]any)
+	if !ok {
+		return nil
+	}
+	var notes []MigrationNote
+	for index, raw := range tiers {
+		tier, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, present := tier["coef_num"]; !present {
+			if _, second := tier["coef_den"]; !second {
+				continue
+			}
+		}
+		path := fmt.Sprintf("pricing.tiers[%d].coef_num", index)
+		numerator, haveNumerator := wholeNumber(tier["coef_num"])
+		denominator, haveDenominator := wholeNumber(tier["coef_den"])
+
+		switch {
+		case !haveNumerator || !haveDenominator || denominator <= 0 || numerator < 0 ||
+			numerator > denominator:
+			notes = append(notes, MigrationNote{
+				Key: path, Action: MigrationRefused,
+				Message: fmt.Sprintf("le coefficient %v/%v n'est pas une fraction du prix "+
+					"catalogue : écrivez la remise de ce tarif en pourcentage, au dixième "+
+					"de point (discount_percent, ADR-034)",
+					tier["coef_num"], tier["coef_den"]),
+			})
+		case (denominator-numerator)*int64(FullDiscount)%denominator != 0:
+			notes = append(notes, MigrationNote{
+				Key: path, Action: MigrationRefused,
+				Message: fmt.Sprintf("le coefficient %d/%d ne s'écrit pas au dixième de "+
+					"point : choisissez la remise voulue et écrivez-la en pourcentage "+
+					"(discount_percent, ADR-034)", numerator, denominator),
+			})
+		default:
+			discount := Discount((denominator - numerator) * int64(FullDiscount) / denominator)
+			delete(tier, "coef_num")
+			delete(tier, "coef_den")
+			// The zero discount writes NO key: absence is the statement (ADR-034).
+			if discount != 0 {
+				tier["discount_percent"] = json.Number(discount.JSONText())
+			}
+			notes = append(notes, MigrationNote{
+				Key: path, Action: MigrationCarried,
+				Message: fmt.Sprintf("le coefficient %d/%d devient une remise de %s %% "+
+					"(ADR-034)", numerator, denominator, discount),
+			})
+		}
+	}
+	return notes
+}
+
+// wholeNumber reports a decoded JSON value as a whole number, and whether it really was
+// one. A quoted numeric literal is REFUSED, for the reason jsonNumber gives in config.go:
+// a configuration that spells a number as text has a type error, and hiding it here would
+// turn a wrong file into a silently wrong price.
+func wholeNumber(value any) (int64, bool) {
+	number, ok := value.(json.Number)
+	if !ok {
+		return 0, false
+	}
+	whole, err := number.Int64()
+	if err != nil {
+		return 0, false
+	}
+	return whole, true
 }

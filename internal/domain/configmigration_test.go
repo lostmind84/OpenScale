@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -63,6 +64,117 @@ func TestMigrateLeavesTheSixNumberingPlanKeysAlone(t *testing.T) {
 		if note.Action != MigrationRefused {
 			t.Errorf("note %+v : une clé du plan ne se convertit pas", note)
 		}
+	}
+}
+
+// TestMigrateCarriesTheOldCoefficientIntoADiscount checks the conversion against a value
+// that was actually SHIPPED: the default MEMBER tier was 9/10, and pricing.go:299 carries
+// Discount 100 -- ten points -- for that same tier today. The arithmetic has to land on
+// that number and on no other.
+func TestMigrateCarriesTheOldCoefficientIntoADiscount(t *testing.T) {
+	before := []byte(`{"version":1,"pricing":{"tiers":[
+		{"code":"MEMBER","label":"Adhérent","abbrev":"A","coef_num":9,"coef_den":10,"rank":1},
+		{"code":"SOLIDARITY","label":"Solidaire","abbrev":"S","coef_num":1,"coef_den":1,"rank":2}
+	]}}`)
+
+	after, notes, err := Migrate(before)
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	var cfg Config
+	if err := json.Unmarshal(after, &cfg); err != nil {
+		t.Fatalf("le document migré ne se décode pas : %v", err)
+	}
+	if got := cfg.Pricing.Tiers[0].Discount; got != Discount(100) {
+		t.Errorf("remise ADHÉRENT = %s, attendu 10 (9/10 du prix catalogue)", got)
+	}
+	// A tier at coef 1/1 carries NO discount, and the ABSENCE of the key is that statement
+	// (ADR-034). Writing "discount_percent": 0 would say the same thing in a way the file
+	// does not use.
+	if got := cfg.Pricing.Tiers[1].Discount; got != 0 {
+		t.Errorf("remise SOLIDAIRE = %s, attendu aucune", got)
+	}
+	var document map[string]any
+	_ = json.Unmarshal(after, &document)
+	tiers := document["pricing"].(map[string]any)["tiers"].([]any)
+	if _, present := tiers[1].(map[string]any)["discount_percent"]; present {
+		t.Errorf("le tarif sans remise porte une clé discount_percent : %s", after)
+	}
+	for _, tier := range tiers {
+		for _, gone := range []string{"coef_num", "coef_den"} {
+			if _, present := tier.(map[string]any)[gone]; present {
+				t.Errorf("%s survit à la migration : %s", gone, after)
+			}
+		}
+	}
+	if len(notes) != 2 {
+		t.Fatalf("%d note(s), attendu 2 : %+v", len(notes), notes)
+	}
+	if notes[0].Action != MigrationCarried || notes[0].Key != "pricing.tiers[0].coef_num" {
+		t.Errorf("note = %+v", notes[0])
+	}
+}
+
+// TestMigrateRefusesACoefficientItCannotWriteExactly: a discount is written to the TENTH of
+// a point (ADR-034). 2/3 is 33,333... points, which no exact tenth holds, and rounding a
+// cooperative's discount without telling it is what ADR-034 refuses. The refusal LEAVES THE
+// KEYS IN PLACE so control 20 produces its fault.
+func TestMigrateRefusesACoefficientItCannotWriteExactly(t *testing.T) {
+	before := []byte(`{"version":1,"pricing":{"tiers":[
+		{"code":"MEMBER","coef_num":2,"coef_den":3,"rank":1}
+	]}}`)
+
+	after, notes, err := Migrate(before)
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	var cfg Config
+	if err := json.Unmarshal(after, &cfg); err != nil {
+		t.Fatalf("le document migré ne se décode pas : %v", err)
+	}
+	if retired := cfg.Retired(); len(retired) != 2 {
+		t.Errorf("clés retirées = %v, attendu coef_num et coef_den intactes", retired)
+	}
+	if len(notes) != 1 || notes[0].Action != MigrationRefused {
+		t.Fatalf("notes = %+v, attendu un refus", notes)
+	}
+	for _, number := range []string{"2", "3"} {
+		if !strings.Contains(notes[0].Message, number) {
+			t.Errorf("le refus ne nomme pas %s : %q", number, notes[0].Message)
+		}
+	}
+}
+
+// TestMigrateRefusesAnUnusableCoefficient covers the three shapes that are not a fraction
+// of a catalogue price at all. Each is a refusal and not a zero: a station that silently
+// charged full price is the failure ADR-034 named.
+func TestMigrateRefusesAnUnusableCoefficient(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		tier string
+	}{
+		{"dénominateur nul", `{"code":"M","coef_num":1,"coef_den":0}`},
+		{"dénominateur absent", `{"code":"M","coef_num":1}`},
+		{"numérateur plus grand que le dénominateur", `{"code":"M","coef_num":3,"coef_den":2}`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			before := []byte(`{"version":1,"pricing":{"tiers":[` + c.tier + `]}}`)
+			after, notes, err := Migrate(before)
+			if err != nil {
+				t.Fatalf("Migrate: %v", err)
+			}
+			if len(notes) != 1 || notes[0].Action != MigrationRefused {
+				t.Fatalf("notes = %+v, attendu un refus", notes)
+			}
+			var cfg Config
+			if err := json.Unmarshal(after, &cfg); err != nil {
+				t.Fatalf("le document migré ne se décode pas : %v", err)
+			}
+			if len(cfg.Retired()) == 0 {
+				t.Errorf("le refus a quand même retiré la clé : %s", after)
+			}
+		})
 	}
 }
 
