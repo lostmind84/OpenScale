@@ -78,10 +78,47 @@ vous pose **trois questions** :
    Windows » juste après cette étape.
 2. **Production ou pilote.** Répondez *1* (production), sauf si on vous a demandé que
    l'ancienne application reste utilisable : dans ce cas *2*, et le poste ne prendra pas
-   le port série à chaque démarrage.
+   le port série à chaque démarrage. **En pilote, le poste ne démarre pas tout seul** —
+   c'est ce qui laisse l'ancienne application relançable, et ça se pilote depuis le
+   Bureau : voir « Allumer et éteindre un poste pilote » ci-dessous.
 3. **L'ouverture de session automatique.** Répondez *oui*, sauf si ce poste n'est pas en
    libre-service : c'est elle qui fait revenir l'écran client tout seul après une coupure
    de courant.
+
+### Allumer et éteindre un poste pilote
+
+**Un poste en mode pilote ne démarre pas à l'allumage de la machine, et c'est voulu** :
+son service est en démarrage manuel, ce qui laisse l'ancienne application Access
+relançable en deux minutes. L'installeur pose donc **deux raccourcis sur le Bureau**, qui
+sont les deux seuls gestes du quotidien :
+
+| Raccourci | Ce qu'il fait |
+|---|---|
+| **OpenScale - Demarrer le poste** | Démarre le service, puis affiche son état. L'écran client se rétablit ensuite de lui-même : le kiosque interroge le poste depuis sa page d'attente et bascule dès qu'il répond. |
+| **OpenScale - Arreter le poste** | Arrête le service et rend la machine à l'ancienne application. |
+
+Les deux **demandent les droits administrateur** — démarrer un service Windows n'est pas
+autre chose — et laissent leur fenêtre ouverte jusqu'à ce que vous appuyiez sur Entrée :
+on doit pouvoir lire ce qui s'est passé.
+
+Les mêmes gestes en ligne de commande, dans une console **en administrateur** :
+
+```powershell
+& "C:\Program Files\OpenScale\openscale.exe" service start
+& "C:\Program Files\OpenScale\openscale.exe" service status
+& "C:\Program Files\OpenScale\openscale.exe" service stop
+```
+
+Et pour ouvrir l'écran client depuis une session où le kiosque ne tourne pas — celle d'un
+technicien, ou un poste installé sans ouverture de session automatique :
+
+```powershell
+& "C:\Program Files\OpenScale\openscale.exe" kiosk
+```
+
+**Un poste de production n'a aucun de ces deux raccourcis**, et n'en a pas besoin : il
+démarre seul. Réinstaller en production un poste qui était en pilote les retire, la
+désinstallation aussi.
 
 Puis l'installation se déroule seule. Elle parle français et dit ce qu'elle fait, ligne
 par ligne. Elle :

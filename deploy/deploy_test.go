@@ -645,6 +645,98 @@ func powerShellScripts(t *testing.T) []string {
 	return scripts
 }
 
+// TestAPilotStationIsToldHowToStart is the regression of a station installed on 01/08/2026.
+//
+// The closing screen of the installer promised EVERYBODY a station that « revient SEUL »
+// after a reboot, and asked for that reboot as the compulsory acceptance. A pilot station
+// does no such thing, by construction: its service is installed with --start demand, which
+// is exactly what leaves the Access application relaunchable in two minutes. The operator
+// was left in front of a station that was installed, correct, and that nothing anywhere
+// said how to switch on — neither the installer, nor INSTALLATION.md, nor TROUBLESHOOTING.
+//
+// So the promise belongs to the branch that keeps it, and the other branch owes the four
+// gestures of a pilot station instead.
+func TestAPilotStationIsToldHowToStart(t *testing.T) {
+	// codeOnly and not the raw text: the comment that guards this branch QUOTES the promise
+	// it exists to forbid, and a test reading it would accuse the very sentence that keeps
+	// the next reader from putting the defect back.
+	script := codeOnly(readFile(t, filepath.Join("windows", "install.ps1")))
+
+	// From the closing banner and not from the top of the file: `$startMode = if ($Pilot)`
+	// decides the service start mode a hundred lines earlier, and a search that stopped
+	// there would read the whole installer as if it were the message.
+	banner := strings.Index(script, "IL RESTE TROIS CHOSES")
+	if banner < 0 {
+		t.Fatal("install.ps1 n'affiche plus son message de fin : ce test ne prouve plus rien")
+	}
+	branch := strings.Index(script[banner:], "if ($Pilot) {")
+	if branch < 0 {
+		t.Fatal("install.ps1 ne distingue plus le mode pilote dans son message de fin")
+	}
+	branch += banner
+	end := strings.Index(script[branch:], "\nelse {")
+	if end < 0 {
+		t.Fatal("la branche pilote du message de fin n'a pas d'autre branche")
+	}
+	pilot := script[branch : branch+end]
+
+	// The gestures a pilot station lives on. `service start` is the one whose absence was
+	// the whole defect; `stop` is what gives the machine back to Access, and without it the
+	// pilot mode has no way out.
+	for what, needle := range map[string]string{
+		"le démarrage du service":      "service start",
+		"l'arrêt du service":           "service stop",
+		"l'ouverture de l'écran":       "kiosk",
+		"les raccourcis du Bureau":     "Bureau",
+		"le chemin complet du binaire": "$($paths.Binary)",
+	} {
+		if !strings.Contains(pilot, needle) {
+			t.Errorf("le message de fin d'un poste PILOTE ne dit pas %s (« %s » absent)",
+				what, needle)
+		}
+	}
+
+	// And the promise stays where it holds. The needle is the promise as the production
+	// branch words it, not the word « seul »: the pilot branch has to be free to say that
+	// the station does NOT come back on its own, and that the client screen recovers by
+	// itself once the service is up — two true sentences that a blunter rule would forbid.
+	if strings.Contains(pilot, "revient SEUL") {
+		t.Error("le message de fin promet à un poste PILOTE qu'il revient SEUL : son service " +
+			"est en démarrage « demand », il ne reviendra pas")
+	}
+}
+
+// TestThePilotShortcutsLeaveWhenTheyStopMeaningAnything.
+//
+// Two buttons on the public desktop are two promises. One that survives a reinstallation in
+// production would switch off a station nobody must switch off; one that survives the
+// uninstaller would launch a binary that has just been deleted. Set-PilotShortcuts is
+// therefore called in BOTH modes of the installer — the removal is what the false branch
+// does — and once more by the uninstaller.
+func TestThePilotShortcutsLeaveWhenTheyStopMeaningAnything(t *testing.T) {
+	installer := codeOnly(readFile(t, filepath.Join("windows", "install.ps1")))
+	call := regexp.MustCompile(`Set-PilotShortcuts\s+-Pilot\s+\(\[bool\]\$Pilot\)`)
+	if !call.MatchString(installer) {
+		t.Error("install.ps1 n'appelle pas Set-PilotShortcuts avec les DEUX modes : réinstaller " +
+			"en production un poste qui était en pilote y laisserait ses deux raccourcis")
+	}
+
+	remover := codeOnly(readFile(t, filepath.Join("windows", "uninstall.ps1")))
+	if !strings.Contains(remover, "Set-PilotShortcuts -Pilot $false") {
+		t.Error("uninstall.ps1 ne retire pas les raccourcis du Bureau : ils lanceraient un " +
+			"binaire supprimé")
+	}
+
+	// The elevation flag is a byte of the file, and nothing else sets it: WScript.Shell has
+	// no property for it. Losing this line turns « Démarrer le poste » into an access
+	// denied in front of a volunteer.
+	common := codeOnly(readFile(t, filepath.Join("windows", "common.ps1")))
+	if !strings.Contains(common, "-bor 0x20") {
+		t.Error("common.ps1 ne pose plus le drapeau d'élévation de l'octet 0x15 : les deux " +
+			"raccourcis répondront « accès refusé »")
+	}
+}
+
 // TestNoDotSourcedConstantLandsOnAParameterOfItsCaller is the second half of the same trap,
 // and the one no single file shows.
 //

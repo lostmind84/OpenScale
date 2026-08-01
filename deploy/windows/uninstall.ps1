@@ -159,6 +159,10 @@ else {
   Write-Step "compte local $($script:AccountName) conservé (-RemoveAccount pour le supprimer)" $paths.LogFile
 }
 
+# Les raccourcis du Bureau d'un poste pilote. Sans cette ligne, désinstaller laisserait
+# deux boutons qui lancent un binaire supprimé trois lignes plus bas.
+Set-PilotShortcuts -Pilot $false -Binary (Join-Path $paths.InstallDir $script:BinaryName) -LogFile $paths.LogFile
+
 # --- 5. Le binaire, et les données seulement si on l'a demandé --------------------
 if (Test-Path $paths.InstallDir) {
   Remove-Item -Path $paths.InstallDir -Recurse -Force

@@ -832,6 +832,105 @@ function Get-ListenAddress {
   "http://${host_}:${port}"
 }
 
+function Set-PilotShortcuts {
+  <#
+  .SYNOPSIS
+    Pose ou retire les deux raccourcis du Bureau qui allument et éteignent un poste pilote.
+  .DESCRIPTION
+    LE MODE PILOTE EST LE SEUL QUI EN AIT BESOIN, et c'est ce qui décide de tout le reste.
+    En production le service est en démarrage automatique : le poste revient seul à chaque
+    allumage, et un « Arrêter le poste » posé sur un poste en libre-service serait une
+    invitation à l'éteindre. En pilote le service est en démarrage « demand » — c'est ce qui
+    laisse l'application Access relançable en deux minutes —, donc allumer et éteindre le
+    poste sont les deux gestes du quotidien, et ils n'existaient jusqu'ici que sous forme de
+    lignes de commande écrites nulle part.
+
+    LE RACCOURCI DE DÉMARRAGE N'OUVRE PAS L'ÉCRAN CLIENT, et ce n'est pas un oubli. Le
+    superviseur du kiosque interroge le poste depuis sa page d'attente et bascule tout seul
+    — « le poste répond de nouveau : retour à l'écran client » —, donc lancer « openscale
+    kiosk » ici ouvrirait un SECOND navigateur par-dessus le premier. Sur un poste sans
+    ouverture de session automatique, où aucun kiosque ne tourne, la commande à taper est
+    sur la fiche d'installation et dans le message de fin d'installeur.
+
+    LE BUREAU PUBLIC ET NON CELUI D'UN COMPTE : l'installeur tourne dans la session d'un
+    technicien, le poste dans celle du compte openscale, et un raccourci posé sur le Bureau
+    du premier n'existerait jamais pour le second.
+  .PARAMETER Pilot
+    Vrai pour poser les raccourcis, faux pour les retirer. Le retrait n'est pas symétrique
+    par élégance : réinstaller en production un poste qui était en pilote doit emporter des
+    boutons qui ne veulent plus rien dire.
+  #>
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][bool]$Pilot,
+    [Parameter(Mandatory)][string]$Binary,
+    [Parameter(Mandatory)][string]$LogFile)
+
+  $desktop = Join-Path $env:PUBLIC 'Desktop'
+  $shortcuts = @(
+    @{ Name = "$script:ProductName - Demarrer le poste.lnk"; Action = 'start'
+      Description = "Démarre le service $script:ProductName. L'écran client revient seul."
+    },
+    @{ Name = "$script:ProductName - Arreter le poste.lnk"; Action = 'stop'
+      Description = "Arrête le service $script:ProductName et rend la machine à l'application Access."
+    })
+
+  foreach ($shortcut in $shortcuts) {
+    $path = Join-Path $desktop $shortcut.Name
+    if (-not $Pilot) {
+      if (Test-Path $path) {
+        Remove-Item -LiteralPath $path -Force
+        Write-Step "raccourci « $($shortcut.Name) » retiré du Bureau" $LogFile
+      }
+      continue
+    }
+    New-ElevatedShortcut -Path $path -Binary $Binary -Action $shortcut.Action `
+      -Description $shortcut.Description
+    Write-Step "raccourci « $($shortcut.Name) » posé sur le Bureau" $LogFile
+  }
+}
+
+function New-ElevatedShortcut {
+  <#
+  .SYNOPSIS
+    Un raccourci .lnk qui demande les droits administrateur avant de lancer le binaire.
+  .DESCRIPTION
+    Il passe par PowerShell et non par le binaire directement, pour une raison qu'on voit
+    en s'en passant : « openscale service start » écrit une ligne puis rend la main, et
+    Windows referme la console avec elle. Le bénévole voit une fenêtre clignoter et ne sait
+    pas si le poste est parti. La commande demande donc l'état APRÈS l'action, et attend une
+    touche.
+
+    L'ÉLÉVATION EST UN OCTET DU FICHIER, et il n'y a pas d'autre voie : WScript.Shell ne
+    connaît pas cette case. L'octet 0x15 de l'en-tête .lnk porte les drapeaux, dont le bit
+    0x20 « exécuter en tant qu'administrateur » — c'est lui qui met le bouclier sur l'icône
+    et qui déclenche l'invite. Sans lui, « service start » répondrait « accès refusé » à un
+    bénévole qui n'aurait aucune raison de comprendre pourquoi.
+  #>
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string]$Path,
+    [Parameter(Mandatory)][string]$Binary,
+    [Parameter(Mandatory)][string]$Action,
+    [Parameter(Mandatory)][string]$Description)
+
+  $command = "& '$Binary' service $Action; & '$Binary' service status; " +
+  "Read-Host 'Appuyez sur Entree pour fermer'"
+
+  $shell = New-Object -ComObject WScript.Shell
+  $shortcut = $shell.CreateShortcut($Path)
+  $shortcut.TargetPath = 'powershell.exe'
+  $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -Command `"$command`""
+  $shortcut.WorkingDirectory = Split-Path -Parent $Binary
+  $shortcut.IconLocation = "$Binary,0"
+  $shortcut.Description = $Description
+  $shortcut.Save()
+
+  $bytes = [System.IO.File]::ReadAllBytes($Path)
+  $bytes[0x15] = $bytes[0x15] -bor 0x20
+  [System.IO.File]::WriteAllBytes($Path, $bytes)
+}
+
 function Write-InstallSheet {
   <#
   .SYNOPSIS
