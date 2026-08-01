@@ -228,25 +228,32 @@ func TestARescueDoesNotReplaceTheShopsConfigurationWithTheFactoryOne(t *testing.
 	}
 }
 
-// legacyLaCagetteRawWithAnUnconvertibleDiscount is legacyLaCagetteRaw's coef_num/coef_den,
-// with a fraction platform.LoadConfig CANNOT carry: 1/3 is not a whole tenth of a point
-// (carryCoefficientToDiscount, ADR-034), so it stays a MigrationRefused note and coef_num
-// stays IN the document after the read path migrates the rest of it. The two recovery
-// tests below need exactly that: a retired key that survives ConfigStore.Read unmigrated,
-// so RefuseIfRetired still has something to refuse writing back. legacyLaCagetteRaw's own
-// 9/10 no longer does that -- it converts exactly, to the very discount_percent the file
-// already carried elsewhere, so LoadConfig migrates it away and control 20 finds nothing
-// retired any more (§11.2, "la porte 3 se rouvre toute seule").
-func legacyLaCagetteRawWithAnUnconvertibleDiscount(t *testing.T) []byte {
+// legacyLaCagetteRawWithARefusedKey is legacyLaCagetteRaw with weight_decimals added to
+// the barcode block: one of the six numbering-plan keys, retired by DECLARATION
+// (retiredVerdicts, configmigration.go) and not by a calculation on its value. No
+// migration step touches it at all -- migrationSteps carries only ui.tile_size and the
+// price coefficients -- so it survives ConfigStore.Read exactly as written, and
+// TestEveryRetiredKeyHasADeclaredVerdict forbids anyone from moving its verdict without
+// noticing. The two recovery tests below need exactly that: a retired key that survives
+// the read path unmigrated, so RefuseIfRetired still has something to refuse writing back.
+//
+// This is chosen over a coefficient the ARITHMETIC happens to refuse (coef_num/coef_den at
+// a ratio that is not a whole tenth of a point, as legacyLaCagetteRaw's own 9/10 used to
+// be before it started converting exactly): if Discount's scale or its rounding ever
+// changed, such a ratio could quietly become convertible, and these two tests would stop
+// protecting anything WITHOUT A SINGLE TEST GOING RED. A key retired by declaration cannot
+// drift that way -- moving it takes a human editing retiredVerdicts on purpose, and the
+// test that keeps the two tables in step catches it.
+func legacyLaCagetteRawWithARefusedKey(t *testing.T) []byte {
 	t.Helper()
 	before := legacyLaCagetteRaw(t)
 	const (
-		carryable     = `"coef_num": 9, "coef_den": 10, "rank": 1`
-		unconvertible = `"coef_num": 1, "coef_den": 3, "rank": 1`
+		bare    = `"barcode": { "verify_reference_check_digit": true },`
+		refused = `"barcode": { "verify_reference_check_digit": true, "weight_decimals": 3 },`
 	)
-	edited := strings.Replace(string(before), carryable, unconvertible, 1)
+	edited := strings.Replace(string(before), bare, refused, 1)
 	if edited == string(before) {
-		t.Fatal("le remplacement du coefficient n'a rien trouvé : le test ne prouve rien")
+		t.Fatal("l'ajout de weight_decimals n'a rien trouvé : le test ne prouve rien")
 	}
 	return []byte(edited)
 }
@@ -257,14 +264,15 @@ func legacyLaCagetteRawWithAnUnconvertibleDiscount(t *testing.T) []byte {
 // refuses runs the neutral profile, the volunteer cannot log in, and reaches for the
 // recovery code on the installation sheet. Before this fix, that single gesture read
 // the on-disk file, set the new password hash, and wrote the WHOLE struct back —
-// which drops coef_num, because encoding/json only ever kept what a field claims. The
-// member discount coef_num stood for would be gone from the file, silently, and
-// control 20 would find nothing on the station's next start. The real ConfigStore is
-// used here, and not the in-memory double: the guard lives in Save, and a double that
-// never calls it would prove nothing about the file on disk.
+// which drops a retired key, because encoding/json only ever kept what a field claims.
+// Whatever weight_decimals stood for on a numbering plan this binary no longer trusts
+// would be gone from the file, silently, and control 20 would find nothing on the
+// station's next start. The real ConfigStore is used here, and not the in-memory double:
+// the guard lives in Save, and a double that never calls it would prove nothing about the
+// file on disk.
 func TestARecoveryOnALegacyFileDoesNotLaunderTheDiscount(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	before := legacyLaCagetteRawWithAnUnconvertibleDiscount(t)
+	before := legacyLaCagetteRawWithARefusedKey(t)
 	if err := os.WriteFile(path, before, 0o644); err != nil {
 		t.Fatalf("préparation du fichier : %v", err)
 	}
@@ -289,11 +297,11 @@ func TestARecoveryOnALegacyFileDoesNotLaunderTheDiscount(t *testing.T) {
 		t.Fatalf("relecture : %v", err)
 	}
 	if string(after) != string(before) {
-		t.Fatalf("le fichier a été réécrit : la clé retirée -- et la remise qu'elle "+
-			"portait -- a disparu.\navant :\n%s\naprès :\n%s", before, after)
+		t.Fatalf("le fichier a été réécrit : la clé retirée a disparu.\navant :\n%s\naprès :\n%s",
+			before, after)
 	}
-	if !strings.Contains(string(after), "coef_num") {
-		t.Fatal("coef_num n'est plus dans le fichier : la remise a été blanchie")
+	if !strings.Contains(string(after), "weight_decimals") {
+		t.Fatal("weight_decimals n'est plus dans le fichier : la clé retirée a été blanchie")
 	}
 }
 
@@ -306,7 +314,7 @@ func TestARecoveryOnALegacyFileDoesNotLaunderTheDiscount(t *testing.T) {
 // overcharge for a station nobody can administer.
 func TestARecoveryStillOpensASessionWhenTheFileCannotBeSaved(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, legacyLaCagetteRawWithAnUnconvertibleDiscount(t), 0o644); err != nil {
+	if err := os.WriteFile(path, legacyLaCagetteRawWithARefusedKey(t), 0o644); err != nil {
 		t.Fatalf("préparation du fichier : %v", err)
 	}
 	store, err := platform.NewConfigStore(path)
@@ -320,8 +328,8 @@ func TestARecoveryStillOpensASessionWhenTheFileCannotBeSaved(t *testing.T) {
 	response := b.post("/admin/api/session/recovery",
 		`{"code":"ABCD2345","password":"nouveau-mot"}`)
 	got := decodeStatus[sessionDTO](t, response, http.StatusOK)
-	if got.Warning == "" || !strings.Contains(got.Warning, "coef_num") {
-		t.Fatalf("l'avertissement ne nomme pas coef_num : %q", got.Warning)
+	if got.Warning == "" || !strings.Contains(got.Warning, "weight_decimals") {
+		t.Fatalf("l'avertissement ne nomme pas weight_decimals : %q", got.Warning)
 	}
 
 	// The volunteer really is in: the new password is in force, and a session was

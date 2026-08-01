@@ -586,11 +586,13 @@ func (d *Doctor) checkConfiguration(loaded loadedConfig) Control {
 			"(config.json.1 à .5)."
 		return control
 	case !loaded.Parsed:
-		control.Status = StatusFail
-		control.Observed = fmt.Sprintf("%s n'est pas un JSON exploitable : %v", d.o.ConfigPath, loaded.Err)
-		control.Remedy = "Le service ne démarrera pas. Corrigez la faute de syntaxe — c'est presque " +
-			"toujours une virgule en trop avant une accolade — ou restaurez config.json.1, la " +
-			"version précédente rangée à côté du fichier (§11.4)."
+		control.Status, control.Code = StatusFail, codeFactoryConfig
+		control.Observed = fmt.Sprintf("%s n'est pas un JSON exploitable (%v) — le poste tourne "+
+			"quand même, en configuration d'usine, et ne calcule aucun prix ; l'écran "+
+			"d'administration répond", d.o.ConfigPath, loaded.Err)
+		control.Remedy = "Corrigez la faute de syntaxe — c'est presque toujours une virgule en " +
+			"trop avant une accolade — ou restaurez config.json.1, la version précédente " +
+			"rangée à côté du fichier (§11.4)."
 		return control
 	case len(loaded.Faults) > 0:
 		control.Status, control.Code = StatusFail, codeFactoryConfig
