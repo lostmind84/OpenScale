@@ -73,7 +73,14 @@ func isSensitiveKey(key string) bool {
 // accès » journey is supposed to impose one — indistinguishable from « le mot de passe a été
 // retiré avant l'envoi ». Redaction by key name is strictly stricter than Export anyway: it
 // catches the two secrets Export knows and every one it does not.
-func Redact(cfg domain.Config) ([]byte, error) {
+//
+// The DECODING faults are taken as an argument rather than worked out here, because they
+// were worked out once already, by the only function that can: a block replaced by the
+// neutral profile is indistinguishable, after the fact, from a block a station really
+// declared that way. What they earn is a sentence in _readme, and the reasons that is the
+// right place are in warnSubstitutedBlocks.
+func Redact(cfg domain.Config, faults []domain.Fault) ([]byte, error) {
+	cfg.Readme = warnSubstitutedBlocks(cfg.Readme, faults)
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("configuration illisible avant caviardage : %w", err)
@@ -83,6 +90,59 @@ func Redact(cfg domain.Config) ([]byte, error) {
 		return nil, fmt.Errorf("configuration illisible avant caviardage : %w", err)
 	}
 	return json.MarshalIndent(redactTree(tree), "", "  ")
+}
+
+// warnSubstitutedBlocks puts, at the HEAD of _readme, the fact that part of this document
+// is not what the station declared.
+//
+// # Why _readme and nowhere else
+//
+// A block that will not decode falls back on the neutral profile, so this member carried
+// the FACTORY grid presented as the shop's own -- read six months later, remotely, by
+// somebody with no way of telling. Three other places were considered and each broke
+// something this one does not: dropping the member takes the whole configuration away from
+// the station that has 13 readable blocks out of 14, which is exactly the station support
+// needs to see; shipping the RAW bytes puts admin.password_hash, the recovery hash and the
+// WebDAV credentials back in a file whose whole promise is « vous pouvez l'envoyer sans le
+// relire »; and a header outside the JSON breaks every machine that reads it.
+//
+// Config.Readme is « the mode d'emploi that JSON cannot carry as a comment » (config.go),
+// it keeps the document valid JSON, it goes through the same redaction as everything else,
+// and it is OUT OF THE FINGERPRINT by construction -- so nothing that gets compared moves
+// because of it.
+//
+// It PREPENDS: whatever the file already explained is still true and still worth reading,
+// just not first.
+//
+// A document that did not decode AT ALL never reaches here -- Doctor.readConfiguration
+// returns it unparsed and the archive writes a failure member instead -- so every fault
+// this sees names a block.
+func warnSubstitutedBlocks(readme string, faults []domain.Fault) string {
+	if len(faults) == 0 {
+		return readme
+	}
+	blocks := make([]string, 0, len(faults))
+	for _, fault := range faults {
+		blocks = append(blocks, "« "+fault.Field+" »")
+	}
+
+	warning := fmt.Sprintf("ATTENTION : le bloc %s de ce poste n'a pas pu être lu, et ce "+
+		"qui figure ci-dessous à sa place est la configuration D'USINE, pas celle du poste. "+
+		"Ne recopiez pas ces valeurs-là et ne les prenez pas pour un réglage : elles ne "+
+		"viennent de personne. Le reste du document est bien celui du fichier.",
+		strings.Join(blocks, ", "))
+	if len(blocks) > 1 {
+		warning = fmt.Sprintf("ATTENTION : les blocs %s de ce poste n'ont pas pu être lus, "+
+			"et ce qui figure ci-dessous à leur place est la configuration D'USINE, pas celle "+
+			"du poste. Ne recopiez pas ces valeurs-là et ne les prenez pas pour un réglage : "+
+			"elles ne viennent de personne. Le reste du document est bien celui du fichier.",
+			strings.Join(blocks, ", "))
+	}
+
+	if readme == "" {
+		return warning
+	}
+	return warning + " — " + readme
 }
 
 // redactTree walks a decoded JSON document and replaces what must not leave.

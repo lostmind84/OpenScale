@@ -155,10 +155,14 @@ func TestAFaultAboutASensitiveFieldNamesTheFieldAndNotTheValue(t *testing.T) {
 	}
 }
 
-// mustRedact redacts one configuration or fails the test.
+// mustRedact redacts one configuration that decoded WHOLE, or fails the test.
+//
+// No fault, which is the ordinary case: what a substituted block adds to the document is
+// asserted where it matters, on a real archive built over a real broken file
+// (TestTheRedactedConfigurationSaysWhichBlockIsNotTheStations).
 func mustRedact(t *testing.T, cfg domain.Config) []byte {
 	t.Helper()
-	raw, err := Redact(cfg)
+	raw, err := Redact(cfg, nil)
 	if err != nil {
 		t.Fatalf("caviardage : %v", err)
 	}

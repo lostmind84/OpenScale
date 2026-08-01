@@ -47,7 +47,13 @@ ce que quatre postes comparent à l'œil ; `config export` écrivait le fichier 
 être recopié sur les autres postes**, donc partait cloner la grille d'usine ; et l'empreinte
 en tête d'`openscale doctor` et de `diagnostic.zip` était inventée de la même façon. Les
 deux premières refusent, la troisième n'est plus affichée — `doctor` ne refusant toujours
-rien. Le démarrage **n'écrit toujours pas** : seule `openscale config migrate` —
+rien. **Et `config.redacted.json` de `diagnostic.zip` portait le bloc substitué sans le
+dire** : il reste dans l'archive — le retirer aveuglerait le support sur le poste qui a
+treize blocs lisibles sur quatorze — et l'avertissement va dans son `_readme`, ajouté en
+tête, qui est le seul véhicule à la fois valide en JSON, caviardé comme le reste et **hors
+empreinte**. Les octets bruts ont été écartés sans discussion : ils y remettraient le hash
+du mot de passe et les identifiants WebDAV, dans le fichier dont la promesse est « vous
+pouvez l'envoyer sans le relire ». Le démarrage **n'écrit toujours pas** : seule `openscale config migrate` —
 lancée à la main ou par `update.ps1`/`update.sh` une fois le poste debout, sur le
 **chemin de réussite uniquement** et sans jamais changer le code de sortie de la mise à
 jour elle-même — touche le disque. `TestEveryRetiredKeyHasADeclaredVerdict` tient la
