@@ -278,16 +278,16 @@ const SchemaVersionKey = "version"
 // answer. Lowering the number would erase the trace of it, and refusing outright would put
 // that station on the floor over a number. So it is left alone, with a note that says why.
 func stampSchemaVersion(document map[string]any) []MigrationNote {
-	declared, ok := wholeNumber(document["version"])
+	declared, ok := wholeNumber(document[SchemaVersionKey])
 	if ok && declared > CurrentSchemaVersion {
 		return []MigrationNote{{
-			Key: "version", Action: MigrationRefused,
+			Key: SchemaVersionKey, Action: MigrationRefused,
 			Message: fmt.Sprintf("ce fichier a été écrit par une version plus récente "+
 				"(schéma %d, ce binaire parle le %d) : il est lu tel quel, et rien n'y est "+
 				"changé", declared, CurrentSchemaVersion),
 		}}
 	}
-	document["version"] = json.Number(fmt.Sprint(CurrentSchemaVersion))
+	document[SchemaVersionKey] = json.Number(fmt.Sprint(CurrentSchemaVersion))
 	return nil
 }
 
