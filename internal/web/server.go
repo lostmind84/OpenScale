@@ -506,6 +506,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/cancel", s.cancel)
 	mux.HandleFunc("POST /api/v1/dismiss", s.dismiss)
 	mux.HandleFunc("POST /api/v1/ui/error", s.uiError)
+	mux.HandleFunc("POST /api/v1/ui/layout-notice", s.layoutNotice)
 	mux.HandleFunc("GET /api/v1/", notFound)
 
 	mux.HandleFunc("GET /healthz", s.healthz)

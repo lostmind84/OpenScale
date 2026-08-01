@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -193,6 +194,53 @@ func TestABrowserErrorReachesTheTechnicalJournal(t *testing.T) {
 	response.Body.Close()
 	if !b.technical.has("ERR-UI-01") {
 		t.Fatal("l'erreur du navigateur n'a pas été journalisée")
+	}
+}
+
+// TestALayoutNoticeIsNotJournalledAsACrash: a browser notice is not an exception, and
+// the journal is where the difference has to show.
+//
+// MEASURED 01/08/2026 on the pilot station. A grid whose measure-then-style cycle does
+// not settle makes the browser say « ResizeObserver loop completed with undelivered
+// notifications » — through the SAME window event an exception arrives by. The client
+// screen now tells the two apart and no longer reloads on the notice, but it kept
+// reporting it here as « Erreur JavaScript dans l'écran client », at error level, once
+// per page load.
+//
+// That line is a lie twice over: it is not an error, and there is no JavaScript of ours
+// behind it. It lands in the diagnostic file a volunteer sends to support, and this
+// repository already knows what a red line on a healthy station costs — one learns to
+// ignore red.
+func TestALayoutNoticeIsNotJournalledAsACrash(t *testing.T) {
+	b := newBench(t)
+
+	response := b.post("/api/v1/ui/layout-notice",
+		`{"message":"ResizeObserver loop completed with undelivered notifications."}`)
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("POST /api/v1/ui/layout-notice = %d, attendu 202", response.StatusCode)
+	}
+	response.Body.Close()
+
+	line, ok := b.technical.saying("grille")
+	if !ok {
+		t.Fatal("l'avertissement de mise en page n'a pas été journalisé")
+	}
+	if line.Level != domain.LevelWarn {
+		t.Errorf("niveau %q, attendu %q : un avertissement du navigateur n'est pas une panne",
+			line.Level, domain.LevelWarn)
+	}
+	if line.Code != "ERR-UI-02" {
+		t.Errorf("code %q, attendu ERR-UI-02", line.Code)
+	}
+	if strings.Contains(line.Message, "Erreur JavaScript") {
+		t.Errorf("message %q : il annonce une exception là où il n'y en a pas", line.Message)
+	}
+	if !strings.Contains(line.Detail, "ResizeObserver") {
+		t.Errorf("détail %q : ce que le navigateur a dit est la seule piste, il se conserve",
+			line.Detail)
+	}
+	if b.technical.has("ERR-UI-01") {
+		t.Error("l'avertissement a été journalisé comme une exception de l'écran client")
 	}
 }
 

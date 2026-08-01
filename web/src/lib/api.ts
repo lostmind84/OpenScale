@@ -56,6 +56,26 @@ export function reportUIError(message: string, stack: string): void {
   })
 }
 
+/**
+ * Reports a browser LAYOUT notice, which is not a crash.
+ *
+ * Its own route rather than a flag on the one above: the station journals the two at
+ * different levels and under different codes, and a screen that reported them through
+ * the same door made a healthy station write « Erreur JavaScript » once per page load.
+ *
+ * @param message - what the browser said, verbatim. There is no stack: a notice has none.
+ */
+export function reportLayoutNotice(message: string): void {
+  void fetch('/api/v1/ui/layout-notice', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message }),
+    keepalive: true,
+  }).catch(() => {
+    /* Nothing to do: the screen is fine, and this line is only a clue for later. */
+  })
+}
+
 /** Posts a JSON body and refuses anything that is not accepted. */
 async function post(route: string, body: unknown): Promise<void> {
   const response = await fetch(route, {
