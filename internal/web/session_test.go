@@ -228,6 +228,29 @@ func TestARescueDoesNotReplaceTheShopsConfigurationWithTheFactoryOne(t *testing.
 	}
 }
 
+// legacyLaCagetteRawWithAnUnconvertibleDiscount is legacyLaCagetteRaw's coef_num/coef_den,
+// with a fraction platform.LoadConfig CANNOT carry: 1/3 is not a whole tenth of a point
+// (carryCoefficientToDiscount, ADR-034), so it stays a MigrationRefused note and coef_num
+// stays IN the document after the read path migrates the rest of it. The two recovery
+// tests below need exactly that: a retired key that survives ConfigStore.Read unmigrated,
+// so RefuseIfRetired still has something to refuse writing back. legacyLaCagetteRaw's own
+// 9/10 no longer does that -- it converts exactly, to the very discount_percent the file
+// already carried elsewhere, so LoadConfig migrates it away and control 20 finds nothing
+// retired any more (§11.2, "la porte 3 se rouvre toute seule").
+func legacyLaCagetteRawWithAnUnconvertibleDiscount(t *testing.T) []byte {
+	t.Helper()
+	before := legacyLaCagetteRaw(t)
+	const (
+		carryable     = `"coef_num": 9, "coef_den": 10, "rank": 1`
+		unconvertible = `"coef_num": 1, "coef_den": 3, "rank": 1`
+	)
+	edited := strings.Replace(string(before), carryable, unconvertible, 1)
+	if edited == string(before) {
+		t.Fatal("le remplacement du coefficient n'a rien trouvé : le test ne prouve rien")
+	}
+	return []byte(edited)
+}
+
 // TestARecoveryOnALegacyFileDoesNotLaunderTheDiscount (the defect this fix closes).
 //
 // This is the station the guard exists for: an upgraded site whose file control 20
@@ -241,7 +264,7 @@ func TestARescueDoesNotReplaceTheShopsConfigurationWithTheFactoryOne(t *testing.
 // never calls it would prove nothing about the file on disk.
 func TestARecoveryOnALegacyFileDoesNotLaunderTheDiscount(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	before := legacyLaCagetteRaw(t)
+	before := legacyLaCagetteRawWithAnUnconvertibleDiscount(t)
 	if err := os.WriteFile(path, before, 0o644); err != nil {
 		t.Fatalf("préparation du fichier : %v", err)
 	}
@@ -283,7 +306,7 @@ func TestARecoveryOnALegacyFileDoesNotLaunderTheDiscount(t *testing.T) {
 // overcharge for a station nobody can administer.
 func TestARecoveryStillOpensASessionWhenTheFileCannotBeSaved(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, legacyLaCagetteRaw(t), 0o644); err != nil {
+	if err := os.WriteFile(path, legacyLaCagetteRawWithAnUnconvertibleDiscount(t), 0o644); err != nil {
 		t.Fatalf("préparation du fichier : %v", err)
 	}
 	store, err := platform.NewConfigStore(path)

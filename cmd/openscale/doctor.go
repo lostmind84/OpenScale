@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -139,22 +138,12 @@ func serviceAddress(o doctorOptions) string {
 	return domain.NeutralProfile().Network.Listen
 }
 
-// readConfigLeniently reads the file for the ONE field this command needs before the
-// diagnosis starts, and reports its failures to nobody.
-//
-// The diagnosis reads the same file again and judges it there, with the two remedies §11.3
-// separates — unreadable and invalid. Judging it twice, in two places, is how the two
-// verdicts come to disagree.
+// readConfigLeniently reads the file the way the service does, migration included, so that
+// `openscale config validate` judges what the station would ACTUALLY run and not what the
+// file literally says.
 func readConfigLeniently(path string) (domain.Config, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return domain.Config{}, err
-	}
-	var cfg domain.Config
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return domain.Config{}, err
-	}
-	return cfg, nil
+	cfg, _, _, err := platform.LoadConfig(path)
+	return cfg, err
 }
 
 // writeArchive writes diagnostic.zip where `--zip` asked for it.

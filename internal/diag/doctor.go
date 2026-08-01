@@ -2,7 +2,6 @@ package diag
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -202,28 +201,44 @@ func (d *Doctor) openBase() (Database, error) {
 	return d.o.OpenDatabase(platform.DatabasePath(d.o.DataDir))
 }
 
-// readConfiguration reads config.json once, and tells « unreadable » from « invalid ».
+// readConfiguration reads config.json once, through the same door serve and `openscale
+// config` read it with (platform.LoadConfig), and tells « unreadable » from « invalid ».
 //
 // The distinction decides a remedy and it is the one §11.3 insists on: an INVALID
 // configuration is one we understood and can list the faults of, field by field; a file
-// that does not parse yields one offset and nothing an administration screen could safely
-// write back.
+// that does not parse yields nothing an administration screen could safely write back.
+//
+// Parsed is derived from domain.WholeDocumentField and not from a second parse of the
+// file: DecodeConfigBlockByBlock already tells « the document itself did not decode » from
+// « one block did not », by the Field its fault names, and re-deriving the same verdict a
+// second way here is how the two come to disagree.
 func (d *Doctor) readConfiguration() loadedConfig {
 	if d.o.ConfigPath == "" {
 		return loadedConfig{Err: errors.New("aucun fichier de configuration n'a été désigné")}
 	}
-	raw, err := os.ReadFile(d.o.ConfigPath)
+	cfg, _, decodeFaults, err := platform.LoadConfig(d.o.ConfigPath)
 	if err != nil {
 		return loadedConfig{Err: err}
 	}
-	out := loadedConfig{Present: true}
-	if err := json.Unmarshal(raw, &out.Config); err != nil {
-		out.Err = err
+	out := loadedConfig{Present: true, Config: cfg}
+	if wholeDocument := wholeDocumentFault(decodeFaults); wholeDocument != nil {
+		out.Err = errors.New(wholeDocument.Message)
 		return out
 	}
 	out.Parsed = true
-	out.Faults = out.Config.Validate(d.o.Registries)
+	out.Faults = append(decodeFaults, out.Config.Validate(d.o.Registries)...)
 	return out
+}
+
+// wholeDocumentFault reports the fault that names the DOCUMENT itself, or nil when every
+// fault names a block within it.
+func wholeDocumentFault(faults []domain.Fault) *domain.Fault {
+	for i := range faults {
+		if faults[i].Field == domain.WholeDocumentField {
+			return &faults[i]
+		}
+	}
+	return nil
 }
 
 // --- 1. The service ---------------------------------------------------------

@@ -181,8 +181,9 @@ Options :
 	if path == "" {
 		path = platform.DefaultConfigPath()
 	}
-	cfg, err := readConfig(path)
-	if err != nil {
+	cfg, _, faults, err := platform.LoadConfig(path)
+	switch {
+	case err != nil:
 		// A kiosk that refused to start because the configuration is unreadable would
 		// black out the screen of a station whose administration page is exactly what
 		// somebody needs to reach in order to fix it (§11.3). The neutral profile
@@ -190,6 +191,14 @@ Options :
 		fmt.Fprintf(out, "openscale kiosk : configuration %s illisible (%v) — "+
 			"ouverture sur l'adresse par défaut\n", path, err)
 		cfg = domain.NeutralProfile()
+	case len(faults) > 0:
+		// The file itself was read; at least one block of it was not -- exactly what the
+		// old, strict decode used to refuse whole. cfg already carries whatever
+		// DecodeConfigBlockByBlock could recover, address included, so this only says why
+		// the kiosk may be opening somewhere a volunteer did not expect.
+		fmt.Fprintf(out, "openscale kiosk : configuration %s illisible ou invalide (%d "+
+			"faute(s) de décodage) — ouverture sur la meilleure adresse qui a pu être lue\n",
+			path, len(faults))
 	}
 	o.url = clientScreenURL(cfg.Network.Listen)
 	return o, nil

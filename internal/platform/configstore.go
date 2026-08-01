@@ -159,7 +159,11 @@ func (s *ConfigStore) Versions(_ context.Context) ([]ConfigVersion, error) {
 			return nil, fmt.Errorf("version %d illisible : %w", version, err)
 		}
 		entry := ConfigVersion{Version: version, ModifiedAt: info.ModTime()}
-		if cfg, err := readConfigFile(path); err == nil {
+		// LoadConfig is read directly here, and not through readConfigFile, for its faults:
+		// a backup that will not decode AT ALL now comes back as the neutral profile rather
+		// than an error (porte 1), and a fingerprint computed off it would be INVENTED, not
+		// read off the backup -- the one thing this screen must never show (§14.4).
+		if cfg, _, faults, err := LoadConfig(path); err == nil && !documentUnreadable(faults) {
 			entry.Fingerprint = cfg.Fingerprint()
 			if !cfg.ModifiedAt.IsZero() {
 				entry.ModifiedAt = cfg.ModifiedAt
@@ -255,19 +259,25 @@ func writeTemporary(directory string, content []byte) (string, error) {
 	return name, nil
 }
 
-// readConfigFile reads and parses one configuration file, and says which file it is
-// talking about when it cannot.
-//
-// The path is in the message on purpose: a station has six of these files, and « JSON
-// invalide » without a name sends a volunteer to the wrong one.
+// readConfigFile is what ConfigStore.Read reads with, and it goes through LoadConfig for
+// the reason LoadConfig exists: `openscale config password` used to read the file with a
+// copy of its own, find a retired key there, and have Save refuse the very rescue it was
+// performing.
 func readConfigFile(path string) (domain.Config, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return domain.Config{}, fmt.Errorf("%s ne peut pas être lu : %w", path, err)
+	cfg, _, _, err := LoadConfig(path)
+	return cfg, err
+}
+
+// documentUnreadable reports whether one of the faults names the DOCUMENT itself
+// (domain.WholeDocumentField) rather than a single block inside it -- the one case Versions
+// must show no fingerprint for. A document that fell back to the neutral profile because
+// one block was bad still fingerprints the rest honestly; one that never decoded at all
+// would fingerprint the neutral profile alone, which is invented, not read off the backup.
+func documentUnreadable(faults []domain.Fault) bool {
+	for _, fault := range faults {
+		if fault.Field == domain.WholeDocumentField {
+			return true
+		}
 	}
-	var cfg domain.Config
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return domain.Config{}, fmt.Errorf("%s n'est pas un JSON exploitable : %w", path, err)
-	}
-	return cfg, nil
+	return false
 }

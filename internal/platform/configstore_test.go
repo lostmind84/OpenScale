@@ -276,7 +276,13 @@ func TestTheFirstSaveOfAFreshInstallationHasNoPreviousVersion(t *testing.T) {
 }
 
 // TestReadSaysWhichFileItCannotRead is what a support call works from: a station has six
-// of these files, and « JSON invalide » without a name sends a volunteer to the wrong one.
+// of these files, and a MISSING one is refused by name so a volunteer looks at the right
+// one.
+//
+// A file that exists and will not decode is NOT refused any more -- that is porte 1
+// (LoadConfig, TestLoadConfigOfATruncatedFileIsNotAnError of configload_test.go) -- and
+// Read comes back with the neutral profile the station itself would fall back to, rather
+// than the JSON parse error this test used to require.
 func TestReadSaysWhichFileItCannotRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	store := newStore(t, path)
@@ -292,9 +298,12 @@ func TestReadSaysWhichFileItCannotRead(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{"), 0o644); err != nil {
 		t.Fatalf("écriture : %v", err)
 	}
-	_, err = store.Read(context.Background())
-	if err == nil || !strings.Contains(err.Error(), path) {
-		t.Fatalf("un JSON tronqué doit être refusé en nommant le fichier : %v", err)
+	cfg, err := store.Read(context.Background())
+	if err != nil {
+		t.Fatalf("un JSON tronqué ne doit plus être une erreur (porte 1) : %v", err)
+	}
+	if cfg.Network.Listen != domain.NeutralProfile().Network.Listen {
+		t.Fatalf("listen = %q, attendu celui du profil neutre sur un document illisible", cfg.Network.Listen)
 	}
 }
 

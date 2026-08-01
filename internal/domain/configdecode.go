@@ -17,6 +17,17 @@ import (
 // §11.4 step 1. Refusing what a human is typing and refusing what a station is booting on
 // are two different jobs, and this file is the second one.
 
+// WholeDocumentField is the Fault.Field DecodeConfigBlockByBlock reports when the
+// DOCUMENT itself failed to decode, as opposed to one block within it. Everywhere else a
+// Fault names a dotted path into the configuration -- "pricing", "scale.options" -- and
+// this is the one value that names no path at all: nothing below it decoded either.
+//
+// internal/diag derives loadedConfig.Parsed from it: the two cases carry two different
+// remedies (§11.3), a bad block is fixed in place and a document that is not JSON at all
+// is restored from config.json.1, and telling them apart by re-parsing the message would
+// drift from what this function actually decided.
+const WholeDocumentField = "config.json"
+
 // DecodeConfigBlockByBlock decodes a configuration document, replacing every top-level
 // block that will not decode with the one of the neutral profile, and reporting a fault
 // that names it.
@@ -34,7 +45,7 @@ func DecodeConfigBlockByBlock(document []byte) (Config, []Fault) {
 	var blocks map[string]json.RawMessage
 	if err := json.Unmarshal(document, &blocks); err != nil {
 		return cfg, []Fault{{
-			Field: "config.json",
+			Field: WholeDocumentField,
 			Message: fmt.Sprintf("le fichier n'est pas un document JSON exploitable (%s) : "+
 				"le poste sert cet écran sur la configuration d'usine. Corrigez le fichier "+
 				"— c'est presque toujours une virgule en trop avant une accolade — ou "+
@@ -75,7 +86,7 @@ func DecodeConfigBlockByBlock(document []byte) (Config, []Fault) {
 		// reported rather than ignored, because "unreachable" is what a silent zero
 		// configuration always looks like from the outside.
 		faults = append(faults, Fault{
-			Field:   "config.json",
+			Field:   WholeDocumentField,
 			Message: fmt.Sprintf("les blocs lisibles n'ont pas pu être rassemblés (%s)", err),
 		})
 	}
