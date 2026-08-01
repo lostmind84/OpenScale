@@ -22,6 +22,23 @@ qui est demandé est de l'ordre de **6 à 7 colonnes et 3 rangées**. Mais ce co
 que l'intervalle offert aille du très aéré au très dense — de l'ordre de **3 × 2 à 10 × 5**
 — et que se tromper ne coûte rien d'autre que d'y revenir.
 
+> ⚠️ **Ce couple était une illustration, et la mesure montre qu'il n'existe nulle part.**
+> En double tarif avec les prix affichés, 3 colonnes donnent **1** rangée sur 1920, 1 sur le
+> 4K et **0** sur un 15″ ; 10 × 5 n'apparaît que sur le 4K, ou sur 1920 prix masqués.
+> L'intervalle réellement offert va de **3 × 1 à 12 × 5 selon l'écran et la configuration**.
+> Les bornes du réglage ne bougent pas pour autant — mais **ce couple ne doit pas être
+> repris dans la documentation**, où il promettrait une aération que personne n'obtiendra.
+
+**Et trois réglages se croisent, ce qu'aucun tableau ne peut porter.** Le nombre de rangées
+ne dépend pas que des colonnes : il dépend aussi de `ui.show_grid_prices` et du nombre de
+paliers de tarif. Masquer les prix fait gagner **une rangée entière dès 6 colonnes** et deux
+à partir de 10 ; passer d'un tarif à deux en fait perdre une (7 colonnes : 3 rangées en
+mono, 2 en double). Toute valeur écrite doit donc **dire sous quelle configuration elle
+vaut** — celles de ce document valent pour **1920 × 1080, double tarif, prix affichés,
+plancher 16 px**, qui est le poste installé. C'est aussi ce qui fait de l'aperçu de §4 la
+seule référence exacte : il mesure une vraie tuile dans la configuration réelle du poste,
+là où un tableau serait juste pour une coopérative et faux pour la suivante.
+
 ## La mesure du 01/08/2026, et les quatre points de cette spec qu'elle casse
 
 La campagne annoncée en §5 a été menée sur le front livré (condensat `8046538`, front
