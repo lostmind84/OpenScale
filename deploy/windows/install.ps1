@@ -358,6 +358,10 @@ if (-not $Pilot) {
   }
 }
 
+# Appelé dans les DEUX modes : réinstaller en production un poste qui était en pilote doit
+# emporter deux boutons qui ne veulent plus rien dire. Le détail est dans common.ps1.
+Set-PilotShortcuts -Pilot ([bool]$Pilot) -Binary $paths.Binary -LogFile $paths.LogFile
+
 # L'ÉCRAN CLIENT, RELANCÉ. L'étape 2 bis a arrêté la tâche du kiosque pour pouvoir
 # remplacer le binaire qu'elle exécute, et cette tâche n'a qu'un déclencheur d'ouverture
 # de session : sans cette ligne, relancer l'installeur sur un poste qui marche — le geste
@@ -385,9 +389,30 @@ Write-Host '====================================================================
 Write-Host " 1. IMPRIMEZ la fiche d'installation et rangez-la dans le classeur :"
 Write-Host "      $($paths.InstallSheet)"
 Write-Host "    Elle contient le mot de passe du compte Windows. Supprimez-la du poste ensuite."
-Write-Host ' 2. REDÉMARREZ LA MACHINE et vérifiez que le poste revient SEUL sur'
-Write-Host "    l'écran client. Cette recette est OBLIGATOIRE : c'est la seule preuve"
-Write-Host "    que le poste se relèvera d'une coupure de courant."
+if ($Pilot) {
+  # ★ CE MODE NE DÉMARRE PAS SEUL, ET LE TAIRE A COÛTÉ UNE INSTALLATION. Jusqu'au
+  # 01/08/2026 cet écran promettait à TOUT LE MONDE un poste qui « revient SEUL » après un
+  # redémarrage — ce que le mode pilote ne fait pas, par construction : son service est en
+  # démarrage « demand », et c'est exactement ce qui laisse l'application Access
+  # relançable. L'opérateur se retrouvait devant un poste installé, correct, et sans aucun
+  # moyen écrit de l'allumer.
+  Write-Host ' 2. CE POSTE NE DÉMARRE PAS SEUL : vous avez choisi le mode PILOTE, qui laisse'
+  Write-Host "    l'application Access relançable. Deux raccourcis viennent d'être posés sur"
+  Write-Host '    le Bureau, et ce sont les deux gestes du quotidien :'
+  Write-Host "      « $script:ProductName - Demarrer le poste »  l'écran client se rétablit ensuite de lui-même"
+  Write-Host "      « $script:ProductName - Arreter le poste »   rend la machine à Access"
+  Write-Host '    Les mêmes en ligne de commande, en ADMINISTRATEUR :'
+  Write-Host "      & `"$($paths.Binary)`" service start"
+  Write-Host "      & `"$($paths.Binary)`" service status"
+  Write-Host "      & `"$($paths.Binary)`" service stop"
+  Write-Host "    Et pour ouvrir l'écran client sur une session où le kiosque ne tourne pas :"
+  Write-Host "      & `"$($paths.Binary)`" kiosk"
+}
+else {
+  Write-Host ' 2. REDÉMARREZ LA MACHINE et vérifiez que le poste revient SEUL sur'
+  Write-Host "    l'écran client. Cette recette est OBLIGATOIRE : c'est la seule preuve"
+  Write-Host "    que le poste se relèvera d'une coupure de courant."
+}
 Write-Host " 3. Bouton « Réglages » sur l'écran client — l'engrenage, tout à droite de la"
 Write-Host "    barre du bas —, page « Matériel », « Détecter automatiquement » : le poste"
 Write-Host "    demande alors le code de secours de la fiche et le mot de passe"
