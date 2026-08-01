@@ -66,6 +66,64 @@ les rangées : elle rejuge donc **la borne haute de 12** — aujourd'hui fausse 
 question de savoir si 7 × 3 devient atteignable sur l'écran de référence. Aucun de ces deux
 nombres n'est écrit dans le code avant.
 
+## Ce que la campagne finale établit, et ce qu'elle retire
+
+Menée sur `e9a3f2b` — plancher à 16 px et dépendance du fit corrigée — **en double tarif**,
+qui est la configuration du poste installé : le tarif solidaire ajoute une seconde ligne au
+bloc des prix, et les deux campagnes précédentes mesuraient un profil mono-tarif.
+
+**Les trois décisions, tranchées.**
+
+| Question | Réponse mesurée |
+|---|---|
+| Défilement horizontal | **Aucun**, de 3 à 12 colonnes, sur 1366 / 1920 / 3840. Aucun prix rogné, aucun nom tronqué, aucune rangée à deux hauteurs, sur 33 relevés |
+| Borne haute | **12 tient.** Le plancher à 16 px a fermé le seul cas qui cassait — 12 colonnes sur 1366, où 38 prix étaient coupés de 8,7 px |
+| Plancher | **16 px**, et c'est lui qui rend la borne de 12 vraie. À 18, le prix n'a plus où rétrécir |
+
+**Le réglage retenu par le commanditaire : 8 colonnes.** Sur 1920 en double tarif —
+**8 × 3 = 24 tuiles d'un coup, 14 écrans** pour les 331 pesables, contre 10 tuiles et 34
+écrans aujourd'hui. Colonne de 229,1 px, facteur 0,651, rangée de 226,2 px avec 41,4 px de
+marge sous la troisième. Son coût, entier : **un** nom sur 331 au plancher — la tomme de 69
+caractères, sur quatre lignes — et **une** rangée sur 42 plus haute que les autres, de
+11,1 px. À 18 px, le même réglage en mettait 53 au plancher et faisait grandir 6 rangées.
+
+**7 × 3 n'existe pas en double tarif**, et ce n'est pas un cas limite : il faudrait une
+rangée sous 240 px, elle en fait 256,5 à 18 px et **252,8 à 14 px**. Descendre le plancher
+gagne 3,7 px là où il en faut 49,5. La seconde ligne de prix vaut 22,8 px à elle seule.
+
+### Deux chiffres que cette campagne RETIRE, et qui avaient servi
+
+**1. L'ampleur du défaut du fit était fausse, et elle a justifié un commit.** Les « 63
+rangées grandies sur 111 à 3 colonnes », « zéro tuile entière sur un 15″ », « 24 tuiles au
+lieu de 32 sur 4K » décrivaient un banc qui livrait les 331 produits d'emblée. **Le poste
+réel monte la grille vide puis reçoit son catalogue**, et ce second temps redéclenchait déjà
+la relecture par `products.length` : sur le code d'avant le correctif, ces mêmes nombres
+tombent à zéro.
+
+**Le correctif reste nécessaire, pour le geste que ce lot ajoute et pour lui seul :**
+changer `ui.grid_columns` **à chaud**. Là, ni la largeur de la grille ni le nombre de
+produits ne bougent, et rien ne relisait. Mesuré, 12 → 3 colonnes à chaud : corps de noms de
+18,3 à 48,8 px, contre 36,8 à 60,3 après rechargement — **des noms d'un quart trop petits**,
+sur l'écran qu'un exploitant regarde au moment précis où il vient de régler. Après
+correctif, les quatre bascules essayées rendent à chaud exactement ce qu'un rechargement
+rend, au centième de pixel. *Le message du commit `e9a3f2b` porte les nombres retirés ; ce
+paragraphe les remplace.*
+
+**2. Les « 196 » et « 330 » tuiles au prix débordant étaient des alertes précoces.** Elles
+comptaient les prix dépassant la **zone de contenu** de leur tuile, padding retiré — ce
+qu'un client ne voit pas. Seuls le **rognage** et le **défilement horizontal** décrivent un
+défaut visible, et ceux-là étaient réels : 22 px de défilement à 12 colonnes sur 1920, un
+suffixe lu « 20,09 €/ ». La décision de mettre le bloc des prix à l'échelle ne bouge pas ;
+sa justification se dit désormais avec les bons chiffres.
+
+### Une découverte pour la borne basse
+
+**À 3 colonnes sur un 15″ en double tarif, aucune tuile n'est visible en entier** — 439,6 px
+de hauteur pour 424 px disponibles. Ce n'est pas un artefact : c'est la géométrie. **La borne
+basse de 3 est juste sur l'écran de référence et fausse sur un 15″**, ce qui est exactement
+ce que §1 annonçait — aucun couple de bornes n'est vrai pour tout le parc — et exactement ce
+que l'aperçu de §4 existe pour montrer **avant** l'enregistrement.
+
 ## Ce que la densité fait déjà toute seule, et qu'il ne faut pas défaire
 
 `--tile-min` vaut `clamp(15rem, 19vw, 22rem)`. Le nombre de colonnes qu'`auto-fill` en tire
