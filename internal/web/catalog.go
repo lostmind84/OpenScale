@@ -101,6 +101,10 @@ type tierDTO struct {
 }
 
 // catalogPresentationDTO carries the screen settings the grid depends on.
+//
+// It is ALSO what presentationDigest is taken over, which is what gives this struct its
+// second job: what is in it reaches the client screen when it changes, what is not in it
+// never forces a reload.
 type catalogPresentationDTO struct {
 	ShowGridPrices       bool `json:"show_grid_prices"`
 	IdleTimeoutSeconds   int  `json:"idle_timeout_s"`
@@ -111,6 +115,55 @@ type catalogPresentationDTO struct {
 	// the state stream for ever, and the browser asks for the catalog again on that
 	// difference alone -- ten times a second, answering 304, visible to nobody.
 	ShowByUnitProducts bool `json:"show_by_unit_products"`
+	// GridColumns is domain.GridColumnsAutomatic -- the zero, which means AUTOMATIC and
+	// never « aucune colonne » -- or a count between domain.MinGridColumns and
+	// domain.MaxGridColumns, which means THAT MANY COLUMNS ON ANY SCREEN (ADR-055). It
+	// is stated here and applied by the grid, like the two flags above.
+	//
+	// The zero travels rather than being omitted: « automatique » is a VALUE of this
+	// setting and not its absence, and a front end reading `undefined` would have to
+	// invent which of the two it meant.
+	GridColumns int `json:"grid_columns"`
+}
+
+// presentationOf carries the screen settings of one configuration.
+//
+// It is the ONE place this payload is built, and presentationDigest hashes what it
+// returns: that is the whole mechanism by which a setting added here tomorrow reaches
+// the client screen without anybody remembering to widen a digest.
+func presentationOf(ui domain.UIConfig) catalogPresentationDTO {
+	return catalogPresentationDTO{
+		ShowGridPrices:       ui.ShowGridPrices,
+		IdleTimeoutSeconds:   ui.IdleTimeoutSeconds,
+		ReprintWindowSeconds: ui.ReprintWindowSeconds,
+		Sound:                ui.Sound,
+		ShowByUnitProducts:   ui.ShowByUnitProducts,
+		GridColumns:          ui.GridColumns,
+	}
+}
+
+// presentationDigest is the string the state stream carries so that a setting saved on
+// the administration screen reaches the client screen next door.
+//
+// # Why it exists at all
+//
+// The browser asks for the catalog again ONLY when catalog_count moves
+// (web/src/lib/session.svelte.ts). A presentation that changes without changing the count
+// therefore never arrives on the grid -- which is already true of show_grid_prices, and
+// with a grid setting would become « on règle, on enregistre, et rien ne se passe sur
+// l'écran d'à côté ». The browser only ever COMPARES this string to the previous one; it
+// is opaque to it, and the ETag of the catalog makes an unchanged presentation cost a 304.
+//
+// # What it is taken over, because two readings are possible
+//
+// Over the PRESENTATION DTO, and never over the configuration as a whole: a global
+// fingerprint would reload the whole grid on a change of serial port or of print
+// darkness -- a full reload for a value the client screen does not read. Hashing the
+// struct rather than a hand-written list of its fields is what keeps that true in BOTH
+// directions: a field added to the presentation enters the digest by itself, and a block
+// that is not in the presentation never can.
+func presentationDigest(p catalogPresentationDTO) string {
+	return domain.BlockFingerprint(p)
 }
 
 // rfc3339OrEmpty formats an instant, and the zero time as an empty string.
@@ -226,13 +279,7 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 		// has not arrived yet — the very case §14.3 has a sentence for.
 		Categories: make([]categoryDTO, 0, len(cfg.Catalog.Categories)),
 		Fallback:   cfg.Catalog.FallbackCategory,
-		Options: catalogPresentationDTO{
-			ShowGridPrices:       cfg.UI.ShowGridPrices,
-			IdleTimeoutSeconds:   cfg.UI.IdleTimeoutSeconds,
-			ReprintWindowSeconds: cfg.UI.ReprintWindowSeconds,
-			Sound:                cfg.UI.Sound,
-			ShowByUnitProducts:   cfg.UI.ShowByUnitProducts,
-		},
+		Options:    presentationOf(cfg.UI),
 		UpdatedAt:  rfc3339OrEmpty(s.hub.CatalogUpdatedAt()),
 		AppVersion: s.version,
 	}
