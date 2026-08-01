@@ -149,6 +149,38 @@ func (s *Server) uiError(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
+// layoutNoticeRequest is the body of POST /api/v1/ui/layout-notice.
+//
+// No stack, and that is the point: a browser notice has none, which is exactly what
+// tells it apart from an exception on the client side.
+type layoutNoticeRequest struct {
+	Message string `json:"message"`
+}
+
+// layoutNotice records a browser LAYOUT notice, which is not a crash.
+//
+// # Why this is not /api/v1/ui/error
+//
+// The two arrive through the same `window` event, and for a while they were journalled
+// through the same route — so a station whose grid did not settle wrote « Erreur
+// JavaScript dans l'écran client », at error level, once per page load, while serving
+// customers perfectly. Both halves of that sentence were false, and the line went into
+// the diagnostic file a volunteer sends to support. A red line on a healthy station is
+// not free: it teaches the person reading it to ignore red.
+//
+// ERR-UI-02 at warn level says the true thing — the grid did not converge, the screen
+// stayed usable — and leaves ERR-UI-01 to mean what it has always meant.
+func (s *Server) layoutNotice(w http.ResponseWriter, r *http.Request) {
+	var body layoutNoticeRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	s.technical.Technical(domain.LevelWarn, "ui", "ERR-UI-02",
+		"La grille de l'écran client n'a pas convergé ; l'écran reste utilisable.",
+		body.Message)
+	w.WriteHeader(http.StatusAccepted)
+}
+
 // submit hands one event to the Hub and renders its answer.
 //
 // # The two status codes, and why they are two
