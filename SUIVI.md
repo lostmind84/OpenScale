@@ -20,8 +20,8 @@ reste le défaut. La question d'aujourd'hui est autre : **combien de produits vo
 coup**. Aucune mesure d'écran n'y répond.
 
 **Le réglage retenu, 8 colonnes, et son coût entier.** Mesuré au navigateur sur `flv.csv`,
-1920 × 1080, **en double tarif** — la configuration du poste installé, dont le tarif
-solidaire ajoute une seconde ligne au bloc des prix :
+sous **quatre conditions nommées — 1920 × 1080, double tarif, prix affichés, plancher
+16 px** —, qui sont celles du poste installé :
 
 | | Automatique (aujourd'hui) | 8 colonnes |
 |---|---|---|
@@ -31,9 +31,42 @@ solidaire ajoute une seconde ligne au bloc des prix :
 | Noms au plancher | 0 | **1 sur 331** — la tomme de 69 caractères |
 | Rangées plus hautes | 0 | **1 sur 42**, de 11,1 px |
 
-**Et `7 × 3` n'existe pas en double tarif.** Il faudrait une rangée sous 240 px ; elle en
-fait 256,5 à un plancher de 18 px et 252,8 à 14. La seconde ligne de prix vaut 22,8 px à
-elle seule : aucun plancher ne comble l'écart, et les trois rangées commencent à 8 colonnes.
+**Nommer ces quatre conditions n'est pas une prudence de rédaction : sans elles, le tableau
+ci-dessus est faux.** Trois réglages se croisent — les colonnes, `ui.show_grid_prices`, le
+nombre de paliers de tarif — et chacun déplace le nombre de **rangées**. Masquer les prix
+donne une rangée entière de plus dès 6 colonnes et deux à partir de 10 : à 8 colonnes,
+**32 tuiles et 11 écrans** au lieu de 24 et 14. Passer au mono-tarif fait de même. **Aucun
+tableau de `docs/` ne fait donc référence** — c'est l'aperçu de l'écran d'administration
+qui mesure une vraie tuile dans les réglages réels du poste et répond avant
+l'enregistrement, et c'est une décision de conception, pas un aveu d'imprécision.
+
+**Le réglage ne se transporte pas non plus d'un écran à l'autre, et c'est le chiffre qu'il
+faut retenir.** « 8 colonnes » veut dire 8 partout, mais pas la même chose partout —
+mêmes conditions, seul l'écran change :
+
+| Écran | Grille | Tuiles | Écrans | Noms au plancher | Rangées plus hautes |
+|---|---|---|---|---|---|
+| 1920 × 1080 | 8 × 3 | 24 | 14 | **1** sur 331 | **1** sur 42 |
+| 1366 × 768 | 8 × 2 | 16 | 21 | **158** sur 331 | **39** sur 42 |
+| 3840 × 2160 | 8 × 3 | 24 | 14 | **0** | **0** |
+
+Sur un 15″, le réglage retenu met donc près de la moitié du catalogue au plancher et rend
+39 rangées sur 42 irrégulières, **pour huit tuiles de moins** que sur l'écran de référence.
+Une coopérative qui lit « 8 colonnes » sans lire cette ligne l'installera sur son poste
+d'appoint.
+
+**Et beaucoup de postes n'auront jamais rien à régler.** Sur un 4K, l'automatique donne
+déjà **10 × 4 = 40 tuiles et 9 écrans** sans que personne n'y touche — plus que l'écran de
+référence poussé à 8 colonnes —, et **aucun nom n'y atteint jamais le plancher, à aucune
+des onze valeurs**. La question du plancher ne concerne que le 1366 et le 1920. C'est
+l'argument le plus court pour garder l'automatique comme défaut : le réglage est une
+surcharge dont une partie du parc n'a aucun besoin.
+
+**Et `7 × 3` n'existe pas en double tarif avec les prix affichés.** Il faudrait une rangée
+sous 240 px ; elle en fait 256,5 à un plancher de 18 px et 252,8 à 14. La seconde ligne de
+prix vaut 22,8 px à elle seule : aucun plancher ne comble l'écart, et les trois rangées
+commencent à 8 colonnes. En mono-tarif, les mêmes 7 colonnes donnent bien 3 rangées — ce
+qui est exactement le piège que les conditions nommées existent pour fermer.
 
 **Le plancher typographique descend de 18 à 16 px, et l'argument n'est pas celui qu'on
 croit.** Depuis que ce plancher borne **aussi** les deux corps du bloc des prix, il ne décide
@@ -43,7 +76,8 @@ défilement horizontale, qu'un poste en kiosque ne doit pas avoir. **L'argument 
 écrit comme FAUX** pour que personne ne le restaure : à 7 colonnes sur 1920, 18 px ne met
 qu'**un seul nom sur 331** au plancher. Il descend pour le 15″ et pour le prix, jamais pour
 la cible du magasin — et accessoirement pour le rythme de l'écran là où ça compte : à 8
-colonnes, 18 px met 53 noms au plancher et fait grandir 6 rangées, contre 1 et 1 à 16.
+colonnes sur 1920, mêmes conditions, 18 px met 53 noms au plancher et fait grandir
+6 rangées, contre 1 et 1 à 16.
 
 **Le plafond du corps de nom suit la tuile ; le plancher, non.** Les deux bouts de la
 descente ne sont pas de même nature — le plancher est une limite de lisibilité, le plafond
@@ -71,7 +105,8 @@ deux hauteurs, sur aucun relevé. Et au réglage final — plancher 16, double t
 3840.
 
 **Ce qui est dit plutôt que caché : la borne basse de 3 est fausse sur un 15″.** En double
-tarif, aucune tuile n'y est visible en entier — 439,6 px pour 424 px disponibles. Ce n'est
+tarif avec les prix affichés, aucune tuile n'y est visible en entier — 439,6 px pour 424 px
+disponibles. Ce n'est
 pas un défaut, c'est la géométrie, et c'est exactement ce que l'aperçu de la page Catalogue
 existe pour montrer **avant** l'enregistrement. Aucun couple de bornes ne peut être vrai pour
 tout le parc ; ce qui protège l'exploitant entre les deux n'est pas la borne, c'est l'écran.
