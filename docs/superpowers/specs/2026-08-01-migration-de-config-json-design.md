@@ -197,8 +197,19 @@ enregistre depuis l'écran est la configuration **en mémoire**, déjà migrée.
 
 ### 5. Ce que ça donne à voir
 
-- `openscale config validate` : la version du fichier, et les migrations en attente avant la
-  liste des fautes.
+- `openscale config validate` : les migrations en attente, **avant** la liste des fautes, et
+  muet quand il n'y en a pas.
+
+  > **Corrigé le 01/08/2026, pendant l'implémentation.** Cette ligne demandait d'abord « la
+  > version du fichier ». Elle ne peut pas être tenue, et elle ne mérite pas de l'être :
+  > `Migrate` estampille le document **avant** qu'il soit décodé, donc la `Config` en
+  > mémoire porte toujours `CurrentSchemaVersion` et le numéro déclaré n'existe plus nulle
+  > part. Le faire survivre coûterait une note supplémentaire à chaque changement de
+  > version, donc six assertions de comptage à décaler dans trois lots déjà clos — pour
+  > afficher un nombre dont **l'observation fondatrice de ce document** dit qu'il ne veut
+  > rien dire : `Config.Version` était écrit et jamais lu, et tous les fichiers du parc
+  > annoncent `1` quel que soit leur âge. Ce qui est actionnable, et ce que la commande dit,
+  > c'est « ce fichier n'est pas au schéma que ce binaire écrit, voici ce qui changerait ».
 - `openscale doctor` : `checkConfiguration` (`diag/doctor.go:561`) sait déjà nommer les clés
   retirées (ligne 619). Il nomme en plus la version du schéma et ce qu'une migration
   changerait — donc `diagnostic.zip` le transporte sans rien de neuf.
