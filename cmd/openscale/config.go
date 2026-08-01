@@ -381,7 +381,7 @@ func migrateConfig(out io.Writer, path string) error {
 	// ConfigStore.Save calls cfg.RefuseIfRetired, and a MIXED file -- one point carried,
 	// one refused -- would reach it and be refused there too, only AFTER this command had
 	// already said it was writing. Leaving here, before Save is ever called, is what keeps
-	// "rien n'est écrit" true unconditionally, whether the refusal came with a note (an
+	// « rien n'est écrit » true unconditionally, whether the refusal came with a note (an
 	// unconvertible discount, a file from a newer binary) or without one (the numbering
 	// plan, folded in just above).
 	if refused > 0 {

@@ -561,23 +561,23 @@ func TestMigrateLeavesARefusedKeyInPlace(t *testing.T) {
 	}
 }
 
-// TestMigrateMixesTwoKindsOfRefusalWithoutDuplicating surveille une COÏNCIDENCE, pas une
-// règle : le dédoublonnage de migrateConfig entre les notes de Migrate et cfg.Retired()
-// fonctionne parce que carryCoefficientToDiscount (configmigration.go) et scanRetired
-// (config.go) construisent le même chemin pointé pour le même champ -- deux fonctions
-// indépendantes qui ne se citent pas l'une l'autre. Si l'une des deux change de gabarit un
-// jour sans que l'autre suive, le dédoublonnage casse EN SILENCE : une clé apparaîtrait
-// deux fois, sous deux messages différents, sans qu'aucun test ne le remarque. Celui-ci
-// mélange les deux familles de refus dans le même fichier pour l'attraper.
+// TestMigrateMixesTwoKindsOfRefusalWithoutDuplicating watches a COINCIDENCE, not a rule:
+// migrateConfig's deduplication between Migrate's notes and cfg.Retired() works because
+// carryCoefficientToDiscount (configmigration.go) and scanRetired (config.go) build the
+// SAME dotted path for the same field -- two independent functions that never cite one
+// another. If either one changes its template one day without the other following, the
+// deduplication breaks IN SILENCE: a key would show up twice, under two different
+// messages, with no test noticing. This one mixes both families of refusal in the same
+// file to catch that.
 //
-// pricing.tiers[0].coef_num ET pricing.tiers[0].coef_den restent tous les deux dans le
-// document (carryCoefficientToDiscount ne les retire que dans la branche qui réussit), donc
-// scanRetired les trouve tous les deux -- mais Migrate n'a écrit qu'UNE note, sous
-// "pricing.tiers[0].coef_num". Le dédoublonnage n'annule donc que celle-là : coef_den, lui,
-// reçoit sa propre ligne, avec sa propre raison (ADR-034, « il n'y a plus de dénominateur »).
-// Ce n'est pas un message dupliqué -- c'est un troisième point, sur une troisième clé JSON
-// bel et bien encore présente -- et c'est ce que ce test fixe aussi, pour qu'un futur
-// lecteur ne le prenne pas pour un bug le jour où il le découvre.
+// pricing.tiers[0].coef_num AND pricing.tiers[0].coef_den both stay in the document
+// (carryCoefficientToDiscount only removes them on the branch that succeeds), so
+// scanRetired finds both of them -- but Migrate only ever wrote ONE note, under
+// "pricing.tiers[0].coef_num". The deduplication therefore cancels only that one: coef_den
+// gets its own line, with its own reason (ADR-034, "there is no more denominator"). That is
+// NOT a duplicated message -- it is a third point, on a third JSON key that genuinely still
+// stands -- and this test pins that too, so a future reader does not mistake it for an
+// unfixed bug.
 func TestMigrateMixesTwoKindsOfRefusalWithoutDuplicating(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	before := []byte(`{"version":1,"pricing":{"tiers":[
