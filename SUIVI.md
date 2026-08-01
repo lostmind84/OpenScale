@@ -3,6 +3,46 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Un `config.json` ancien se met à jour tout seul, après qu'un poste réel soit tombé
+dessus (01/08/2026).** Un poste de test mis à jour a démarré en **configuration d'usine
+(ERR-CFG-01)** : son fichier, conservé tel quel comme la procédure de mise à jour le
+prévoit, portait encore `ui.tile_size` — retiré **le jour même** par ADR-057. La
+réparation a été manuelle, et rien dans le binaire ne savait retirer une clé d'un fichier
+déjà posé sur un poste. **ADR-058** répond en faisant du contrôle 20 (§11.3) trois
+verdicts au lieu d'un refus uniforme — **portée**, **retirée**, **refusée** — au lieu
+d'écarter neuf clés en bloc : trois d'entre elles ont réellement été écrites par un
+binaire publié (`ui.tile_size`, `coef_num`/`coef_den`, v0.1 à v0.3), les six autres du
+plan de numérotation sont entrées dans le code **déjà retirées** et n'ont jamais existé
+dans un fichier réel.
+
+`domain.Migrate` (§11.6) travaille sur le document JSON **avant** décodage — ce qui lui
+permet de rattraper un champ dont le type a changé, qu'`encoding/json` ne pardonne pas —
+et un refus y consiste à **ne rien faire** : la clé reste dans le document, intacte
+jusqu'au contrôle 20, qui dit la phrase qu'il disait déjà. `ui.tile_size` se **retire**
+sans se convertir en nombre de colonnes — une densité est une proportion, pas un compte,
+et la convertir ressusciterait ADR-031 par la bande. `coef_num`/`coef_den` se **portent**
+vers `discount_percent` seulement quand la fraction tombe exactement au dixième de
+point ; sinon, refusés en nommant les deux nombres plutôt qu'arrondis en silence — c'est
+la garantie qu'ADR-034 tenait déjà pour la lecture d'un fichier neuf, étendue ici à la
+migration d'un fichier ancien. `domain.DecodeConfigBlockByBlock` décode ensuite les
+quatorze blocs un par un, si bien qu'un seul bloc illisible ne fait plus tomber les
+treize autres ; un document qui n'est même pas un objet JSON exploitable ne fait plus
+non plus sortir le service, comme c'était pourtant le cas avant ce lot — il produit une
+faute et le poste sert ERR-CFG-01, exactement comme n'importe quelle autre configuration
+invalide (§11.3 est corrigé sur ce point précis). `platform.LoadConfig` devient la
+**porte unique** par laquelle les octets d'un fichier deviennent une `Config` : il y en
+avait quatre avant ce lot, et c'est cette quadruplication qui a permis à l'incident
+d'exister. Le démarrage **n'écrit toujours pas** : seule `openscale config migrate` —
+lancée à la main ou par `update.ps1`/`update.sh` une fois le poste debout, sur le
+**chemin de réussite uniquement** et sans jamais changer le code de sortie de la mise à
+jour elle-même — touche le disque. `TestEveryRetiredKeyHasADeclaredVerdict` tient la
+promesse dans la durée : retirer une dixième clé demain sans lui donner de verdict fait
+échouer ce test, pas seulement une relecture humaine.
+
+**Vérifié à la clôture de ce lot (01/08/2026) :** `go test ./... -short -count=1` —
+**35 paquets testés, 0 échec** (2 paquets sans fichier de test, `internal/scale/corpus`
+et `tools/boundary`, comme avant ce lot) ; `go vet ./...` silencieux.
+
 **Le nombre de colonnes de la grille devient un réglage, et l'automatique reste le défaut
 (01/08/2026).** Le magasin voulait moins de défilement : sur le poste installé, les 331
 pesables se parcourent en **34 écrans**, à 10 tuiles d'un coup. **ADR-057** ouvre

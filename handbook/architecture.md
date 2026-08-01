@@ -128,6 +128,15 @@ SSE se rétablit seule. Symétriquement, le service peut redémarrer sans fermer
 La dernière ligne est la seule qui repose sur quelqu'un plutôt que sur quelque chose.
 C'est assumé : ce n'est pas une question d'arbre syntaxique.
 
+## Mettre un poste à jour
+
+Mettre un poste à jour ne demande rien de neuf : le binaire se remplace, la configuration
+et la base restent en place. Un `config.json` écrit par une version plus ancienne ne met
+plus le poste en configuration d'usine à lui seul — la mise à jour migre ce qu'elle sait
+convertir et nomme le reste, détaillé dans
+[`docs/02-architecture.md`](https://github.com/lostmind84/OpenScale/blob/main/docs/02-architecture.md)
+§11.6.
+
 ## Pour aller plus loin
 
 Cette page est la carte. Le territoire est dans

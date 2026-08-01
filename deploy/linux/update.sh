@@ -8,7 +8,12 @@
 #   1. arrêt du service AVEC contrôle d'erreur, sur le budget de §13.4 ;
 #   2. sauvegarde du binaire sous un nom HORODATÉ ;
 #   3. copie, redémarrage, vérification de /healthz — JAMAIS /readyz ;
-#   4. restauration automatique de la version précédente en cas d'échec.
+#   4. restauration automatique de la version précédente en cas d'échec ;
+#   5. une fois la bascule réussie, migration de la configuration (config migrate) :
+#      clés d'un ancien fichier converties ou retirées, celles qu'elle ne sait pas
+#      trancher restent et se règlent à la main. Ne bloque JAMAIS la mise à jour, déjà
+#      réussie à ce stade — un code de retour non nul signale seulement qu'un point
+#      reste à décider.
 #
 # La configuration et la base ne sont pas touchées : elles vivent dans /etc/openscale et
 # /var/lib/openscale, pas à côté du binaire.

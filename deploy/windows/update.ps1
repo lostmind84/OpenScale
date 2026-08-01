@@ -21,6 +21,10 @@
        imprimante sans papier répond 503 sur /readyz, et une mise à jour qui se croirait
        ratée pour un rouleau vide restaurerait la version précédente d'un poste sain.
     4. RESTAURE automatiquement la version précédente si la vérification échoue.
+    5. Une fois la bascule réussie, MIGRE la configuration (openscale config migrate) :
+       clés d'un ancien fichier converties ou retirées, celles qu'il ne sait pas trancher
+       restent et se règlent à la main. Ne bloque JAMAIS la mise à jour, déjà réussie à
+       ce stade — un code de retour non nul signale seulement qu'un point reste à décider.
 
   La configuration et la base NE SONT PAS TOUCHÉES : elles vivent dans ProgramData, pas
   à côté du binaire. Les migrations s'appliquent au démarrage, précédées d'un VACUUM INTO
