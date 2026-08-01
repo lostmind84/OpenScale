@@ -65,6 +65,11 @@ func NeutralProfile() Config {
 			// label without ever reading the scale — a gesture no station offers until
 			// somebody decides it does.
 			ShowByUnitProducts: false,
+			// Automatic, which is a behaviour and not a number: a station that fell back
+			// on the factory profile shows the grid ITS OWN SCREEN affords — five columns
+			// on the 24" of the parc, ten on a 4K. A profile that froze a count here would
+			// hand every station of every cooperative the density measured on one of them.
+			GridColumns: GridColumnsAutomatic,
 		},
 
 		Scale: ScaleConfig{

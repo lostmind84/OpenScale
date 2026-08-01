@@ -132,6 +132,18 @@ func TestTheNeutralProfileHidesTheByUnitProducts(t *testing.T) {
 	}
 }
 
+// TestTheNeutralProfileLeavesTheGridAutomatic, which is a behaviour and not a number.
+//
+// A station that fell back to the factory profile must show the grid it showed
+// yesterday ON ITS OWN SCREEN -- five columns on the 24" of the parc, ten on a 4K.
+// A profile that froze a column count would hand every station of every cooperative
+// the density measured on one of them.
+func TestTheNeutralProfileLeavesTheGridAutomatic(t *testing.T) {
+	if columns := NeutralProfile().UI.GridColumns; columns != GridColumnsAutomatic {
+		t.Fatalf("le profil d'usine fixe %d colonnes : la grille d'usine suit l'écran", columns)
+	}
+}
+
 // TestNeutralProfileReadsNoClock: nothing in internal/domain reads a wall clock, so
 // the profile leaves modified_at to whoever writes it.
 func TestNeutralProfileReadsNoClock(t *testing.T) {

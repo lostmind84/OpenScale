@@ -115,7 +115,7 @@ var retiredKeys = map[string]string{
 	"rules_by_prefix":   "la table de règles par préfixe est remplacée par le plan compilé, auto-contrôlé au démarrage",
 	"coef_num":          "la remise d'un tarif se déclare en pourcentage : discount_percent, au dixième de point (ADR-034)",
 	"coef_den":          "la remise d'un tarif se déclare en pourcentage : discount_percent, il n'y a plus de dénominateur (ADR-034)",
-	"tile_size":         "la densité de la grille s'adapte en continu à l'écran (clamp CSS), il n'y a plus de palier à choisir (ADR-035, remplace ADR-031)",
+	"tile_size":         "la densité de la grille s'adapte en continu à l'écran (clamp CSS), il n'y a plus de palier à choisir (ADR-035, remplace ADR-031) ; ce qui se règle désormais est le nombre de colonnes, ui.grid_columns, un entier (ADR-055)",
 }
 
 // retiredScaleTypes are the two values that LEFT the scale enumeration (§9.3),
@@ -190,22 +190,57 @@ type NetworkConfig struct {
 	AdminOnLAN bool `json:"admin_on_lan"`
 }
 
-// UIConfig holds the only five screen settings an operator has a legitimate choice
-// about.
+// What ui.grid_columns is allowed to say, spelled once (ADR-055).
 //
-// The fifth one, ShowByUnitProducts, is a choice about the SHOP and not about the
-// screen's looks: a tile sold by unit prints a label WITHOUT EVER READING THE SCALE,
-// and a cooperative whose counter only weighs has no reason to offer that gesture. It
-// is a display and never a refusal — Prepare still judges the qualification alone — so
-// hiding a product closes no path, it only stops proposing it.
+// The two bounds are GUARD RAILS and not a calculation, and saying so is part of the
+// decision: the same count is comfortable on a 4K and absurd on a 15", so no pair of
+// bounds can be true for the whole fleet. What protects an operator BETWEEN them is
+// the administration screen, which shows the resulting grid before the file is saved,
+// and the fact that getting it wrong is repaired by coming back.
+const (
+	// GridColumnsAutomatic is the DEFAULT, and it is a BEHAVIOUR and not a number: the
+	// grid fills itself the way it does today -- five columns on the 24" of the parc,
+	// ten on a 4K -- so a file written before this setting existed, and a cooperative
+	// that never touches it, keep the grid they have. ADR-035 stays whole.
+	GridColumnsAutomatic = 0
+	// MinGridColumns is the floor of the override: under three, a grid is no longer a
+	// grid.
+	MinGridColumns = 3
+	// MaxGridColumns is the ceiling: beyond twelve, the tile of the reference screen of
+	// §14.2 passes under what that section holds for readable.
+	//
+	// The browser measurement in progress -- 355 real products, every count from
+	// MinGridColumns to MaxGridColumns, on 1366, 1920 and 3840 -- CONFIRMS OR MOVES this
+	// number. It does not claim to deduce it.
+	MaxGridColumns = 12
+)
+
+// UIConfig holds the screen settings an operator has a legitimate choice about.
+//
+// ShowByUnitProducts is a choice about the SHOP and not about the screen's looks: a
+// tile sold by unit prints a label WITHOUT EVER READING THE SCALE, and a cooperative
+// whose counter only weighs has no reason to offer that gesture. It is a display and
+// never a refusal — Prepare still judges the qualification alone — so hiding a product
+// closes no path, it only stops proposing it.
 //
 // ABSENT ON PURPOSE, each for a written reason (§11.2, ADR-025):
 //   - title: the name of the cooperative lives in station.coop;
 //   - open_category: the idle view is the COMPLETE grid, categories are filters and
 //     not four pre-built screens;
-//   - grid_density: a single density, derived from two physical constraints -- a
-//     touch target of at least 72 px and the readability of a 49-character name at
-//     60-80 cm;
+//   - grid_density: still absent, and GridColumns below is NOT it under another name.
+//     A density is a proportion, so one figure written by hand lands on five, six or
+//     twelve columns depending on the screen -- fitting the setting to a HETEROGENEOUS
+//     FLEET, which is the work `clamp()` does better than an operator, and still does,
+//     since it remains the default. GridColumns settles another question altogether,
+//     « combien de produits voir d'un coup »: no measurement of a screen answers that
+//     one, so ADR-025 grants it a setting (ADR-055 amends ADR-035 without reversing
+//     it, and does not revive ADR-031). The two physical constraints that once forbade
+//     any such setting -- a touch target of at least 72 px, a 69-character name read
+//     at 60-80 cm -- have not moved an inch: they stopped being a prohibition and
+//     became what the administration screen ANNOUNCES before the file is saved.
+//     (69 and not 49: 49 was the longest name of flv_1.csv, the 2022 catalogue, which
+//     §10.2 records as unrepresentative. The catalogue in service reaches 69, which is
+//     what app.css and Grid.svelte have always been sized against);
 //   - success_delay_ms, reject_delay_ms, switch_delay_s: code constants. No
 //     operator has a legitimate choice to make about how long a success
 //     acknowledgement lasts.
@@ -225,6 +260,22 @@ type UIConfig struct {
 	// and never after the `unite` column of the CSV, which is a price label and decides
 	// nothing.
 	ShowByUnitProducts bool `json:"show_by_unit_products"`
+	// GridColumns is HOW MANY COLUMNS the client grid shows, and GridColumnsAutomatic
+	// -- its default, which is also the zero value -- means AUTOMATIC and never « aucune
+	// colonne »: the grid then behaves exactly as it does today, following the screen it
+	// is displayed on.
+	//
+	// From MinGridColumns to MaxGridColumns it means THAT MANY COLUMNS ON ANY SCREEN,
+	// and the rest of the tile follows. A count and not a scale factor, on purpose: a
+	// factor sits on top of the automatic density and therefore lands on five, six or
+	// twelve columns depending on the screen for the ONE value written, whereas the file
+	// here describes a grid.
+	//
+	// It is a SETTING because what it settles is « combien de produits voir d'un coup »
+	// -- a shop decision, taken by whoever knows their customers and their catalogue,
+	// which no measurement of a screen can answer. It is an OVERRIDE and never a
+	// replacement (ADR-055).
+	GridColumns int `json:"grid_columns"`
 }
 
 // ScaleConfig is the weighing device of this station.
@@ -1526,6 +1577,21 @@ func (c *Config) Validate(reg Registries) []Fault {
 			c.Update.Repository)
 	}
 
+	// 49. ui.grid_columns is GridColumnsAutomatic, or a count between MinGridColumns
+	//     and MaxGridColumns.
+	//
+	//     The fault carries BOTH the range and the meaning of zero, because the two are
+	//     of different natures and only one of them is a number of columns. Somebody who
+	//     writes 1 is asking for a denser grid; if the refusal only named the interval,
+	//     they would read « 1 est hors de [3, 12] » and never learn that the grid they
+	//     had back is written 0 -- which looks, on a file, exactly like « aucune
+	//     colonne ».
+	if c.UI.GridColumns != GridColumnsAutomatic &&
+		(c.UI.GridColumns < MinGridColumns || c.UI.GridColumns > MaxGridColumns) {
+		failWith("ui.grid_columns", gridColumnChoices(),
+			"%d n'est pas un nombre de colonnes que la grille sait montrer", c.UI.GridColumns)
+	}
+
 	return faults
 }
 
@@ -1729,6 +1795,20 @@ func timeoutActions() []string {
 // imageSources reports the three admissible values of catalog.images.source.
 func imageSources() []string {
 	return []string{ImageSourceCSV, ImageSourceDirectory, ImageSourceNone}
+}
+
+// gridColumnChoices reports what control 49 accepts, in the two natures the value
+// has.
+//
+// It says a range in words where the other lists of this file enumerate values, and
+// that is the point rather than an oversight: « Automatique » is not one more notch at
+// the end of a slider, it is a different kind of answer, and a bare list of eleven
+// numbers would spell zero like the other ten.
+func gridColumnChoices() []string {
+	return []string{
+		fmt.Sprintf("%d — automatique : la grille suit l'écran, comme aujourd'hui", GridColumnsAutomatic),
+		fmt.Sprintf("%d à %d — ce nombre de colonnes sur tous les écrans", MinGridColumns, MaxGridColumns),
+	}
 }
 
 // intOption reads an option that must be a whole number of dots, and reports
