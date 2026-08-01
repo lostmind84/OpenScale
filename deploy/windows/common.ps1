@@ -31,6 +31,18 @@ $script:ProductName = 'OpenScale'
 $script:ServiceName = 'OpenScale'
 $script:TaskName = 'OpenScale-Kiosk'
 $script:AccountName = 'openscale'
+# ★ CES DEUX-LÀ PORTENT LE NOM D'UN PARAMÈTRE DE CHACUN DES QUATRE APPELANTS, ET CE
+# FICHIER EST SOURCÉ-POINT. Un point-source exécute chez son appelant, et les paramètres
+# d'un script vivent dans la portée de ce script : les deux lignes ci-dessous ÉCRASENT donc
+# le -InstallDir et le -DataRoot que l'opérateur vient de taper. Mesuré : -InstallDir
+# D:\OpenScale ressort en C:\Program Files\OpenScale, sans un mot, et les trois branches qui
+# choisissent les chemins prennent alors toujours la première. C'est ce qui rendait ces deux
+# options mortes sur install.ps1 (SUIVI.md, 29/07/2026) — la trouvaille était notée, la
+# cause ne l'était pas. Les renommer ICI ne réglerait rien : ce sont les noms publics des
+# options, et TestTheInstallerDeclaresEveryParameterTheBootstrapPasses les tient. Chaque
+# appelant met donc à l'abri ce qu'on lui a demandé AVANT de charger ce fichier, et
+# TestNoDotSourcedConstantLandsOnAParameterOfItsCaller refuse le prochain paramètre qui
+# viendrait s'appeler comme une variable d'ici.
 $script:InstallDir = Join-Path $env:ProgramFiles 'OpenScale'
 $script:DataRoot = Join-Path $env:ProgramData 'OpenScale'
 $script:BinaryName = 'openscale.exe'

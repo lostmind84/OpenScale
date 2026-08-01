@@ -607,6 +607,159 @@ func writeScript(t *testing.T, path, body string) {
 // utf8Mark is the byte order mark, EF BB BF.
 var utf8Mark = []byte{0xEF, 0xBB, 0xBF}
 
+// powerShellScripts lists every PowerShell script of the repository.
+//
+// The whole repository is walked rather than deploy/windows: make.ps1 lives at the root and
+// carries the same traps as the installers.
+func powerShellScripts(t *testing.T) []string {
+	t.Helper()
+	var scripts []string
+	walk := func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			// dist and bin are git-ignored: what they hold is build OUTPUT, not source. A
+			// `make release` left in place puts a copy of the scripts there, and a test
+			// would accuse a file that is not in the repository. .claude holds git
+			// worktrees, which are whole checkouts of OTHER branches: a test walking them
+			// reports twice, and blames this tree for what another one carries.
+			switch entry.Name() {
+			case ".git", ".claude", "node_modules", "dist", "bin":
+				return fs.SkipDir
+			}
+			return nil
+		}
+		switch strings.ToLower(filepath.Ext(path)) {
+		case ".ps1", ".psm1":
+			scripts = append(scripts, path)
+		}
+		return nil
+	}
+	if err := filepath.WalkDir("..", walk); err != nil {
+		t.Fatalf("parcours du dépôt : %v", err)
+	}
+	if len(scripts) == 0 {
+		t.Fatal("aucun script PowerShell trouvé dans le dépôt : ce test ne prouve plus rien")
+	}
+	return scripts
+}
+
+// TestNoDotSourcedConstantLandsOnAParameterOfItsCaller is the second half of the same trap,
+// and the one no single file shows.
+//
+// A dot-source runs the sourced file IN THE CALLER'S SCOPE, and the parameters of a script
+// live in that script's scope. common.ps1 sets `$script:InstallDir` and `$script:DataRoot`;
+// bootstrap.ps1 declares `-InstallDir` and `-DataRoot`. Loading the first therefore
+// REPLACED what the operator had asked with the factory locations — measured on a bench:
+// `-InstallDir D:\OpenScale` comes back out as `C:\Program Files\OpenScale`, and the three
+// branches that choose the paths always take the first. Nothing warned, and the station was
+// installed somewhere else than where it had been asked to go.
+//
+// Renaming a parameter is not an option: -InstallDir and -DataRoot are the public names of
+// two options, and TestTheInstallerDeclaresEveryParameterTheBootstrapPasses holds bootstrap
+// and installer in step. What is asked is therefore put out of reach BEFORE the dot-source,
+// under a name common.ps1 does not know — and what this test checks is exactly that: past
+// the dot-source, the parameter is EMPTIED, so reading it is the defect. A rule about where
+// the value is read survives a rename; one about how it is saved would not.
+func TestNoDotSourcedConstantLandsOnAParameterOfItsCaller(t *testing.T) {
+	shared := map[string]bool{}
+	constant := regexp.MustCompile(`^\$script:(\w+)\s*=[^=]`)
+	for _, line := range strings.Split(codeOnly(readFile(t, filepath.Join("windows", "common.ps1"))), "\n") {
+		if match := constant.FindStringSubmatch(strings.TrimSpace(line)); match != nil {
+			shared[strings.ToLower(match[1])] = true
+		}
+	}
+	if len(shared) == 0 {
+		t.Fatal("common.ps1 ne pose plus aucune variable de script : ce test ne prouve plus rien")
+	}
+
+	// `\$nom` cannot match inside `$requestedNom` nor behind the `-Nom` of a call: the
+	// dollar sign has to touch the name.
+	readers := map[string]*regexp.Regexp{}
+	for name := range shared {
+		readers[name] = regexp.MustCompile(`(?i)\$` + regexp.QuoteMeta(name) + `\b`)
+	}
+
+	for _, script := range []string{"bootstrap.ps1", "install.ps1", "update.ps1", "uninstall.ps1", "harden.ps1"} {
+		lines := strings.Split(codeOnly(readFile(t, filepath.Join("windows", script))), "\n")
+		source := -1
+		for number, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), ". (") && strings.Contains(line, "common.ps1") {
+				source = number
+			}
+		}
+		if source < 0 {
+			t.Errorf("%s ne charge plus common.ps1 : ce test ne prouve plus rien pour lui", script)
+			continue
+		}
+
+		for number, line := range lines[source+1:] {
+			for name, reader := range readers {
+				if reader.MatchString(line) && !strings.Contains(strings.ToLower(line), "$script:"+name) {
+					t.Errorf("%s, ligne %d : $%s est lu APRÈS le point-source de common.ps1, "+
+						"qui vient de l'écraser avec la valeur d'usine — ce que l'opérateur a "+
+						"demandé se met à l'abri avant.\n      %s",
+						script, source+number+2, name, strings.TrimSpace(line))
+				}
+			}
+		}
+	}
+}
+
+// TestNoScriptConstantIsSilentlyReassigned is the regression of v1.1, and it is a trap
+// PowerShell lays rather than a typo somebody made.
+//
+// Variable names are case-INSENSITIVE, and an unqualified assignment written at the top
+// level of a script writes into the SCRIPT scope. `$checksumAsset = $release.assets | …`
+// was therefore not a new variable at all: it overwrote `$script:ChecksumAsset`, the
+// constant holding the NAME of that asset. Three lines later, `Join-Path $workspace
+// $script:ChecksumAsset` built a path out of a stringified object —
+// « …\Temp\openscale-v1.1\@{url=https:\\api.github.com\…; id=497915905; …} » — and
+// Invoke-WebRequest answered « Le format du chemin d'accès donné n'est pas pris en charge »,
+// naming neither the variable nor the line that emptied it. No station could get past the
+// fingerprint check, and nothing in deploy/ saw it: these tests read the scripts, they do
+// not run them against an API.
+//
+// The rule is one a reader can hold in their head: a constant of the header is written
+// ONCE. No script here has any reason to reassign one, so a second assignment — whatever
+// its case, whatever its scope prefix — is the defect and not a style.
+func TestNoScriptConstantIsSilentlyReassigned(t *testing.T) {
+	// Both patterns are anchored on the START of the statement, and that is what separates
+	// an assignment from a parameter default: `param([string]$DataRoot = $script:DataRoot)`
+	// declares a LOCAL and shadows nothing, whereas the defect is a line that opens on the
+	// variable it is about to empty.
+	declaration := regexp.MustCompile(`^\$script:(\w+)\s*=[^=]`)
+
+	for _, script := range powerShellScripts(t) {
+		lines := strings.Split(codeOnly(readFile(t, script)), "\n")
+
+		// `\$nom` cannot match inside `$script:nom`: what follows the dollar sign there is
+		// « script: ». Case-insensitive, because PowerShell is — that is the whole trap.
+		clobbers := map[string]*regexp.Regexp{}
+		declared := map[string]int{}
+		for number, line := range lines {
+			for _, match := range declaration.FindAllStringSubmatch(strings.TrimSpace(line), -1) {
+				name := strings.ToLower(match[1])
+				declared[name] = number + 1
+				clobbers[name] = regexp.MustCompile(`(?i)^\$` + regexp.QuoteMeta(name) + `\s*=[^=]`)
+			}
+		}
+
+		for number, line := range lines {
+			for name, clobber := range clobbers {
+				if clobber.MatchString(strings.TrimSpace(line)) {
+					t.Errorf("%s, ligne %d : cette affectation écrase $script:%s, la constante "+
+						"déclarée ligne %d — les noms de variables PowerShell sont insensibles "+
+						"à la casse, et à la racine d'un script une affectation non qualifiée "+
+						"écrit dans la portée du script.\n      %s",
+						script, number+1, name, declared[name], strings.TrimSpace(line))
+				}
+			}
+		}
+	}
+}
+
 // TestEveryPowerShellScriptCarriesTheMarkWindowsPowerShellNeeds is the encoding contract,
 // and it exists because v0.1 shipped without it.
 //
@@ -626,35 +779,7 @@ var utf8Mark = []byte{0xEF, 0xBB, 0xBF}
 // The whole repository is walked rather than deploy/windows: make.ps1 lives at the root and
 // carries the same trap.
 func TestEveryPowerShellScriptCarriesTheMarkWindowsPowerShellNeeds(t *testing.T) {
-	var scripts []string
-	walk := func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			// dist and bin are git-ignored: what they hold is build OUTPUT, not source. A
-			// `make release` left in place puts a copy of the scripts there, and the test
-			// would accuse a file that is not in the repository.
-			switch entry.Name() {
-			case ".git", "node_modules", "dist", "bin":
-				return fs.SkipDir
-			}
-			return nil
-		}
-		switch strings.ToLower(filepath.Ext(path)) {
-		case ".ps1", ".psm1":
-			scripts = append(scripts, path)
-		}
-		return nil
-	}
-	if err := filepath.WalkDir("..", walk); err != nil {
-		t.Fatalf("parcours du dépôt : %v", err)
-	}
-	if len(scripts) == 0 {
-		t.Fatal("aucun script PowerShell trouvé dans le dépôt : ce test ne prouve plus rien")
-	}
-
-	for _, script := range scripts {
+	for _, script := range powerShellScripts(t) {
 		// bootstrap.ps1 est la seule exception, et c'est la règle INVERSE plutôt qu'une
 		// absence de règle : c'est le seul .ps1 que personne ne lit sur un disque — « irm …
 		// | iex » le donne au parseur comme un FLUX, où la marque se colle au « <# » de son
