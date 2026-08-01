@@ -115,7 +115,7 @@ var retiredKeys = map[string]string{
 	"rules_by_prefix":   "la table de règles par préfixe est remplacée par le plan compilé, auto-contrôlé au démarrage",
 	"coef_num":          "la remise d'un tarif se déclare en pourcentage : discount_percent, au dixième de point (ADR-034)",
 	"coef_den":          "la remise d'un tarif se déclare en pourcentage : discount_percent, il n'y a plus de dénominateur (ADR-034)",
-	"tile_size":         "la densité de la grille s'adapte en continu à l'écran (clamp CSS), il n'y a plus de palier à choisir (ADR-035, remplace ADR-031) ; ce qui se règle désormais est le nombre de colonnes, ui.grid_columns, un entier (ADR-055)",
+	"tile_size":         "la densité de la grille s'adapte en continu à l'écran (clamp CSS), il n'y a plus de palier à choisir (ADR-035, remplace ADR-031) ; ce qui se règle désormais est le nombre de colonnes, ui.grid_columns, un entier (ADR-057)",
 }
 
 // retiredScaleTypes are the two values that LEFT the scale enumeration (§9.3),
@@ -190,7 +190,7 @@ type NetworkConfig struct {
 	AdminOnLAN bool `json:"admin_on_lan"`
 }
 
-// What ui.grid_columns is allowed to say, spelled once (ADR-055).
+// What ui.grid_columns is allowed to say, spelled once (ADR-057).
 //
 // The two bounds are GUARD RAILS and not a calculation, and saying so is part of the
 // decision: the same count is comfortable on a 4K and absurd on a 15", so no pair of
@@ -233,7 +233,7 @@ const (
 //     FLEET, which is the work `clamp()` does better than an operator, and still does,
 //     since it remains the default. GridColumns settles another question altogether,
 //     « combien de produits voir d'un coup »: no measurement of a screen answers that
-//     one, so ADR-025 grants it a setting (ADR-055 amends ADR-035 without reversing
+//     one, so ADR-025 grants it a setting (ADR-057 amends ADR-035 without reversing
 //     it, and does not revive ADR-031). The two physical constraints that once forbade
 //     any such setting -- a touch target of at least 72 px, a 69-character name read
 //     at 60-80 cm -- have not moved an inch: they stopped being a prohibition and
@@ -274,7 +274,7 @@ type UIConfig struct {
 	// It is a SETTING because what it settles is « combien de produits voir d'un coup »
 	// -- a shop decision, taken by whoever knows their customers and their catalogue,
 	// which no measurement of a screen can answer. It is an OVERRIDE and never a
-	// replacement (ADR-055).
+	// replacement (ADR-057).
 	GridColumns int `json:"grid_columns"`
 }
 

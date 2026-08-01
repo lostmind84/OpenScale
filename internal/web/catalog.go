@@ -117,7 +117,7 @@ type catalogPresentationDTO struct {
 	ShowByUnitProducts bool `json:"show_by_unit_products"`
 	// GridColumns is domain.GridColumnsAutomatic -- the zero, which means AUTOMATIC and
 	// never « aucune colonne » -- or a count between domain.MinGridColumns and
-	// domain.MaxGridColumns, which means THAT MANY COLUMNS ON ANY SCREEN (ADR-055). It
+	// domain.MaxGridColumns, which means THAT MANY COLUMNS ON ANY SCREEN (ADR-057). It
 	// is stated here and applied by the grid, like the two flags above.
 	//
 	// The zero travels rather than being omitted: « automatique » is a VALUE of this

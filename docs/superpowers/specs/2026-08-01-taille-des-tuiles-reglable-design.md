@@ -250,7 +250,7 @@ défilement au lieu de 16. À 16 px, la même grille en montre bien deux.
 **Donc : 16 px, pour le 15″ et pour les densités ≥ 8, jamais pour la cible du magasin.** 14
 px n'achète plus rien là où ça compte — son seul gain propre est à 9 colonnes sur 1920, et
 partout ailleurs il ne rattrape que des densités déjà cassées par le débordement du prix.
-**ADR-055 doit le dire dans ces termes**, et non reprendre l'argument commode qui était
+**ADR-057 doit le dire dans ces termes**, et non reprendre l'argument commode qui était
 écrit ici.
 
 **Un fait pour §14.2, qui ne doit rien à ce chantier** : sur un 15″ en mode automatique,
@@ -497,7 +497,7 @@ pour la conduire.
 
 | Document | Ce qui s'y ajoute |
 |---|---|
-| **ADR-055** | *« Le nombre de colonnes devient un réglage, l'automatique restant le défaut »*. Amende ADR-035 **sans le renverser** — la densité continue reste le comportement livré — et ne ressuscite pas ADR-031. Porte les **trois** décisions : la surcharge par colonnes, l'abaissement du plancher, la mise à l'échelle du plafond |
+| **ADR-057** | *« Le nombre de colonnes devient un réglage, l'automatique restant le défaut »*. Amende ADR-035 **sans le renverser** — la densité continue reste le comportement livré — et ne ressuscite pas ADR-031. Porte les **trois** décisions : la surcharge par colonnes, l'abaissement du plancher, la mise à l'échelle du plafond |
 | §11.2 | La clé, la valeur `0`, et le contrôle neuf au prochain numéro libre |
 | §14.2 | Le plus petit corps de l'échelle ne vaut plus 18 px sur une tuile, et pourquoi ; le plafond suit la tuile |
 | §14.3-1 | La densité reste continue **par défaut**, et devient surchargeable en nombre de colonnes. Les deux contraintes physiques ne bougent pas : elles cessent d'être un interdit et deviennent ce que l'écran d'administration **annonce** |

@@ -2357,7 +2357,7 @@ func TestTheDeliveredFileNeedNotCarryTheGridColumns(t *testing.T) {
 }
 
 // TestTileSizeStaysRetiredBesideTheColumnSetting is the non-regression of the
-// ADR-031 → ADR-035 → ADR-055 round trip.
+// ADR-031 → ADR-035 → ADR-057 round trip.
 //
 // The reopened question is « combien de produits voir d'un coup », which no screen
 // measurement answers; the one ADR-035 closed -- the heterogeneity of the fleet --
