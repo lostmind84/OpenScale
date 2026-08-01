@@ -68,14 +68,14 @@ func runConfig(args []string, in io.Reader, out io.Writer) error {
 		return fmt.Errorf("argument inattendu %q : config prend une action et un fichier", positional[2])
 	}
 
-	cfg, notes, err := readConfigLeniently(path)
+	cfg, notes, decodeFaults, err := readConfigLeniently(path)
 	if err != nil {
 		return fmt.Errorf("le fichier de configuration %s ne peut pas être lu : %w", path, err)
 	}
 
 	switch action {
 	case "validate":
-		return validateConfig(out, path, cfg, notes)
+		return validateConfig(out, path, cfg, notes, decodeFaults)
 	case "export":
 		return exportConfig(out, cfg, *hardware, *output)
 	case "fingerprint":
@@ -127,16 +127,27 @@ qui est tapé — c'est une console de poste, pas un poste de travail partagé.
 // having fixed it, and not discover the second fault after a restart. The exit code is
 // what makes it usable from install.ps1 — a non-zero status means « this station will
 // start in factory configuration ».
-func validateConfig(out io.Writer, path string, cfg domain.Config, notes []domain.MigrationNote) error {
+//
+// That promise is only true because the DECODING faults are counted here too. A block
+// that will not decode falls back on the neutral profile, and the substitute passes
+// Validate without a word: judging on Validate alone answered « aucune faute » about a
+// station that comes up in ERR-CFG-01, while serve — reading the very same file through
+// the very same door — reported it.
+func validateConfig(out io.Writer, path string, cfg domain.Config,
+	notes []domain.MigrationNote, decodeFaults []domain.Fault) error {
+
 	reportPendingMigrations(out, path, notes)
 
 	scales, printers := scaleRegistry(), printerRegistry()
-	faults := cfg.Validate(domain.Registries{
+	// The decoding faults FIRST, and the concatenation is the one serve.go already makes:
+	// a block that was replaced is what makes every value below it suspect, so it is read
+	// before the judgements passed on those values.
+	faults := append(decodeFaults, cfg.Validate(domain.Registries{
 		Scales:         scales.Descriptors(),
 		Printers:       printers.Descriptors(),
 		Transports:     transport.Descriptors(),
 		CatalogSources: catalogSourceDescriptors(),
-	})
+	})...)
 	if len(faults) == 0 {
 		fmt.Fprintf(out, "%s : aucune faute. Empreinte des réglages partagés : %s\n",
 			path, cfg.Fingerprint())
@@ -337,8 +348,12 @@ func exportConfig(out io.Writer, cfg domain.Config, hardware bool, output string
 // reaches disk while a single point is still refused -- see the comment on the refusal
 // branch below for why that has to hold even for a file that carries one point migrate CAN
 // write and one it cannot.
+//
+// A block that would not DECODE suspends it the same way, and that one is not a migration
+// question at all: what this command holds for such a block is the neutral profile, and
+// rewriting the file would post the factory value over whatever the shop had declared.
 func migrateConfig(out io.Writer, path string) error {
-	cfg, notes, _, err := platform.LoadConfig(path)
+	cfg, notes, decodeFaults, err := platform.LoadConfig(path)
 	if err != nil {
 		return fmt.Errorf("le fichier de configuration %s ne peut pas être lu : %w", path, err)
 	}
@@ -364,17 +379,19 @@ func migrateConfig(out io.Writer, path string) error {
 		})
 	}
 
-	if len(notes) == 0 {
+	if len(notes) == 0 && len(decodeFaults) == 0 {
 		fmt.Fprintf(out, "%s est déjà à la forme que ce binaire lit : rien à faire.\n", path)
 		return nil
 	}
 
-	fmt.Fprintf(out, "%s : %d changement(s).\n", path, len(notes))
 	refused := 0
-	for _, note := range notes {
-		fmt.Fprintf(out, "  %s\n", note)
-		if note.Action == domain.MigrationRefused {
-			refused++
+	if len(notes) > 0 {
+		fmt.Fprintf(out, "%s : %d changement(s).\n", path, len(notes))
+		for _, note := range notes {
+			fmt.Fprintf(out, "  %s\n", note)
+			if note.Action == domain.MigrationRefused {
+				refused++
+			}
 		}
 	}
 
@@ -388,6 +405,25 @@ func migrateConfig(out io.Writer, path string) error {
 		return &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf(
 			"%s comporte %d point(s) que ce binaire ne devine pas : le fichier n'est pas "+
 				"modifié, tranchez-le puis relancez la migration", path, refused)}
+	}
+
+	// A block that would not decode is the SAME suspension, for a worse reason. Block-by-
+	// block decoding replaces it with the one of the neutral profile so that the station
+	// still serves its fault list -- but that substitute is a plausible factory value
+	// NOBODY DECLARED, and writing it back would make it the shop's own. Measured on the
+	// delivered file with an unreadable `pricing` block: the members' 10 % discount
+	// disappeared, the command announced one unrelated change and exited 0, and update.ps1
+	// runs it on its own after every successful update.
+	if len(decodeFaults) > 0 {
+		blocks := make([]string, 0, len(decodeFaults))
+		for _, fault := range decodeFaults {
+			fmt.Fprintf(out, "  %s\n", fault.String())
+			blocks = append(blocks, fault.Field)
+		}
+		return &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf(
+			"le bloc %s de %s n'a pas pu être lu : le fichier n'est pas modifié, le réécrire "+
+				"poserait la configuration d'usine à sa place. Corrigez ce bloc, puis relancez "+
+				"la migration", strings.Join(blocks, ", "), path)}
 	}
 
 	store, err := platform.NewConfigStore(path)

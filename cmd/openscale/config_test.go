@@ -636,3 +636,120 @@ func collectStrings(path string, value any, out map[string]string) {
 		}
 	}
 }
+
+// shopFileWithAnUnreadablePricingBlock writes the delivered configuration of §17.2 with
+// two things done to it, and both are needed to reproduce the defect.
+//
+// "bankers" is not one of the three rounding words, so RoundingPolicy.UnmarshalJSON
+// refuses it and the WHOLE pricing block falls back on the neutral profile -- the shop's
+// tariffs, the members' discount included, replaced by the factory grid IN MEMORY.
+// ui.tile_size gives the file a migration that DOES succeed, which is what made the
+// command announce a change, exit 0 and write.
+func shopFileWithAnUnreadablePricingBlock(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(deliveredConfig(t))
+	if err != nil {
+		t.Fatalf("lecture du fichier livré : %v", err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("le fichier livré ne se décode pas : %v", err)
+	}
+
+	var pricing map[string]json.RawMessage
+	if err := json.Unmarshal(document["pricing"], &pricing); err != nil {
+		t.Fatalf("le bloc pricing ne se décode pas : %v", err)
+	}
+	pricing["amount_rounding"] = json.RawMessage(`"bankers"`)
+	document["pricing"] = mustMarshal(t, pricing)
+
+	var ui map[string]json.RawMessage
+	if len(document["ui"]) > 0 {
+		if err := json.Unmarshal(document["ui"], &ui); err != nil {
+			t.Fatalf("le bloc ui ne se décode pas : %v", err)
+		}
+	} else {
+		ui = map[string]json.RawMessage{}
+	}
+	ui["tile_size"] = json.RawMessage(`"large"`)
+	document["ui"] = mustMarshal(t, ui)
+
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, mustMarshal(t, document), 0o644); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+	return path
+}
+
+func mustMarshal(t *testing.T, value any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("encodage : %v", err)
+	}
+	return raw
+}
+
+// TestMigrateRefusesToWriteOverABlockItCouldNotRead.
+//
+// Block-by-block decoding turned a fault the operator SAW into a plausible factory value
+// nobody declared, and `config migrate` -- which update.ps1 runs on its own after every
+// successful update -- wrote it back. Reproduced on the delivered file: the shop's
+// tariffs became [('STANDARD', None)], the members' 10 % discount was gone, and the
+// command reported one unrelated change and exited 0.
+func TestMigrateRefusesToWriteOverABlockItCouldNotRead(t *testing.T) {
+	path := shopFileWithAnUnreadablePricingBlock(t)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("lecture : %v", err)
+	}
+
+	var out bytes.Buffer
+	runErr := runConfig([]string{"migrate", path}, nil, &out)
+	if runErr == nil {
+		t.Fatal("la migration a réécrit un fichier dont un bloc n'a pas pu être lu")
+	}
+	if exitCodeFor(runErr) == 0 {
+		t.Fatal("code de sortie nul : update.ps1 ne verrait rien")
+	}
+	// The BLOCK, by name: « un changement » on another key is what made the operator
+	// believe the tariffs had been read.
+	if !strings.Contains(runErr.Error(), "pricing") {
+		t.Errorf("le refus ne nomme pas le bloc en cause : %v", runErr)
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("relecture : %v", err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("le fichier a été réécrit :\navant : %s\naprès : %s", before, after)
+	}
+	if _, err := os.Stat(path + ".1"); err == nil {
+		t.Error("une version a été tournée alors que rien ne devait être écrit")
+	}
+}
+
+// TestValidateReportsTheDecodingFaultsTheStationWouldStartWith.
+//
+// `openscale config validate` computed Config.Validate alone, and the neutral block
+// substituted for the unreadable one passes it without complaint: the command answered
+// « aucune faute » about a file the station comes up on in ERR-CFG-01. serve already
+// concatenates the decoding faults; the two doors must not disagree, which is the whole
+// point of one single entrance. install.ps1 reads this status.
+func TestValidateReportsTheDecodingFaultsTheStationWouldStartWith(t *testing.T) {
+	path := shopFileWithAnUnreadablePricingBlock(t)
+
+	var out bytes.Buffer
+	err := runConfig([]string{"validate", path}, nil, &out)
+	if err == nil {
+		t.Fatalf("« aucune faute » sur un fichier qui démarre en configuration d'usine :\n%s",
+			out.String())
+	}
+	if exitCodeFor(err) == 0 {
+		t.Fatal("code de sortie nul : install.ps1 croirait le poste sain")
+	}
+	if !strings.Contains(out.String(), "pricing") {
+		t.Errorf("le bloc illisible n'est pas nommé :\n%s", out.String())
+	}
+}

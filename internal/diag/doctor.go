@@ -688,6 +688,12 @@ func (d *Doctor) checkConfiguration(loaded loadedConfig) Control {
 				"(update.ps1 ou update.sh) sur CE poste disent ce qui a échoué. « openscale config " +
 				"migrate " + d.o.ConfigPath + " » ne réécrira rien tant que ce fichier vient d'un " +
 				"binaire plus récent."
+		// Unreachable TODAY, and kept because it is the right welcome for the first refusal
+		// that is not one of retiredKeys. Every refusal this binary can produce on a key
+		// other than `version` LEAVES THAT KEY IN THE DOCUMENT -- that is what a refusal
+		// consists of (ADR-058) -- so Config.Retired() finds it and the branch above returns
+		// first. Only `version` reaches a refusal with nothing left behind, and it has its
+		// own case, right above this one.
 		case len(refused) > 0:
 			control.Observed = fmt.Sprintf("aucune faute ; empreinte %s ; %s porte %d changement(s) "+
 				"que ce binaire ne convertit pas — « openscale config migrate » les nommera, chacun "+
