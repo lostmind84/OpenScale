@@ -153,10 +153,14 @@
      * What the two bodies meeting at that floor costs is ONE signal out of four:
      * the ink (`--ink` against `--ink-muted`), the weight (700 against 400) and
      * the badge (solid against hollow) carry the hierarchy of ADR-036 intact.
-     * What it costs in HEIGHT has still to be measured — two prices at the floor
-     * make a taller block than 18 and 12,8 px, so this may reopen some of the
-     * overflow the scaling closes. The second campaign says; and if it does, the
-     * upper bound of the setting is what moves, not this floor.
+     * What it costs in HEIGHT was the open question, and it has been ANSWERED:
+     * two prices at the floor make a taller block than one at the floor and one
+     * under it, which could have reopened the overflow this scaling closes.
+     * Measured 01/08/2026 in two tiers, floor at 16 px, on 1366 / 1920 / 3840 and
+     * from 3 to 12 columns: nothing cropped, no horizontal scrollbar anywhere. At
+     * 12 columns on a 15" the two floored lines run 4,19 px past their content
+     * box for 5,60 px of padding — they eat into the padding and stop 2,13 px
+     * short of the tile's edge. The upper bound of the setting holds.
      *
      * Declared HERE, on the tile, and not on `.price`: a custom property resolves
      * its `var()` at the element that declares it, and `--tile-scale` is

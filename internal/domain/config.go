@@ -205,13 +205,19 @@ const (
 	GridColumnsAutomatic = 0
 	// MinGridColumns is the floor of the override: under three, a grid is no longer a
 	// grid.
+	//
+	// True of the reference screen and FALSE of a 15", where three columns in two tiers
+	// show no whole tile at all -- 439,6 px of tile for 424 px of height. That is
+	// geometry, not a defect, and it is what §14.4 shows an operator BEFORE the save.
 	MinGridColumns = 3
 	// MaxGridColumns is the ceiling: beyond twelve, the tile of the reference screen of
 	// §14.2 passes under what that section holds for readable.
 	//
-	// The browser measurement in progress -- 355 real products, every count from
-	// MinGridColumns to MaxGridColumns, on 1366, 1920 and 3840 -- CONFIRMS OR MOVES this
-	// number. It does not claim to deduce it.
+	// CONFIRMED by browser measurement on 01/08/2026 -- 355 real products, every count
+	// from MinGridColumns to MaxGridColumns, on 1366, 1920 and 3840, in two tiers: no
+	// name cropped, no price cropped, no horizontal scrollbar anywhere. It holds ONLY
+	// because the typographic floor came down to 16 px: at 18, twelve columns on a 15"
+	// cropped 38 prices and this ceiling would have had to be 11 (ADR-057).
 	MaxGridColumns = 12
 )
 
