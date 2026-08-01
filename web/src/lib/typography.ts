@@ -7,9 +7,14 @@
  * « ♥AA-LA TOMME DES CROQUANTS AFFINE A LA LI… » cannot tell two cheeses apart.
  *
  * The mechanism is the one of the label (§7.3): shrink by small steps down to a
- * floor. The floor is the smallest body the typographic scale of §14.2 declares —
- * 18 px, its « mention légale » — because below that nothing on this screen is
- * meant to be read at 60 to 80 cm.
+ * floor. The floor is the smallest body the typographic scale of §14.2 declares,
+ * because below that nothing on this screen is meant to be read at 60 to 80 cm.
+ *
+ * **The two ends of that shrink are not of the same nature**, which is why one
+ * follows the tile and the other does not. The ceiling is a PROPORTION: a tile
+ * twice as wide that kept a 34 px name would offer a better photo and THE SAME
+ * text, when legibility is exactly what an operator buys by going airier. The
+ * floor is a distance to a pair of eyes, and no column count moves that.
  *
  * **What is held constant is the BOX, not the number of lines** (ADR-030). A name
  * is fitted into a block of fixed height, and a smaller body buys more lines
@@ -19,10 +24,23 @@
  * of 34 px and three lines of 18 px are two different tiles.
  */
 
-/** Nominal body of a tile name, in px on the 16 px reference base: 34 px (§14.2). */
+/**
+ * Nominal body of a tile name on a tile of `--tile-min`, in px on the 16 px
+ * reference base: 34 px (§14.2).
+ *
+ * A ceiling, and a ceiling only: {@link nameSizeCeiling} is what the grid asks
+ * for once a column count has made the tile bigger or smaller than that.
+ */
 export const NAME_SIZE_MAX_PX = 34
 
-/** Smallest body the scale of §14.2 declares, and therefore the floor of the shrink. */
+/**
+ * Smallest body the scale of §14.2 declares, and therefore the floor of the shrink.
+ *
+ * INDEPENDENT of the tile scale, and of every setting: it answers « can this be
+ * read at 60 to 80 cm », a question no column count asks. It is a declared
+ * constant, not a derived one — the number a browser measurement fixes, not one
+ * an arithmetic produces.
+ */
 export const NAME_SIZE_MIN_PX = 18
 
 /** Shrink step. Half a pixel is to this screen what 0,1 mm is to the label (§7.3). */
@@ -84,6 +102,25 @@ export function linesAvailable(sizePx: number, boxHeightPx: number): number {
 }
 
 /**
+ * The body a name starts its shrink from, once the tile has been scaled.
+ *
+ * The ceiling FOLLOWS the tile and the floor does not, and that asymmetry is the
+ * whole point: 34 px was measured on a tile of `--tile-min`, so a tile drawn at
+ * half that width has no business starting a name at 34 px, and one drawn at
+ * twice that width has every reason to go past it.
+ *
+ * It never dips under {@link NAME_SIZE_MIN_PX}: a shrink whose ceiling sits below
+ * its floor has nothing left to try, and the floor is the answer anyway.
+ *
+ * @param tileScale - the width of a real column over the width of `--tile-min`;
+ * 1 in automatic mode, where nothing here has any effect.
+ * @returns the body {@link fitNameSize} starts at, in px.
+ */
+export function nameSizeCeiling(tileScale: number): number {
+  return Math.max(NAME_SIZE_MIN_PX, NAME_SIZE_MAX_PX * tileScale)
+}
+
+/**
  * Finds the largest body at which a name fills its block without overflowing it.
  *
  * When even the floor overflows — which no real name does, and a 500 character
@@ -95,7 +132,9 @@ export function linesAvailable(sizePx: number, boxHeightPx: number): number {
  * @param contentWidthPx - usable width inside the tile, padding already removed.
  * @param measure - measures a run of text at {@link REFERENCE_SIZE_PX}.
  * @param boxHeightPx - height of the name block; defaults to {@link NAME_BOX_PX}.
- * @returns a body in px, between {@link NAME_SIZE_MIN_PX} and {@link NAME_SIZE_MAX_PX}.
+ * @param maxSizePx - body to start the shrink at; defaults to
+ * {@link NAME_SIZE_MAX_PX}, and comes from {@link nameSizeCeiling} on a scaled tile.
+ * @returns a body in px, between {@link NAME_SIZE_MIN_PX} and `maxSizePx`.
  * @example
  * fitNameSize('AIL', 207, measureAtReferenceSize) // 34
  */
@@ -104,14 +143,15 @@ export function fitNameSize(
   contentWidthPx: number,
   measure: Measurer,
   boxHeightPx: number = NAME_BOX_PX,
+  maxSizePx: number = NAME_SIZE_MAX_PX,
 ): number {
   const pieces = tokenize(name, measure)
-  if (pieces.length === 0 || contentWidthPx <= 0) return NAME_SIZE_MAX_PX
+  if (pieces.length === 0 || contentWidthPx <= 0) return maxSizePx
 
   const spaceWidth = spaceAdvance(measure)
   const usable = contentWidthPx * (1 - MEASUREMENT_TOLERANCE)
 
-  for (let size = NAME_SIZE_MAX_PX; size > NAME_SIZE_MIN_PX; size -= NAME_SIZE_STEP_PX) {
+  for (let size = maxSizePx; size > NAME_SIZE_MIN_PX; size -= NAME_SIZE_STEP_PX) {
     const scale = size / REFERENCE_SIZE_PX
     if (wrappedLines(pieces, spaceWidth, scale, usable) <= linesAvailable(size, boxHeightPx)) {
       return size

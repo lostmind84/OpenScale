@@ -7,6 +7,7 @@ import {
   REFERENCE_SIZE_PX,
   fitNameSize,
   linesAvailable,
+  nameSizeCeiling,
   type Measurer,
 } from '../src/lib/typography'
 import { catalogFromExport } from './fixtures/odoo'
@@ -90,13 +91,103 @@ function linesUsed(name: string, sizePx: number, widthPx: number, measure: Measu
 }
 
 describe('linesAvailable — un corps plus petit achète des lignes dans le même bloc', () => {
-  it('donne 2 lignes au corps nominal et 4 au plancher, dans 88 px', () => {
+  it('donne 2 lignes au corps nominal et au moins 4 au plancher', () => {
+    // « au moins 4 » et non « 4 » : le plancher est le nombre qu'une mesure au
+    // navigateur est en train de fixer, et le faire descendre n'achète que des
+    // lignes. Écrire 4 en dur ferait échouer ce banc sur une valeur MEILLEURE.
     expect(linesAvailable(NAME_SIZE_MAX_PX, NAME_BOX_PX)).toBe(2)
-    expect(linesAvailable(NAME_SIZE_MIN_PX, NAME_BOX_PX)).toBe(4)
+    expect(linesAvailable(NAME_SIZE_MIN_PX, NAME_BOX_PX)).toBeGreaterThanOrEqual(4)
   })
 
   it('rend toujours au moins une ligne, même sur un bloc absurde', () => {
     expect(linesAvailable(NAME_SIZE_MAX_PX, 0)).toBe(1)
+  })
+})
+
+describe('le plafond suit la tuile, le plancher non', () => {
+  const measure = measurerAt(0.55)
+
+  it('vaut le corps nominal à l’échelle 1 : le mode automatique n’est pas touché', () => {
+    expect(nameSizeCeiling(1)).toBe(NAME_SIZE_MAX_PX)
+  })
+
+  it('grandit avec elle — une tuile deux fois plus large mérite mieux que le même texte', () => {
+    // C'est tout l'argument : à 4 colonnes sur un grand écran, garder 34 px
+    // offrirait une plus belle photo et RIEN de plus à lire, alors que la
+    // lisibilité est précisément ce qu'on achète en allant vers l'aéré.
+    expect(nameSizeCeiling(1.5)).toBe(NAME_SIZE_MAX_PX * 1.5)
+    expect(nameSizeCeiling(2)).toBeGreaterThan(nameSizeCeiling(1))
+  })
+
+  it('rapetisse avec elle — à 12 colonnes la tuile perd de la largeur, le nom aussi', () => {
+    expect(nameSizeCeiling(0.7)).toBeCloseTo(NAME_SIZE_MAX_PX * 0.7)
+  })
+
+  it('ne passe jamais sous le plancher : une descente sans course rend le plancher', () => {
+    expect(nameSizeCeiling(0.1)).toBe(NAME_SIZE_MIN_PX)
+  })
+
+  it('BORNÉ PAR LE BAS au cas mesuré : 17,6 px à 10 colonnes sur 1920', () => {
+    // Sans cette borne, `fitNameSize` partirait d'un plafond INFÉRIEUR à son
+    // propre plancher : sa boucle ne s'exécuterait pas, les 331 noms sortiraient
+    // au plancher, et rien — ni test rouge, ni journal — ne le dirait. Le cas
+    // casse dès 9 colonnes sur 1366.
+    const scale = 17.6 / NAME_SIZE_MAX_PX
+    expect(NAME_SIZE_MAX_PX * scale).toBeLessThan(NAME_SIZE_MIN_PX)
+    expect(nameSizeCeiling(scale)).toBe(NAME_SIZE_MIN_PX)
+  })
+
+  it('et la descente rend alors le plancher plutôt que de partir à l’envers', () => {
+    const scale = 17.6 / NAME_SIZE_MAX_PX
+    const size = fitNameSize(
+      'AIL',
+      TILE_CONTENT_PX * scale,
+      measure,
+      NAME_BOX_PX * scale,
+      nameSizeCeiling(scale),
+    )
+    expect(size).toBe(NAME_SIZE_MIN_PX)
+  })
+
+  it('rend au nom court le plafond MIS À L’ÉCHELLE, et non 34 px', () => {
+    const scale = 1.5
+    const size = fitNameSize(
+      'AIL',
+      TILE_CONTENT_PX * scale,
+      measure,
+      NAME_BOX_PX * scale,
+      nameSizeCeiling(scale),
+    )
+    expect(size).toBe(NAME_SIZE_MAX_PX * scale)
+  })
+
+  it.each([0.7, 1, 1.5, 2])(
+    'LE PLANCHER NE BOUGE PAS : à l’échelle %f, un nom impossible y tombe encore',
+    (scale) => {
+      // La lisibilité à 60-80 cm n'est pas une proportion de la tuile, et aucun
+      // nombre de colonnes ne la négocie. Les deux bouts de la descente ne sont
+      // pas de même nature : c'est la seule raison pour laquelle ils diffèrent.
+      const size = fitNameSize(
+        'X'.repeat(500),
+        TILE_CONTENT_PX * scale,
+        measure,
+        NAME_BOX_PX * scale,
+        nameSizeCeiling(scale),
+      )
+      expect(size).toBe(NAME_SIZE_MIN_PX)
+    },
+  )
+
+  it('ne tronque pas davantage une fois mis à l’échelle : c’est un corps qui sort, jamais « … »', () => {
+    const size = fitNameSize(
+      LONGEST_REAL_NAME,
+      TILE_CONTENT_PX * 0.7,
+      measure,
+      NAME_BOX_PX * 0.7,
+      nameSizeCeiling(0.7),
+    )
+    expect(size).toBeGreaterThanOrEqual(NAME_SIZE_MIN_PX)
+    expect(size).toBeLessThanOrEqual(nameSizeCeiling(0.7))
   })
 })
 

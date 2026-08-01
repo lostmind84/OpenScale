@@ -170,6 +170,16 @@ export interface StateDTO {
   degraded: DegradationDTO | null
   /** Combien de tuiles la grille porte — les tuiles, elles, viennent du catalogue. */
   catalog_count: number
+  /**
+   * L'empreinte des réglages d'écran, OPAQUE : elle se compare, elle ne se lit pas.
+   *
+   * Calculée côté Go sur le contenu du bloc de présentation seul, et non sur la
+   * configuration entière : un changement de port série ne doit pas faire recharger
+   * le catalogue. Ce que le navigateur en fait est en un seul endroit,
+   * `Session.#receive` — un champ ajouté demain à la présentation y entre sans que
+   * personne n'ait à y penser.
+   */
+  presentation_digest: string
   unlogged_weighings_count: number
 }
 

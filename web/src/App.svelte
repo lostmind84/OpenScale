@@ -275,6 +275,7 @@
     {rejectedID}
     {busyID}
     showPrices={settings.show_grid_prices}
+    gridColumns={settings.grid_columns}
     loading={catalog === null && session.catalogError === ''}
     emptyMessage={empty.message}
     emptyHint={empty.hint}

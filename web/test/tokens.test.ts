@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { NAME_SIZE_MIN_PX } from '../src/lib/typography'
 
 /**
  * Les jetons tiennent-ils les deux règles physiques de §14.2 ?
@@ -179,11 +180,123 @@ describe('les cibles tactiles de §14.2', () => {
   })
 })
 
+/** La valeur déclarée d'un jeton de `app.css`, jusqu'au point-virgule. */
+function declarationOf(css: string, token: string): string {
+  return new RegExp(`${token}:\\s*([^;]+);`, 'u').exec(css)?.[1] ?? ''
+}
+
 describe('la densité de grille (ADR-035)', () => {
   it('la densité de grille est continue : plus de palier data-tile-size', () => {
     const css = readFileSync(join(SOURCE_DIR, 'app.css'), 'utf8')
     expect(css).not.toMatch(/\[data-tile-size/)
     expect(css).toMatch(/--tile-min:\s*clamp\(/)
     expect(css).toMatch(/--tile-height:\s*calc\(/)
+  })
+})
+
+describe('le facteur d’échelle de la tuile', () => {
+  const css = readFileSync(join(SOURCE_DIR, 'app.css'), 'utf8')
+
+  it('déclare les jetons mis à l’échelle pour :root ET pour qui porte une échelle', () => {
+    // Une propriété personnalisée voit ses `var()` substitués À L'ÉLÉMENT QUI LA
+    // DÉCLARE : écrits sur `:root` seul, ces jetons se figeraient contre le
+    // facteur de la racine, et une sonde qui pose le sien plus bas hériterait
+    // d'une valeur déjà calculée contre 1 — sans que rien ne bouge, en silence.
+    const block = /:root,\s*\[data-tile-scale\]\s*\{([\s\S]*?)\n\}/u.exec(css)?.[1] ?? ''
+    for (const token of ['--tile-media', '--tile-name', '--tile-pad', '--tile-height']) {
+      expect(block).toContain(`${token}:`)
+    }
+  })
+
+  it('déclare --tile-scale à 1 dans :root, sans quoi la grille casserait AU REPOS', () => {
+    // Un `calc()` qui porte une propriété personnalisée non définie est invalide
+    // à la valeur calculée : les trois jetons ci-dessous perdraient leur valeur,
+    // et c'est le poste qui ne règle rien qui le paierait.
+    expect(declarationOf(css, '--tile-scale')).toBe('1')
+  })
+
+  it.each(['--tile-media', '--tile-name', '--tile-pad'])('%s porte var(--tile-scale)', (token) => {
+    expect(declarationOf(css, token)).toMatch(
+      /^calc\(\s*clamp\([^)]*\)\s*\*\s*var\(--tile-scale\)\s*\)$/u,
+    )
+  })
+
+  it('--tile-min ne le porte PAS : il calibre l’échelle et sert encore auto-fill', () => {
+    const declared = declarationOf(css, '--tile-min')
+    expect(declared).toBe('clamp(15rem, 19vw, 22rem)')
+    expect(declared).not.toContain('--tile-scale')
+  })
+
+  it('--tile-height se recompose des jetons mis à l’échelle et n’en porte pas un de plus', () => {
+    expect(declarationOf(css, '--tile-height')).not.toContain('--tile-scale')
+  })
+
+  it('ne met à l’échelle ni l’interligne plaque-nom, ni les deux bordures', () => {
+    // Une bordure de 0,7 px n'est pas une bordure : ces deux littéraux restent
+    // absolus dans le `calc` de --tile-height.
+    const height = declarationOf(css, '--tile-height')
+    expect(height).toContain('0.5rem')
+    expect(height).toContain('2px')
+    expect(height).not.toMatch(/(?:0\.5rem|2px)\s*\*/u)
+  })
+})
+
+describe('le plancher de lisibilité, écrit des deux côtés et jamais deux fois différent', () => {
+  const css = readFileSync(join(SOURCE_DIR, 'app.css'), 'utf8')
+
+  it('déclare --text-min à la valeur EXACTE de NAME_SIZE_MIN_PX', () => {
+    // Le CSS dessine le prix, le TypeScript choisit le corps du nom : le même
+    // plancher vit donc aux deux endroits. Ce cas est ce qui interdit qu'il
+    // descende à 16 d'un seul côté — un compteur recopié finit par mentir.
+    const declared = /--text-min:\s*([\d.]+)rem/u.exec(css)
+    expect(declared).not.toBeNull()
+    expect(Number(declared?.[1]) * 16).toBe(NAME_SIZE_MIN_PX)
+  })
+
+  it('ne le met pas à l’échelle : une distance de lecture n’est pas une proportion', () => {
+    expect(declarationOf(css, '--text-min')).not.toContain('--tile-scale')
+  })
+})
+
+describe('le bloc des prix suit la tuile (mesure du 01/08/2026)', () => {
+  const tile = readFileSync(join(SOURCE_DIR, 'components/Tile.svelte'), 'utf8')
+
+  // Laissé constant, le prix sortait de sa tuile dès 10 colonnes sur 1920 et
+  // donnait à l'écran client une barre de défilement HORIZONTALE — 66 px sur
+  // 1366, avec « 20,09 €/kg » rogné en « 20,09 €/ ». Un kiosque n'en a pas.
+  it.each([
+    ['--price-size', '1.75rem'],
+    ['--price-size-secondary', '1.25rem'],
+  ])('%s descend avec l’échelle et s’arrête au plancher', (token, nominal) => {
+    expect(tile).toMatch(
+      new RegExp(`${token}:\\s*max\\(\\s*var\\(--text-min\\),\\s*${nominal}\\s*\\*\\s*var\\(--tile-scale\\)\\s*\\)`, 'u'),
+    )
+  })
+
+  it('PLANCHER SUR LES DEUX PRIX : il ne connaît pas d’exception selon qui paie', () => {
+    // Au seul rapport, le second tarif sortait à 15,1 px à 7 colonnes sur 1920,
+    // sous un plancher qui existe pour dire « en dessous, personne ne lit ». Un
+    // plancher qui vaut pour un prix sur deux n'est pas un plancher. Ce que les
+    // deux corps réunis coûtent est UN signal sur quatre : l'encre, la graisse
+    // et le badge portent la hiérarchie d'ADR-036 intacte.
+    const block = /\.price\s*\{[\s\S]*?\.price\.secondary\s*\{[^}]*\}/u.exec(tile)?.[0] ?? ''
+    expect(block).not.toBe('')
+    expect(block).not.toMatch(/font-size:\s*[\d.]+rem/u)
+    expect(block).toContain('font-size: var(--price-size)')
+    expect(block).toContain('font-size: var(--price-size-secondary)')
+  })
+
+  it('garde les trois autres signaux de la hiérarchie, que le plancher n’aplatit pas', () => {
+    const secondary = /\.price\.secondary\s*\{[^}]*\}/u.exec(tile)?.[0] ?? ''
+    expect(secondary).toContain('color: var(--ink-muted)')
+    expect(secondary).toContain('font-weight: 400')
+    expect(tile).toMatch(/\.abbrev\.hollow\s*\{/u)
+  })
+
+  it('met à l’échelle les espacements du bloc, et laisse le filet à 1px', () => {
+    const block = /\.prices\s*\{[^}]*\}/u.exec(tile)?.[0] ?? ''
+    expect(block).toMatch(/gap:\s*calc\([\d.]+rem\s*\*\s*var\(--tile-scale\)\)/u)
+    expect(block).toMatch(/padding-top:\s*calc\([\d.]+rem\s*\*\s*var\(--tile-scale\)\)/u)
+    expect(block).toContain('border-top: 1px solid var(--border)')
   })
 })

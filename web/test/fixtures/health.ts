@@ -98,6 +98,9 @@ export function nominalState(overrides: Partial<StateDTO> = {}): StateDTO {
     },
     degraded: null,
     catalog_count: 331,
+    // Opaque, et figée : seul son CHANGEMENT a un sens, et aucun de ces bancs n'en
+    // décrit un. `session.test.ts` est celui qui la fait bouger.
+    presentation_digest: 'p1',
     unlogged_weighings_count: 0,
     ...overrides,
   }

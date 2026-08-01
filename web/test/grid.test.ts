@@ -1,7 +1,11 @@
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 import Grid from '../src/components/Grid.svelte'
 import { ALL_CATEGORIES, filterProducts, visibleProducts, type Product } from '../src/lib/catalog'
+import { NAME_SIZE_MAX_PX } from '../src/lib/typography'
 import { catalogFromExport } from './fixtures/odoo'
 
 /**
@@ -43,6 +47,16 @@ function render(list: Product[], extra: Record<string, unknown> = {}): HTMLEleme
   component = mount(Grid, { target: host, props: { products: list, onpick: () => {}, ...extra } })
   flushSync()
   return [...host.querySelectorAll<HTMLElement>('button[data-product-id]')]
+}
+
+/** L'élément qui porte la déclaration de grille. */
+function grid(): HTMLElement {
+  return host?.querySelector('.grid') as HTMLElement
+}
+
+/** Le scroller, qui porte le facteur d'échelle de CETTE grille. */
+function scroller(): HTMLElement {
+  return host?.querySelector('.grid-scroll') as HTMLElement
 }
 
 describe('la grille, sur le catalogue réel de testdata/catalog/flv.csv', () => {
@@ -127,6 +141,83 @@ describe('la recherche, filtre en place et sans plafond de résultats', () => {
     const many = filterProducts(products, ALL_CATEGORIES, 'a')
     expect(many.length).toBeGreaterThan(50)
     expect(render(many)).toHaveLength(many.length)
+  })
+})
+
+describe('le nombre de colonnes, réglable et automatique par défaut', () => {
+  const source = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), '../src/components/Grid.svelte'),
+    'utf8',
+  )
+  const few = products.slice(0, 12)
+
+  it('à 0, la feuille de style porte MOT POUR MOT la déclaration d’aujourd’hui', () => {
+    expect(source).toContain(
+      'grid-template-columns: repeat(auto-fill, minmax(var(--tile-min), 1fr));',
+    )
+  })
+
+  it('à 0, ne pose AUCUNE déclaration en ligne : la feuille de style reste seule à décider', () => {
+    render(few, { gridColumns: 0 })
+    expect(grid().getAttribute('style')).toBeNull()
+  })
+
+  it('sans le réglage du tout, se comporte comme à 0 — une configuration d’avant passe', () => {
+    render(few)
+    expect(grid().getAttribute('style')).toBeNull()
+  })
+
+  // Le point-virgule final est celui que Svelte ajoute en normalisant l'attribut :
+  // c'est le DOM qui est vérifié ici, pas la chaîne que le composant a écrite.
+  it.each([3, 7, 12])('à %i, déclare repeat(N, minmax(0, 1fr))', (columns) => {
+    render(few, { gridColumns: columns })
+    expect(grid().getAttribute('style')).toBe(
+      `grid-template-columns: repeat(${columns}, minmax(0, 1fr));`,
+    )
+  })
+
+  it('n’écrit JAMAIS 1fr seul, qui vaut minmax(auto, 1fr)', () => {
+    // Une piste `auto` ne descend pas sous la largeur min-content de son contenu,
+    // et le contenu contient « CRANBERRY/CANNEBERGES » : à 10 colonnes, `1fr`
+    // donnerait une grille plus large que l'écran. Même piège que Tile.svelte:132.
+    render(few, { gridColumns: 10 })
+    expect(grid().getAttribute('style')).not.toMatch(/repeat\(\d+,\s*1fr\)/u)
+  })
+
+  it('donne au squelette de chargement la grille du poste, et non celle d’un autre', () => {
+    render([], { gridColumns: 6, loading: true })
+    expect(grid().getAttribute('style')).toBe('grid-template-columns: repeat(6, minmax(0, 1fr));')
+  })
+})
+
+describe('le repli sans mise en page, qui est ce que jsdom permet de vérifier', () => {
+  // jsdom ne fait AUCUNE mise en page : ni `clamp()`, ni `auto-fill`, ni la
+  // largeur d'une sonde. Ce qui se teste ici est donc le repli — pas de sonde,
+  // facteur 1 — exactement comme l'absence de `document.fonts`. Les nombres, eux,
+  // se mesurent au navigateur.
+  const few = products.slice(0, 12)
+
+  it('reste au facteur 1 : une sonde à 0 ne donne pas un facteur', () => {
+    render(few, { gridColumns: 7 })
+    expect(scroller().getAttribute('style')).toContain('--tile-scale: 1')
+  })
+
+  it('n’écrit ni NaN ni Infinity, qui invalideraient les quatre jetons d’un coup', () => {
+    render(few, { gridColumns: 7 })
+    expect(scroller().getAttribute('style') ?? '').not.toMatch(/NaN|Infinity/u)
+  })
+
+  it('porte le facteur sur SON scroller, jamais sur la racine du document', () => {
+    // L'administration s'ouvre dans la même fenêtre et pose le sien pour mesurer
+    // un brouillon : deux échelles à la fois, chacune sur son sous-arbre.
+    render(few, { gridColumns: 7 })
+    expect(scroller().hasAttribute('data-tile-scale')).toBe(true)
+    expect(document.documentElement.style.getPropertyValue('--tile-scale')).toBe('')
+  })
+
+  it('laisse les noms à leur corps nominal, comme sans canvas', () => {
+    const tile = render(few, { gridColumns: 7 })[0] as HTMLElement
+    expect(tile.querySelector<HTMLElement>('.name')?.style.fontSize).toBe(`${NAME_SIZE_MAX_PX}px`)
   })
 })
 

@@ -66,6 +66,15 @@ export interface Presentation {
    * jeton que la caisse lit. La colonne `unite` du CSV n'est qu'un libellé de prix.
    */
   show_by_unit_products: boolean
+  /**
+   * Le nombre de colonnes de la grille. `0` — le défaut — laisse `auto-fill` décider.
+   *
+   * Le défaut n'est PAS un nombre, c'est un comportement : une configuration écrite
+   * avant ce réglage garde la densité continue d'ADR-035 sur tous les écrans, sans
+   * qu'un `5` figé vienne casser le 4K qui en montrait 10. Toute autre valeur est
+   * ce nombre de colonnes partout — le fichier décrit une grille, pas une préférence.
+   */
+  grid_columns: number
 }
 
 /** Le corps de `GET /api/v1/catalog`. */
