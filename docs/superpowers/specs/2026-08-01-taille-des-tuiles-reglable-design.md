@@ -23,9 +23,10 @@ que l'intervalle offert aille du très aéré au très dense — de l'ordre de *
 — et que se tromper ne coûte rien d'autre que d'y revenir.
 
 > ⚠️ **Ce couple était une illustration, et la mesure montre qu'il n'existe nulle part.**
-> En double tarif avec les prix affichés, 3 colonnes donnent **1** rangée sur 1920, 1 sur le
-> 4K et **0** sur un 15″ ; 10 × 5 n'apparaît que sur le 4K, ou sur 1920 prix masqués.
-> L'intervalle réellement offert va de **3 × 1 à 12 × 5 selon l'écran et la configuration**.
+> En double tarif avec les prix affichés, l'intervalle réellement offert va de **3 × 0** —
+> un 15″ à 3 colonnes ne montre aucune tuile en entier — à **12 × 5** sur un 4K. Le couple
+> 10 × 5 n'apparaît qu'en **mono-tarif** : sur un 4K, ou sur 1920 prix masqués ; sur un 4K
+> en double tarif, 10 colonnes donnent 10 × 4, et les cinq rangées commencent à 11.
 > Les bornes du réglage ne bougent pas pour autant — mais **ce couple ne doit pas être
 > repris dans la documentation**, où il promettrait une aération que personne n'obtiendra.
 
