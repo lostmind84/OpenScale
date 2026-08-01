@@ -38,10 +38,25 @@ export const NAME_SIZE_MAX_PX = 34
  *
  * INDEPENDENT of the tile scale, and of every setting: it answers « can this be
  * read at 60 to 80 cm », a question no column count asks. It is a declared
- * constant, not a derived one — the number a browser measurement fixes, not one
+ * constant, not a derived one — a number a browser measurement fixes, never one
  * an arithmetic produces.
+ *
+ * **16 and no longer 18, and the reason is not the look of the names.** Since the
+ * floor bounds the PRICE too, it stopped deciding legibility alone and started
+ * deciding the upper bound of the setting: at 18, a price at 12 columns on a 15"
+ * cannot shrink any further and runs 3,2 px past its tile, which the client
+ * screen answers with 1 px of horizontal scrollbar — on a kiosk, where there is
+ * nothing to drag it with. **16 is the highest floor at which 12 columns holds on
+ * all three screens.** Second reason, real but secondary: at 6 columns on 1366,
+ * 18 px puts 74 names on the floor and leaves 35 rows out of 56 uneven; 16 brings
+ * that to 6 and 3.
+ *
+ * **The reason the design document gave is FALSE, and it is written here so that
+ * nobody restores it**: at 7 columns on 1920 — the density the shop asked for —
+ * a floor of 18 puts exactly ONE name out of 331 on the floor. The floor came
+ * down for the 15" and for the price, NOT for the target.
  */
-export const NAME_SIZE_MIN_PX = 18
+export const NAME_SIZE_MIN_PX = 16
 
 /** Shrink step. Half a pixel is to this screen what 0,1 mm is to the label (§7.3). */
 export const NAME_SIZE_STEP_PX = 0.5

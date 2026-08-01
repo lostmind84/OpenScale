@@ -104,6 +104,9 @@ describe('linesAvailable — un corps plus petit achète des lignes dans le mêm
   })
 })
 
+/** L'échelle à laquelle le plafond brut tombe juste sous le plancher COURANT. */
+const SCALE_UNDER_FLOOR = (NAME_SIZE_MIN_PX - 1) / NAME_SIZE_MAX_PX
+
 describe('le plafond suit la tuile, le plancher non', () => {
   const measure = measurerAt(0.55)
 
@@ -127,24 +130,28 @@ describe('le plafond suit la tuile, le plancher non', () => {
     expect(nameSizeCeiling(0.1)).toBe(NAME_SIZE_MIN_PX)
   })
 
-  it('BORNÉ PAR LE BAS au cas mesuré : 17,6 px à 10 colonnes sur 1920', () => {
+  it('BORNÉ PAR LE BAS : sous cette échelle, le plafond brut passe sous le plancher', () => {
     // Sans cette borne, `fitNameSize` partirait d'un plafond INFÉRIEUR à son
     // propre plancher : sa boucle ne s'exécuterait pas, les 331 noms sortiraient
-    // au plancher, et rien — ni test rouge, ni journal — ne le dirait. Le cas
-    // casse dès 9 colonnes sur 1366.
-    const scale = 17.6 / NAME_SIZE_MAX_PX
-    expect(NAME_SIZE_MAX_PX * scale).toBeLessThan(NAME_SIZE_MIN_PX)
-    expect(nameSizeCeiling(scale)).toBe(NAME_SIZE_MIN_PX)
+    // au plancher, et rien — ni test rouge, ni journal — ne le dirait.
+    //
+    // Mesuré le 01/08/2026 : le plafond brut valait 17,6 px à 10 colonnes sur
+    // 1920 quand le plancher valait encore 18, et le cas cassait dès 9 colonnes
+    // sur 1366. Descendre le plancher à 16 ne l'a pas supprimé, il l'a déplacé :
+    // 12 colonnes sur un 15" donnent une échelle de 0,40 pour un seuil de 0,47.
+    // L'assertion est donc relative au PLANCHER et jamais au nombre qui l'a
+    // révélé — un plancher qui rebouge ne doit pas rendre ce cas vrai d'avance.
+    expect(NAME_SIZE_MAX_PX * SCALE_UNDER_FLOOR).toBeLessThan(NAME_SIZE_MIN_PX)
+    expect(nameSizeCeiling(SCALE_UNDER_FLOOR)).toBe(NAME_SIZE_MIN_PX)
   })
 
   it('et la descente rend alors le plancher plutôt que de partir à l’envers', () => {
-    const scale = 17.6 / NAME_SIZE_MAX_PX
     const size = fitNameSize(
       'AIL',
-      TILE_CONTENT_PX * scale,
+      TILE_CONTENT_PX * SCALE_UNDER_FLOOR,
       measure,
-      NAME_BOX_PX * scale,
-      nameSizeCeiling(scale),
+      NAME_BOX_PX * SCALE_UNDER_FLOOR,
+      nameSizeCeiling(SCALE_UNDER_FLOOR),
     )
     expect(size).toBe(NAME_SIZE_MIN_PX)
   })
@@ -198,7 +205,7 @@ describe('fitNameSize', () => {
     expect(fitNameSize('AIL', TILE_CONTENT_PX, measure)).toBe(NAME_SIZE_MAX_PX)
   })
 
-  it('ne descend jamais sous le plancher de 18 px, le plus petit corps de §14.2', () => {
+  it('ne descend jamais sous le plancher, le plus petit corps de §14.2', () => {
     expect(fitNameSize('X'.repeat(500), TILE_CONTENT_PX, measure)).toBe(NAME_SIZE_MIN_PX)
   })
 

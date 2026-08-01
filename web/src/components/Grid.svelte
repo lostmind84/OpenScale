@@ -242,9 +242,21 @@
   const contentWidthPx = $derived(measuredWidthPx > 0 ? measuredWidthPx : estimatedWidthPx)
 
   $effect(() => {
-    // Re-measured when the width changes and when the set of tiles changes,
-    // which are the only two ways a column can become something else.
-    void gridWidth
+    // Re-measured on every way the width of a name box can move, and there are
+    // THREE, where this once named one.
+    //
+    // The track width is the obvious one. The scale is the one that was missing,
+    // and it was missing silently: it drives `--tile-pad`, so the usable width
+    // shifts by 2 x tile-pad x (scale - 1) with the column never changing size —
+    // which is exactly the first paint, where the probe answers and the factor
+    // drops from 1 to its real value. MEASURED 01/08/2026: names were fitted
+    // against an unscaled tile and laid out in a scaled one, « SUCRE RAPADURA
+    // COMPLET - » needing 330,03 px of a 328,35 px block at 5 columns on 1920;
+    // at 3 columns, 63 rows out of 111 grew, 51 of them by a whole line. Same
+    // family as the defect the estimate below already tells: a name fitted
+    // against one width and drawn in another.
+    void columnWidthPx
+    void tileScale
     void products.length
     const box = root?.querySelector<HTMLElement>('.name-box')
     measuredWidthPx = box?.clientWidth ?? 0

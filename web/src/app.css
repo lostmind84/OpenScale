@@ -61,8 +61,15 @@
    * because one is drawn by CSS and the other is chosen by a fit that runs in
    * script. A test refuses to let the two drift apart — a floor written twice
    * that moves once is precisely the defect this project has already paid for.
+   *
+   * MEASURED 01/08/2026, and 1rem rather than the 1.125rem it was: this floor
+   * now bounds the price as well as the name, so it decides the UPPER BOUND OF
+   * THE SETTING and not only legibility. At 1.125rem a price at 12 columns on a
+   * 15" has nowhere left to shrink and runs 3,2 px past its tile, which the
+   * screen answers with a horizontal scrollbar a kiosk cannot even scroll. 1rem
+   * is the highest floor at which 12 columns still holds on all three screens.
    */
-  --text-min: 1.125rem;
+  --text-min: 1rem;
   /* A calibration drift of 5 mm -- a real case after a screen swap -- must stay
      without effect, hence the gap between two targets. */
   --touch-gap: 0.5rem;
