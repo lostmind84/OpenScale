@@ -1,6 +1,19 @@
 <script lang="ts">
   import { fetchCatalog } from '../../lib/api'
-  import { ALL_CATEGORIES, filterProducts, type Product } from '../../lib/catalog'
+  import {
+    ALL_CATEGORIES,
+    filterProducts,
+    type Catalog,
+    type Presentation,
+    type Product,
+  } from '../../lib/catalog'
+  import Tile from '../../components/Tile.svelte'
+  import {
+    NAME_SIZE_MIN_PX,
+    canvasMeasurer,
+    fitNameSize,
+    nameSizeCeiling,
+  } from '../../lib/typography'
   import Act from '../components/Act.svelte'
   import Field from '../components/Field.svelte'
   import Inventory from '../components/Inventory.svelte'
@@ -83,6 +96,27 @@
     'INTERNAL_CODE_NOT_WEIGHABLE',
   ]
 
+  /** The key that decides how many columns the client grid draws. */
+  const GRID_COLUMNS_PATH = 'ui.grid_columns'
+
+  /**
+   * What `0` means: the grid of today, on every screen.
+   *
+   * It is a BEHAVIOUR and not a count — continuous density, five columns on the
+   * reference screen and ten on a 4K, without anybody setting anything. Naming it
+   * here is what keeps « aucune colonne » from being a possible reading of it.
+   */
+  const GRID_COLUMNS_AUTO = 0
+
+  /**
+   * The counts an operator may pin the grid to.
+   *
+   * Guard rails and not a calculation: the same N is comfortable on a 4K and absurd
+   * on a 15", so no pair of bounds is true of the whole estate. What protects the
+   * operator is the sentence below, which shows the result BEFORE the save.
+   */
+  const GRID_COLUMNS_CHOICES = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
   /**
    * The settings each source owns OUTRIGHT.
    *
@@ -110,7 +144,26 @@
 
   let imports = $state<ImportDTO[]>([])
   let findings = $state<FindingDTO[]>([])
-  let products = $state<Product[]>([])
+  /**
+   * The catalog IN SERVICE, whole, or null while it has not been read.
+   *
+   * Whole and not just its products: the grid preview below draws a REAL tile, and a tile
+   * carries the tiers, the primary code and the price switch of this station. A preview
+   * built from a tile of its own would be a second drawing to keep in step with the first.
+   */
+  let served = $state<Catalog | null>(null)
+  const products = $derived<Product[]>(served?.products ?? [])
+
+  /**
+   * What this station publishes of its screen settings, empty until it has been read.
+   *
+   * `Partial` although the DTO declares every field: this page also runs against a
+   * station whose binary predates one of them, and reading through an absent block takes
+   * the WHOLE administration screen down. It is the same guard, for the same reason, as
+   * the `?? []` {@link Draft.load} keeps over a list the service no longer serves null.
+   */
+  const presentation = $derived<Partial<Presentation>>(served?.presentation ?? {})
+  const primaryCode = $derived<string>(served?.pricing?.primary_code ?? '')
   let query = $state('')
   /** The Odoo id of the product being decided about, or an empty string. */
   let chosenID = $state('')
@@ -182,6 +235,351 @@
       : `${many ? 'masqués' : 'masqué'} sur ce poste`
     return `${frenchInteger(byUnitCount)} ${subject} ${said}.`
   })
+
+  /** The column setting AS DRAFTED, `0` for as long as nobody has pinned one. */
+  const gridColumns = $derived(draft.number(GRID_COLUMNS_PATH))
+
+  /**
+   * The tiles the grid would draw at the DRAFT, switch above included.
+   *
+   * Both settings of this panel act on the same grid, so a count that ignored the
+   * switch would announce sixteen screens' worth of tiles fifteen of which the
+   * station has just been told to hide.
+   */
+  const draftTiles = $derived(
+    draftedFlag('ui.show_by_unit_products', presentation.show_by_unit_products ?? false)
+      ? products
+      : products.filter((product) => product.mode !== 'by_unit'),
+  )
+
+  /**
+   * The tile the preview draws, or null while there is nothing to draw one from.
+   *
+   * A REAL tile, and that is the whole point: `--tile-height` leaves the price block out
+   * of its `calc`, whose bodies do not shrink with the tile — a probe of that token
+   * announced 189 px where the browser drew 245, and the screen would have promised three
+   * rows of a grid showing two. What decides how many rows fit is what the browser draws,
+   * so the browser is what gets asked.
+   *
+   * Its NAME is cut down to one glyph and its photo dropped. Neither changes the height —
+   * the name block is a box of fixed height (ADR-030) and a plate is the same size with a
+   * letter as with a photo — but a name that overflowed would measure THAT tile instead of
+   * the row every tile shares, and a photo would fetch an image to measure nothing.
+   */
+  const sampleTile = $derived<Product | null>(
+    draftTiles[0] === undefined
+      ? null
+      : // `prices ?? []` for the same reason the presentation above is `Partial`: an
+        // absent list is what a tile iterates over, and taking the administration screen
+        // down over a preview would be the worst possible trade.
+        { ...draftTiles[0], name: '·', image_url: '', prices: draftTiles[0].prices ?? [] },
+  )
+
+  /**
+   * A presentation flag as the DRAFT would leave it, falling back on what is served.
+   *
+   * `draft.flag` answers false for a key the file does not carry, and « absent » is not
+   * « false »: the station has its own default for each of these, and a preview built on
+   * false would draw a tile with no price block on a station that prints one.
+   *
+   * @param path - the dotted path of the key.
+   * @param served - what the catalog in service says of it.
+   */
+  function draftedFlag(path: string, served: boolean): boolean {
+    return draft.value(path) === undefined ? served : draft.flag(path)
+  }
+
+  /**
+   * What the layout answered about the draft grid, `null` while it has answered
+   * nothing.
+   *
+   * `null` is not « zero columns »: jsdom lays nothing out, an old browser may lay
+   * out something else, and a screen that states a count it has not read is the one
+   * failure this whole page is written against.
+   */
+  interface ScreenCount {
+    columns: number
+    /** Whole rows of the height the client grid gives its tiles. */
+    rows: number
+    /** Usable width inside one tile, its padding and border already removed. */
+    contentWidthPx: number
+    /** Height of the block a name is fitted into, at the draft. */
+    nameBoxPx: number
+    /** What the tile is scaled by, and therefore where a name starts its shrink. */
+    tileScale: number
+  }
+
+  /** The box the probes live in: it carries the deduced `--tile-scale`. */
+  let probes = $state<HTMLElement | null>(null)
+  /** The client grid, declared as the draft would draw it, holding one real tile. */
+  let gridProbe = $state<HTMLElement | null>(null)
+  /** The cell that tile sits in: stretched by the grid, so its height IS the row's. */
+  let rowProbe = $state<HTMLElement | null>(null)
+  /** A box of `--tile-min`: the width the automatic density is calibrated on. */
+  let calibrationProbe = $state<HTMLElement | null>(null)
+  /** The height the grid occupies at the client, its three bars taken off. */
+  let viewportProbe = $state<HTMLElement | null>(null)
+
+  /** Bumped on every resize, so the count follows the window it is read in. */
+  let resized = $state(0)
+
+  let screen = $state<ScreenCount | null>(null)
+
+  $effect(() => {
+    const bump = (): void => {
+      resized += 1
+    }
+    window.addEventListener('resize', bump)
+    return () => window.removeEventListener('resize', bump)
+  })
+
+  $effect(() => {
+    // Named rather than read inside the call: what re-runs this measurement is the
+    // draft and the size of the window, and nothing else.
+    const wanted = gridColumns
+    void resized
+    screen = measureGrid(wanted)
+  })
+
+  /**
+   * How many names come out at the floor, and how many rows carry one.
+   *
+   * `null` and not zero when nothing could be measured: « aucun nom n'atteint le
+   * plancher » is a fine piece of news, and it would be false on every browser with
+   * no canvas.
+   */
+  const floorReached = $derived.by<{ names: number; rows: number } | null>(() => {
+    const layout = screen
+    if (layout === null || layout.contentWidthPx <= 0 || layout.nameBoxPx <= 0) return null
+    if (draftTiles.length === 0) return null
+    const face = tileNameFace()
+    if (face === null) return null
+    const measure = canvasMeasurer(face.family, face.weight)
+    if (measure === null) return null
+    // The ceiling is the one the scaled tile gives — starting every name at 34 px on a
+    // tile that is not `--tile-min` wide would count a floor nobody reaches.
+    const ceiling = nameSizeCeiling(layout.tileScale)
+    const rows = new Set<number>()
+    let names = 0
+    for (const [index, product] of draftTiles.entries()) {
+      const body = fitNameSize(
+        product.name,
+        layout.contentWidthPx,
+        measure,
+        layout.nameBoxPx,
+        ceiling,
+      )
+      if (body > NAME_SIZE_MIN_PX) continue
+      names += 1
+      rows.add(Math.floor(index / layout.columns))
+    }
+    return { names, rows: rows.size }
+  })
+
+  /**
+   * What the draft grid comes to, in French, and what it costs.
+   *
+   * Same rule as the sentence above it: it follows the DRAFT and not the saved file,
+   * so the trade-off is read before the save rather than after — and it states
+   * nothing this screen has not read. Column count first, because that is the word
+   * the request arrived in.
+   */
+  const gridSentences = $derived.by<string[]>(() => {
+    const layout = screen
+    const lines: string[] = []
+
+    if (gridColumns === GRID_COLUMNS_AUTO) {
+      lines.push(
+        layout === null
+          ? 'Automatique : la grille suit la largeur de l’écran. Un écran plus large en ' +
+              'montre davantage sans qu’on y revienne.'
+          : `Automatique : ${gridSize(layout)} sur cet écran. Un écran plus large en montrera ` +
+              'davantage sans qu’on y revienne.',
+      )
+      return lines
+    }
+
+    if (layout === null) {
+      lines.push(
+        `${frenchInteger(gridColumns)} ${gridColumns > 1 ? 'colonnes' : 'colonne'} sur tous ` +
+          'les écrans. Cet écran ne sait pas dire combien de rangées cela fait ici.',
+      )
+      return lines
+    }
+
+    const seen = layout.columns * layout.rows
+    lines.push(
+      `${gridSize(layout)} — ${frenchInteger(seen)} ${seen > 1 ? 'tuiles' : 'tuile'} d’un coup, ` +
+        `sur cet écran (${String(window.innerWidth)} × ${String(window.innerHeight)}).`,
+    )
+    if (draftTiles.length > 0) {
+      const screens = Math.ceil(draftTiles.length / seen)
+      lines.push(
+        draftTiles.length > 1
+          ? `Les ${frenchInteger(draftTiles.length)} tuiles de la grille tiennent en ` +
+              `${frenchInteger(screens)} ${screens > 1 ? 'écrans' : 'écran'}.`
+          : 'La seule tuile de la grille tient en un écran.',
+      )
+    }
+    // What ADR-025 demands of a setting: not what it buys, what it costs. High
+    // densities are paid for in uneven rows, and that has to be legible BEFORE the
+    // save, not discovered on the station afterwards.
+    const floor = floorReached
+    if (floor !== null && floor.names > 0) {
+      const many = floor.names > 1
+      lines.push(
+        `${frenchInteger(floor.names)} ${many ? 'noms' : 'nom'} sur ` +
+          `${frenchInteger(draftTiles.length)} ${many ? 'atteignent' : 'atteint'} le plancher ` +
+          `de ${frenchInteger(NAME_SIZE_MIN_PX)} px : ` +
+          (floor.rows > 1
+            ? `leurs ${frenchInteger(floor.rows)} rangées peuvent être plus hautes que les autres.`
+            : 'leur rangée peut être plus haute que les autres.'),
+      )
+    }
+    return lines
+  })
+
+  /**
+   * The sentence that keeps « sur cet écran » honest, empty when it is.
+   *
+   * The administration is reachable from a laptop over the network, and the count
+   * above is then true of the laptop and not of the station. Zero extra data, zero
+   * extra route: the case is NAMED instead of being silently wrong.
+   */
+  const otherScreenWarning = $derived(
+    screen !== null && !isStationScreen()
+      ? 'Cet écran n’est pas celui du poste : ce compte vaut pour l’écran que vous lisez.'
+      : '',
+  )
+
+  /** « 7 colonnes × 3 rangées », the two numbers in the words of the request. */
+  function gridSize(layout: ScreenCount): string {
+    const columns = `${frenchInteger(layout.columns)} ${layout.columns > 1 ? 'colonnes' : 'colonne'}`
+    const rows = `${frenchInteger(layout.rows)} ${layout.rows > 1 ? 'rangées' : 'rangée'}`
+    return `${columns} × ${rows}`
+  }
+
+  /** Whether this page is being read on the station itself. */
+  function isStationScreen(): boolean {
+    return ['localhost', '127.0.0.1'].includes(window.location.hostname)
+  }
+
+  /**
+   * The grid the client screen draws for a setting, word for word.
+   *
+   * `minmax(0, 1fr)` and never `1fr`, which is `minmax(auto, 1fr)`: an `auto` track
+   * does not go below the min-content width of what it holds, and what it holds is
+   * « CRANBERRY/CANNEBERGES ». At ten columns that would lay out a grid wider than
+   * the screen — and the count read off it would be the count of a grid nobody sees.
+   *
+   * @param columns - the draft setting: `0` for automatic, else the pinned count.
+   */
+  function gridDeclaration(columns: number): string {
+    if (columns === GRID_COLUMNS_AUTO) {
+      return 'repeat(auto-fill, minmax(var(--tile-min), 1fr))'
+    }
+    return `repeat(${String(columns)}, minmax(0, 1fr))`
+  }
+
+  /**
+   * Asks the LAYOUT what the draft grid comes to, and answers null when it cannot.
+   *
+   * Not one number here is arithmetic run in parallel with the browser: how many
+   * columns `auto-fill` makes of `clamp()` on this screen is known to nobody else,
+   * and the three bars the grid shares its height with are read from their own
+   * tokens — the day one of them changes height, this count follows without
+   * anybody thinking about it.
+   *
+   * The declaration is written here rather than in the markup so that the whole
+   * measurement happens in one pass: the column width has to be known before the
+   * scale can be set, and the scale before the tile has a height.
+   *
+   * @param columns - the draft setting.
+   */
+  function measureGrid(columns: number): ScreenCount | null {
+    const box = probes
+    const gridBox = gridProbe
+    const row = rowProbe
+    const calibration = calibrationProbe
+    const viewport = viewportProbe
+    if (box === null || gridBox === null || calibration === null || viewport === null) return null
+    // No tile to draw is no measurement: a preview without the price block, on a station
+    // that prints one, is exactly the 30 % error this probe exists to stop making.
+    if (row === null) return null
+
+    gridBox.style.gridTemplateColumns = gridDeclaration(columns)
+    const tracks = trackWidths(gridBox)
+    const columnWidth = tracks[0]
+    if (columnWidth === undefined) return null
+
+    // The factor is DEDUCED and never set by hand: the column the browser gave over
+    // the width `--tile-min` calibrates. Automatic keeps the grid of today, so it
+    // keeps the factor of today, and nothing of what follows takes place.
+    //
+    // `data-tile-scale` on that box is what makes this line do anything at all: a custom
+    // property has its `var()` substituted AT THE ELEMENT THAT DECLARES IT, so without
+    // the selector `app.css` provides, this box would inherit four tokens already
+    // computed against the root's factor of 1 — and every count would be the automatic
+    // one, whatever the draft says, silently.
+    const calibrationWidth = calibration.clientWidth
+    const scale =
+      columns === GRID_COLUMNS_AUTO || calibrationWidth <= 0 ? 1 : columnWidth / calibrationWidth
+    box.style.setProperty('--tile-scale', String(scale))
+
+    const gap = Number.parseFloat(getComputedStyle(gridBox).rowGap)
+    const available = viewport.clientHeight
+    // The CELL and not the tile: the grid stretches it to `minmax(var(--tile-height),
+    // auto)`, so its height is the row's — token floor and overflowing content both.
+    const rowHeight = row.offsetHeight
+    const nameBox = row.querySelector<HTMLElement>('.name-box')
+    if (!Number.isFinite(gap) || available <= 0 || rowHeight <= 0 || nameBox === null) return null
+
+    return {
+      columns: tracks.length,
+      rows: Math.max(1, Math.floor((available + gap) / (rowHeight + gap))),
+      contentWidthPx: nameBox.clientWidth,
+      nameBoxPx: nameBox.clientHeight,
+      tileScale: scale,
+    }
+  }
+
+  /**
+   * The width of every column the browser laid out, in px, or nothing.
+   *
+   * `getComputedStyle` gives back RESOLVED tracks — « 352px 352px … » — where there
+   * is a layout, and the declaration itself where there is none. Accepting px and
+   * nothing else is what turns « jsdom lays nothing out » into a fallback instead of
+   * a wrong number: `repeat(auto-fill, …)` read back verbatim is not a count.
+   *
+   * @param gridBox - the grid probe, already carrying the draft declaration.
+   */
+  function trackWidths(gridBox: HTMLElement): number[] {
+    const tracks = getComputedStyle(gridBox)
+      .gridTemplateColumns.split(/\s+/u)
+      .filter((track) => track !== '')
+    if (tracks.length === 0) return []
+    const widths = tracks.map((track) =>
+      track.endsWith('px') ? Number.parseFloat(track) : Number.NaN,
+    )
+    return widths.every((width) => Number.isFinite(width) && width > 0) ? widths : []
+  }
+
+  /**
+   * The face a tile name is drawn with, asked of the layout, or null.
+   *
+   * Read off the REAL name of the probe tile rather than declared here: what a canvas
+   * is asked to measure with is then what the browser will draw with, family and weight
+   * both — the mistake `Grid.svelte` documents at length about a font that had not
+   * loaded yet, made once more here would size names against a face nobody renders.
+   */
+  function tileNameFace(): { family: string; weight: number } | null {
+    const name = rowProbe?.querySelector<HTMLElement>('.name') ?? null
+    if (name === null) return null
+    const style = getComputedStyle(name)
+    const weight = Number.parseInt(style.fontWeight, 10)
+    if (style.fontFamily === '' || !Number.isFinite(weight)) return null
+    return { family: style.fontFamily, weight }
+  }
 
   /**
    * The products the search retains, and how many there are BEFORE the cap.
@@ -373,7 +771,7 @@
       namesState = 'unread'
       return
     }
-    products = catalog.products
+    served = catalog
     namesState = 'read'
   }
 
@@ -865,6 +1263,97 @@
       Un produit masqué reste vendable : la caisse lit toujours son code-barres, et une
       étiquette déjà imprimée reste valable. Ce réglage ne fait que retirer sa tuile.
     </p>
+
+    <!--
+      Onze choix visibles d'un coup, et non une glissière : ce sont des entiers qu'on
+      nomme, et « Automatique » n'est pas un cran de plus au bout d'une course, c'est une
+      autre nature — la grille d'aujourd'hui, sur n'importe quel écran.
+    -->
+    <p class="columns-label">
+      Colonnes de la grille
+      {#if preferences.showTechnicalNames}<code>{GRID_COLUMNS_PATH}</code>{/if}
+    </p>
+    <div class="columns" role="radiogroup" aria-label="Colonnes de la grille">
+      <label
+        class="column"
+        data-columns={GRID_COLUMNS_AUTO}
+        data-on={String(gridColumns === GRID_COLUMNS_AUTO)}
+      >
+        <input
+          type="radio"
+          name="grid-columns"
+          value={GRID_COLUMNS_AUTO}
+          checked={gridColumns === GRID_COLUMNS_AUTO}
+          onchange={() => draft.set(GRID_COLUMNS_PATH, GRID_COLUMNS_AUTO)}
+        />
+        Automatique
+      </label>
+      {#each GRID_COLUMNS_CHOICES as count (count)}
+        <label class="column" data-columns={count} data-on={String(gridColumns === count)}>
+          <input
+            type="radio"
+            name="grid-columns"
+            value={count}
+            checked={gridColumns === count}
+            onchange={() => draft.set(GRID_COLUMNS_PATH, count)}
+          />
+          {frenchInteger(count)}
+        </label>
+      {/each}
+    </div>
+    <div class="fact" data-grid-count>
+      {#each gridSentences as line, index (index)}
+        <p>{line}</p>
+      {/each}
+      {#if otherScreenWarning !== ''}
+        <p class="muted" data-other-screen>{otherScreenWarning}</p>
+      {/if}
+    </div>
+    <p class="fact muted">
+      Se tromper ne coûte rien d’autre que de revenir ici : le réglage ne change ni le
+      fichier reçu, ni les étiquettes déjà imprimées.
+    </p>
+
+    <!--
+      Les sondes, vides et invisibles : la grille du brouillon est DÉCLARÉE ici, et c'est
+      le navigateur qui dit ce qu'elle donne. Personne d'autre ne sait combien de colonnes
+      le mode automatique tire de cet écran, et les trois barres avec lesquelles la grille
+      partage la hauteur sont lues dans leurs propres jetons — le jour où l'une d'elles
+      change de hauteur, ce compte suit sans qu'on y pense.
+
+      `data-tile-scale` n'est pas décoratif et ne vaut rien par lui-même : c'est le
+      sélecteur sous lequel `app.css` RECALCULE les quatre jetons mis à l'échelle. Sans
+      lui, cette boîte hériterait de valeurs déjà substituées contre le facteur de la
+      racine, qui vaut 1, et le facteur posé ci-dessous ne déplacerait rien — des nombres
+      plausibles, faux, et une phrase qui ne bouge pas quand on change de choix.
+    -->
+    <div class="probes" data-tile-scale inert aria-hidden="true" bind:this={probes}>
+      <div class="probe grid-probe" bind:this={gridProbe}>
+        <!--
+          Une VRAIE tuile, et c'est tout le sujet : `--tile-height` laisse le bloc des
+          prix hors de son calcul, et une sonde de ce jeton annonçait 189 px là où le
+          navigateur en dessinait 245 — trois rangées promises sur une grille qui en
+          montre deux. La cellule qui la porte est étirée par la grille : sa hauteur EST
+          celle de la rangée.
+        -->
+        {#if sampleTile !== null}
+          <div class="row-probe" bind:this={rowProbe}>
+            <Tile
+              product={sampleTile}
+              nameSizePx={NAME_SIZE_MIN_PX}
+              {primaryCode}
+              showPrice={draftedFlag(
+                'ui.show_grid_prices',
+                presentation.show_grid_prices ?? true,
+              )}
+              onpick={() => {}}
+            />
+          </div>
+        {/if}
+      </div>
+      <div class="probe calibration-probe" bind:this={calibrationProbe}></div>
+      <div class="probe viewport-probe" bind:this={viewportProbe}></div>
+    </div>
   </Panel>
 
   <Panel
@@ -1266,6 +1755,136 @@
     flex: 1 1 20rem;
     color: var(--ink-muted);
     font-size: 1rem;
+  }
+
+  /*
+   * The eleven column choices, laid side by side so the whole range is read at once.
+   *
+   * A slider was the other candidate and it is the wrong instrument twice over: these
+   * are integers somebody names out loud, and « Automatique » is not one more notch at
+   * the end of a travel — it is the grid deciding for itself. The administration is
+   * driven with a mouse, so 44 px is the density here and not the 72 px of a finger.
+   */
+  .columns-label {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: baseline;
+    margin: 1rem 0 0.375rem;
+    font-size: 1.0625rem;
+    font-weight: 700;
+  }
+
+  .columns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+
+  .column {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    min-height: 2.75rem;
+    margin: 0;
+    padding: 0 0.75rem;
+    font-weight: 400;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--waiting-wash);
+    cursor: pointer;
+    transition:
+      background-color var(--tap) var(--ease),
+      border-color var(--tap) var(--ease);
+  }
+
+  /* The chosen one wears the same wash as the switch above it — two controls of one
+     panel may not read as two different mechanisms — and it says so through the same
+     attribute rather than through `:has()`, which a kiosk browser may be too old for.
+     A choice nobody can tell from the other ten is the one failure this control has. */
+  .column[data-on='true'] {
+    background: var(--ready-wash);
+    border-color: var(--ink-muted);
+    font-weight: 700;
+  }
+
+  @media (hover: hover) {
+    .column:hover {
+      border-color: var(--ink-muted);
+    }
+  }
+
+  /*
+   * A radio is not a text field, and the `input` rule of this page would hand it the
+   * width, the height, the border and the background of one.
+   */
+  .column input {
+    width: 1.25rem;
+    height: 1.25rem;
+    min-height: 0;
+    flex: 0 0 auto;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 0;
+    accent-color: var(--focus);
+  }
+
+  [data-grid-count] p {
+    margin: 0 0 0.25rem;
+  }
+
+  [data-grid-count] p:last-child {
+    margin-bottom: 0;
+  }
+
+  /*
+   * The probes: empty, invisible, and the only place the numbers above come from.
+   *
+   * Clipped by a box of zero height rather than pushed off-screen — one of them is as
+   * wide as the window, and this page would otherwise scroll sideways. `visibility:
+   * hidden` and never `display: none`, which would take the layout away with the probe
+   * and leave nothing to read.
+   */
+  .probes {
+    position: relative;
+    height: 0;
+    overflow: hidden;
+  }
+
+  .probe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  /* The grid the client draws, minus the padding its scroller spends on both sides,
+     and with the row rule it draws its tiles by. Its own column declaration is written
+     by the measurement: it follows the draft. */
+  .grid-probe {
+    display: grid;
+    width: calc(100vw - var(--touch-gap) * 2);
+    grid-auto-rows: minmax(var(--tile-height), auto);
+    gap: var(--touch-gap);
+    align-content: start;
+  }
+
+  /* What the automatic density is calibrated on, and the only way to know it in px:
+     a custom property that is not registered gives back its substituted value —
+     the string `clamp(…)` — and never a length. */
+  .calibration-probe {
+    width: var(--tile-min);
+  }
+
+  /* The height the grid really occupies at the client: the window, less the three
+     permanent bars, less what its scroller pads with. */
+  .viewport-probe {
+    height: calc(
+      100vh - var(--banner-height) - var(--category-height) - var(--status-height) -
+        var(--touch-gap) * 2
+    );
   }
 
   /* A key, not a red padlock: the act is possible, it only asks who you are. The word is
