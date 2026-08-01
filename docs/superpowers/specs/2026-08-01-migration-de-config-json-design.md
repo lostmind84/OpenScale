@@ -51,11 +51,30 @@ prix fort sans que rien à l'écran puisse dire pourquoi (ADR-034).
 
 Cette raison ne vaut pas pour toutes les clés retirées :
 
-| Clé | Ce qui se passe si on la retire du fichier | Verdict |
+L'historique du dépôt tranche chaque cas, et il faut le lire avant de décider — la question
+n'est pas « cette clé pourrait-elle exister » mais « **un binaire publié l'a-t-il écrite** » :
+
+| Clé | Vivante dans un binaire publié ? | Verdict |
 |---|---|---|
-| `tile_size` | `grid_columns: 0` est le défaut, et ADR-057 écrit que ce défaut est **la grille d'hier mot pour mot** | rien ne se perd |
-| `coef_num` / `coef_den` | la remise disparaît | se **convertit** : `discount_percent`, en dixièmes de point, vaut `(1 − num/den) × 1000` |
-| `weight_decimals`, `units_field_width`, `weight_prefix`, `unit_prefix`, `content`, `rules_by_prefix` | le plan compilé décide déjà (ADR-028) | **selon la valeur** : redondante avec le plan → rien ne se perd ; divergente → le fichier voulait autre chose |
+| `ui.tile_size` | **oui** — chaîne `small`/`medium`/`large`, jusqu'à `9b406ca` (ADR-035), donc écrite par v0.1 à v0.3 | **retirée** |
+| `pricing.tiers[i].coef_num` / `coef_den` | **oui** — champs `PriceTier.CoefNum`/`CoefDen`, jusqu'à `cc3c604` (ADR-034), donc écrits par v0.1 à v0.3 | **portée** |
+| `weight_decimals`, `units_field_width`, `weight_prefix`, `unit_prefix`, `content`, `rules_by_prefix` | **non** — elles entrent dans le code **déjà retirées**, à `8e434fa` (25/07/2026, lot L2), dont le message dit « le contrôle 20 ne refuse que les six clés du plan de numérotation ». Aucun `config.json` écrit par OpenScale n'en a jamais porté | **refusées**, inchangé |
+
+Les six clés du plan restent donc un **refus pur**, sans règle de concordance. Écrire une
+conversion pour des valeurs que personne n'a jamais produites, ce serait deviner la
+sémantique d'un fichier qui n'existe pas.
+
+**`tile_size` se retire et ne se convertit pas**, et c'est un arbitrage, pas une facilité.
+Faire correspondre `small`/`medium`/`large` à un nombre de colonnes ressusciterait ADR-031
+par la bande — exactement ce que `SUIVI.md` du 01/08/2026 exige d'empêcher, et pour le motif
+qu'ADR-035 a écrit : une densité est une **proportion**, donc un même mot atterrit sur cinq,
+six ou douze colonnes selon l'écran. Le défaut `grid_columns: 0` est la grille que ces
+postes affichent **déjà**, puisque `tile_size` est ignorée depuis v0.4.
+
+**La conversion de `coef_num`/`coef_den` se vérifie contre une valeur livrée**, pas contre
+une formule en l'air : le tarif ADHÉRENT par défaut valait `9/10`, et
+`(10 − 9) × 1000 / 10 = 100` dixièmes, soit exactement le `Discount: 100` que porte
+`pricing.go:299` aujourd'hui. Les clés sont **par tarif**, jamais globales.
 
 **Le refus ne disparaît pas, il change de population.** Il reste la réponse pour tout ce que
 le binaire ne sait pas décider.
@@ -127,16 +146,17 @@ Le troisième verdict est celui qui fait tenir l'ensemble : **la migration ne pe
 cacher un refus**, puisqu'un refus consiste précisément à ne rien faire et à laisser le
 contrôle existant parler.
 
-**Les six clés du plan de numérotation tombent sous une règle, pas sous une liste** :
-valeur concordante avec le plan compilé → retirée ; divergente → refusée, en nommant les
-deux valeurs. Un fichier qui redit ce que le binaire sait déjà est redondant ; un fichier
-qui dit autre chose voulait autre chose, et personne ici n'a le droit de trancher à sa
-place.
+**Les six clés du plan de numérotation restent un refus pur**, par le mécanisme qui existe
+déjà : aucune étape ne les nomme, `scanRetired` les trouve, le contrôle 20 parle. Rien à
+écrire, et c'est ce que dit l'historique — voir plus haut.
 
 **La conversion `coef_num`/`coef_den` est exacte ou n'est pas.** `Discount` compte en
-dixièmes de point (`pricing.go:15`, `FullDiscount = 1000`). Si `(1 − num/den) × 1000` ne
-tombe pas sur un entier, c'est un **refus** qui nomme les deux nombres : arrondir la remise
-d'une coopérative sans le lui dire est exactement ce qu'ADR-034 refuse.
+dixièmes de point (`internal/domain/pricing.go:15`, `FullDiscount = 1000`), donc
+`(den − num) × 1000 / den`. Si ça ne tombe pas sur un entier, c'est un **refus** qui nomme
+les deux nombres : arrondir la remise d'une coopérative sans le lui dire est exactement ce
+qu'ADR-034 refuse. Un tarif sans remise — `coef_num == coef_den` — sort **sans clé du
+tout**, parce qu'ADR-034 écrit que « l'absence de la clé EST cette déclaration »
+(`pricing.go:120`, `omitempty` ligne 127).
 
 ### 3. Décodage bloc par bloc
 
@@ -195,8 +215,10 @@ enregistre depuis l'écran est la configuration **en mémoire**, déjà migrée.
 | Un bloc indécodable | Bloc du profil neutre + une faute qui le nomme. Les treize autres tiennent. **Nouveau** |
 | Clé retirée dont le défaut reproduit l'ancien comportement | Retirée en mémoire, note. **Nouveau** : aujourd'hui, ERR-CFG-01 |
 | Clé convertible | Portée, note qui donne la valeur d'avant et celle d'après. **Nouveau** |
-| Conversion inexacte | Refus qui nomme les deux nombres → faute, comme aujourd'hui |
-| Clé du plan divergente | Refus qui nomme la valeur du fichier et celle du plan → faute |
+| Conversion inexacte (`(den − num) × 1000 % den ≠ 0`) | Refus qui nomme les deux nombres → faute, comme aujourd'hui |
+| `coef_den` nul, absent, ou `coef_num > coef_den` | Refus qui nomme les deux nombres → faute |
+| `coef_num == coef_den` (aucune remise) | Portée **sans écrire de clé** : l'absence de `discount_percent` EST la déclaration (ADR-034) |
+| Une des six clés du plan de numérotation | Refus, inchangé. Aucun binaire publié ne les a jamais écrites |
 | `version` supérieure à celle du binaire | Note, **jamais un refus** : c'est un retour arrière de binaire, et refuser mettrait le poste par terre pour un nombre |
 | `config migrate` sur un fichier à jour | « rien à faire », rien n'est écrit, code de retour nul |
 | `config migrate` quand le disque refuse l'écriture | Erreur nommée ; le poste tourne toujours, puisque le démarrage n'en dépend pas |
