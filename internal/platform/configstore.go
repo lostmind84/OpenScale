@@ -286,15 +286,26 @@ func readConfigFile(path string) (domain.Config, error) {
 		return domain.Config{}, err
 	}
 	if documentUnreadable(faults) {
-		blocks := make([]string, 0, len(faults))
-		for _, fault := range faults {
-			blocks = append(blocks, fault.Field)
-		}
 		return domain.Config{}, fmt.Errorf(
-			"%s : le bloc %s n'a pas pu être lu, et ce qui en tient lieu est la configuration "+
-				"d'usine", path, strings.Join(blocks, ", "))
+			"%s, et ce qui en tient lieu est la configuration d'usine",
+			unreadablePart(path, faults))
 	}
 	return cfg, nil
+}
+
+// unreadablePart names what did not decode, in the French of the two cases §11.3 keeps
+// apart: ONE block of an otherwise sound file, which is repaired in place, and a document
+// that is not JSON at all, which is restored from config.json.1. « le bloc config.json »
+// would be a third thing, and there is no such thing.
+func unreadablePart(path string, faults []domain.Fault) string {
+	blocks := make([]string, 0, len(faults))
+	for _, fault := range faults {
+		if fault.Field == domain.WholeDocumentField {
+			return fmt.Sprintf("%s n'est pas un document JSON exploitable", path)
+		}
+		blocks = append(blocks, fault.Field)
+	}
+	return fmt.Sprintf("%s : le bloc %s n'a pas pu être lu", path, strings.Join(blocks, ", "))
 }
 
 // documentUnreadable reports whether the decoding faults make the Config that came with

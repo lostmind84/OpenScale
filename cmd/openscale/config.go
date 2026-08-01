@@ -184,6 +184,21 @@ func reportPendingMigrations(out io.Writer, path string, notes []domain.Migratio
 	}
 }
 
+// unreadablePart names what did not decode, in the French of the two cases §11.3 keeps
+// apart: ONE block of an otherwise sound file, which is repaired in place, and a document
+// that is not JSON at all, which is restored from config.json.1. « le bloc config.json »
+// would be a third thing, and there is no such thing.
+func unreadablePart(path string, faults []domain.Fault) string {
+	blocks := make([]string, 0, len(faults))
+	for _, fault := range faults {
+		if fault.Field == domain.WholeDocumentField {
+			return fmt.Sprintf("%s n'est pas un document JSON exploitable", path)
+		}
+		blocks = append(blocks, fault.Field)
+	}
+	return fmt.Sprintf("le bloc %s de %s n'a pas pu être lu", strings.Join(blocks, ", "), path)
+}
+
 // minPasswordLength is the floor POST /admin/api/session/recovery already holds (§14.4).
 //
 // The same figure in the two places that set a password, because a station where the
@@ -415,15 +430,13 @@ func migrateConfig(out io.Writer, path string) error {
 	// disappeared, the command announced one unrelated change and exited 0, and update.ps1
 	// runs it on its own after every successful update.
 	if len(decodeFaults) > 0 {
-		blocks := make([]string, 0, len(decodeFaults))
 		for _, fault := range decodeFaults {
 			fmt.Fprintf(out, "  %s\n", fault.String())
-			blocks = append(blocks, fault.Field)
 		}
 		return &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf(
-			"le bloc %s de %s n'a pas pu être lu : le fichier n'est pas modifié, le réécrire "+
-				"poserait la configuration d'usine à sa place. Corrigez ce bloc, puis relancez "+
-				"la migration", strings.Join(blocks, ", "), path)}
+			"%s : le fichier n'est pas modifié, le réécrire poserait la configuration d'usine "+
+				"à sa place. Corrigez-le, puis relancez la migration",
+			unreadablePart(path, decodeFaults))}
 	}
 
 	store, err := platform.NewConfigStore(path)
