@@ -40,6 +40,15 @@ type Machine interface {
 	// The CI runner has no polkit rule, so a nominal bench turned red there and was
 	// green on Windows.
 	RebootPermission(ctx context.Context) (RebootPermissionState, error)
+	// NavigationLock reports whether the browser of the STATION ACCOUNT is held on the
+	// client screen — the policies the kiosk poses at every logon (§15.2).
+	//
+	// It is asked of the platform for the reason above, and for one more that is its own:
+	// the policies live in the hive of the account that runs the kiosk, and `openscale
+	// doctor` is typed by somebody logged on as SOMEBODY ELSE. A control that read its
+	// own HKCU would report on the technician's browser and call a wide-open station
+	// green.
+	NavigationLock(ctx context.Context) (NavigationLockState, error)
 	// SerialPorts enumerates the serial ports with their USB description.
 	SerialPorts(ctx context.Context) ([]PortInfo, error)
 	// OpenSerialPort opens one port and closes it again, which is the only way to tell
@@ -140,6 +149,34 @@ type RebootPermissionState struct {
 	// Applicable is false on a system that cannot restart from the screen at all.
 	// Inventing a requirement there would be worse than saying nothing, which is the
 	// rule PowerState.Applicable already states for the power settings.
+	Applicable bool `json:"applicable"`
+}
+
+// NavigationLockState is the answer to « ce poste peut-il sortir de l'application ? ».
+//
+// The panne it names is the one that leaves EVERY OTHER CONTROL GREEN: the browser is
+// running, the service answers, the window is full screen — and what is on it is a search
+// engine, because a right click offered « Rechercher sur le web » and somebody clicked it.
+// A station in that state sells nothing and nothing in this report would have said so.
+type NavigationLockState struct {
+	// Locked means the policies of §15.2 are in place for the account that runs the
+	// kiosk: everything blocked, this station's own address allowed back.
+	Locked bool `json:"locked"`
+	// Account is the account the policies were looked for under, so that the report says
+	// WHOSE browser it read — the one thing that made the first version of this control
+	// wrong, and the same trap the kiosk task's principal carries (§15.4).
+	Account string `json:"account"`
+	// Browser names the policy root that answered — « Microsoft Edge », « Google
+	// Chrome ». Empty when none did.
+	Browser string `json:"browser"`
+	// Detail is FRENCH and says what was found, or why nothing could be.
+	Detail string `json:"detail"`
+	// Determined is false when the question could not be put at all: no reg.exe, a hive
+	// that is not loaded because the station account is not logged on, a profile that
+	// does not exist yet.
+	Determined bool `json:"determined"`
+	// Applicable is false on a system whose kiosk poses no policy — the Linux station of
+	// §15.3, where the file belongs to root and to install.sh.
 	Applicable bool `json:"applicable"`
 }
 
@@ -264,6 +301,9 @@ func (silentMachine) Power(context.Context) (PowerState, error) {
 }
 func (silentMachine) RebootPermission(context.Context) (RebootPermissionState, error) {
 	return RebootPermissionState{}, nil
+}
+func (silentMachine) NavigationLock(context.Context) (NavigationLockState, error) {
+	return NavigationLockState{}, nil
 }
 func (silentMachine) SerialPorts(context.Context) ([]PortInfo, error) { return nil, nil }
 func (silentMachine) OpenSerialPort(context.Context, string) error {

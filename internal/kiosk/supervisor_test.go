@@ -21,12 +21,16 @@ import (
 
 // bench is one supervisor under test, with its fake browser and its fake clock.
 type bench struct {
-	clock     *fake.Clock
-	profile   string
-	launched  chan *fakeBrowser
-	targets   chan string
-	alive     atomic.Bool
-	awakes    atomic.Int64
+	clock    *fake.Clock
+	profile  string
+	launched chan *fakeBrowser
+	targets  chan string
+	alive    atomic.Bool
+	awakes   atomic.Int64
+	// attached is how many client screens the station reports. Zero is the default, and
+	// it is harmless: the presence watch only ever fires on a screen it has SEEN, so a
+	// test that never attaches one never meets it.
+	attached  atomic.Int64
 	returned  chan error
 	cancel    context.CancelFunc
 	stationOK string
@@ -97,7 +101,16 @@ func newBench(t *testing.T) *bench {
 		Clock:      b.clock,
 		Out:        &strings.Builder{},
 		Alive:      func(context.Context) bool { return b.alive.Load() },
-		Awake:      func() error { b.awakes.Add(1); return nil },
+		// Un poste muet ne répond pas non plus à cette question-là, et c'est ce que le
+		// second retour dit : le superviseur ne doit jamais lire « poste injoignable »
+		// comme « aucun écran ».
+		Attached: func(context.Context) (int, bool) {
+			if !b.alive.Load() {
+				return 0, false
+			}
+			return int(b.attached.Load()), true
+		},
+		Awake: func() error { b.awakes.Add(1); return nil },
 		Launch: func(_ context.Context, browser Browser, arguments []string) (Process, error) {
 			process := &fakeBrowser{exit: make(chan struct{})}
 			b.targets <- targetOf(arguments)

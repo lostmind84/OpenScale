@@ -168,26 +168,28 @@ func control(t *testing.T, report Report, id string) Control {
 
 // fakeMachine is a host that answers whatever a test tells it to.
 type fakeMachine struct {
-	service      ServiceState
-	serviceErr   error
-	kiosk        ServiceState
-	kioskErr     error
-	autoLogon    AutoLogonState
-	autoLogonErr error
-	power        PowerState
-	powerErr     error
-	serialPorts  []PortInfo
-	portsErr     error
-	openPortErr  error
-	queues       []QueueInfo
-	queuesErr    error
-	space        FreeSpace
-	spaceErr     error
-	listen       ListenState
-	listenErr    error
-	system       SystemInfo
-	reboot       RebootPermissionState
-	rebootErr    error
+	service       ServiceState
+	serviceErr    error
+	kiosk         ServiceState
+	kioskErr      error
+	autoLogon     AutoLogonState
+	autoLogonErr  error
+	power         PowerState
+	powerErr      error
+	serialPorts   []PortInfo
+	portsErr      error
+	openPortErr   error
+	queues        []QueueInfo
+	queuesErr     error
+	space         FreeSpace
+	spaceErr      error
+	listen        ListenState
+	listenErr     error
+	system        SystemInfo
+	reboot        RebootPermissionState
+	rebootErr     error
+	navigation    NavigationLockState
+	navigationErr error
 }
 
 // newFakeMachine returns a host on which nothing is wrong.
@@ -212,6 +214,11 @@ func newFakeMachine() *fakeMachine {
 		// has no polkit rule and never will.
 		reboot: RebootPermissionState{Allowed: true, Applicable: true,
 			Detail: "le service tourne en LocalSystem, qui porte le privilège d'arrêt"},
+		// Un poste nominal est verrouillé sur son application : les stratégies que le
+		// kiosque pose à chaque ouverture de session sont en place sous le compte du poste.
+		navigation: NavigationLockState{Locked: true, Applicable: true, Determined: true,
+			Account: "openscale", Browser: "Microsoft Edge",
+			Detail: "Microsoft Edge : URLBlocklist = *."},
 	}
 }
 
@@ -225,6 +232,9 @@ func (m *fakeMachine) AutoLogon(context.Context) (AutoLogonState, error) {
 func (m *fakeMachine) Power(context.Context) (PowerState, error) { return m.power, m.powerErr }
 func (m *fakeMachine) RebootPermission(context.Context) (RebootPermissionState, error) {
 	return m.reboot, m.rebootErr
+}
+func (m *fakeMachine) NavigationLock(context.Context) (NavigationLockState, error) {
+	return m.navigation, m.navigationErr
 }
 func (m *fakeMachine) SerialPorts(context.Context) ([]PortInfo, error) {
 	return m.serialPorts, m.portsErr

@@ -101,6 +101,48 @@ else {
   Write-Step "réglages système restaurés depuis l'instantané du $($snapshot.saved_at)" $paths.LogFile
 }
 
+# --- 3 bis. Les stratégies de navigation du kiosque -------------------------------
+# Le kiosque les pose dans la ruche du COMPTE DU POSTE, à chaque ouverture de session
+# (ADR-056) : « tout est interdit sauf l'adresse de ce poste ». Le compte est CONSERVÉ par
+# défaut par l'étape 4 — laisser ces clés derrière soi, c'est laisser un compte Windows
+# dont le navigateur ne peut plus ouvrir qu'une adresse que plus rien ne sert.
+#
+# Elles ne sont pas dans restore.json : elles n'existaient pas avant l'installation, il n'y
+# a donc rien à restaurer, seulement à retirer.
+$policyRoots = @(
+  'Software\Policies\Microsoft\Edge',
+  'Software\Policies\Google\Chrome',
+  'Software\Policies\Chromium')
+$account = Get-LocalUser -Name $script:AccountName -ErrorAction Ignore
+if ($account) {
+  $sid = $account.SID.Value
+  $loaded = Test-Path "Registry::HKEY_USERS\$sid"
+  $mounted = $loaded
+  $hive = ''
+  if (-not $loaded) {
+    # La ruche d'un compte sans session ouverte n'est pas montée. On la monte ICI et on la
+    # démonte ensuite : c'est une désinstallation, elle a le droit d'écrire, là où le
+    # diagnostic de « openscale doctor » se l'interdit.
+    $profilePath = (Get-RegistryValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sid" 'ProfileImagePath')
+    if ($profilePath) { $hive = Join-Path $profilePath 'NTUSER.DAT' }
+    if ($hive -and (Test-Path $hive)) {
+      reg load "HKU\$sid" $hive 2>&1 | Out-Null
+      $mounted = ($LASTEXITCODE -eq 0)
+    }
+  }
+  if ($mounted) {
+    foreach ($root in $policyRoots) {
+      $key = "Registry::HKEY_USERS\$sid\$root"
+      if (Test-Path $key) { Remove-Item -Path $key -Recurse -Force -ErrorAction Ignore }
+    }
+    Write-Step "stratégies de navigation retirées du compte $($script:AccountName)" $paths.LogFile
+    if (-not $loaded) { reg unload "HKU\$sid" 2>&1 | Out-Null }
+  }
+  else {
+    Write-Step "stratégies de navigation NON retirées : la ruche de $($script:AccountName) n'est pas accessible. Ouvrez sa session et supprimez « HKCU\Software\Policies\Microsoft\Edge »" $paths.LogFile
+  }
+}
+
 # --- 4. Le compte local, à la demande ---------------------------------------------
 if ($RemoveAccount) {
   if (Get-LocalUser -Name $script:AccountName -ErrorAction Ignore) {

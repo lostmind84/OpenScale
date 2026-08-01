@@ -966,3 +966,70 @@ func reportHead(t *testing.T, report Report) string {
 	}
 	return out.String()
 }
+
+// --- 17. The client screen cannot leave the application ---------------------
+
+// TestAStationLockedOnItsApplicationIsGreen.
+func TestAStationLockedOnItsApplicationIsGreen(t *testing.T) {
+	found := control(t, newBench(t).run(), ControlNavigationLock)
+	if found.Status != StatusPass {
+		t.Fatalf("statut %s — %s", found.Status, found.Observed)
+	}
+	if !strings.Contains(found.Observed, "openscale") {
+		t.Errorf("le contrôle ne dit pas SOUS QUEL COMPTE il a lu :\n%s", found.Observed)
+	}
+}
+
+// TestAStationThatCanBeTakenOutOfTheApplicationIsRed est la panne qui laisse tous les
+// autres contrôles au vert : le navigateur tourne, le service répond, la fenêtre est en
+// plein écran — et ce qu'elle affiche est un moteur de recherche.
+func TestAStationThatCanBeTakenOutOfTheApplicationIsRed(t *testing.T) {
+	b := newBench(t)
+	b.machine.navigation = NavigationLockState{Applicable: true, Determined: true,
+		Account: "openscale", Browser: "Microsoft Edge",
+		Detail: "Microsoft Edge : URLBlocklist = (vide)."}
+
+	found := control(t, b.run(), ControlNavigationLock)
+	if found.Status != StatusFail {
+		t.Fatalf("poste non verrouillé : %s", found.Status)
+	}
+	if found.Code != codeNavigationOpen {
+		t.Errorf("code %q, attendu %q", found.Code, codeNavigationOpen)
+	}
+	if found.Remedy == "" {
+		t.Error("le contrôle ne dit pas quoi faire")
+	}
+}
+
+// TestAHiveThatIsNotMountedIsAmberAndNeverRed : la ruche d'un compte qui n'a pas de session
+// ouverte n'est pas montée, et rien ici ne la monte. Accuser un poste sur une question
+// qu'on n'a pas pu poser serait pire que de dire qu'on ne sait pas — d'autant que le chien
+// de garde du superviseur ramène l'écran quoi qu'il arrive.
+func TestAHiveThatIsNotMountedIsAmberAndNeverRed(t *testing.T) {
+	b := newBench(t)
+	b.machine.navigation = NavigationLockState{Applicable: true, Determined: false,
+		Account: "openscale", Detail: "aucune stratégie de navigation sous le compte."}
+
+	found := control(t, b.run(), ControlNavigationLock)
+	if found.Status != StatusUnknown {
+		t.Fatalf("question non posée : %s, attendu INCONNU", found.Status)
+	}
+	if found.Remedy == "" {
+		t.Error("le contrôle ne dit pas comment lever le doute")
+	}
+}
+
+// TestALinuxStationIsNotJudgedOnAPolicyItDoesNotOwn : sous cage, la stratégie appartient à
+// l'installeur et au compte root, pas au compte du poste.
+func TestALinuxStationIsNotJudgedOnAPolicyItDoesNotOwn(t *testing.T) {
+	b := newBench(t)
+	b.machine.navigation = NavigationLockState{Applicable: false}
+
+	found := control(t, b.run(), ControlNavigationLock)
+	if found.Status != StatusNotApplicable {
+		t.Fatalf("station Linux : %s, attendu SANS OBJET", found.Status)
+	}
+	if found.Observed == "" {
+		t.Error("le contrôle ne dit pas ce qu'il a vu")
+	}
+}

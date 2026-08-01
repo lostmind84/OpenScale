@@ -448,3 +448,40 @@ type refusingRunner struct{}
 func (refusingRunner) Run(context.Context, string, ...string) (string, error) {
 	return "", errors.New("commande introuvable")
 }
+
+// TestTheProfileOfTheStationAccountIsFoundByItsDirectory : c'est le seul chemin de
+// « openscale » vers « S-1-5-21-…-1001 » qui ne demande pas un appel Windows que ce paquet
+// n'a aucune autre raison de faire — et c'est ce SID qui dit sous quelle ruche relire les
+// stratégies du kiosque.
+func TestTheProfileOfTheStationAccountIsFoundByItsDirectory(t *testing.T) {
+	const listing = `
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\S-1-5-18
+    ProfileImagePath    REG_EXPAND_SZ    %systemroot%\system32\config\systemprofile
+
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\S-1-5-21-11-22-33-1001
+    ProfileImagePath    REG_EXPAND_SZ    C:\Users\Fab
+
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\S-1-5-21-11-22-33-1004
+    ProfileImagePath    REG_EXPAND_SZ    C:\Users\openscale
+`
+	if sid := profileSID(listing, "openscale"); sid != "S-1-5-21-11-22-33-1004" {
+		t.Fatalf("SID du compte du poste = %q", sid)
+	}
+	// Lire le profil d'un autre compte, c'est rendre vert un poste grand ouvert : la
+	// stratégie du technicien n'est pas celle du poste.
+	if sid := profileSID(listing, "Fab"); sid != "S-1-5-21-11-22-33-1001" {
+		t.Fatalf("SID d'un autre compte = %q", sid)
+	}
+}
+
+// TestAnAccountWithNoProfileYieldsNoSID : un compte créé et jamais ouvert n'a pas de
+// profil. Deviner un SID à ce moment-là ferait relire la ruche de quelqu'un d'autre.
+func TestAnAccountWithNoProfileYieldsNoSID(t *testing.T) {
+	const listing = `
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\S-1-5-18
+    ProfileImagePath    REG_EXPAND_SZ    %systemroot%\system32\config\systemprofile
+`
+	if sid := profileSID(listing, "openscale"); sid != "" {
+		t.Fatalf("SID %q inventé pour un compte sans profil", sid)
+	}
+}

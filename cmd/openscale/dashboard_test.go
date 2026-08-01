@@ -203,6 +203,9 @@ func (m *countingMachine) Power(context.Context) (diag.PowerState, error) {
 func (m *countingMachine) RebootPermission(context.Context) (diag.RebootPermissionState, error) {
 	return diag.RebootPermissionState{}, nil
 }
+func (m *countingMachine) NavigationLock(context.Context) (diag.NavigationLockState, error) {
+	return diag.NavigationLockState{}, nil
+}
 
 func (m *countingMachine) SerialPorts(context.Context) ([]diag.PortInfo, error) {
 	return nil, nil

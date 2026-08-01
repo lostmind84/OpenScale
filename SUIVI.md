@@ -3,6 +3,42 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Un clic droit sortait le poste de l'application, et rien ne le voyait (01/08/2026).** Sur
+un poste en service : clic droit, « Rechercher sur le web », et la fenêtre du kiosque part
+sur un moteur de recherche. `--kiosk` ne donne ni barre d'adresse ni bouton retour, donc
+plus de retour possible. **Et les seize contrôles de `doctor` restaient verts** : le
+processus tournait, `/healthz` répondait 200, la fenêtre était en plein écran. Le poste ne
+vendait rien et rien ne le disait. **ADR-056** pose trois couches, et la troisième est celle
+qui garantit :
+
+| Couche | Ce qu'elle fait | Ce qui la limite |
+| --- | --- | --- |
+| 1. Menu contextuel bloqué (L6, déjà livré) | `preventDefault` sur l'écran client | **Deux trous volontaires** : l'écran d'administration, qui s'ouvre dans la même fenêtre et où « Copier » sert au téléphone ; la page de secours, un `file://` sans script par conception |
+| 2. Stratégies de navigation | `URLBlocklist = *`, l'adresse du poste et `file://*` rouvertes, plus 9 valeurs — dont `DefaultSearchProviderEnabled`, qui **retire l'entrée du menu** au lieu de la refuser après le clic | Une stratégie qu'un navigateur ignore ne se remarque nulle part |
+| 3. **Surveillance de l'écran attaché** | `GET /api/v1/screens` ; 15 s sans aucun écran = relance, non comptée comme un plantage | Un portable qui lit `/admin` sur le réseau tient un flux et masque un kiosque parti |
+
+**Trois décisions qui ne sautent pas aux yeux.** (1) Les stratégies vont dans **`HKCU`, pas
+`HKLM`** — le compte du poste est le seul à enfermer, et un technicien connecté sur ce PC
+garde un navigateur qui marche. (2) C'est **le kiosque** qui les écrit, pas `install.ps1` :
+au moment où l'installeur tourne, `New-LocalUser` a créé un compte et **pas** de profil,
+donc il n'y a aucune ruche à charger. Écrites à chaque ouverture de session, elles
+reviennent seules quand quelqu'un les efface. (3) La surveillance **ne se déclenche que sur
+un écran qu'elle a vu attaché** : comptées depuis le lancement, les quinze secondes
+tueraient le navigateur d'un poste lent, puis recommenceraient. Toutes les incertitudes
+retardent la relance, aucune ne la provoque.
+
+**Le 17ᵉ contrôle lit la ruche du COMPTE DU POSTE, jamais la sienne.** `doctor` est tapé par
+quelqu'un connecté sous un autre nom ; lire son propre `HKCU` rendrait vert un poste grand
+ouvert. C'est mot pour mot la faute corrigée le 31/07/2026 sur le principal de la tâche
+planifiée (#35). Une ruche non montée répond **orange et jamais rouge** — la couche 3 tient
+pendant ce temps.
+
+**Ce qui reste ouvert : la station Linux n'a que la couche 3.** Sa stratégie irait dans
+`/etc/chromium/policies/managed`, écrite par `install.sh` — mais la liste blanche a besoin
+de l'adresse du poste, que le script devrait lire dans un JSON qu'il ne sait pas analyser.
+Sous `cage` il n'y a rien vers quoi s'échapper, et la surveillance de présence y ramène
+l'écran comme ailleurs.
+
 **Un poste enfermé sous kiosque a maintenant une sortie (31/07/2026).** Il n'y avait aucun
 moyen de relire un `config.json` modifié à la main, de relancer l'application, ni de
 redémarrer la machine : le `_readme` du fichier demandait « arrêtez le service, éditez,

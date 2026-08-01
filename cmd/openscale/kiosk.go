@@ -56,12 +56,20 @@ func runKiosk(ctx context.Context, args []string, out io.Writer) error {
 			"« %s »", strings.Join(browserCandidates(), ", "), taskName)
 	}
 
+	// BEFORE the supervisor, because the supervisor launches the browser and a browser
+	// reads its policies when it starts. Posed at every logon rather than once at
+	// installation: this process runs as the station account, so it writes in its own
+	// hive — no other account of the PC is bound — and a key somebody deleted is back at
+	// the next start.
+	posePolicies(browser, options.url, out)
+
 	supervisor, err := kiosk.New(kiosk.Options{
 		URL:        options.url,
 		Browser:    browser,
 		ProfileDir: options.profileDir,
 		Launch:     kiosk.ExecLauncher,
 		Alive:      kiosk.AliveProbe(options.url),
+		Attached:   kiosk.AttachedProbe(options.url),
 		Awake:      platform.KeepAwake,
 		Clock:      platform.NewSystemClock(),
 		Out:        out,
@@ -81,6 +89,33 @@ func runKiosk(ctx context.Context, args []string, out io.Writer) error {
 		fmt.Fprintf(out, "openscale kiosk : la fenêtre de console n'a pas pu être masquée (%v)\n", err)
 	}
 	return supervisor.Run(ctx)
+}
+
+// posePolicies writes the navigation policies of §15.2 for the account that runs the
+// kiosk, and says in one line what happened.
+//
+// It NEVER stops the station. Everything it can fail on is a station that is a little less
+// locked down — a browser this table does not know, a hive that refuses a write — and a
+// black screen would be a far worse answer to any of them. The line it writes is what
+// somebody reads the day a poste is found on a search engine, and the presence watch of
+// the supervisor is what brings that poste back meanwhile.
+func posePolicies(browser kiosk.Browser, url string, out io.Writer) {
+	root := kiosk.PolicyRoot(browser)
+	if root == "" {
+		fmt.Fprintf(out, "openscale kiosk : %s n'a pas de stratégie de navigation connue — "+
+			"l'écran client n'est pas verrouillé sur l'application\n", browser.Name)
+		return
+	}
+	written, err := platform.WriteUserPolicies(root, kiosk.Policies(url))
+	if err != nil {
+		fmt.Fprintf(out, "openscale kiosk : les stratégies de navigation n'ont pas pu être "+
+			"posées (%v) — l'écran client n'est pas verrouillé sur l'application\n", err)
+		return
+	}
+	if written == 0 {
+		return
+	}
+	fmt.Fprintf(out, "openscale kiosk : %d stratégies de navigation posées sous %s\n", written, root)
 }
 
 // kioskOptions is what `openscale kiosk` was told, once the flags, the configuration

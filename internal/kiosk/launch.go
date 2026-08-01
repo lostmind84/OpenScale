@@ -2,6 +2,7 @@ package kiosk
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"os"
@@ -75,17 +76,7 @@ func LookBrowser(programDirectories []string) func(string) (string, bool) {
 // kiosk that read it would put « Le poste redémarre… » in front of a customer whose
 // weighing is about to print perfectly.
 func AliveProbe(address string) func(context.Context) bool {
-	client := &http.Client{
-		Timeout: ProbeBudget,
-		// No proxy, no keep-alive pool to leak: this is a loopback call to a socket on
-		// this very machine, and a station is offline by design (contrainte 4).
-		Transport: &http.Transport{
-			Proxy:                 nil,
-			DisableKeepAlives:     true,
-			DialContext:           (&net.Dialer{Timeout: ProbeBudget}).DialContext,
-			ResponseHeaderTimeout: ProbeBudget,
-		},
-	}
+	client := loopbackClient()
 	url := address + "/healthz"
 	return func(ctx context.Context) bool {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -98,6 +89,62 @@ func AliveProbe(address string) func(context.Context) bool {
 		}
 		defer func() { _ = response.Body.Close() }()
 		return response.StatusCode == http.StatusOK
+	}
+}
+
+// AttachedProbe is one GET on /api/v1/screens: how many client screens hold the state
+// stream, and whether the station answered at all.
+//
+// The two are returned separately on purpose. « The station did not answer » and « the
+// station answered zero » look the same from a count, and they call for opposite gestures:
+// the first is a service that is restarting, which the rescue page covers, and the second
+// is a browser that walked out of the application, which is the only thing that must kill
+// it.
+//
+// A body that cannot be read counts as « did not answer ». The route is served by a
+// version of the station that may be older than this kiosk — an update installs one binary
+// and both processes come from it, but a station whose service failed to restart runs the
+// previous one — and a supervisor that read a 404 page as « zéro écran » would relaunch
+// the browser every fifteen seconds on a station that is working.
+func AttachedProbe(address string) func(context.Context) (int, bool) {
+	client := loopbackClient()
+	url := address + "/api/v1/screens"
+	return func(ctx context.Context) (int, bool) {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return 0, false
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			return 0, false
+		}
+		defer func() { _ = response.Body.Close() }()
+		if response.StatusCode != http.StatusOK {
+			return 0, false
+		}
+		var body struct {
+			Attached int `json:"attached"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+			return 0, false
+		}
+		return body.Attached, true
+	}
+}
+
+// loopbackClient is the HTTP client both probes dial this station with.
+//
+// No proxy, no keep-alive pool to leak: this is a loopback call to a socket on this very
+// machine, and a station is offline by design (contrainte 4).
+func loopbackClient() *http.Client {
+	return &http.Client{
+		Timeout: ProbeBudget,
+		Transport: &http.Transport{
+			Proxy:                 nil,
+			DisableKeepAlives:     true,
+			DialContext:           (&net.Dialer{Timeout: ProbeBudget}).DialContext,
+			ResponseHeaderTimeout: ProbeBudget,
+		},
 	}
 }
 
