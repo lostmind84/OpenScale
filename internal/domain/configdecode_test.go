@@ -6,7 +6,7 @@ import (
 )
 
 // TestDecodeKeepsTheAdminBlockWhenAnotherOneIsUnreadable is the failure fallbackProfile
-// carries in its own comment (serve.go:715): a station with neither password nor recovery
+// carries in its own comment (serve.go): a station with neither password nor recovery
 // code, on the one station §11.3 exists to keep serving. One unreadable block must not
 // take the other thirteen with it.
 func TestDecodeKeepsTheAdminBlockWhenAnotherOneIsUnreadable(t *testing.T) {
@@ -39,9 +39,10 @@ func TestDecodeKeepsTheAdminBlockWhenAnotherOneIsUnreadable(t *testing.T) {
 	}
 }
 
-// TestDecodeOfSomethingThatIsNotJSONServesTheAdminScreen is porte 1: today serve.go:702
-// returns exitFailure and the station never comes up, which contradicts §11.3 in as many
-// words -- "une configuration invalide ne tue JAMAIS le processus".
+// TestDecodeOfSomethingThatIsNotJSONServesTheAdminScreen is porte 1: serve USED TO return
+// exitFailure on a document like this one, and the station never came up, which
+// contradicted §11.3 in as many words -- "une configuration invalide ne tue JAMAIS le
+// processus". This lot removed that path; this test is what keeps it removed.
 func TestDecodeOfSomethingThatIsNotJSONServesTheAdminScreen(t *testing.T) {
 	cfg, faults := DecodeConfigBlockByBlock([]byte(`{"station":{"number":2`))
 

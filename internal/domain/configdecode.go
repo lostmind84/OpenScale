@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -43,7 +44,15 @@ func DecodeConfigBlockByBlock(document []byte) (Config, []Fault) {
 	cfg := NeutralProfile()
 
 	var blocks map[string]json.RawMessage
-	if err := json.Unmarshal(document, &blocks); err != nil {
+	err := json.Unmarshal(document, &blocks)
+	// `null` unmarshals into a map WITHOUT an error and leaves it nil, which would come out
+	// of here as a station whose file has no fault at all while it runs on the factory
+	// profile -- the same silence Migrate refuses one step earlier, and it has to be refused
+	// on both doors or the quiet one wins.
+	if err == nil && blocks == nil {
+		err = errors.New("le document vaut null")
+	}
+	if err != nil {
 		return cfg, []Fault{{
 			Field: WholeDocumentField,
 			Message: fmt.Sprintf("le fichier n'est pas un document JSON exploitable (%s) : "+

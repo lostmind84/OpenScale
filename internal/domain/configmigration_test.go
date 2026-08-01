@@ -69,9 +69,9 @@ func TestMigrateLeavesTheSixNumberingPlanKeysAlone(t *testing.T) {
 }
 
 // TestMigrateCarriesTheOldCoefficientIntoADiscount checks the conversion against a value
-// that was actually SHIPPED: the default MEMBER tier was 9/10, and pricing.go:299 carries
-// Discount 100 -- ten points -- for that same tier today. The arithmetic has to land on
-// that number and on no other.
+// that was actually SHIPPED: the default MEMBER tier was 9/10, and LaCagetteRules
+// (pricing.go) carries Discount 100 -- ten points -- for that same tier today. The
+// arithmetic has to land on that number and on no other.
 func TestMigrateCarriesTheOldCoefficientIntoADiscount(t *testing.T) {
 	before := []byte(`{"version":1,"pricing":{"tiers":[
 		{"code":"MEMBER","label":"Adhérent","abbrev":"A","coef_num":9,"coef_den":10,"rank":1},
@@ -264,5 +264,96 @@ func TestMigrateNeverRefusesAFileFromAFutureBinary(t *testing.T) {
 	}
 	if len(notes) != 1 || notes[0].Action != MigrationRefused {
 		t.Fatalf("notes = %+v, attendu une note qui dit le retour arrière", notes)
+	}
+}
+
+// TestMigrateRefusesADocumentThatIsJustNull: `null` is valid JSON, and
+// json.Decoder.Decode accepts it into a map[string]any WITHOUT an error, leaving the map
+// NIL. Every step below then writes into a nil map, which panics -- and §11.3 promises an
+// invalid configuration NEVER kills the process. A panic is worse than the refusal that
+// preceded this lot: a stack trace, exit code 2, and the service manager restarting the
+// station in a loop.
+func TestMigrateRefusesADocumentThatIsJustNull(t *testing.T) {
+	for _, document := range []string{"null", " null \n", "  null"} {
+		t.Run(document, func(t *testing.T) {
+			if _, _, err := Migrate([]byte(document)); err == nil {
+				t.Fatal("Migrate a accepté un document valant null")
+			}
+		})
+	}
+}
+
+// TestAFileThatIsJustNullIsAFaultAndNotAnEmptyConfiguration is the other half of the
+// guard above. Migrate refusing is not enough on its own: LoadConfig falls back on
+// DecodeConfigBlockByBlock, where json.Unmarshal accepts `null` into a map just as
+// silently, and the station would then be told its file has no fault at all while running
+// on the factory profile.
+func TestAFileThatIsJustNullIsAFaultAndNotAnEmptyConfiguration(t *testing.T) {
+	cfg, faults := DecodeConfigBlockByBlock([]byte("null"))
+
+	if len(faults) != 1 {
+		t.Fatalf("%d faute(s), attendu 1 : %+v", len(faults), faults)
+	}
+	if faults[0].Field != WholeDocumentField {
+		t.Errorf("la faute nomme %q, attendu %q", faults[0].Field, WholeDocumentField)
+	}
+	if cfg.Network.Listen != NeutralProfile().Network.Listen {
+		t.Errorf("listen = %q, attendu celui du profil neutre", cfg.Network.Listen)
+	}
+}
+
+// TestMigrateRefusesACoefficientWhenADiscountIsAlreadyDeclared.
+//
+// A hand-repaired file is how the two end up on the same tier: somebody wrote
+// discount_percent by hand and left the coefficient below it. Converting on top of the
+// declared value REPLACES a discount a cooperative chose with one this binary computed --
+// measured at 5 % becoming 10 % -- and the note read like an ordinary conversion.
+func TestMigrateRefusesACoefficientWhenADiscountIsAlreadyDeclared(t *testing.T) {
+	before := []byte(`{"version":1,"pricing":{"tiers":[
+		{"code":"M","discount_percent":5,"coef_num":9,"coef_den":10}
+	]}}`)
+
+	after, notes, err := Migrate(before)
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if len(notes) != 1 || notes[0].Action != MigrationRefused {
+		t.Fatalf("notes = %+v, attendu un refus", notes)
+	}
+	// Both numbers, because whoever reads this note has to arbitrate between them and
+	// cannot do it without seeing them side by side.
+	for _, value := range []string{"5", "9", "10"} {
+		if !strings.Contains(notes[0].Message, value) {
+			t.Errorf("le refus ne nomme pas %s : %q", value, notes[0].Message)
+		}
+	}
+
+	var cfg Config
+	if err := json.Unmarshal(after, &cfg); err != nil {
+		t.Fatalf("le document migré ne se décode pas : %v", err)
+	}
+	if got := cfg.Pricing.Tiers[0].Discount; got != Discount(50) {
+		t.Errorf("remise = %s, attendu les 5 %% que le fichier déclare", got)
+	}
+	if len(cfg.Retired()) == 0 {
+		t.Error("le refus a quand même retiré le coefficient : rien ne le dira plus")
+	}
+}
+
+// TestMigrateRefusesASecondDocumentAfterTheFirst: json.Decoder stops at the end of the
+// first document and says nothing about what follows, where json.Unmarshal -- which
+// DecodeConfigBlockByBlock uses one step later -- refuses it. Two doors reading the same
+// bytes must not disagree on whether the file is a configuration, because the more
+// tolerant one wins and `openscale config migrate` then PERSISTS that reading by dropping
+// the tail.
+func TestMigrateRefusesASecondDocumentAfterTheFirst(t *testing.T) {
+	document := []byte(`{"station":{"number":7}} {"station":{"number":9}}`)
+
+	if _, _, err := Migrate(document); err == nil {
+		t.Fatal("Migrate a accepté un document suivi d'un second")
+	}
+	_, faults := DecodeConfigBlockByBlock(document)
+	if len(faults) != 1 || faults[0].Field != WholeDocumentField {
+		t.Fatalf("l'autre porte rend %+v : les deux ne disent pas la même chose", faults)
 	}
 }

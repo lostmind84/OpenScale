@@ -3,6 +3,7 @@ package domain
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 )
@@ -22,7 +23,8 @@ import (
 // CurrentSchemaVersion is the shape of config.json this binary speaks.
 //
 // It is BOOKKEEPING and not an authority, and the difference matters. The field existed
-// from the start (config.go:141) and nobody ever read it: only NeutralProfile set it, to 1.
+// from the start (Config.Version, config.go) and nobody ever read it: only NeutralProfile
+// set it, to 1.
 // Every file in the field therefore announces 1 whatever its age, so a chain driven by this
 // number could do nothing for any of them. The steps are driven by the KEYS PRESENT, are
 // idempotent, and this number is written on the way out so that the next binary has a fast
@@ -130,6 +132,24 @@ func Migrate(document []byte) ([]byte, []MigrationNote, error) {
 	if err := decoder.Decode(&decoded); err != nil {
 		return nil, nil, fmt.Errorf("le document de configuration n'est pas un objet JSON : %w", err)
 	}
+	// `null` is valid JSON and Decode accepts it into a map WITHOUT an error, leaving the
+	// map NIL -- every step below writes into it, and a write to a nil map PANICS. §11.3
+	// promises an invalid configuration never kills the process, and a panic is worse than
+	// the refusal that preceded this lot: a stack trace, exit code 2, and a service manager
+	// restarting the station in a loop.
+	if decoded == nil {
+		return nil, nil, errors.New("le document de configuration vaut null : ce n'est pas un " +
+			"objet JSON")
+	}
+	// A json.Decoder stops at the END OF THE FIRST DOCUMENT and reports nothing about what
+	// follows, where the json.Unmarshal of DecodeConfigBlockByBlock refuses it one step
+	// later. Two doors reading the same bytes must not disagree on whether the file is a
+	// configuration at all: the more tolerant one would win here, and `openscale config
+	// migrate` would then PERSIST that reading by writing back the first document alone.
+	if decoder.More() {
+		return nil, nil, errors.New("le document de configuration est suivi d'autre chose : " +
+			"un fichier de configuration porte UN seul document JSON")
+	}
 
 	var notes []MigrationNote
 	for _, step := range migrationSteps {
@@ -209,6 +229,22 @@ func carryCoefficientToDiscount(document map[string]any) []MigrationNote {
 			}
 		}
 		path := fmt.Sprintf("pricing.tiers[%d].coef_num", index)
+		// A tier carrying BOTH is a file somebody repaired by hand and did not finish:
+		// discount_percent written above, the coefficient left below it. Converting on top
+		// of it replaces a discount the cooperative CHOSE with one this binary computed --
+		// measured at 5 % becoming 10 % -- and the note reads like an ordinary conversion.
+		// Only a human can say which of the two is meant, so both numbers are named and
+		// nothing is touched.
+		if declared, present := tier["discount_percent"]; present {
+			notes = append(notes, MigrationNote{
+				Key: path, Action: MigrationRefused,
+				Message: fmt.Sprintf("ce tarif déclare déjà une remise de %v %% ET un coefficient "+
+					"%v/%v, qui en demande une autre : gardez celle des deux qui est la bonne, "+
+					"en pourcentage (discount_percent, ADR-034), et retirez le coefficient",
+					declared, tier["coef_num"], tier["coef_den"]),
+			})
+			continue
+		}
 		numerator, haveNumerator := wholeNumber(tier["coef_num"])
 		denominator, haveDenominator := wholeNumber(tier["coef_den"])
 
