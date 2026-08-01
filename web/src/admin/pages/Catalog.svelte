@@ -8,6 +8,7 @@
     type Product,
   } from '../../lib/catalog'
   import Tile from '../../components/Tile.svelte'
+  import { GRID_COLUMNS_AUTO, gridTemplateColumns } from '../../lib/grid'
   import {
     NAME_SIZE_MIN_PX,
     canvasMeasurer,
@@ -98,15 +99,6 @@
 
   /** The key that decides how many columns the client grid draws. */
   const GRID_COLUMNS_PATH = 'ui.grid_columns'
-
-  /**
-   * What `0` means: the grid of today, on every screen.
-   *
-   * It is a BEHAVIOUR and not a count — continuous density, five columns on the
-   * reference screen and ten on a 4K, without anybody setting anything. Naming it
-   * here is what keeps « aucune colonne » from being a possible reading of it.
-   */
-  const GRID_COLUMNS_AUTO = 0
 
   /**
    * The counts an operator may pin the grid to.
@@ -465,23 +457,6 @@
   }
 
   /**
-   * The grid the client screen draws for a setting, word for word.
-   *
-   * `minmax(0, 1fr)` and never `1fr`, which is `minmax(auto, 1fr)`: an `auto` track
-   * does not go below the min-content width of what it holds, and what it holds is
-   * « CRANBERRY/CANNEBERGES ». At ten columns that would lay out a grid wider than
-   * the screen — and the count read off it would be the count of a grid nobody sees.
-   *
-   * @param columns - the draft setting: `0` for automatic, else the pinned count.
-   */
-  function gridDeclaration(columns: number): string {
-    if (columns === GRID_COLUMNS_AUTO) {
-      return 'repeat(auto-fill, minmax(var(--tile-min), 1fr))'
-    }
-    return `repeat(${String(columns)}, minmax(0, 1fr))`
-  }
-
-  /**
    * Asks the LAYOUT what the draft grid comes to, and answers null when it cannot.
    *
    * Not one number here is arithmetic run in parallel with the browser: how many
@@ -507,7 +482,7 @@
     // that prints one, is exactly the 30 % error this probe exists to stop making.
     if (row === null) return null
 
-    gridBox.style.gridTemplateColumns = gridDeclaration(columns)
+    gridBox.style.gridTemplateColumns = gridTemplateColumns(columns)
     const tracks = trackWidths(gridBox)
     const columnWidth = tracks[0]
     if (columnWidth === undefined) return null

@@ -5,6 +5,7 @@ import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 import Grid from '../src/components/Grid.svelte'
 import { ALL_CATEGORIES, filterProducts, visibleProducts, type Product } from '../src/lib/catalog'
+import { AUTOMATIC_COLUMNS, GRID_COLUMNS_AUTO, gridTemplateColumns } from '../src/lib/grid'
 import { NAME_SIZE_MAX_PX } from '../src/lib/typography'
 import { catalogFromExport } from './fixtures/odoo'
 
@@ -155,6 +156,17 @@ describe('le nombre de colonnes, réglable et automatique par défaut', () => {
     expect(source).toContain(
       'grid-template-columns: repeat(auto-fill, minmax(var(--tile-min), 1fr));',
     )
+  })
+
+  // La grille est dessinée par CETTE feuille de style, et mesurée par une sonde que
+  // l'écran d'administration déclare de son côté (Catalog.svelte). Les deux doivent
+  // dire la même chose : une sonde qui déclarerait autre chose compterait les colonnes
+  // d'une grille que personne ne voit. `lib/grid.ts` est la seule source des deux, et
+  // ce cas est ce qui rattache la feuille de style — que le CSS scopé de Svelte
+  // interdit d'alimenter depuis un module — à ce qu'elle porte.
+  it('la feuille de style dit ce que le module dit, sinon la sonde mesure autre chose', () => {
+    expect(source).toContain(`grid-template-columns: ${AUTOMATIC_COLUMNS};`)
+    expect(gridTemplateColumns(GRID_COLUMNS_AUTO)).toBe(AUTOMATIC_COLUMNS)
   })
 
   it('à 0, ne pose AUCUNE déclaration en ligne : la feuille de style reste seule à décider', () => {

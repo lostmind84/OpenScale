@@ -13,6 +13,7 @@ import {
   importSourceWord,
 } from '../src/admin/lib/inventory'
 import { Admin } from '../src/admin/lib/session.svelte'
+import { GRID_COLUMNS_AUTO, gridTemplateColumns } from '../src/lib/grid'
 import { FLV_1_IMPORT, FLV_IMPORT, nominalHealth } from './fixtures/health'
 
 /**
@@ -1241,14 +1242,18 @@ describe('les colonnes de la grille, réglables sans cesser d’être automatiqu
   })
 
   it('porte la déclaration de grille du BROUILLON sur sa sonde, et pas une autre', () => {
-    // Le mode automatique doit rester le mode automatique à l'octet près : c'est ce que la
-    // densité continue a acheté, et une sonde qui déclarerait autre chose ferait annoncer
-    // à cet écran une grille que le client ne dessine pas.
-    expect(PAGE).toContain("repeat(auto-fill, minmax(var(--tile-min), 1fr))")
-    expect(PAGE).toContain('repeat(${String(columns)}, minmax(0, 1fr))')
+    // La sonde et la grille du client tirent la MÊME chaîne du même module : deux
+    // littéraux dans deux fichiers, c'est ainsi qu'une sonde finit par compter les
+    // colonnes d'une grille que personne ne dessine. Le mode automatique doit rester le
+    // mode automatique à l'octet près — c'est ce que la densité continue a acheté.
+    expect(PAGE).toContain("from '../../lib/grid'")
+    expect(PAGE).toContain('gridBox.style.gridTemplateColumns = gridTemplateColumns(columns)')
+    expect(gridTemplateColumns(GRID_COLUMNS_AUTO)).toBe(
+      'repeat(auto-fill, minmax(var(--tile-min), 1fr))',
+    )
     // `minmax(0, 1fr)` et jamais `1fr`, qui vaut `minmax(auto, 1fr)` : une piste `auto` ne
     // descend pas sous la largeur min-content de « CRANBERRY/CANNEBERGES ».
-    expect(PAGE).not.toMatch(/repeat\(\$\{String\(columns\)\}, 1fr\)/u)
+    expect(gridTemplateColumns(7)).toBe('repeat(7, minmax(0, 1fr))')
   })
 
   it('lit les hauteurs des trois barres dans leurs jetons, jamais en pixels', () => {

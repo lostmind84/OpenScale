@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Product } from '../lib/catalog'
+  import { gridTemplateColumns } from '../lib/grid'
   import {
     NAME_BOX_PX,
     REFERENCE_SIZE_PX,
@@ -215,7 +216,7 @@
    * single place the default is written — and stays true word for word.
    */
   const columnsStyle = $derived(
-    gridColumns > 0 ? `grid-template-columns: repeat(${gridColumns}, minmax(0, 1fr))` : undefined,
+    gridColumns > 0 ? `grid-template-columns: ${gridTemplateColumns(gridColumns)}` : undefined,
   )
 
   /**
