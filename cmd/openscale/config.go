@@ -54,7 +54,7 @@ func runConfig(args []string, in io.Reader, out io.Writer) error {
 	}
 	if len(positional) == 0 {
 		fs.Usage()
-		return errors.New("config prend une action : validate, export, fingerprint, " +
+		return errors.New("config prend une action : validate, export, fingerprint, migrate, " +
 			"password ou recovery-code")
 	}
 
@@ -68,26 +68,28 @@ func runConfig(args []string, in io.Reader, out io.Writer) error {
 		return fmt.Errorf("argument inattendu %q : config prend une action et un fichier", positional[2])
 	}
 
-	cfg, err := readConfigLeniently(path)
+	cfg, notes, err := readConfigLeniently(path)
 	if err != nil {
 		return fmt.Errorf("le fichier de configuration %s ne peut pas être lu : %w", path, err)
 	}
 
 	switch action {
 	case "validate":
-		return validateConfig(out, path, cfg)
+		return validateConfig(out, path, cfg, notes)
 	case "export":
 		return exportConfig(out, cfg, *hardware, *output)
 	case "fingerprint":
 		fmt.Fprintf(out, "%s\n", cfg.Fingerprint())
 		return nil
+	case "migrate":
+		return migrateConfig(out, path)
 	case "password":
 		return setAdminPassword(in, out, path)
 	case "recovery-code":
 		return mintRecoveryCode(out, path)
 	}
 	fs.Usage()
-	return fmt.Errorf("action inconnue %q : validate, export, fingerprint, password "+
+	return fmt.Errorf("action inconnue %q : validate, export, fingerprint, migrate, password "+
 		"ou recovery-code", action)
 }
 
@@ -99,6 +101,7 @@ Actions :
   validate        liste TOUTES les fautes en français, d'un coup
   export          écrit la configuration à cloner vers les autres postes
   fingerprint     affiche l'empreinte de 8 caractères des réglages partagés
+  migrate         remet le fichier à la forme que ce binaire lit, et dit ce qu'il change
   password        pose le mot de passe d'administration, lu sur l'entrée standard
   recovery-code   tire le code de secours de 8 caractères et l'affiche UNE fois
 
@@ -112,9 +115,9 @@ Le mot de passe d'administration ne sort JAMAIS, avec ou sans --hardware.
 Importer une configuration se fait depuis l'écran d'administration : l'aperçu du diff
 champ par champ et la confirmation de 60 secondes en font partie.
 
-password et recovery-code écrivent le FICHIER, que le poste ne relit qu'au démarrage :
-arrêtez le service, lancez la commande, redémarrez-le. Le terminal affiche ce qui est
-tapé — c'est une console de poste, pas un poste de travail partagé.
+migrate, password et recovery-code écrivent le FICHIER, que le poste ne relit qu'au
+démarrage : arrêtez le service, lancez la commande, redémarrez-le. Le terminal affiche ce
+qui est tapé — c'est une console de poste, pas un poste de travail partagé.
 `
 
 // validateConfig runs the controls of §11.3 with the REAL registries of this binary,
@@ -124,7 +127,9 @@ tapé — c'est une console de poste, pas un poste de travail partagé.
 // having fixed it, and not discover the second fault after a restart. The exit code is
 // what makes it usable from install.ps1 — a non-zero status means « this station will
 // start in factory configuration ».
-func validateConfig(out io.Writer, path string, cfg domain.Config) error {
+func validateConfig(out io.Writer, path string, cfg domain.Config, notes []domain.MigrationNote) error {
+	reportPendingMigrations(out, path, notes)
+
 	scales, printers := scaleRegistry(), printerRegistry()
 	faults := cfg.Validate(domain.Registries{
 		Scales:         scales.Descriptors(),
@@ -144,6 +149,28 @@ func validateConfig(out io.Writer, path string, cfg domain.Config) error {
 	return &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf(
 		"%s comporte %d faute(s) : le poste démarrerait en configuration d'usine (ERR-CFG-01)",
 		path, len(faults))}
+}
+
+// reportPendingMigrations names what LoadConfig had to change to bring the file up to the
+// schema this binary speaks, BEFORE the fault list: a volunteer reading a fault about a
+// field they never touched should learn first that the field came from an old file, not
+// discover it after wondering why the value looks wrong.
+//
+// It says NOTHING when there is nothing pending, on purpose: a station already at this
+// schema must not see a paragraph on every `config validate`, only the ones that changed
+// something. A retired key Migrate has no translation for (the six of the numbering plan)
+// earns no note here either — control 20 names it in the fault list right below, which is
+// where a pure refusal has always been reported.
+func reportPendingMigrations(out io.Writer, path string, notes []domain.MigrationNote) {
+	if len(notes) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "%s : ce fichier n'est pas encore au schéma %d que ce binaire écrit — "+
+		"%d migration(s) en attente, qu'« openscale config migrate » appliquerait :\n",
+		path, domain.CurrentSchemaVersion, len(notes))
+	for _, note := range notes {
+		fmt.Fprintf(out, "  %s\n", note)
+	}
 }
 
 // minPasswordLength is the floor POST /admin/api/session/recovery already holds (§14.4).
@@ -292,5 +319,86 @@ func exportConfig(out io.Writer, cfg domain.Config, hardware bool, output string
 		return fmt.Errorf("l'export n'a pas pu être écrit dans %s : %w", output, err)
 	}
 	fmt.Fprintf(out, "export écrit dans %s — empreinte %s\n", output, cfg.Fingerprint())
+	return nil
+}
+
+// migrateConfig is `openscale config migrate`.
+//
+// It writes through the same store the administration screen saves with, so a migration
+// rotates config.json.1 … .5 and lands atomically like any other change. Nothing new is
+// invented for it, and that is the point: the version of before is one file away.
+//
+// It is IDEMPOTENT. update.ps1 and update.sh call it at every update, and a station that is
+// already at this schema must come out of it with its file untouched -- rotating five
+// versions over a no-operation is how the version that mattered falls off the end.
+//
+// A refused point is a non-zero status and NOT a refusal to write: what could be carried is
+// carried in memory, but nothing at all is written to disk while one point is still
+// refused -- see the comment on the refusal branch below for why that has to hold even for
+// a file that carries both a point migrate CAN write and one it cannot.
+func migrateConfig(out io.Writer, path string) error {
+	cfg, notes, _, err := platform.LoadConfig(path)
+	if err != nil {
+		return fmt.Errorf("le fichier de configuration %s ne peut pas être lu : %w", path, err)
+	}
+
+	// A key control 20 refuses outright earns NO note of its own when Migrate has no
+	// translation to attempt for it: the six keys of the numbering plan are a pure
+	// refusal, unchanged since they entered the code already retired (configmigration.go),
+	// and migrationSteps never touches them. cfg.Retired() is the only place that survives
+	// for them, and it is also what ConfigStore.Save is about to consult -- so a key still
+	// there is folded into the very same accounting as the notes, under the same name a
+	// note would use, before Save is ever called.
+	retired := cfg.Retired()
+	named := make(map[string]bool, len(notes))
+	for _, note := range notes {
+		named[note.Key] = true
+	}
+	for _, key := range retired {
+		if named[key] {
+			continue
+		}
+		notes = append(notes, domain.MigrationNote{
+			Key: key, Action: domain.MigrationRefused,
+			Message: "clé refusée par ce binaire, qui n'invente pas de traduction pour elle",
+		})
+	}
+
+	if len(notes) == 0 {
+		fmt.Fprintf(out, "%s est déjà à la forme que ce binaire lit : rien à faire.\n", path)
+		return nil
+	}
+
+	fmt.Fprintf(out, "%s : %d changement(s).\n", path, len(notes))
+	refused := 0
+	for _, note := range notes {
+		fmt.Fprintf(out, "  %s\n", note)
+		if note.Action == domain.MigrationRefused {
+			refused++
+		}
+	}
+
+	// ConfigStore.Save calls cfg.RefuseIfRetired, and a MIXED file -- one point carried,
+	// one refused -- would reach it and be refused there too, only AFTER this command had
+	// already said it was writing. Leaving here, before Save is ever called, is what keeps
+	// "rien n'est écrit" true unconditionally, whether the refusal came with a note (an
+	// unconvertible discount, a file from a newer binary) or without one (the numbering
+	// plan, folded in just above).
+	if refused > 0 {
+		return &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf(
+			"%s comporte %d point(s) que ce binaire ne devine pas : le fichier n'est pas "+
+				"modifié, tranchez-le puis relancez la migration", path, refused)}
+	}
+
+	store, err := platform.NewConfigStore(path)
+	if err != nil {
+		return err
+	}
+	cfg.ModifiedAt = platform.NewSystemClock().Now()
+	if err := store.Save(context.Background(), cfg); err != nil {
+		return fmt.Errorf("%s n'a pas pu être réécrit : %w", path, err)
+	}
+	fmt.Fprintf(out, "%s réécrit ; la version d'avant est dans %s.1.\n", path, path)
+	fmt.Fprintf(out, "Redémarrez le service pour qu'il lise le fichier réécrit.\n")
 	return nil
 }

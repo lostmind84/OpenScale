@@ -494,6 +494,73 @@ func stringsCarriedBy(t *testing.T, exported domain.Config) map[string]string {
 	return found
 }
 
+// TestMigrateWritesOnceAndSaysSoTheSecondTime: the command is what update.ps1 and update.sh
+// call, so running it twice on the same station -- two updates in a row -- must be a
+// no-operation the second time, and must not rotate config.json.1 over a version that
+// mattered.
+func TestMigrateWritesOnceAndSaysSoTheSecondTime(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "config.json")
+	if err := os.WriteFile(path, []byte(
+		`{"version":1,"station":{"number":2},"ui":{"tile_size":"large"}}`), 0o644); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+
+	var first bytes.Buffer
+	if err := runConfig([]string{"migrate", path}, nil, &first); err != nil {
+		t.Fatalf("première migration : %v", err)
+	}
+	if !strings.Contains(first.String(), "tile_size") {
+		t.Errorf("la première migration ne dit pas ce qu'elle a changé :\n%s", first.String())
+	}
+	if _, err := os.Stat(path + ".1"); err != nil {
+		t.Errorf("la version d'avant n'a pas été gardée : %v", err)
+	}
+
+	migrated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("relecture : %v", err)
+	}
+
+	var second bytes.Buffer
+	if err := runConfig([]string{"migrate", path}, nil, &second); err != nil {
+		t.Fatalf("seconde migration : %v", err)
+	}
+	if !strings.Contains(second.String(), "rien à faire") {
+		t.Errorf("la seconde migration n'annonce pas qu'elle ne fait rien :\n%s", second.String())
+	}
+	again, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("relecture : %v", err)
+	}
+	if string(again) != string(migrated) {
+		t.Errorf("la seconde migration a réécrit le fichier :\n%s\n%s", migrated, again)
+	}
+}
+
+// TestMigrateLeavesARefusedKeyInPlace: what this binary will not guess stays where it is,
+// and the command says so with a non-zero status so update.ps1 can show it.
+func TestMigrateLeavesARefusedKeyInPlace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(
+		`{"version":1,"barcode":{"weight_decimals":3}}`), 0o644); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+
+	var out bytes.Buffer
+	err := runConfig([]string{"migrate", path}, nil, &out)
+	if err == nil {
+		t.Fatal("une clé refusée doit donner un code de retour non nul")
+	}
+	after, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("relecture : %v", readErr)
+	}
+	if !strings.Contains(string(after), "weight_decimals") {
+		t.Errorf("la clé refusée a été retirée quand même : %s", after)
+	}
+}
+
 func collectStrings(path string, value any, out map[string]string) {
 	switch typed := value.(type) {
 	case string:

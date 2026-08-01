@@ -132,7 +132,7 @@ func serviceAddress(o doctorOptions) string {
 	if o.listen != "" {
 		return o.listen
 	}
-	if cfg, err := readConfigLeniently(o.configPath); err == nil && cfg.Network.Listen != "" {
+	if cfg, _, err := readConfigLeniently(o.configPath); err == nil && cfg.Network.Listen != "" {
 		return cfg.Network.Listen
 	}
 	return domain.NeutralProfile().Network.Listen
@@ -141,9 +141,12 @@ func serviceAddress(o doctorOptions) string {
 // readConfigLeniently reads the file the way the service does, migration included, so that
 // `openscale config validate` judges what the station would ACTUALLY run and not what the
 // file literally says.
-func readConfigLeniently(path string) (domain.Config, error) {
-	cfg, _, _, err := platform.LoadConfig(path)
-	return cfg, err
+//
+// The notes are returned rather than discarded, so that `openscale config validate` can
+// report them BEFORE the fault list without calling platform.LoadConfig a second time.
+func readConfigLeniently(path string) (domain.Config, []domain.MigrationNote, error) {
+	cfg, notes, _, err := platform.LoadConfig(path)
+	return cfg, notes, err
 }
 
 // writeArchive writes diagnostic.zip where `--zip` asked for it.
