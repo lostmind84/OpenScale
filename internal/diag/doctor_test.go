@@ -479,6 +479,36 @@ func TestConfigurationControlNamesTheSchemaVersion(t *testing.T) {
 	}
 }
 
+// TestConfigurationControlNamesARolledBackStationWithoutPromisingARewrite covers the
+// station update.ps1 / update.sh rolled back on its own after a failed update : its
+// config.json was written by a NEWER binary, so stampSchemaVersion refuses to touch the
+// version field and reports it (domain.SchemaVersionKey). That refusal reaches this
+// control with an EMPTY Config.Retired() — "version" is not in domain's retiredKeys — so
+// it is never caught by the fault cascade above, and the control has to tell it apart
+// from an ordinary file that is merely behind : it is not behind, and « openscale config
+// migrate » will not write it, because migrateConfig refuses to write ANYTHING while a
+// single note is refused.
+func TestConfigurationControlNamesARolledBackStationWithoutPromisingARewrite(t *testing.T) {
+	raw := `{"version":3,"station":{"number":2},"admin":{"password_hash":"` + benchPasswordHash + `"}}`
+	found := runConfigurationControlOn(t, raw)
+
+	if found.Status != StatusWarn {
+		t.Fatalf("fichier écrit par un binaire plus récent : %s — %s", found.Status, found.Observed)
+	}
+	if strings.Contains(found.Observed, "en attente") ||
+		strings.Contains(found.Observed, "n'est pas encore au schéma") {
+		t.Errorf("le contrôle dit que le fichier est EN RETARD, alors qu'il est en AVANCE : %q",
+			found.Observed)
+	}
+	if !strings.Contains(found.Observed, "plus récente") {
+		t.Errorf("le contrôle ne dit pas que le fichier vient d'un binaire plus récent : %q",
+			found.Observed)
+	}
+	if strings.Contains(found.Remedy, "réécrit le fichier") {
+		t.Errorf("le remède promet une réécriture que « config migrate » va refuser : %q", found.Remedy)
+	}
+}
+
 // --- 8. The database --------------------------------------------------------
 
 func TestABaseThatWillNotOpenNamesItsCode(t *testing.T) {

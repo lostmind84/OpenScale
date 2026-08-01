@@ -261,6 +261,15 @@ func carryCoefficientToDiscount(document map[string]any) []MigrationNote {
 	return notes
 }
 
+// SchemaVersionKey is the MigrationNote.Key stampSchemaVersion reports on, and the one
+// case its refusal does not mean « an ordinary field failed to convert »: a note on this
+// key is what a ROLLED-BACK station's file looks like from here — written by a binary
+// NEWER than the one reading it now. internal/diag reads the exact string, the same way
+// it already does for domain.WholeDocumentField, so that "this station is behind" and
+// "this station was just rolled back" cannot be told apart by a copy of the key that
+// quietly drifts from the one below.
+const SchemaVersionKey = "version"
+
 // stampSchemaVersion writes the version this binary produced, and reports the ONE case it
 // will not touch.
 //

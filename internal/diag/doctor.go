@@ -657,14 +657,53 @@ func (d *Doctor) checkConfiguration(loaded loadedConfig) Control {
 	// migrated form, in memory, so an out-of-date FILE is at most something to catch up on
 	// — and it must never bury the two warnings above, which both call for action sooner
 	// (no way in at all, or lines nobody can explain).
+	//
+	// A note is not automatically "behind, and migrate catches it up": migrateConfig
+	// refuses to write ANYTHING while a single note is MigrationRefused (cmd/openscale/
+	// config.go), so promising a rewrite on the strength of len(notes) alone would be
+	// wrong exactly when it matters — a refused note is never routine. One refusal in
+	// particular is not even an old file: a note on domain.SchemaVersionKey is what a
+	// ROLLED-BACK station looks like from here, written by a binary NEWER than this one,
+	// and it earns its own sentence rather than being folded into "des changements".
 	if notes := loaded.MigrationNotes; len(notes) > 0 {
 		control.Status = StatusWarn
-		control.Observed = fmt.Sprintf("aucune faute ; empreinte %s ; %s n'est pas encore au schéma %d "+
-			"que ce binaire écrit (%d changement(s) en attente) — « openscale config migrate » le "+
-			"réécrit (le poste tourne déjà sur la forme à jour, en mémoire)",
-			loaded.Config.Fingerprint(), d.o.ConfigPath, domain.CurrentSchemaVersion, len(notes))
-		control.Remedy = "« openscale config migrate " + d.o.ConfigPath + " » réécrit le fichier sur " +
-			"cette forme ; rien ne presse, le poste fonctionne déjà normalement."
+		var refused []domain.MigrationNote
+		var rolledBack *domain.MigrationNote
+		for i := range notes {
+			if notes[i].Action != domain.MigrationRefused {
+				continue
+			}
+			refused = append(refused, notes[i])
+			if notes[i].Key == domain.SchemaVersionKey {
+				rolledBack = &notes[i]
+			}
+		}
+
+		switch {
+		case rolledBack != nil:
+			control.Observed = fmt.Sprintf("aucune faute ; empreinte %s ; %s : %s",
+				loaded.Config.Fingerprint(), d.o.ConfigPath, rolledBack.Message)
+			control.Remedy = "Ce n'est pas un fichier en retard : cherchez pourquoi ce poste tourne " +
+				"sur un binaire plus ancien qu'il ne l'a fait — les journaux de mise à jour " +
+				"(update.ps1 ou update.sh) sur CE poste disent ce qui a échoué. « openscale config " +
+				"migrate " + d.o.ConfigPath + " » ne réécrira rien tant que ce fichier vient d'un " +
+				"binaire plus récent."
+		case len(refused) > 0:
+			control.Observed = fmt.Sprintf("aucune faute ; empreinte %s ; %s porte %d changement(s) "+
+				"que ce binaire ne convertit pas — « openscale config migrate » les nommera, chacun "+
+				"avec sa raison, mais n'écrira RIEN tant qu'ils y restent",
+				loaded.Config.Fingerprint(), d.o.ConfigPath, len(refused))
+			control.Remedy = "Lancez « openscale config migrate " + d.o.ConfigPath + " » pour lire la " +
+				"raison de chaque point refusé, tranchez-les à la main, puis relancez la commande : " +
+				"elle n'écrit le fichier qu'une fois qu'il n'y en a plus."
+		default:
+			control.Observed = fmt.Sprintf("aucune faute ; empreinte %s ; %s n'est pas encore au schéma %d "+
+				"que ce binaire écrit (%d changement(s) en attente) — « openscale config migrate » le "+
+				"réécrit (le poste tourne déjà sur la forme à jour, en mémoire)",
+				loaded.Config.Fingerprint(), d.o.ConfigPath, domain.CurrentSchemaVersion, len(notes))
+			control.Remedy = "« openscale config migrate " + d.o.ConfigPath + " » réécrit le fichier sur " +
+				"cette forme ; rien ne presse, le poste fonctionne déjà normalement."
+		}
 		return control
 	}
 
