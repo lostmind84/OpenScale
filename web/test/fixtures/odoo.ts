@@ -167,6 +167,9 @@ export function catalogOf(rows: QualifiedRow[], revision = '"fixture"'): Catalog
       // basculeraient à 316 dans le même commit, et une vraie régression s'y cacherait.
       // `unit-products.test.ts` est le banc qui décrit ce qu'un poste en fait.
       show_by_unit_products: true,
+      // Automatique, le défaut : les bancs qui portent sur le catalogue ne décrivent
+      // pas un poste qui a réglé sa grille. `grid.test.ts` est celui qui le fait.
+      grid_columns: 0,
     },
   }
 }

@@ -5,8 +5,10 @@
  * §14.2: 1920 x 1080 on a 24" panel read from 60 to 80 cm. A 24" 16:9 panel is
  * 531 mm wide, so 1920 / 531 = 3,61 px/mm and the 20 mm touch target of §14.2 is
  * 72 px, i.e. 4.5rem. That figure, and the readability of a 69 character name,
- * are the two physical constraints the single grid density is derived from:
- * there is no comfort/dense setting to arbitrate (ADR-024, ADR-025).
+ * are the two physical constraints the DEFAULT grid density is derived from.
+ * They stopped being a prohibition: a station may now ask for a column count of
+ * its own, and what those two constraints buy is announced to whoever sets it
+ * rather than denied to them (ADR-024, ADR-025).
  *
  * Colour carries meaning, never letters. The palette below reaches 3,97:1
  * (--warning) and 6,54:1 (--fault) on --surface, both under the 7:1 §14.2 demands
@@ -47,26 +49,50 @@
 
   /* The touch target of §14.2, in relative units. Nothing touchable is smaller. */
   --touch-min: 4.5rem;
+  /*
+   * The smallest body anything on this screen is READ at, 60 to 80 cm away.
+   *
+   * Not scaled, and it never will be: a column count is a decision about how
+   * many products to see, and it does not get to negotiate a reading distance.
+   * It is the floor of the name fit AND of the price, because a price rendered
+   * too small to read is exactly as useless as a name.
+   *
+   * The same number as `NAME_SIZE_MIN_PX` in `typography.ts`, written twice
+   * because one is drawn by CSS and the other is chosen by a fit that runs in
+   * script. A test refuses to let the two drift apart — a floor written twice
+   * that moves once is precisely the defect this project has already paid for.
+   *
+   * MEASURED 01/08/2026, and 1rem rather than the 1.125rem it was: this floor
+   * now bounds the price as well as the name, so it decides the UPPER BOUND OF
+   * THE SETTING and not only legibility. At 1.125rem a price at 12 columns on a
+   * 15" has nowhere left to shrink and runs 3,2 px past its tile, which the
+   * screen answers with a horizontal scrollbar a kiosk cannot even scroll. 1rem
+   * is the highest floor at which 12 columns still holds on all three screens.
+   */
+  --text-min: 1rem;
   /* A calibration drift of 5 mm -- a real case after a screen swap -- must stay
      without effect, hence the gap between two targets. */
   --touch-gap: 0.5rem;
 
   /*
-   * The grid density is CONTINUOUS (ADR-035, replaces ADR-031): `clamp()` in
-   * `vw`/`vh` absorbs the screen's real size, so there is no per-station
-   * setting to choose between anymore.
+   * The grid density stays CONTINUOUS BY DEFAULT (ADR-035, replaces ADR-031):
+   * `clamp()` in `vw`/`vh` absorbs the screen's real size, and it keeps doing
+   * that job better than an operator could. `ui.grid_columns` only OVERRIDES it,
+   * and a station that sets nothing behaves exactly as it did.
+   *
+   * `--tile-scale` is what a column count does to the rest of the tile. It is
+   * NEVER written by hand: it is derived from the width a column really got,
+   * divided by the width of a probe of `--tile-min`. `1` is the automatic mode,
+   * and it has to be declared HERE rather than only set from script: `calc()`
+   * over an undefined custom property makes the whole declaration invalid at
+   * computed-value time, so the four tokens of the rule below would lose their
+   * value and the grid would break at rest.
    */
+  --tile-scale: 1;
+  /* NOT scaled: it CALIBRATES the scale — it is the denominator of that ratio —
+     and it is still what `auto-fill` lays the grid out on in automatic mode. */
   --tile-min: clamp(15rem, 19vw, 22rem);
-  --tile-media: clamp(4.5rem, 5.5vw, 7rem);
-  /* Height of the name block (ADR-030): read by a DOM probe in Grid.svelte,
-     never recomputed here -- this token is only a starting point before that
-     measurement runs. */
-  --tile-name: clamp(4.5rem, 5vw, 6rem);
-  --tile-pad: clamp(0.875rem, 1vw, 1.25rem);
   --tile-gap: clamp(0.75rem, 0.9vw, 1.25rem);
-  --tile-height: calc(
-    var(--tile-pad) * 2 + var(--tile-media) + 0.5rem + var(--tile-name) + 2px
-  );
 
   --banner-height: clamp(10rem, 13vh, 13.5rem);
   --category-height: clamp(5.5rem, 6.5vh, 7rem);
@@ -93,6 +119,39 @@
 
   font-size: 16px;
   color-scheme: light;
+}
+
+/*
+ * The four tokens a tile scale acts on, and the two places they are computed.
+ *
+ * They are NOT in `:root` above, and that is the whole subtlety of this file. A
+ * custom property has its `var()` references substituted AT THE ELEMENT THAT
+ * DECLARES IT: written on `:root` only, `--tile-pad` would resolve against the
+ * root's `--tile-scale` once and for all, and an element that set a scale of its
+ * own further down would inherit a value already computed against 1 — nothing
+ * would move, silently.
+ *
+ * So they are declared for whoever CARRIES a scale, `data-tile-scale`, as well
+ * as for the root. The client grid sets one on its own scroller; the
+ * administration lays a draft grid out on probes of its own, in the SAME window
+ * (§14.1). Two scales at a time, each on its own subtree, rather than one the two
+ * screens fight over — and one declaration, no literal written twice.
+ */
+:root,
+[data-tile-scale] {
+  --tile-media: calc(clamp(4.5rem, 5.5vw, 7rem) * var(--tile-scale));
+  /* Height of the name block (ADR-030): read by a DOM probe in Grid.svelte,
+     never recomputed there -- this token is only a starting point before that
+     measurement runs. Scaled like the rest, so the probe reports the scaled
+     height and the name bodies follow without `fitNameSize` being touched. */
+  --tile-name: calc(clamp(4.5rem, 5vw, 6rem) * var(--tile-scale));
+  --tile-pad: calc(clamp(0.875rem, 1vw, 1.25rem) * var(--tile-scale));
+  /* Recomposed from the three above, so it has nothing of its own to learn. Its
+     two literals stay OUT of the scale: the 0.5rem between plate and name, and
+     the 2px of the two hairline borders — a 0,7 px border is not a border. */
+  --tile-height: calc(
+    var(--tile-pad) * 2 + var(--tile-media) + 0.5rem + var(--tile-name) + 2px
+  );
 }
 
 @font-face {

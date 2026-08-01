@@ -72,7 +72,8 @@ func TestEveryPublishedFieldNamesItselfExplicitly(t *testing.T) {
 	for _, published := range []any{
 		stateDTO{}, weightDTO{}, productDTO{}, labelDTO{}, priceDTO{}, reprintDTO{},
 		messageDTO{}, diagnosticDTO{}, scaleDTO{}, printerDTO{}, degradationDTO{},
-		catalogDTO{}, categoryDTO{}, catalogProductDTO{}, ackDTO{}, weighingDTO{},
+		catalogDTO{}, categoryDTO{}, catalogProductDTO{}, catalogPresentationDTO{},
+		ackDTO{}, weighingDTO{},
 		importDTO{}, findingDTO{}, decisionDTO{}, technicalLineDTO{},
 	} {
 		assertTagged(t, reflect.TypeOf(published))

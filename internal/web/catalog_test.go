@@ -1,7 +1,9 @@
 package web
 
 import (
+	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -150,6 +152,159 @@ func TestTheGridSettingAboutByUnitProductsTravelsWithTheCatalog(t *testing.T) {
 					page.Options.ShowByUnitProducts, shown)
 			}
 		})
+	}
+}
+
+// TestTheNumberOfGridColumnsTravelsWithTheCatalog, at both ends of its range and at
+// « automatique ».
+//
+// It rides with the other screen settings, and for the same reason: the station takes no
+// decision here, it states one so that the grid can apply it. What « 7 » means — seven
+// columns on ANY screen — is the grid's business, not this payload's.
+func TestTheNumberOfGridColumnsTravelsWithTheCatalog(t *testing.T) {
+	for name, columns := range map[string]int{
+		"automatique": domain.GridColumnsAutomatic,
+		"plancher":    domain.MinGridColumns,
+		"plafond":     domain.MaxGridColumns,
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := newBench(t, func(o *benchOptions) {
+				o.config = func(c *domain.Config) { c.UI.GridColumns = columns }
+			})
+
+			page := decodeStatus[catalogDTO](t, b.get("/api/v1/catalog"), http.StatusOK)
+
+			if page.Options.GridColumns != columns {
+				t.Fatalf("presentation.grid_columns = %d, attendu %d",
+					page.Options.GridColumns, columns)
+			}
+		})
+	}
+}
+
+// TestAutomaticIsServedAsTheZeroItIsAndNeverByOmission.
+//
+// « Automatique » is a VALUE of this setting and not its absence: served by omission, a
+// front end would read `undefined` and have to invent which of the two it meant — and
+// the assertion has to be on the RAW bytes, because `omitempty` and a real zero both
+// decode to 0 in Go.
+func TestAutomaticIsServedAsTheZeroItIsAndNeverByOmission(t *testing.T) {
+	b := newBench(t, func(o *benchOptions) {
+		o.config = func(c *domain.Config) { c.UI.GridColumns = domain.GridColumnsAutomatic }
+	})
+
+	if raw := body(t, b.get("/api/v1/catalog")); !strings.Contains(raw, `"grid_columns":0`) {
+		t.Fatalf("« automatique » n'est pas servi comme le zéro qu'il est :\n%s", raw)
+	}
+}
+
+// TestThePresentationDigestReachesTheClientScreen is the reason this digest exists.
+//
+// The browser asks for the catalog again only when `catalog_count` moves
+// (web/src/lib/session.svelte.ts). A presentation that changes without changing the
+// count therefore never arrives — which is already true of show_grid_prices, and with a
+// grid setting would become « on règle, on enregistre, et rien ne se passe sur l'écran
+// d'à côté ». The state stream carries a string the browser only ever COMPARES to the
+// previous one, and that string has to move when the setting does.
+func TestThePresentationDigestReachesTheClientScreen(t *testing.T) {
+	automatic := newBench(t)
+	before := automatic.state().PresentationDigest
+	if before == "" {
+		t.Fatal("le flux d'état ne porte aucune empreinte de présentation")
+	}
+
+	seven := newBench(t, func(o *benchOptions) {
+		o.config = func(c *domain.Config) { c.UI.GridColumns = 7 }
+	})
+	if after := seven.state().PresentationDigest; after == before {
+		t.Fatalf("empreinte inchangée (%q) alors que la grille est passée à 7 colonnes : "+
+			"le navigateur ne redemanderait jamais le catalogue", after)
+	}
+}
+
+// TestThePresentationDigestFollowsThePresentationAndNothingElse is the decision of §3,
+// checked rather than reviewed.
+//
+// The digest is taken over the PRESENTATION and never over the configuration as a whole:
+// a global fingerprint would reload the whole grid on a change of serial port or of print
+// darkness — a full reload for a value the client screen does not read.
+func TestThePresentationDigestFollowsThePresentationAndNothingElse(t *testing.T) {
+	reference := loadConfig(t)
+	base := presentationDigest(presentationOf(reference.UI))
+
+	for name, tweak := range map[string]func(*domain.Config){
+		"le nombre de colonnes": func(c *domain.Config) { c.UI.GridColumns = 7 },
+		"les prix sur les tuiles": func(c *domain.Config) {
+			c.UI.ShowGridPrices = !c.UI.ShowGridPrices
+		},
+		"les tuiles à l'unité": func(c *domain.Config) {
+			c.UI.ShowByUnitProducts = !c.UI.ShowByUnitProducts
+		},
+	} {
+		t.Run("bouge quand "+name+" bouge", func(t *testing.T) {
+			if got := digestOf(t, tweak); got == base {
+				t.Fatalf("empreinte inchangée (%q) alors que %s a bougé", got, name)
+			}
+		})
+	}
+
+	for name, tweak := range map[string]func(*domain.Config){
+		"la noirceur d'impression": func(c *domain.Config) {
+			c.Printer.Options["darkness"] = json.RawMessage("4")
+		},
+		"le nom du poste":         func(c *domain.Config) { c.Station.Name = "Poste 9 — bocaux" },
+		"la patience du port":     func(c *domain.Config) { c.Scale.DegradeAfterSeconds = 30 },
+		"la rétention du journal": func(c *domain.Config) { c.Journal.MaxDays = 400 },
+	} {
+		t.Run("ne bouge pas quand "+name+" bouge", func(t *testing.T) {
+			if got := digestOf(t, tweak); got != base {
+				t.Fatalf("empreinte %q au lieu de %q : %s a fait recharger toute la grille "+
+					"pour une donnée que l'écran client ne lit pas", got, base, name)
+			}
+		})
+	}
+}
+
+// digestOf renders the presentation digest of the shipped configuration, tweaked.
+func digestOf(t *testing.T, tweak func(*domain.Config)) string {
+	t.Helper()
+	cfg := loadConfig(t)
+	tweak(&cfg)
+	return presentationDigest(presentationOf(cfg.UI))
+}
+
+// TestEveryFieldOfThePresentationEntersItsDigest is what makes « un champ ajouté demain
+// entre dans l'empreinte sans que personne y pense » a property and not an intention.
+//
+// The digest is a hash of the WHOLE struct, so this test walks the struct rather than a
+// list of names: the day a seventh setting joins the presentation, it is covered without
+// anybody remembering this test exists. A hand-written concatenation of five fields would
+// pass every other test in this file and fail this one.
+func TestEveryFieldOfThePresentationEntersItsDigest(t *testing.T) {
+	reference := presentationOf(loadConfig(t).UI)
+	base := presentationDigest(reference)
+
+	typ := reflect.TypeOf(reference)
+	for i := 0; i < typ.NumField(); i++ {
+		moved := reference
+		field := reflect.ValueOf(&moved).Elem().Field(i)
+		switch field.Kind() {
+		case reflect.Bool:
+			field.SetBool(!field.Bool())
+		case reflect.Int:
+			field.SetInt(field.Int() + 1)
+		case reflect.String:
+			field.SetString(field.String() + "x")
+		default:
+			t.Fatalf("%s est de type %s, que ce test ne sait pas faire bouger : "+
+				"une empreinte dont on ne sait pas prouver qu'elle suit un champ ne "+
+				"protège pas ce champ", typ.Field(i).Name, field.Kind())
+		}
+		if got := presentationDigest(moved); got == base {
+			t.Errorf("l'empreinte ne bouge pas quand %s bouge : elle n'est pas prise sur "+
+				"le DTO entier, et le prochain champ ajouté n'y entrera pas non plus",
+				typ.Field(i).Name)
+		}
 	}
 }
 

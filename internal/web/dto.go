@@ -74,6 +74,12 @@ type stateDTO struct {
 	// GET /api/v1/catalog, which the browser keeps: a snapshot at 10 Hz has no
 	// business carrying 355 products.
 	CatalogCount int `json:"catalog_count"`
+	// PresentationDigest moves when, and only when, the screen settings served with the
+	// catalog move. It rides next to CatalogCount because it answers the same question
+	// -- « faut-il redemander le catalogue ? » -- for the half of that payload no count
+	// can speak for. The browser COMPARES it and never reads it; presentationDigest in
+	// catalog.go owns what goes into it and why.
+	PresentationDigest string `json:"presentation_digest"`
 	// UnloggedCount is the counter of ADR-013: labels that came out and could not be
 	// journalled. A red light on the dashboard, never a refusal.
 	UnloggedCount int64 `json:"unlogged_weighings_count"`
@@ -242,6 +248,10 @@ func (s *Server) stateOf(snap station.Snapshot) stateDTO {
 		Degraded:        degradationOf(snap.Degraded),
 		CatalogCount:    snap.Catalog.WeighableCount(),
 		UnloggedCount:   snap.UnloggedWeighings,
+		// Read from the Hub and not from the snapshot: the presentation is a
+		// configuration that reloads hot (§11.4), and a snapshot describes a plate, a
+		// product and a printer -- never a screen setting.
+		PresentationDigest: presentationDigest(presentationOf(s.hub.Config().UI)),
 	}
 	return out
 }

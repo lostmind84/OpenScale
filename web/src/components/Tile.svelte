@@ -133,6 +133,41 @@
     /* Full height of its grid row: 331 products draw one rhythm and not 331
        heights, whatever the length of a name or the shape of a photo (ADR-030). */
     height: 100%;
+    /*
+     * The two bodies of the price block: each follows the tile, and BOTH stop at
+     * the same floor.
+     *
+     * MEASURED 01/08/2026: left constant while the tile shrank, the price ran out
+     * of its tile from 10 columns on 1920 and 7 on 1366, and the client screen
+     * grew a HORIZONTAL SCROLLBAR — 22 px at 12 columns on 1920, 66 px on 1366,
+     * with « 20,09 €/kg » cropped to « 20,09 €/ » by the edge of the screen. A
+     * kiosk has no horizontal scrollbar and nobody to drag it.
+     *
+     * `--text-min` on BOTH, and that is the point: the floor is the same nature
+     * as the name's — a limit of legibility at 60 to 80 cm, never a proportion —
+     * and it knows no exception for who is paying. Scaled by the ratio alone, the
+     * second tier came out at 15,1 px at 7 columns on 1920, under a floor that
+     * exists to say « below this, nobody reads it ». A floor that holds for one
+     * price out of two is not a floor.
+     *
+     * What the two bodies meeting at that floor costs is ONE signal out of four:
+     * the ink (`--ink` against `--ink-muted`), the weight (700 against 400) and
+     * the badge (solid against hollow) carry the hierarchy of ADR-036 intact.
+     * What it costs in HEIGHT was the open question, and it has been ANSWERED:
+     * two prices at the floor make a taller block than one at the floor and one
+     * under it, which could have reopened the overflow this scaling closes.
+     * Measured 01/08/2026 in two tiers, floor at 16 px, on 1366 / 1920 / 3840 and
+     * from 3 to 12 columns: nothing cropped, no horizontal scrollbar anywhere. At
+     * 12 columns on a 15" the two floored lines run 4,19 px past their content
+     * box for 5,60 px of padding — they eat into the padding and stop 2,13 px
+     * short of the tile's edge. The upper bound of the setting holds.
+     *
+     * Declared HERE, on the tile, and not on `.price`: a custom property resolves
+     * its `var()` at the element that declares it, and `--tile-scale` is
+     * inherited from the grid that deduced it.
+     */
+    --price-size: max(var(--text-min), 1.75rem * var(--tile-scale));
+    --price-size-secondary: max(var(--text-min), 1.25rem * var(--tile-scale));
     padding: var(--tile-pad);
     background: var(--surface);
     border: 1px solid var(--border);
@@ -283,24 +318,31 @@
   .prices {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    /* Scaled like the bodies they space out; the hairline above them is not — a
+       0,4 px rule is not a rule, same argument as the borders of --tile-height. */
+    gap: calc(0.25rem * var(--tile-scale));
     margin-top: auto;
-    padding-top: 0.5rem;
+    padding-top: calc(0.5rem * var(--tile-scale));
     border-top: 1px solid var(--border);
   }
 
   .price {
     display: flex;
     align-items: baseline;
-    gap: 0.5rem;
+    gap: calc(0.5rem * var(--tile-scale));
     color: var(--ink);
-    font-size: 1.75rem;
+    font-size: var(--price-size);
     font-weight: 700;
   }
 
+  /*
+   * Smaller than the primary as long as the floor allows it, and never smaller
+   * than the floor. The two are declared side by side on the tile, so the rule
+   * « both scale, both stop » is read in one place rather than deduced.
+   */
   .price.secondary {
     color: var(--ink-muted);
-    font-size: 1.25rem;
+    font-size: var(--price-size-secondary);
     font-weight: 400;
   }
 

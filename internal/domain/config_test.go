@@ -1091,6 +1091,10 @@ func TestFingerprintChangesWhenASharedValueChanges(t *testing.T) {
 		// Two stations that disagree here do not show the same grid: one offers fifteen
 		// tiles the other does not have, and the eight characters have to say so.
 		"les produits à l'unité montrés": func(c *Config) { c.UI.ShowByUnitProducts = true },
+		// Same reason, read from the other side: one station shows seven columns where
+		// its neighbour follows the screen. Neither is wrong, and a fleet that diverges
+		// by accident must be able to see it by eye.
+		"le nombre de colonnes de la grille": func(c *Config) { c.UI.GridColumns = 7 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			diverging := loadDelivered(t)
@@ -2244,5 +2248,144 @@ func TestTheFollowedRepositorySurvivesAnExportWithoutHardware(t *testing.T) {
 
 	if got := config.Export(false).Update.Repository; got != "la-cagette/openscale" {
 		t.Fatalf("dépôt après export sans matériel = %q", got)
+	}
+}
+
+// --- Control 49: how many columns the grid shows ---------------------------------
+
+// TestControl49RefusesAColumnCountOutsideTheRange guards the value NOBODY MEANT TO
+// WRITE, and nothing more.
+//
+// The bounds are guard rails and not a calculation: the same N is comfortable on a
+// 4K and absurd on a 15", so no pair of bounds can be right for the whole fleet.
+// What protects the operator inside them is the administration screen, which shows
+// the result before the file is saved -- and the fact that getting it wrong is
+// repaired by coming back.
+func TestControl49RefusesAColumnCountOutsideTheRange(t *testing.T) {
+	for _, refused := range []int{-1, 1, MinGridColumns - 1, MaxGridColumns + 1, 100} {
+		t.Run(strconv.Itoa(refused), func(t *testing.T) {
+			config := loadDelivered(t)
+			config.UI.GridColumns = refused
+			faults := config.Validate(testRegistries())
+			if findFault(faults, "ui.grid_columns") == nil {
+				t.Fatalf("%d est accepté par le contrôle 49 ; obtenu :\n%s",
+					refused, strings.Join(fieldsOf(faults), "\n"))
+			}
+		})
+	}
+}
+
+// TestControl49AcceptsAutomaticAndEveryColumnCountOfTheRange: zero is the delivered
+// behaviour and 3 to 12 are the whole offer of the administration screen. A control
+// that refused one of them would refuse a value the screen itself proposes.
+func TestControl49AcceptsAutomaticAndEveryColumnCountOfTheRange(t *testing.T) {
+	accepted := []int{GridColumnsAutomatic}
+	for columns := MinGridColumns; columns <= MaxGridColumns; columns++ {
+		accepted = append(accepted, columns)
+	}
+	for _, columns := range accepted {
+		t.Run(strconv.Itoa(columns), func(t *testing.T) {
+			config := loadDelivered(t)
+			config.UI.GridColumns = columns
+			if fault := findFault(config.Validate(testRegistries()), "ui.grid_columns"); fault != nil {
+				t.Fatalf("%d est refusé par le contrôle 49 : %s", columns, fault.Message)
+			}
+		})
+	}
+}
+
+// TestControl49SaysWhatZeroMeans: refusing is only half of it. Somebody who writes
+// `1` has to read WHY, and above all that `0` is not « aucune colonne » but the
+// automatic grid -- the very value they would have to write to get their screen
+// back.
+func TestControl49SaysWhatZeroMeans(t *testing.T) {
+	config := loadDelivered(t)
+	config.UI.GridColumns = 1
+	fault := findFault(config.Validate(testRegistries()), "ui.grid_columns")
+	if fault == nil {
+		t.Fatal("1 colonne n'est pas refusée : le reste du contrôle n'a plus d'objet")
+	}
+	spelled := strings.Join(fault.Values, " | ")
+	if !strings.Contains(spelled, "automatique") {
+		t.Errorf("valeurs = %q, elles doivent dire que 0 est le mode automatique", spelled)
+	}
+	for _, bound := range []int{MinGridColumns, MaxGridColumns} {
+		if !strings.Contains(spelled, strconv.Itoa(bound)) {
+			t.Errorf("valeurs = %q, elles doivent porter la borne %d", spelled, bound)
+		}
+	}
+}
+
+// TestAFileSilentAboutTheGridColumnsIsAutomatic is the keystone of the setting: a
+// configuration written BEFORE it existed -- and a cooperative that never touches it
+// -- keeps today's grid on every screen, instead of a frozen 5 that would break the
+// 4K which showed 10 (ADR-035 stays whole).
+func TestAFileSilentAboutTheGridColumnsIsAutomatic(t *testing.T) {
+	for name, block := range map[string]struct {
+		ui     string
+		wanted int
+	}{
+		"clé absente": {ui: `{"language":"fr"}`, wanted: GridColumnsAutomatic},
+		"clé à zéro":  {ui: `{"language":"fr","grid_columns":0}`, wanted: GridColumnsAutomatic},
+		"clé à sept":  {ui: `{"language":"fr","grid_columns":7}`, wanted: 7},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var config Config
+			if err := json.Unmarshal([]byte(`{"version":1,"ui":`+block.ui+`}`), &config); err != nil {
+				t.Fatalf("décodage : %v", err)
+			}
+			if config.UI.GridColumns != block.wanted {
+				t.Fatalf("grid_columns relu à %d, attendu %d", config.UI.GridColumns, block.wanted)
+			}
+		})
+	}
+}
+
+// TestTheDeliveredFileNeedNotCarryTheGridColumns states the other half out loud: the
+// delivered file says nothing, and control 49 has nothing to say about it. This is
+// the symmetric of the defect of 28/07/2026, where a new key made a station refuse
+// its own delivered configuration.
+func TestTheDeliveredFileNeedNotCarryTheGridColumns(t *testing.T) {
+	config := loadDelivered(t)
+	if config.UI.GridColumns != GridColumnsAutomatic {
+		t.Fatalf("le fichier livré porte grid_columns = %d, il ne dit rien de ce réglage",
+			config.UI.GridColumns)
+	}
+	if fault := findFault(config.Validate(testRegistries()), "ui.grid_columns"); fault != nil {
+		t.Fatalf("le silence du fichier livré est traité comme une faute : %s", fault.Message)
+	}
+}
+
+// TestTileSizeStaysRetiredBesideTheColumnSetting is the non-regression of the
+// ADR-031 → ADR-035 → ADR-057 round trip.
+//
+// The reopened question is « combien de produits voir d'un coup », which no screen
+// measurement answers; the one ADR-035 closed -- the heterogeneity of the fleet --
+// stays closed, and `clamp()` still answers it, since it remains the default. So the
+// new key must be read and the old one must still be REFUSED, in the very same file:
+// ui.tile_size never comes back through the side door.
+func TestTileSizeStaysRetiredBesideTheColumnSetting(t *testing.T) {
+	raw := []byte(`{"version":1,"ui":{"tile_size":"medium","grid_columns":7}}`)
+	var config Config
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatalf("décodage : %v", err)
+	}
+	if config.UI.GridColumns != 7 {
+		t.Fatalf("grid_columns relu à %d, attendu 7", config.UI.GridColumns)
+	}
+	if got := config.Retired(); len(got) != 1 || got[0] != "ui.tile_size" {
+		t.Fatalf("clés retirées = %v, attendu [ui.tile_size]", got)
+	}
+	fault := findFault(config.Validate(testRegistries()), "ui.tile_size")
+	if fault == nil {
+		t.Fatal("ui.tile_size passe le contrôle 20 dès qu'un réglage de grille est écrit à côté")
+	}
+	if !strings.Contains(fault.Message, "supprimée") {
+		t.Errorf("message = %q, il doit dire que la clé est supprimée", fault.Message)
+	}
+	// Refusing is only half of it: a volunteer who wrote tile_size wanted a denser
+	// grid, and the refusal has to name the key that gives them one.
+	if !strings.Contains(fault.Message, "grid_columns") {
+		t.Errorf("message = %q, il doit nommer la clé qui règle désormais la grille", fault.Message)
 	}
 }

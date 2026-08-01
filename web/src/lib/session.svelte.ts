@@ -15,6 +15,9 @@ const DEFAULT_PRESENTATION: Presentation = {
   // Faux comme le défaut du poste : un écran qui n'a pas encore reçu son catalogue ne
   // doit pas montrer une fraction de seconde des tuiles que ce poste masque.
   show_by_unit_products: false,
+  // Automatique, comme le défaut du poste : la grille du squelette est celle
+  // d'ADR-035 tant que personne n'a dit autre chose.
+  grid_columns: 0,
 }
 
 /**
@@ -82,16 +85,34 @@ export class Session {
     }
   }
 
-  /** Enregistre un état et redemande le catalogue si le nombre de tuiles a bougé. */
+  /**
+   * Enregistre un état, et redemande le catalogue quand ce qu'il porte a bougé.
+   *
+   * DEUX raisons de le redemander, et pas une seule. Le nombre de tuiles se compare
+   * au catalogue chargé ; les réglages d'écran, eux, se comparent à l'état PRÉCÉDENT,
+   * parce que l'empreinte voyage dans le flux et non dans le catalogue. Sans cette
+   * seconde comparaison, un exploitant change le nombre de colonnes, enregistre, et
+   * rien ne se passe sur l'écran d'à côté — la conclusion « ce réglage ne fait rien »
+   * contre laquelle le contrôle 46 d'ADR-031 avait été écrit. C'est déjà vrai de
+   * `show_grid_prices`, invisible aujourd'hui, et réparé au passage.
+   */
   #receive(event: MessageEvent<string>): void {
     this.#lastMessageAt = Date.now()
     this.#streamOpen = true
     const next = JSON.parse(event.data) as StateDTO
+    const previous = this.state
     this.state = next
+    if (this.catalog === null) return
     // La bascule de catalogue est DIFFÉRÉE par le Hub jusqu'au repos (§10.8) : quand
     // le compte bouge, plus personne n'a le doigt sur une tuile. La requête est
-    // validée par ETag, donc un catalogue inchangé coûte un 304.
-    if (this.catalog !== null && next.catalog_count !== this.catalog.product_count) {
+    // validée par ETag, donc un catalogue inchangé coûte un 304 — et une présentation
+    // inchangée, jamais de requête du tout.
+    const countMoved = next.catalog_count !== this.catalog.product_count
+    // Le premier état reçu n'a pas de précédent, et il n'en a pas besoin : `start()`
+    // vient de charger le catalogue, donc sa présentation est déjà celle du poste.
+    const presentationMoved =
+      previous !== null && next.presentation_digest !== previous.presentation_digest
+    if (countMoved || presentationMoved) {
       void this.#loadCatalog()
     }
   }

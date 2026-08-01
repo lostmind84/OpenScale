@@ -13,6 +13,7 @@ import {
   importSourceWord,
 } from '../src/admin/lib/inventory'
 import { Admin } from '../src/admin/lib/session.svelte'
+import { GRID_COLUMNS_AUTO, gridTemplateColumns } from '../src/lib/grid'
 import { FLV_1_IMPORT, FLV_IMPORT, nominalHealth } from './fixtures/health'
 
 /**
@@ -181,7 +182,32 @@ function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
     if (catalogFails) {
       return json({ code: '', message: 'Le catalogue n’est pas lisible.' }, 503)
     }
-    return json({ products: catalogProducts, categories: [], tiers: [] })
+    // La PRÉSENTATION et les tarifs voyagent, parce que le service les sert : l'aperçu de
+    // la grille dessine une vraie tuile, et une tuile porte les paliers et l'interrupteur
+    // des prix de ce poste. Un banc qui les taisait faisait retomber l'aperçu sur des
+    // défauts au lieu d'exercer ce que le poste publie.
+    return json({
+      products: catalogProducts.map((product) => ({
+        category_code: 'vegetables',
+        unit_price_cents: 250,
+        unit_price_text: '2,50',
+        price_suffix: ' €/kg',
+        image_url: '',
+        prices: [{ code: 'A', text: '2,50' }],
+        ...product,
+      })),
+      categories: [],
+      tiers: [],
+      pricing: { primary_code: 'A', primary_label: 'Adhérent', tiers: [] },
+      presentation: {
+        show_grid_prices: true,
+        show_by_unit_products: false,
+        grid_columns: 0,
+        idle_timeout_s: 60,
+        reprint_window_s: 120,
+        sound: true,
+      },
+    })
   }
   if (url === '/admin/api/health') {
     return json(nominalHealth())
@@ -1074,5 +1100,421 @@ describe('ce que la grille montre des produits vendus à l’unité', () => {
     // Ce n'est pas de l'ornement : une tuile à l'unité imprime une étiquette SANS jamais
     // lire la balance, et c'est le seul geste que ce réglage retire.
     expect(pageText()).toContain('sans jamais lire la balance')
+  })
+})
+
+/**
+ * Le nombre de colonnes de la grille, et la phrase qui dit ce qu'il donne.
+ *
+ * Ce qui se vérifie ici n'est PAS le compte : jsdom ne fait aucune mise en page — ni
+ * `clamp()`, ni `auto-fill`, ni `gridTemplateColumns` résolu, ni `clientWidth` de sonde —
+ * et les trois sondes de cette page répondent donc zéro, exactement comme `document.fonts`
+ * est absent pour la grille du client. Ce qui se vérifie est le REPLI : la phrase se
+ * réduit à ce qu'elle sait, et elle n'écrit jamais « 0 colonnes × 0 rangées ».
+ *
+ * Les nombres, eux, se mesurent au navigateur : c'est le seul endroit où ils existent.
+ */
+describe('les colonnes de la grille, réglables sans cesser d’être automatiques', () => {
+  /** Le groupe des onze choix, ou null quand la page ne le dessine pas. */
+  function choices(): HTMLInputElement[] {
+    return [...host.querySelectorAll<HTMLInputElement>('[role="radiogroup"] input[name="grid-columns"]')]
+  }
+
+  /** Ce que la phrase chiffrée dit, ramenée à une seule forme d'apostrophe. */
+  function countText(): string {
+    return collapse(host.querySelector('[data-grid-count]')?.textContent ?? '')
+  }
+
+  /** Monte la page sur un brouillon donné, et rend ce brouillon. */
+  function openWith(ui: Record<string, unknown>): Draft {
+    const admin = new Admin()
+    const draft = new Draft(admin)
+    draft.config = { ...localDropConfig(), ui }
+    component = mount(Catalog, { target: host, props: { admin, draft, health: nominalHealth() } })
+    flushSync()
+    return draft
+  }
+
+  it('offre exactement les valeurs que le noyau accepte, sans les recopier de tête', () => {
+    // Les bornes vivent dans `internal/domain/config.go` — c'est lui qui refuse, par le
+    // contrôle 49, ce que cet écran ne devrait pas proposer. Elles étaient jusqu'ici
+    // écrites une seconde fois ici, sans rien pour les relier : le jour où la mesure
+    // déplace la borne haute, un écran qui offre encore l'ancienne valeur produit un choix
+    // que l'enregistrement REFUSE — un bouton dont la seule réponse possible est un refus,
+    // ce qu'ADR-049 nomme comme un contrôle qui n'aurait pas dû exister.
+    //
+    // Lire le Go depuis un banc du front est le geste que ce fichier emploie déjà pour les
+    // jetons d'import (JOURNAL_GO plus haut).
+    const configGo = readFileSync(resolve(HERE, '../../internal/domain/config.go'), 'utf8')
+    const bound = (name: string): number => {
+      const found = new RegExp(String.raw`\b${name}\s*=\s*(\d+)`, 'u').exec(configGo)
+      if (found === null) throw new Error(`${name} introuvable dans config.go`)
+      return Number(found[1])
+    }
+
+    const declared = /GRID_COLUMNS_CHOICES = \[([\d, ]+)\]/u.exec(PAGE)?.[1]
+    if (declared === undefined) throw new Error('GRID_COLUMNS_CHOICES introuvable dans la page')
+    const offered = declared.split(',').map((n) => Number(n.trim()))
+
+    const min = bound('MinGridColumns')
+    const max = bound('MaxGridColumns')
+    const expected = Array.from({ length: max - min + 1 }, (_, i) => min + i)
+    expect(offered).toEqual(expected)
+
+    // Et « Automatique » est le zéro du noyau, pas un treizième choix inventé par l'écran.
+    expect(bound('GridColumnsAutomatic')).toBe(0)
+    expect(offered).not.toContain(0)
+  })
+
+  it('offre onze choix visibles d’un coup, et non une glissière', async () => {
+    open()
+    await settle()
+
+    // Ce sont des entiers qu'on nomme, et « Automatique » n'est pas un cran de plus au
+    // bout d'une course : c'est la grille qui décide toute seule, sur n'importe quel écran.
+    expect(choices()).toHaveLength(11)
+    expect(host.querySelector('input[type="range"]')).toBeNull()
+    expect(pageText()).toContain('Automatique')
+    expect(choices().map((box) => box.value)).toEqual([
+      '0', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
+    ])
+  })
+
+  it('s’ouvre sur « Automatique » quand le fichier ne porte pas la clé', async () => {
+    // Le défaut n'est pas un nombre, c'est un COMPORTEMENT : une coopérative qui n'y
+    // touche jamais garde la densité continue, et le 4K continue d'en montrer dix.
+    open()
+    await settle()
+
+    expect(choices()[0]?.checked).toBe(true)
+    expect(choices().filter((box) => box.checked)).toHaveLength(1)
+  })
+
+  it('écrit le nombre choisi dans le brouillon, sans toucher au bloc catalogue', async () => {
+    const draft = openWith({})
+    await settle()
+
+    const seven = choices().find((box) => box.value === '7')
+    expect(seven, 'aucun choix à 7 colonnes').not.toBeUndefined()
+    seven?.click()
+    flushSync()
+
+    expect(draft.number('ui.grid_columns')).toBe(7)
+    // Un changement dans le bloc `catalog` relance la sonde disque et redémarre la source :
+    // un prix à payer sans rapport avec le nombre de colonnes d'une grille.
+    expect(draft.config?.catalog).toEqual(localDropConfig().catalog)
+  })
+
+  it('revient à « Automatique » en écrivant zéro, et non en effaçant la clé', async () => {
+    // Zéro EST une valeur du contrat : un fichier qui porte `0` dit « la grille décide »,
+    // et c'est ce que le poste relit. Effacer la clé dirait la même chose au poste et
+    // rien du tout à celui qui ouvre le fichier.
+    const draft = openWith({ grid_columns: 7 })
+    await settle()
+
+    choices()[0]?.click()
+    flushSync()
+
+    expect(draft.number('ui.grid_columns')).toBe(0)
+  })
+
+  it('relit le réglage en vigueur plutôt que de partir du premier choix', async () => {
+    openWith({ grid_columns: 9 })
+    await settle()
+
+    expect(choices().find((box) => box.value === '9')?.checked).toBe(true)
+    expect(choices().filter((box) => box.checked)).toHaveLength(1)
+  })
+
+  it('n’écrit jamais « 0 colonnes × 0 rangées » quand rien n’a pu être mesuré', async () => {
+    // Le repli, et c'est LE sujet de ce fichier : une sonde qui répond zéro n'est pas une
+    // grille vide, c'est un navigateur qui n'a pas répondu. Les deux phrases se réduisent
+    // à ce qu'elles savent.
+    openWith({ grid_columns: 7 })
+    await settle()
+
+    const said = countText()
+    expect(said).not.toContain('0 colonnes')
+    expect(said).not.toContain('0 rangées')
+    expect(said).not.toMatch(/× 0/u)
+    expect(said).not.toContain('tuiles d\'un coup')
+  })
+
+  it('dit tout de même les 7 colonnes, qui sont le contrat et non une mesure', async () => {
+    openWith({ grid_columns: 7 })
+    await settle()
+
+    // « 7 colonnes » veut dire 7 partout : ce nombre-là ne se mesure pas, il se lit dans
+    // le réglage. Ce qui manque en repli, ce sont les rangées, et la phrase le DIT.
+    expect(countText()).toContain('7 colonnes sur tous les écrans')
+    expect(countText()).toContain('ne sait pas dire combien de rangées')
+  })
+
+  it('n’affirme aucun nombre sur « Automatique » quand rien n’a pu être mesuré', async () => {
+    // Là, aucun nombre n'est connu de personne : ni de l'écran, ni du fichier. La phrase
+    // garde ce qui reste vrai — que la grille suit la largeur de l'écran.
+    open()
+    await settle()
+
+    const said = countText()
+    expect(said).toContain('la grille suit la largeur de l\'écran')
+    expect(said).toContain('sans qu\'on y revienne')
+    expect(said).not.toMatch(/\d+ colonnes ×/u)
+  })
+
+  it('ne prétend pas mesurer l’écran du poste depuis un portable', async () => {
+    // `admin_on_lan` permet d'ouvrir cette page depuis ailleurs, et le compte vaut alors
+    // pour l'écran qu'on lit. Sans mesure il n'y a aucun compte à qualifier, donc rien à
+    // dire : la mention naît avec le nombre qu'elle relativise.
+    open()
+    await settle()
+
+    expect(host.querySelector('[data-other-screen]')).toBeNull()
+  })
+
+  it('porte la déclaration de grille du BROUILLON sur sa sonde, et pas une autre', () => {
+    // La sonde et la grille du client tirent la MÊME chaîne du même module : deux
+    // littéraux dans deux fichiers, c'est ainsi qu'une sonde finit par compter les
+    // colonnes d'une grille que personne ne dessine. Le mode automatique doit rester le
+    // mode automatique à l'octet près — c'est ce que la densité continue a acheté.
+    expect(PAGE).toContain("from '../../lib/grid'")
+    expect(PAGE).toContain('gridBox.style.gridTemplateColumns = gridTemplateColumns(columns)')
+    expect(gridTemplateColumns(GRID_COLUMNS_AUTO)).toBe(
+      'repeat(auto-fill, minmax(var(--tile-min), 1fr))',
+    )
+    // `minmax(0, 1fr)` et jamais `1fr`, qui vaut `minmax(auto, 1fr)` : une piste `auto` ne
+    // descend pas sous la largeur min-content de « CRANBERRY/CANNEBERGES ».
+    expect(gridTemplateColumns(7)).toBe('repeat(7, minmax(0, 1fr))')
+  })
+
+  it('lit les hauteurs des trois barres dans leurs jetons, jamais en pixels', () => {
+    // Le jour où l'une d'elles change de hauteur, ce compte suit sans qu'on y pense.
+    expect(PAGE).toMatch(
+      /100vh - var\(--banner-height\) - var\(--category-height\) - var\(--status-height\)/u,
+    )
+    expect(PAGE).toContain('grid-auto-rows: minmax(var(--tile-height), auto)')
+    expect(PAGE).toContain('width: var(--tile-min)')
+  })
+
+  it('mesure une TUILE et jamais un jeton de hauteur', () => {
+    // La campagne du 01/08 a mesuré l'écart : `--tile-height` laisse le bloc des prix
+    // hors de son calcul, dont les corps ne rétrécissent pas avec la tuile. 189 px
+    // annoncés contre 245 dessinés à 7 colonnes sur 1920 — l'écran aurait promis trois
+    // rangées d'une grille qui en montre deux. La sonde porte donc une vraie tuile.
+    expect(PAGE).toContain('<Tile')
+    expect(PAGE).toContain('offsetHeight')
+    // Et le bloc des prix suit l'interrupteur du poste, qu'aucun écran n'édite : prix
+    // masqués, la même grille rend 7 × 3 ; prix affichés, 7 × 2.
+    expect(PAGE).toContain("draftedFlag(\n                'ui.show_grid_prices',")
+  })
+
+  it('ne tombe pas sur un poste qui publie moins que ce que le contrat déclare', async () => {
+    // Un binaire plus ancien peut ne pas servir le bloc de présentation, et lire au
+    // travers emporterait TOUTE la page d'administration pour un aperçu. C'est le même
+    // garde-fou que le `?? []` du brouillon sur une liste que le service ne sert plus.
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/v1/catalog') {
+        return json({ products: [{ id: 'p1', name: 'TOMATE', search: 'tomate', mode: 'by_weight' }] })
+      }
+      return fakeFetch(input, init)
+    })
+    open()
+    await settle()
+
+    expect(pageText()).toContain('Dernier import')
+    expect(host.querySelector('[data-grid-count]')).not.toBeNull()
+  })
+
+  it('n’écrit aucun plancher typographique en dur : il vient du module qui le déclare', () => {
+    // Le plancher est en cours de mesure — 18 px aujourd'hui, 16 px attendu. Recopié ici,
+    // il mentirait dans la phrase le jour où il descend.
+    expect(PAGE).toContain('NAME_SIZE_MIN_PX')
+    expect(PAGE).not.toMatch(/plancher de 1[468] px/u)
+  })
+})
+
+/**
+ * La phrase chiffrée, sur une mise en page FEINTE.
+ *
+ * Ce banc ne mesure rien et ne prétend rien mesurer : jsdom ne fait aucune mise en page,
+ * donc les sondes reçoivent ici une réponse écrite à la main — sept pistes de 260 px, une
+ * gouttière de 8 px, une zone de grille de 700 px, une tuile de 220 px. Ce qui est tenu
+ * est la RÉDACTION de ce qui en sort : l'ordre colonnes × rangées, les accords, et le
+ * fait que la mention « cet écran n'est pas celui du poste » naisse avec le nombre
+ * qu'elle relativise.
+ *
+ * Les vrais nombres se mesurent au navigateur, sur les trois résolutions du dossier de
+ * conception, et nulle part ailleurs.
+ */
+describe('ce que la phrase dit quand le navigateur, lui, a répondu', () => {
+  /** La réponse feinte des sondes : elle ne dépend d'aucun réglage, et c'est voulu. */
+  const LAYOUT = {
+    tracks: Array.from({ length: 7 }, () => '260px').join(' '),
+    rowGap: '8px',
+    calibrationWidth: 352,
+    viewportHeight: 700,
+    /** La hauteur de la CELLULE qui porte la tuile — bloc des prix compris. */
+    rowHeight: 220,
+    nameBoxWidth: 200,
+    nameBoxHeight: 90,
+  }
+
+  /** Ce que la vraie fenêtre déclare, pour la remettre en place après coup. */
+  let realLocation: PropertyDescriptor | undefined
+
+  beforeEach(() => {
+    const real = window.getComputedStyle.bind(window)
+    vi.stubGlobal('getComputedStyle', (element: Element, pseudo?: string | null) => {
+      if (element.classList.contains('grid-probe')) {
+        return {
+          gridTemplateColumns: LAYOUT.tracks,
+          rowGap: LAYOUT.rowGap,
+        } as unknown as CSSStyleDeclaration
+      }
+      return real(element as Element, pseudo)
+    })
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get(this: HTMLElement): number {
+        if (this.classList.contains('calibration-probe')) return LAYOUT.calibrationWidth
+        if (this.classList.contains('name-box')) return LAYOUT.nameBoxWidth
+        return 0
+      },
+    })
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      configurable: true,
+      get(this: HTMLElement): number {
+        if (this.classList.contains('viewport-probe')) return LAYOUT.viewportHeight
+        if (this.classList.contains('name-box')) return LAYOUT.nameBoxHeight
+        return 0
+      },
+    })
+    // La hauteur de RANGÉE vient de la cellule qui porte une vraie tuile, et non plus
+    // d'une sonde de `var(--tile-height)` : ce jeton laisse le bloc des prix hors de son
+    // calcul, et la campagne du 01/08 l'a mesuré 30 % sous ce que le navigateur dessine.
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get(this: HTMLElement): number {
+        return this.classList.contains('row-probe') ? LAYOUT.rowHeight : 0
+      },
+    })
+  })
+
+  afterEach(() => {
+    // Les deux propriétés sont déclarées en lecture seule et vivent sur `Element` : ce
+    // qui est posé ci-dessus est une propriété PROPRE de `HTMLElement` qui les masque, et
+    // la retirer rend jsdom à ce qu'il était pour les autres bancs du fichier.
+    Reflect.deleteProperty(HTMLElement.prototype, 'clientWidth')
+    Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight')
+    Reflect.deleteProperty(HTMLElement.prototype, 'offsetHeight')
+    if (realLocation !== undefined) Object.defineProperty(window, 'location', realLocation)
+    realLocation = undefined
+  })
+
+  /** Fait croire à la page qu'elle est lue depuis un portable du réseau. */
+  function readFromTheLan(): void {
+    realLocation = Object.getOwnPropertyDescriptor(window, 'location')
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { hostname: '192.168.1.20' },
+    })
+  }
+
+  /** Cent tuiles au poids : de quoi que « tient en N écrans » dise quelque chose. */
+  function hundredTiles(): void {
+    catalogProducts = Array.from({ length: 100 }, (_unused, index) => ({
+      id: `w${String(index)}`,
+      name: `TOMATE ${String(index)}`,
+      search: `tomate ${String(index)}`,
+      mode: 'by_weight',
+    }))
+  }
+
+  /** Monte la page sur un brouillon donné. */
+  function openWith(ui: Record<string, unknown>): void {
+    const admin = new Admin()
+    const draft = new Draft(admin)
+    draft.config = { ...localDropConfig(), ui }
+    component = mount(Catalog, { target: host, props: { admin, draft, health: nominalHealth() } })
+    flushSync()
+  }
+
+  /** Ce que la phrase chiffrée dit, ramenée à une seule forme d'apostrophe. */
+  function countText(): string {
+    return collapse(host.querySelector('[data-grid-count]')?.textContent ?? '')
+  }
+
+  it('dit les colonnes AVANT les rangées, et ce que cela fait de tuiles', async () => {
+    hundredTiles()
+    openWith({ grid_columns: 7 })
+    await settle()
+
+    // C'est le vocabulaire dans lequel la demande est arrivée, et donc celui dans lequel
+    // elle se vérifie : 7 × 3, et 21 tuiles d'un coup.
+    expect(countText()).toContain('7 colonnes × 3 rangées — 21 tuiles d\'un coup')
+  })
+
+  it('dit en combien d’écrans la grille entière tient', async () => {
+    hundredTiles()
+    openWith({ grid_columns: 7 })
+    await settle()
+
+    expect(countText()).toContain('Les 100 tuiles de la grille tiennent en 5 écrans.')
+  })
+
+  it('compte les tuiles que le BROUILLON montre, l’interrupteur d’à côté compris', async () => {
+    // Les deux réglages de ce panneau agissent sur la même grille : annoncer cent tuiles
+    // au-dessus d'un interrupteur qui vient d'en retirer quinze serait faux avant même
+    // d'être enregistré.
+    catalogProducts = [
+      ...Array.from({ length: 85 }, (_unused, index) => ({
+        id: `w${String(index)}`,
+        name: `TOMATE ${String(index)}`,
+        search: `tomate ${String(index)}`,
+        mode: 'by_weight',
+      })),
+      ...Array.from({ length: 15 }, (_unused, index) => ({
+        id: `u${String(index)}`,
+        name: `MELON ${String(index)}`,
+        search: `melon ${String(index)}`,
+        mode: 'by_unit',
+      })),
+    ]
+    openWith({ grid_columns: 7 })
+    await settle()
+
+    expect(countText()).toContain('Les 85 tuiles de la grille tiennent en 5 écrans.')
+  })
+
+  it('dit sur « Automatique » ce que l’écran fait ET que ce n’est pas figé', async () => {
+    hundredTiles()
+    openWith({})
+    await settle()
+
+    const said = countText()
+    expect(said).toContain('Automatique : 7 colonnes × 3 rangées sur cet écran.')
+    expect(said).toContain('Un écran plus large en montrera davantage sans qu\'on y revienne.')
+  })
+
+  it('ne nomme pas l’écran du poste quand la page est lue sur celui du poste', async () => {
+    hundredTiles()
+    openWith({ grid_columns: 7 })
+    await settle()
+
+    expect(host.querySelector('[data-other-screen]')).toBeNull()
+  })
+
+  it('dit que le compte vaut pour l’écran qu’on lit, quand ce n’est pas celui du poste', async () => {
+    // L'administration s'ouvre depuis un portable du réseau, et le compte est alors celui
+    // du portable. Le cas est NOMMÉ plutôt que subi : zéro donnée en plus, zéro route en
+    // plus, et une erreur de réglage se voit sur le poste et se répare en revenant ici.
+    readFromTheLan()
+    hundredTiles()
+    openWith({ grid_columns: 7 })
+    await settle()
+
+    expect(collapse(host.querySelector('[data-other-screen]')?.textContent ?? '')).toBe(
+      "Cet écran n'est pas celui du poste : ce compte vaut pour l'écran que vous lisez.",
+    )
   })
 })

@@ -28,6 +28,7 @@ export const FIELD_LABELS: Readonly<Record<string, string>> = {
   'ui.reprint_window_s': 'Réimpression possible pendant (secondes)',
   'ui.show_grid_prices': 'Afficher les prix sur les tuiles',
   'ui.show_by_unit_products': 'Afficher les produits vendus à l’unité',
+  'ui.grid_columns': 'Colonnes de la grille',
 
   'scale.type': 'Protocole de la balance',
   'scale.present': 'Ce poste a une balance',

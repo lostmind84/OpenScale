@@ -557,6 +557,7 @@ portent.
 | `poste{numero, nom, coop}` | `station{number, name, coop}` |
 | `reseau{ecoute, admin_reseau_local}` | `network{listen, admin_on_lan}` |
 | `ihm{langue, son, delai_inactivite_s, delai_reimpression_s, afficher_prix_grille, afficher_produits_a_l_unite}` | `ui{language, sound, idle_timeout_s, reprint_window_s, show_grid_prices, show_by_unit_products}` |
+| clé sans équivalent dans l'existant, née d'ADR-057 : **« colonnes de la grille »**, le nombre de colonnes que l'écran client montre — c'est le libellé français de la page Catalogue, et l'index `chemin → libellé` de l'administration est le seul endroit qui le porte | `ui.grid_columns` — un entier, `0` valant **« automatique »** et jamais « aucune colonne ». Ne pas dire « densité » ni « taille des tuiles » : une densité est une **proportion**, `ui.tile_size` est une clé **retirée** que le contrôle 20 refuse (ADR-035), et ce réglage-ci compte des colonnes |
 | `balance{type, presente, saisie_manuelle_autorisee, delai_avant_degradation_s}` | `scale{type, present, manual_entry_allowed, degrade_after_s}` |
 | `balance.options{port, baud, bits, parite, stop, backoff_min_ms, backoff_max_ms}` | `scale.options{port, baud, bits, parity, stop, backoff_min_ms, backoff_max_ms}` |
 | `balance.type : gram-xfoc-rs \| gram-xfoc-plus` | `scale.type : gram-xfoc-rs \| gram-xfoc-plus` (inchangés, noms matériels) |
