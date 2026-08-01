@@ -160,6 +160,18 @@ END
   exit 1
 fi
 
+# --- 5. Migration de la configuration --------------------------------------------------
+# ICI et pas avant : la bascule vient d'être jugée réussie, et le retour arrière automatique
+# de l'étape 4 est déjà écarté. Migrer plus tôt exposerait un retour arrière à restaurer un
+# binaire PRÉCÉDENT qui relirait un config.json déjà migré, et perdrait ce que la migration a
+# porté. Migrer ici n'ôte rien : le poste a démarré sans dépendre du fichier, la migration en
+# mémoire suffit à le faire tourner.
+#
+# Un code de retour non nul n'est PAS un échec de la mise à jour, qui a déjà réussi : il
+# signale qu'une clé reste à trancher à la main, sur un poste qui tourne.
+"$BINARY" config migrate "$CONFIG" || \
+  log 'configuration : une décision reste à prendre à la main (voir ci-dessus)'
+
 log "mise à jour réussie : le poste répond sur $ADDRESS"
 printf 'Version précédente conservée dans %s\n' "$BACKUP"
 printf "Vérifiez l'empreinte de configuration : %s config fingerprint\n" "$BINARY"
