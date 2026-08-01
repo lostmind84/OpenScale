@@ -431,6 +431,54 @@ func TestAMissingConfigurationFileIsNamedAsMissing(t *testing.T) {
 	}
 }
 
+// runConfigurationControlOn writes raw as config.json on a bench whose registries name
+// every driver the neutral profile declares — printer preview AND catalog local_drop —
+// and returns the report's control « configuration ».
+//
+// Without the catalog registry, `unknownDrivers` (doctor.go) always finds catalog.type
+// unverifiable and the control never gets past INCONNU : none of the tests of this
+// section could otherwise reach a WARN or a PASS, only the neighbouring FAIL cases can,
+// which is why they never needed this helper.
+func runConfigurationControlOn(t *testing.T, raw string) Control {
+	t.Helper()
+	b := newBench(t)
+	b.registries.CatalogSources = []domain.DriverDescriptor{
+		{ID: domain.CatalogSourceLocalDrop, Label: "Répertoire de dépôt"},
+	}
+	if err := os.WriteFile(b.configPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("écriture du fichier de configuration : %v", err)
+	}
+	doctor, err := New(b.options())
+	if err != nil {
+		t.Fatalf("construction du doctor : %v", err)
+	}
+	report := doctor.Run(context.Background())
+	return control(t, report, ControlConfiguration)
+}
+
+// TestConfigurationControlNamesTheSchemaVersion: whoever opens diagnostic.zip has to be
+// able to tell a station whose file this binary rewrote from one whose file it only read.
+//
+// The document carries ui.tile_size, a key Migrate actually TRANSLATES (retireTileSize),
+// and not just an old "version" number: stampSchemaVersion bumps the number in silence
+// when nothing else needed changing, so a file that names no legacy key at all produces
+// no migration note and would never exercise this control.
+func TestConfigurationControlNamesTheSchemaVersion(t *testing.T) {
+	raw := `{"version":1,"station":{"number":2},"ui":{"tile_size":"large"},` +
+		`"admin":{"password_hash":"` + benchPasswordHash + `"}}`
+	found := runConfigurationControlOn(t, raw)
+
+	if found.Status != StatusWarn {
+		t.Fatalf("fichier au schéma précédent : %s — %s", found.Status, found.Observed)
+	}
+	if !strings.Contains(found.Observed, "schéma") {
+		t.Errorf("le contrôle ne nomme pas la version du schéma : %q", found.Observed)
+	}
+	if !strings.Contains(found.Observed, "openscale config migrate") {
+		t.Errorf("le contrôle ne dit pas quoi lancer : %q", found.Observed)
+	}
+}
+
 // --- 8. The database --------------------------------------------------------
 
 func TestABaseThatWillNotOpenNamesItsCode(t *testing.T) {

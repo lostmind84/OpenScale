@@ -116,7 +116,14 @@ type loadedConfig struct {
 	Parsed bool
 	Config domain.Config
 	Faults []domain.Fault
-	Err    error
+	// MigrationNotes is what platform.LoadConfig had to change to bring the document up
+	// to the schema this binary speaks. It is the ONLY trace left of that once Config is
+	// built: LoadConfig migrates the document BEFORE decoding it, so Config.Version reads
+	// domain.CurrentSchemaVersion whether the file on disk was one version behind or
+	// already current — comparing it against anything would compare a number against
+	// itself. An empty slice means the file needed nothing.
+	MigrationNotes []domain.MigrationNote
+	Err            error
 }
 
 // Run performs the controls, in the order §15.4 enumerates them, and hands back
@@ -216,11 +223,11 @@ func (d *Doctor) readConfiguration() loadedConfig {
 	if d.o.ConfigPath == "" {
 		return loadedConfig{Err: errors.New("aucun fichier de configuration n'a été désigné")}
 	}
-	cfg, _, decodeFaults, err := platform.LoadConfig(d.o.ConfigPath)
+	cfg, notes, decodeFaults, err := platform.LoadConfig(d.o.ConfigPath)
 	if err != nil {
 		return loadedConfig{Err: err}
 	}
-	out := loadedConfig{Present: true, Config: cfg}
+	out := loadedConfig{Present: true, Config: cfg, MigrationNotes: notes}
 	if wholeDocument := wholeDocumentFault(decodeFaults); wholeDocument != nil {
 		out.Err = errors.New(wholeDocument.Message)
 		return out
@@ -637,10 +644,30 @@ func (d *Doctor) checkConfiguration(loaded loadedConfig) Control {
 		control.Status = StatusWarn
 		control.Observed = fmt.Sprintf("aucune faute, et %d clé(s) retirée(s) traînent encore dans le "+
 			"fichier : %s", len(retired), strings.Join(retired, ", "))
-		control.Remedy = "Supprimez ces lignes du fichier : elles ne sont plus lues, et un mainteneur " +
-			"qui les voit croira qu'elles règlent encore quelque chose (§11.2)."
+		control.Remedy = "Lancez d'abord « openscale config migrate " + d.o.ConfigPath + " » : il migre " +
+			"tout seul ce qui se convertit, et détaille pourquoi il refuse le reste. Ce qu'il refuse ne " +
+			"se devine pas ; retirez ces lignes-là à la main du fichier, puis relancez la migration (§11.2)."
 		return control
 	}
+
+	// The schema version, because "this station's file was rewritten by the update" and
+	// "this station's file is only being read as if it were" are two different states, and
+	// diagnostic.zip is where somebody decides which one they are looking at. It is placed
+	// LAST among the warnings and never among the faults: the station already runs on the
+	// migrated form, in memory, so an out-of-date FILE is at most something to catch up on
+	// — and it must never bury the two warnings above, which both call for action sooner
+	// (no way in at all, or lines nobody can explain).
+	if notes := loaded.MigrationNotes; len(notes) > 0 {
+		control.Status = StatusWarn
+		control.Observed = fmt.Sprintf("aucune faute ; empreinte %s ; %s n'est pas encore au schéma %d "+
+			"que ce binaire écrit (%d changement(s) en attente) — « openscale config migrate » le "+
+			"réécrit (le poste tourne déjà sur la forme à jour, en mémoire)",
+			loaded.Config.Fingerprint(), d.o.ConfigPath, domain.CurrentSchemaVersion, len(notes))
+		control.Remedy = "« openscale config migrate " + d.o.ConfigPath + " » réécrit le fichier sur " +
+			"cette forme ; rien ne presse, le poste fonctionne déjà normalement."
+		return control
+	}
+
 	control.Status = StatusPass
 	control.Observed = fmt.Sprintf("aucune faute ; empreinte %s", loaded.Config.Fingerprint())
 	return control
