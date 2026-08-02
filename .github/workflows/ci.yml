@@ -46,6 +46,23 @@ on:
 permissions:
   contents: read
 
+# Une pull request n'a besoin que du verdict de son DERNIER commit. Pousser un correctif
+# sur une branche déjà en cours de validation laissait deux runs vivants côte à côte :
+# celui qui juge un état du code que plus personne ne veut fusionner, et celui qui juge
+# le bon. Le premier est désormais annulé, et les runners qu'il tenait repartent au
+# second — ce qui compte moins pour la minute gagnée que pour la limite de travaux
+# simultanés, seule limite d'Actions qui s'applique à un dépôt public.
+#
+# SAUF SUR main, et c'est ce que teste `github.ref`. Là, chaque commit est un état
+# livrable et son verdict est une trace : deux merges rapprochés ne doivent pas laisser
+# le premier sans réponse. Une branche verte dont on ne sait plus quel commit a été
+# vérifié ne vaut pas la minute de runner qu'elle a économisée. Même arbitrage que
+# docs.yml, conclusion inverse, pour la même raison — ce qui se publie ou se livre ne
+# s'annule pas.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   # Épinglé : les golden de rendu de §7.4 ne doivent pas bouger avec la version de
   # la chaîne d'outils.
