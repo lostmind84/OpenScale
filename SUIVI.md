@@ -53,7 +53,20 @@ treize blocs lisibles sur quatorze — et l'avertissement va dans son `_readme`,
 tête, qui est le seul véhicule à la fois valide en JSON, caviardé comme le reste et **hors
 empreinte**. Les octets bruts ont été écartés sans discussion : ils y remettraient le hash
 du mot de passe et les identifiants WebDAV, dans le fichier dont la promesse est « vous
-pouvez l'envoyer sans le relire ». Le démarrage **n'écrit toujours pas** : seule `openscale config migrate` —
+pouvez l'envoyer sans le relire ».
+
+**Et le refus sec de `ConfigStore.Read` était lui-même un défaut, pire que celui qu'il
+corrigeait.** Sur un poste hors service, la récupération par code de secours cessait de
+lire le fichier et lui écrivait les **quatorze blocs d'usine** — identité, tarifs, source
+du catalogue et ses identifiants, garde-fous —, en HTTP 200 et sans un avertissement, sur
+le seul geste qui existe pour sauver ce poste. La leçon n'est pas le sens du choix mais
+qu'il n'y en avait pas un seul à faire : **« je n'ai pas pu tout lire » a trois réponses**,
+selon qu'on **affiche** le fichier, qu'on le **réécrit** ou qu'on n'en lit **qu'un bloc**.
+`domain.UnreadableBlocksError` porte donc la `Config` telle qu'elle a été lue et nomme les
+blocs qui ne l'ont pas été, et les sept appelants tranchent chacun par `errors.As` — la
+table est en §11.6. Ce qui l'avait caché : le test de secours passait par un double en
+mémoire qui ne refuse jamais, si bien qu'il est resté vert tout du long ; il en existe
+maintenant un sur un **vrai fichier et un vrai store**, et un par porte corrigée. Le démarrage **n'écrit toujours pas** : seule `openscale config migrate` —
 lancée à la main ou par `update.ps1`/`update.sh` une fois le poste debout, sur le
 **chemin de réussite uniquement** et sans jamais changer le code de sortie de la mise à
 jour elle-même — touche le disque. `TestEveryRetiredKeyHasADeclaredVerdict` tient la

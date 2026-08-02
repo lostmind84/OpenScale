@@ -2,9 +2,11 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"openscale/internal/domain"
@@ -60,6 +62,10 @@ type configDTO struct {
 	// Retired names the keys this file still carries and this binary refuses (§11.3,
 	// control 20), so that the screen can offer to drop them.
 	Retired []string `json:"retired_keys"`
+	// Unreadable names the blocks of the file that did NOT decode, with the reason. The
+	// values shown for those blocks are the factory ones, and a screen that did not say so
+	// would invite a volunteer to save them over the shop's own.
+	Unreadable []faultDTO `json:"unreadable_blocks,omitempty"`
 	// Pending is the confirmation still expected, when there is one.
 	Pending *confirmationDTO `json:"pending_confirmation"`
 }
@@ -81,16 +87,31 @@ type confirmationDTO struct {
 // the factory tariffs, the factory safeguards and the factory categories — and the save
 // that followed would write them over the cooperative's own (§11.3, §11.4).
 //
-// A file that cannot be read falls back on what is running, which is all a station with
-// no readable file has left to show.
+// A file that cannot be read AT ALL falls back on what is running, which is all a station
+// with no readable file has left to show.
+//
+// A file only PART of which decoded is served as it was READ — the shop's own blocks, not
+// what memory holds — with the substituted ones NAMED in `unreadable_blocks`. Showing them
+// silently would put the factory tariffs on the screen under the shop's station name, and
+// the save that followed would write them back: the very « détruire » of the paragraph
+// above, arrived by another road.
 func (s *Server) readConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.hub.Config()
+	var substituted []faultDTO
 	if s.configStore != nil {
-		if onDisk, err := s.configStore.Read(r.Context()); err == nil {
+		onDisk, err := s.configStore.Read(r.Context())
+		var unreadable *domain.UnreadableBlocksError
+		switch {
+		case err == nil:
 			cfg = onDisk
+		case errors.As(err, &unreadable):
+			cfg = unreadable.Config
+			substituted = faultsOf(unreadable.Faults)
 		}
 	}
-	writeJSON(w, http.StatusOK, s.configPayload(cfg, nil))
+	payload := s.configPayload(cfg, nil)
+	payload.Unreadable = substituted
+	writeJSON(w, http.StatusOK, payload)
 }
 
 // configPayload renders one configuration without its secrets.
@@ -183,7 +204,17 @@ func (s *Server) writeConfig(w http.ResponseWriter, r *http.Request) {
 	// write is the same reasoning control 20 already applies to an upload that names a
 	// retired key outright, extended to a key already sitting on disk (ADR-034):
 	// repairing the file is done IN the file, not by laundering it through this screen.
+	//
+	// A file only PART of which decoded still answers both questions this block asks: its
+	// READ blocks are the shop's own, and a retired key sitting in one of them is still
+	// there. Treating it as « unreadable » skipped the guard entirely, and skipped
+	// `served` below with it — so the catalog password was taken from the neutral profile,
+	// which has none, and a save about the polling interval erased a producer's account.
 	onDisk, onDiskErr := s.configStore.Read(r.Context())
+	var unreadable *domain.UnreadableBlocksError
+	if errors.As(onDiskErr, &unreadable) {
+		onDisk, onDiskErr = unreadable.Config, nil
+	}
 	if onDiskErr == nil {
 		if faults := retiredFaultsOf(onDisk, s.registries); len(faults) > 0 {
 			writeJSON(w, http.StatusUnprocessableEntity, problem{
@@ -472,6 +503,21 @@ func (s *Server) restoreConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	restored, err := s.configStore.Restore(r.Context(), body.Version)
+	// A backup one of whose blocks did not decode EXISTS, and « introuvable » would send a
+	// volunteer looking for a file that is right there beside config.json — listed by
+	// Versions, on the screen, one line above the button they just pressed. It cannot be
+	// applied as it stands, which is the answer the Validate branch below already gives.
+	var unreadable *domain.UnreadableBlocksError
+	if errors.As(err, &unreadable) {
+		writeJSON(w, http.StatusUnprocessableEntity, problem{
+			Code: "ERR-CFG-01",
+			Message: "La version " + strconv.Itoa(body.Version) + " existe, mais " +
+				blockOrBlocks(unreadable.Blocks()) + " ne s'y lit pas : la restaurer poserait " +
+				"la configuration d'usine à sa place.",
+			Faults: faultsOf(unreadable.Faults),
+		})
+		return
+	}
 	if err != nil {
 		writeProblem(w, http.StatusNotFound, "",
 			"Version "+strconv.Itoa(body.Version)+" introuvable : "+err.Error())
@@ -493,7 +539,15 @@ func (s *Server) restoreConfig(w http.ResponseWriter, r *http.Request) {
 	// write the factory profile onto the file of a station that started out of service.
 	// This is the route that reaches it — writeConfig already refuses a station whose file
 	// carries a retired key, and this one does not.
+	//
+	// A file only PART of which decoded is still a better rollback target than memory: its
+	// read blocks are the shop's. Leaving FileBefore nil there is what made the countdown
+	// write the neutral profile onto the file sixty seconds later, unattended.
 	fileBefore, fileErr := s.configStore.Read(r.Context())
+	var unreadableBefore *domain.UnreadableBlocksError
+	if errors.As(fileErr, &unreadableBefore) {
+		fileBefore, fileErr = unreadableBefore.Config, nil
+	}
 
 	if err := s.configStore.Save(r.Context(), restored); err != nil {
 		writeProblem(w, http.StatusInternalServerError, "",
@@ -547,6 +601,22 @@ func faultsOf(faults []domain.Fault) []faultDTO {
 		out = append(out, faultDTO{Field: f.Field, Message: f.Message, Allowed: f.Values})
 	}
 	return out
+}
+
+// blockOrBlocks names unreadable configuration blocks in a sentence a volunteer reads.
+//
+// One helper and not one phrasing per route: these sentences arrive on a screen at the
+// worst moment somebody can meet them, and « le bloc pricing, catalog » — which is what a
+// join alone produces — reads like a defect in the message rather than a defect in the
+// file. The whole document failing names itself, and there is no block to speak of.
+func blockOrBlocks(blocks []string) string {
+	if len(blocks) == 1 && blocks[0] == domain.WholeDocumentField {
+		return "le document"
+	}
+	if len(blocks) > 1 {
+		return "les blocs " + strings.Join(blocks, ", ")
+	}
+	return "le bloc " + strings.Join(blocks, ", ")
 }
 
 // changedBlocks names the blocks two configurations disagree about, by the SAME

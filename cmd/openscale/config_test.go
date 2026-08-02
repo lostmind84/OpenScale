@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"openscale/internal/domain"
+	"openscale/internal/platform"
 	"openscale/internal/web"
 )
 
@@ -827,5 +829,87 @@ func TestTheDeliveredFileStillExportsAndFingerprints(t *testing.T) {
 	}
 	if _, statErr := os.Stat(written); statErr != nil {
 		t.Errorf("l'export du fichier livré n'a rien écrit : %v", statErr)
+	}
+}
+
+// TestComingBackFromManualEntryIsNotStoppedByAFaultInAnotherBlock is the SINGLE-BLOCK
+// door, and the one whose failure is invisible from a desk.
+//
+// This station runs under Assigned Access: opening config.json is not a gesture a
+// volunteer has. A fault on `pricing` that refused this read would leave them locked
+// INSIDE manual weight entry, unable to come back and unable to repair the file — from the
+// screen, the button simply stops working.
+func TestComingBackFromManualEntryIsNotStoppedByAFaultInAnotherBlock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeDamagedBlock(t, path, "pricing")
+	store, err := platform.NewConfigStore(path)
+	if err != nil {
+		t.Fatalf("NewConfigStore : %v", err)
+	}
+
+	cfg, err := configForComingBack(context.Background(), store)
+	if err != nil {
+		t.Fatalf("le retour de la saisie manuelle est refusé pour une faute ailleurs : %v", err)
+	}
+	// The block it came for is the shop's own, not the neutral profile's.
+	if cfg.Scale.Type != "gram-xfoc-plus" {
+		t.Errorf("scale.type = %q, attendu celui du fichier", cfg.Scale.Type)
+	}
+}
+
+// TestComingBackFromManualEntryIsRefusedWhenTheScaleBlockIsTheFaultyOne is the other half.
+// The neutral profile declares NO scale, so coming back to one this station never declared
+// is how it ends up polling a serial port that is not there.
+func TestComingBackFromManualEntryIsRefusedWhenTheScaleBlockIsTheFaultyOne(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeDamagedBlock(t, path, "scale")
+	store, err := platform.NewConfigStore(path)
+	if err != nil {
+		t.Fatalf("NewConfigStore : %v", err)
+	}
+
+	if _, err := configForComingBack(context.Background(), store); err == nil {
+		t.Fatal("le retour est accepté alors que la balance déclarée est justement inconnue")
+	}
+}
+
+// writeDamagedBlock writes the delivered configuration with ONE named block made
+// undecodable.
+//
+// The block becomes a STRING where a structure is expected, which is a type error and not
+// a syntax error — what a field whose type changed between two versions looks like, and
+// the case block-by-block decoding was built for (§11.6). It also works on every block
+// without this helper having to know a real field of each.
+//
+// An earlier version of this wrote `{"type":[1,2,3]}`, and it damaged nothing: `type` is
+// not a field of PricingRules, encoding/json drops what no field claims, and the block
+// decoded clean. The test passed with the fix REMOVED — verified by removing it. A helper
+// that cannot break what it claims to break makes every test standing on it worthless,
+// which is why the check below is here rather than in the two tests.
+func writeDamagedBlock(t *testing.T, path, block string) {
+	t.Helper()
+	raw, err := os.ReadFile(deliveredConfig(t))
+	if err != nil {
+		t.Fatalf("lecture du fichier livré : %v", err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("le fichier livré ne se décode pas : %v", err)
+	}
+	if _, present := document[block]; !present {
+		t.Fatalf("le fichier livré ne porte pas de bloc %q", block)
+	}
+	document[block] = json.RawMessage(`"ceci n'est pas un bloc"`)
+	if raw, err = json.Marshal(document); err != nil {
+		t.Fatalf("encodage : %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+
+	// The damage is REAL and lands where it was aimed: without this, a test standing on
+	// this helper proves nothing at all.
+	if _, faults := domain.DecodeConfigBlockByBlock(raw); len(faults) != 1 || faults[0].Field != block {
+		t.Fatalf("le bloc %q n'a pas été abîmé : fautes = %+v", block, faults)
 	}
 }

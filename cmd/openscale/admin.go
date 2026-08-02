@@ -166,10 +166,15 @@ type adminTroubleshooting struct {
 // the way back, in French, and never on the way in: switching TO manual entry must work
 // on a station whose configuration is unreadable, which is precisely the morning
 // somebody needs it.
+// It needs the `scale` block and NOTHING else, so a fault in another block must not stop
+// it. That distinction is not a nicety: this station runs under Assigned Access, where
+// opening config.json is not a gesture anybody has, and a fault on `pricing` would have
+// locked a volunteer INSIDE manual weight entry with no way back and no way to repair the
+// file either.
 func (t adminTroubleshooting) ManualEntry(ctx context.Context, on bool) error {
 	var asked domain.Config
 	if !on {
-		read, err := t.file.Read(ctx)
+		read, err := configForComingBack(ctx, t.file)
 		if err != nil {
 			return fmt.Errorf("la configuration de ce poste ne peut pas être relue, "+
 				"la balance déclarée est donc inconnue : %w", err)
@@ -184,6 +189,28 @@ func (t adminTroubleshooting) ManualEntry(ctx context.Context, on bool) error {
 		return err
 	}
 	return nil
+}
+
+// configForComingBack reads the file for the ONE block coming back from manual weight
+// entry needs, and tolerates a fault in any other.
+//
+// It is the third of the three answers domain.UnreadableBlocksError exists for, and the
+// one nothing else in the tree gives: a caller that needs a single block must not be
+// stopped by a fault elsewhere. The cost of getting it wrong is not theoretical — this
+// station runs under Assigned Access, where opening config.json is not a gesture anybody
+// has, so a fault on `pricing` would leave a volunteer locked INSIDE manual entry with no
+// way back and no way to repair the file either.
+//
+// A fault on `scale` itself is a genuine refusal: the neutral profile declares no scale,
+// and coming back to one this station never declared is how a station ends up polling a
+// serial port that is not there.
+func configForComingBack(ctx context.Context, file *platform.ConfigStore) (domain.Config, error) {
+	cfg, err := file.Read(ctx)
+	var unreadable *domain.UnreadableBlocksError
+	if errors.As(err, &unreadable) && !unreadable.Names("scale") {
+		return unreadable.Config, nil
+	}
+	return cfg, err
 }
 
 // RollChanged puts the label counter back to zero (§8.5, « J'ai changé le rouleau »).

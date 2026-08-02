@@ -1,7 +1,9 @@
 package web
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -190,11 +192,12 @@ func TestTheRecoveryCodeResetsThePasswordFromTheScreen(t *testing.T) {
 // cooperative's tariffs, safeguards and categories (§11.3). Writing the running
 // configuration back would have wiped all of it on the single gesture meant to rescue it.
 //
-// It proves the ROUTE and not the read: configStore is an in-memory double here, so the
-// other half of the property -- a file whose block fell back on the factory one must not
-// come back from ConfigStore.Read as if it had been read -- is held by
-// TestReadRefusesAFileWhoseBlockFellBackOnTheFactoryOne (internal/platform). Both halves
-// are needed, and this one alone stayed green through the whole time the other was open.
+// It proves the ROUTE and nothing else: configStore is an in-memory double that never
+// refuses a read, so this test is blind to everything ConfigStore.Read decides. Saying it
+// held « one half » of the property was wrong, and expensively so: it stayed green through
+// the whole time the route was writing the fourteen factory blocks onto the shop's file.
+// What holds the property end to end is
+// TestARescueThroughTheRealStoreKeepsTheShopsBlocks, below, on a real file and a real store.
 func TestARescueDoesNotReplaceTheShopsConfigurationWithTheFactoryOne(t *testing.T) {
 	shop := loadConfig(t)
 	saved := &savedConfig{}
@@ -231,6 +234,160 @@ func TestARescueDoesNotReplaceTheShopsConfigurationWithTheFactoryOne(t *testing.
 	// hand a station a configuration nobody validated.
 	if b.hub.Config().Station.Coop == shop.Station.Coop {
 		t.Fatal("le poste s'est mis à faire tourner le fichier au lieu de son profil neutre")
+	}
+}
+
+// TestARescueThroughTheRealStoreKeepsTheShopsBlocks is the half the test above cannot
+// reach, and the one that was open.
+//
+// Everything here is REAL: a file on disk, a platform.ConfigStore over it, and the
+// recovery route. The double the test above uses never refuses a read, so it went on
+// passing through the whole time this was broken — a station out of service, whose file
+// has ONE unreadable block, had the fourteen FACTORY blocks written over it by the single
+// gesture meant to rescue it: identity, tariffs, catalog source and its credentials,
+// safeguards. HTTP 200, no warning.
+func TestARescueThroughTheRealStoreKeepsTheShopsBlocks(t *testing.T) {
+	shop := loadConfig(t)
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeRawConfig(t, path, shop)
+	damagePricingBlock(t, path)
+
+	file, err := platform.NewConfigStore(path)
+	if err != nil {
+		t.Fatalf("NewConfigStore : %v", err)
+	}
+	b := newBench(t, func(o *benchOptions) {
+		o.configStore = realConfigStore{file}
+		// What a station in factory configuration RUNS (§11.3), which is not its file.
+		o.config = func(cfg *domain.Config) { *cfg = domain.NeutralProfile() }
+	})
+	b.setPassword("oublie", "ABCD2345")
+
+	before := readRaw(t, path)
+
+	response := b.post("/admin/api/session/recovery", `{"code":"ABCD2345","password":"nouveau-mot"}`)
+	got := decodeStatus[sessionDTO](t, response, http.StatusOK)
+
+	// The FILE, decoded the way a station decodes it: what matters is what boots tomorrow.
+	written, _ := domain.DecodeConfigBlockByBlock(readRaw(t, path))
+	if coop := written.Station.Coop; coop != shop.Station.Coop {
+		t.Errorf("station.coop = %q, attendu %q : le profil d'usine a été écrit sur le "+
+			"fichier du magasin", coop, shop.Station.Coop)
+	}
+	// pricing is the block that was damaged, so it cannot be asserted through a decode —
+	// it is asserted on the BYTES, which is where the members' discount has to survive.
+	if !bytes.Contains(readRaw(t, path), []byte(`"discount_percent":10`)) {
+		t.Error("la remise des adhérents a disparu du fichier")
+	}
+	if source := written.Catalog.Type; source != shop.Catalog.Type {
+		t.Errorf("catalog.type = %q, attendu %q : la source du catalogue a été remplacée",
+			source, shop.Catalog.Type)
+	}
+	if basket, want := written.Limits.BasketMin, shop.Limits.BasketMin; basket != want {
+		t.Errorf("limits.basket_min = %v, attendu %v : les garde-fous ont été remplacés",
+			basket, want)
+	}
+	// Nothing at all was written, which is the strongest form of the four assertions above
+	// and the one that also covers the blocks this test does not name.
+	if !bytes.Equal(before, readRaw(t, path)) {
+		t.Error("le fichier a été réécrit alors qu'un de ses blocs n'a pas pu être lu")
+	}
+
+	// The door still opens — a rescue that refused would leave this station with no way in
+	// at all — and it says plainly what is not saved, naming the block to repair.
+	if got.Warning == "" {
+		t.Fatal("la session s'ouvre sans dire que le mot de passe n'est pas enregistré")
+	}
+	if !strings.Contains(got.Warning, "pricing") {
+		t.Errorf("l'avertissement ne nomme pas le bloc à corriger : %q", got.Warning)
+	}
+	// And the password is in force IN MEMORY, which is what makes the session usable.
+	if !VerifySecret(b.hub.Config().Admin.PasswordHash, "nouveau-mot") {
+		t.Error("le nouveau mot de passe n'est pas en service")
+	}
+}
+
+// benchOverADamagedFile stands a bench on a REAL file whose pricing block does not decode,
+// with the station running the neutral profile — which is what §11.3 puts it on.
+//
+// shopEdit changes what the cooperative declared BEFORE the file is written and damaged;
+// nil writes the delivered file of §17.2 as it stands. It exists because that file ships
+// with an empty WebDAV password — rightly, it is published — so a test about carrying a
+// secret over has to put one there or it proves nothing.
+//
+// It returns the bench, the path, and the shop's configuration as written, so a test can
+// compare the file against what the cooperative actually declared.
+func benchOverADamagedFile(t *testing.T, shopEdit func(*domain.Config),
+	tweaks ...func(*benchOptions)) (*bench, string, domain.Config) {
+
+	t.Helper()
+	shop := loadConfig(t)
+	if shopEdit != nil {
+		shopEdit(&shop)
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeRawConfig(t, path, shop)
+	damagePricingBlock(t, path)
+
+	file, err := platform.NewConfigStore(path)
+	if err != nil {
+		t.Fatalf("NewConfigStore : %v", err)
+	}
+	options := append([]func(*benchOptions){func(o *benchOptions) {
+		o.configStore = realConfigStore{file}
+		o.config = func(cfg *domain.Config) { *cfg = domain.NeutralProfile() }
+	}}, tweaks...)
+	return newBench(t, options...), path, shop
+}
+
+// writeRawConfig marshals a configuration onto disk the way a station writes it.
+func writeRawConfig(t *testing.T, path string, cfg domain.Config) {
+	t.Helper()
+	raw, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatalf("sérialisation : %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("écriture de %s : %v", path, err)
+	}
+}
+
+// readRaw reads the bytes of a configuration file, or fails the test naming it.
+func readRaw(t *testing.T, path string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("relecture de %s : %v", path, err)
+	}
+	return raw
+}
+
+// damagePricingBlock makes exactly ONE of the fourteen blocks undecodable. "bankers" is
+// not one of the three rounding words, so RoundingPolicy.UnmarshalJSON refuses it and the
+// pricing block alone falls back on the neutral profile.
+func damagePricingBlock(t *testing.T, path string) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("lecture de %s : %v", path, err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("décodage de %s : %v", path, err)
+	}
+	var pricing map[string]json.RawMessage
+	if err := json.Unmarshal(document["pricing"], &pricing); err != nil {
+		t.Fatalf("décodage du bloc pricing : %v", err)
+	}
+	pricing["amount_rounding"] = json.RawMessage(`"bankers"`)
+	if document["pricing"], err = json.Marshal(pricing); err != nil {
+		t.Fatalf("encodage du bloc pricing : %v", err)
+	}
+	if raw, err = json.Marshal(document); err != nil {
+		t.Fatalf("encodage de %s : %v", path, err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("écriture de %s : %v", path, err)
 	}
 }
 

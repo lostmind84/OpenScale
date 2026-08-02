@@ -267,28 +267,33 @@ func writeTemporary(directory string, content []byte) (string, error) {
 // copy of its own, find a retired key there, and have Save refuse the very rescue it was
 // performing.
 //
-// It keeps LoadConfig's parsing and REFUSES its tolerance, and that asymmetry is the whole
-// point. serve, doctor, `config validate` and `config migrate` want a Config out of any
-// file at all, because a station serving its fault list is worth more than a station that
-// will not come up. Every caller of Read wants the opposite: `GET /admin/api/config` shows
-// the file to a volunteer « la différence entre le réparer et le détruire », the recovery
-// code and `openscale config password` REWRITE IT WHOLE, POST /admin/api/config/reload
-// puts it in service, and Restore hands a backup back. A configuration that merely LOOKS
-// like the file -- same station.coop, same name, one block silently the factory one -- is
-// the single value none of them may be handed, because each of them turns it into the
-// truth at the next write.
+// It keeps LoadConfig's parsing and refuses to hand back a configuration that merely LOOKS
+// like the file -- same station.coop, same name, one block silently the factory one. serve,
+// doctor, `config validate` and `config migrate` want that tolerant reading, because a
+// station serving its fault list is worth more than a station that will not come up. No
+// caller of Read does: each of them either shows the file to a volunteer or turns it into
+// the truth at the next write.
 //
-// The error therefore names the file AND the blocks, so the six report something a
-// volunteer can act on rather than « configuration illisible ».
+// It does NOT decide what happens next, and the second half of that sentence is the whole
+// lesson of 02/08/2026: a flat refusal is as wrong as silent tolerance, in the other
+// direction. So the failure is a *domain.UnreadableBlocksError, which CARRIES the blocks
+// that were read and names the ones that were not, and every caller decides for itself --
+// display them, refuse to persist them, or ignore a fault in a block it does not need.
+//
+// The Config comes back ZERO alongside it, deliberately: a caller that ignores the error
+// gets nothing usable rather than the substituted blocks, which is precisely the mistake
+// that has to stay impossible.
 func readConfigFile(path string) (domain.Config, error) {
 	cfg, _, faults, err := LoadConfig(path)
 	if err != nil {
 		return domain.Config{}, err
 	}
 	if documentUnreadable(faults) {
-		return domain.Config{}, fmt.Errorf(
-			"%s, et ce qui en tient lieu est la configuration d'usine",
-			unreadablePart(path, faults))
+		// Wrapped so the message names the FILE -- a station has six of them -- while
+		// errors.As still reaches the typed error underneath.
+		return domain.Config{}, fmt.Errorf("%s, et ce qui en tient lieu est la configuration "+
+			"d'usine : %w", unreadablePart(path, faults),
+			&domain.UnreadableBlocksError{Config: cfg, Faults: faults})
 	}
 	return cfg, nil
 }
@@ -304,6 +309,9 @@ func unreadablePart(path string, faults []domain.Fault) string {
 			return fmt.Sprintf("%s n'est pas un document JSON exploitable", path)
 		}
 		blocks = append(blocks, fault.Field)
+	}
+	if len(blocks) > 1 {
+		return fmt.Sprintf("%s : les blocs %s n'ont pas pu être lus", path, strings.Join(blocks, ", "))
 	}
 	return fmt.Sprintf("%s : le bloc %s n'a pas pu être lu", path, strings.Join(blocks, ", "))
 }

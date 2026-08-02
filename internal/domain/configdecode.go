@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // This file owns the ONE reading of config.json that is allowed to be tolerant.
@@ -28,6 +29,76 @@ import (
 // is restored from config.json.1, and telling them apart by re-parsing the message would
 // drift from what this function actually decided.
 const WholeDocumentField = "config.json"
+
+// UnreadableBlocksError reports that a configuration FILE was read and that PART of it did
+// not decode: the Config it carries holds the neutral profile in place of those blocks.
+//
+// It exists because « je n'ai pas pu tout lire » has no single right answer -- the right
+// answer depends on what the caller is about to DO, and there are three kinds:
+//
+//   - a caller that DISPLAYS the file must show what was read AND name what was
+//     substituted, or it presents factory values as the shop's own;
+//   - a caller that REWRITES THE FILE WHOLE must never write a substituted block back,
+//     because that is exactly how a factory value nobody declared becomes the shop's own,
+//     permanently, on the next read;
+//   - a caller that needs ONE BLOCK must not be stopped by a fault in another.
+//
+// A plain error collapses the three into one, and doing so cost a defect in each
+// direction on the same file. Tolerated silently (before 02/08/2026), the second kind
+// wrote the factory grid over a cooperative's tariffs. Refused outright (02/08/2026), the
+// first and third broke instead: the recovery route stopped reading the file at all and
+// wrote the FOURTEEN factory blocks onto it -- identity, tariffs, catalog credentials,
+// safeguards -- with HTTP 200 and no warning, on the one gesture that exists to rescue
+// that station.
+//
+// So the verdict is not decided here. Callers interrogate it with errors.As and choose.
+type UnreadableBlocksError struct {
+	// Config is what DecodeConfigBlockByBlock produced: every block that decoded, and the
+	// neutral profile in place of every block that did not.
+	//
+	// It is OFFERED rather than withheld because most callers have something right to do
+	// with it -- and none of them can, without knowing which blocks not to trust, which is
+	// what Faults names.
+	Config Config
+	// Faults name the blocks that did not decode, with the reason, in French.
+	Faults []Fault
+}
+
+// Error names the blocks that did not decode.
+func (e *UnreadableBlocksError) Error() string {
+	return fmt.Sprintf("domain: config block(s) did not decode: %s", joinFields(e.Faults))
+}
+
+// Blocks reports the names of the blocks that did not decode, in the order they were
+// found. A whole document that did not decode at all names WholeDocumentField, and that is
+// a fourth answer again: there is no block to keep and nothing to display.
+func (e *UnreadableBlocksError) Blocks() []string {
+	out := make([]string, 0, len(e.Faults))
+	for _, fault := range e.Faults {
+		out = append(out, fault.Field)
+	}
+	return out
+}
+
+// Names reports whether one of the unreadable blocks is the one asked about. It is what
+// lets a caller that needs a SINGLE block carry on when the fault is elsewhere.
+func (e *UnreadableBlocksError) Names(block string) bool {
+	for _, fault := range e.Faults {
+		if fault.Field == block || fault.Field == WholeDocumentField {
+			return true
+		}
+	}
+	return false
+}
+
+// joinFields lists the fields of some faults, comma separated.
+func joinFields(faults []Fault) string {
+	out := make([]string, 0, len(faults))
+	for _, fault := range faults {
+		out = append(out, fault.Field)
+	}
+	return strings.Join(out, ", ")
+}
 
 // DecodeConfigBlockByBlock decodes a configuration document, replacing every top-level
 // block that will not decode with the one of the neutral profile, and reporting a fault
