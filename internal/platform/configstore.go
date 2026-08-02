@@ -299,8 +299,8 @@ func readConfigFile(path string) (domain.Config, error) {
 
 // documentUnreadable reports whether the decoding faults make the Config that came with
 // them a configuration NOBODY WROTE. It is the one criterion of this file, read by Versions
-// and by readConfigFile, so that the screen and the six rescue paths cannot drift apart on
-// what counts as unreadable.
+// and by readConfigFile, so that the screen and every path that repairs a station cannot
+// drift apart on what counts as unreadable.
 //
 // One fault is enough, and the criterion was narrower for a while: only a fault on
 // domain.WholeDocumentField counted, on the idea that a document with one bad block « still

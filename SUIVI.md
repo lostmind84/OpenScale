@@ -39,9 +39,9 @@ d'usine plausible que personne n'a déclarée — et `openscale config migrate`,
 `update.ps1` lance après chaque mise à jour réussie, la rendait **définitive** : mesuré, la
 remise de 10 % des adhérents disparaissait pendant que la commande annonçait un changement
 sans rapport et sortait 0. `config migrate` et `config validate` comptent désormais ces
-fautes, et `ConfigStore.Read` — dont les six appelants **montrent** le fichier ou le
-**réécrivent entier** — refuse de nouveau, en nommant le fichier et le bloc. **Trois portes
-de plus disaient la même chose autrement** : `config fingerprint` rendait `7b386ddb` là où
+fautes, et `ConfigStore.Read` — dont les appelants **montrent** le fichier, le
+**réécrivent entier**, ou n'en lisent **qu'un seul bloc** — refuse de nouveau, en nommant
+le bloc. **Trois portes de plus disaient la même chose autrement** : `config fingerprint` rendait `7b386ddb` là où
 le fichier sain donne `428807b3`, en silence et code 0, alors que ces huit caractères sont
 ce que quatre postes comparent à l'œil ; `config export` écrivait le fichier **destiné à
 être recopié sur les autres postes**, donc partait cloner la grille d'usine ; et l'empreinte

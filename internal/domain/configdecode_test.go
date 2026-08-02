@@ -68,3 +68,78 @@ func TestDecodeOfAWholeDocumentIsTheOrdinaryPath(t *testing.T) {
 		t.Errorf("cfg = station %d, version %d", cfg.Station.Number, cfg.Version)
 	}
 }
+
+// TestTheFrenchOfUnreadableBlocksAgreesInNumber.
+//
+// Two unreadable blocks is the ORDINARY case of an old file whose two fields changed type,
+// which is the subject of this whole lot — not an edge to be handled later. Nothing held
+// this: the three plural branches could be removed and `go build`, `go vet` and the whole
+// suite stayed green, because no test in the repository contained « n'ont pas pu être
+// lus », « à leur place » or « les blocs ».
+//
+// The assertion is on the WHOLE fragment and not on a substring: « le bloc » is a prefix of
+// nothing, but a test looking for « blocs » alone would pass on « le blocs ».
+func TestTheFrenchOfUnreadableBlocksAgreesInNumber(t *testing.T) {
+	// A real document, decoded the way a station decodes it: `pricing` refuses its rounding
+	// word, `catalog` is a string where a block is expected.
+	_, faults := DecodeConfigBlockByBlock([]byte(`{
+		"station":{"number":2},
+		"pricing":{"amount_rounding":"bankers"},
+		"catalog":"pas un bloc"
+	}`))
+	if len(faults) != 2 {
+		t.Fatalf("%d faute(s), attendu 2 : le document n'est pas celui que ce test croit "+
+			"lire : %+v", len(faults), faults)
+	}
+
+	for _, c := range []struct {
+		name                                 string
+		faults                               []Fault
+		phrase, notRead, inTheirPlace, whole string
+	}{
+		{
+			name:         "un bloc",
+			faults:       faults[:1],
+			phrase:       "le bloc « catalog »",
+			notRead:      "n'a pas pu être lu",
+			inTheirPlace: "à sa place",
+			whole: "le bloc « catalog » n'a pas pu être lu, et ce qui en tient lieu est " +
+				"la configuration d'usine",
+		},
+		{
+			name:         "deux blocs",
+			faults:       faults,
+			phrase:       "les blocs « catalog », « pricing »",
+			notRead:      "n'ont pas pu être lus",
+			inTheirPlace: "à leur place",
+			whole: "les blocs « catalog », « pricing » n'ont pas pu être lus, et ce qui en " +
+				"tient lieu est la configuration d'usine",
+		},
+		{
+			// The whole document is ONE thing however many blocks it would have had.
+			name:         "le document entier",
+			faults:       []Fault{{Field: WholeDocumentField}},
+			phrase:       "le document",
+			notRead:      "n'a pas pu être lu",
+			inTheirPlace: "à sa place",
+			whole: "le document n'a pas pu être lu, et ce qui en tient lieu est la " +
+				"configuration d'usine",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			unreadable := &UnreadableBlocksError{Faults: c.faults}
+			if got := unreadable.BlockPhrase(); got != c.phrase {
+				t.Errorf("BlockPhrase = %q, attendu %q", got, c.phrase)
+			}
+			if got := unreadable.NotRead(); got != c.notRead {
+				t.Errorf("NotRead = %q, attendu %q", got, c.notRead)
+			}
+			if got := unreadable.InTheirPlace(); got != c.inTheirPlace {
+				t.Errorf("InTheirPlace = %q, attendu %q", got, c.inTheirPlace)
+			}
+			if got := unreadable.UserMessage(); got != c.whole {
+				t.Errorf("UserMessage = %q, attendu %q", got, c.whole)
+			}
+		})
+	}
+}
