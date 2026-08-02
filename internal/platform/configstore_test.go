@@ -277,6 +277,13 @@ func TestTheFirstSaveOfAFreshInstallationHasNoPreviousVersion(t *testing.T) {
 
 // TestReadSaysWhichFileItCannotRead is what a support call works from: a station has six
 // of these files, and « JSON invalide » without a name sends a volunteer to the wrong one.
+//
+// Read is NOT LoadConfig, and the difference is deliberate (readConfigFile). serve, doctor
+// and the two `openscale config` commands want the tolerant reading, because a station
+// serving its fault list is worth more than a station that will not come up. Every
+// caller of Read wants the opposite: every one of them either SHOWS the file to a
+// volunteer or WRITES IT BACK WHOLE, and a configuration that merely looks like the file
+// is the one thing none of them may be handed.
 func TestReadSaysWhichFileItCannotRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	store := newStore(t, path)
@@ -293,9 +300,137 @@ func TestReadSaysWhichFileItCannotRead(t *testing.T) {
 		t.Fatalf("écriture : %v", err)
 	}
 	_, err = store.Read(context.Background())
-	if err == nil || !strings.Contains(err.Error(), path) {
-		t.Fatalf("un JSON tronqué doit être refusé en nommant le fichier : %v", err)
+	var unreadable *domain.UnreadableBlocksError
+	if !errors.As(err, &unreadable) {
+		t.Fatalf("un JSON tronqué doit être refusé, et de façon interrogeable : %v", err)
 	}
+	// The PATH is not in this error and must not be: whoever opened the file says which
+	// one it was, once. Putting it here too printed it twice in the one sentence a
+	// volunteer reads (`openscale config password`, 02/08/2026).
+	if strings.Contains(err.Error(), path) {
+		t.Errorf("l'erreur nomme le fichier, que l'appelant nomme déjà : %v", err)
+	}
+}
+
+// TestReadRefusesAFileWhoseBlockFellBackOnTheFactoryOne is the rescue of a locked station,
+// on the REAL read path.
+//
+// A station that started out of service runs the neutral profile while its file keeps the
+// cooperative's tariffs (§11.3), and the recovery code is the only door left. That gesture
+// re-reads the file and WRITES IT BACK WHOLE. Since decoding became block by block, a file
+// with one bad block comes back looking like the shop's own — same station.coop, same
+// name — with the factory grid quietly in place of that block; err was nil, the rescue
+// wrote it, and the members' discount was gone at the next start.
+//
+// internal/web pins the same property against an in-memory double, which never touches
+// this function: the guarantee has to be held HERE, where the substitution happens.
+func TestReadRefusesAFileWhoseBlockFellBackOnTheFactoryOne(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	shop := writeStation(t, path, 3)
+	writeWithAnUnreadablePricingBlock(t, path)
+
+	cfg, err := newStore(t, path).Read(context.Background())
+	if err == nil {
+		t.Fatalf("un fichier dont le bloc pricing est illisible a été rendu comme s'il "+
+			"avait été lu : %d tarif(s), coop %q", len(cfg.Pricing.Tiers), cfg.Station.Coop)
+	}
+	var unreadable *domain.UnreadableBlocksError
+	if !errors.As(err, &unreadable) {
+		t.Fatalf("le refus n'est pas interrogeable : ses appelants ne peuvent pas "+
+			"décider ce qu'ils en font : %v", err)
+	}
+	if blocks := unreadable.Blocks(); len(blocks) != 1 || blocks[0] != "pricing" {
+		t.Errorf("le refus nomme %v, attendu [pricing]", blocks)
+	}
+	// The Config comes back ZERO alongside the error, and that is the guard rail that makes
+	// forgetting the error harmless: a caller that ignored it gets nothing usable rather
+	// than the shop's name with the factory grid quietly inside.
+	if cfg.Station.Coop != "" || len(cfg.Pricing.Tiers) != 0 || cfg.Network.Listen != "" {
+		t.Errorf("Read rend une configuration à côté de son erreur : coop %q, %d tarif(s), "+
+			"listen %q", cfg.Station.Coop, len(cfg.Pricing.Tiers), cfg.Network.Listen)
+	}
+	// And the blocks that DID decode travel WITH the error, or no caller could repair
+	// anything from it.
+	if unreadable.Config.Station.Coop != shop.Station.Coop {
+		t.Errorf("l'erreur ne porte pas les blocs lus : coop %q, attendu %q",
+			unreadable.Config.Station.Coop, shop.Station.Coop)
+	}
+	// The shop's file is untouched on disk: refusing to READ it is not refusing to keep it.
+	if onDisk := readRaw(t, path); !strings.Contains(string(onDisk), shop.Station.Coop) {
+		t.Error("la lecture refusée a abîmé le fichier")
+	}
+}
+
+// TestABackupWithOneUnreadableBlockShowsNoFingerprint: Versions promises the fingerprint
+// « est inconnue, pas inventée » (§14.4). One substituted block is enough to make it
+// invented — the eight characters would then describe a grid the backup never carried, and
+// an operator picks the version to restore by comparing them.
+func TestABackupWithOneUnreadableBlockShowsNoFingerprint(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "config.json")
+	writeStation(t, path, 1)
+	writeStation(t, path+".1", 2)
+	writeWithAnUnreadablePricingBlock(t, path+".1")
+
+	versions, err := newStore(t, path).Versions(context.Background())
+	if err != nil {
+		t.Fatalf("Versions : %v", err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("%d version(s), attendu 1", len(versions))
+	}
+	if versions[0].Fingerprint != "" {
+		t.Fatalf("empreinte %q sur une sauvegarde dont un bloc n'a pas décodé : elle est "+
+			"inconnue, pas inventée", versions[0].Fingerprint)
+	}
+}
+
+// writeWithAnUnreadablePricingBlock rewrites the file at path with its pricing block made
+// undecodable, and nothing else touched.
+//
+// "bankers" is not one of the three rounding words, so RoundingPolicy.UnmarshalJSON
+// refuses it: exactly ONE of the fourteen blocks falls back on the neutral profile, which
+// is the case block-by-block decoding introduced and the reason this file needs guarding.
+func writeWithAnUnreadablePricingBlock(t *testing.T, path string) {
+	t.Helper()
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(readRaw(t, path), &document); err != nil {
+		t.Fatalf("décodage de %s : %v", path, err)
+	}
+	var pricing map[string]json.RawMessage
+	if err := json.Unmarshal(document["pricing"], &pricing); err != nil {
+		t.Fatalf("décodage du bloc pricing : %v", err)
+	}
+	pricing["amount_rounding"] = json.RawMessage(`"bankers"`)
+
+	raw, err := json.Marshal(pricing)
+	if err != nil {
+		t.Fatalf("encodage du bloc pricing : %v", err)
+	}
+	document["pricing"] = raw
+	if raw, err = json.Marshal(document); err != nil {
+		t.Fatalf("encodage du document : %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+
+	// The damage is REAL and lands on pricing alone -- a montage that stopped damaging
+	// anything would leave every test standing on it green for the wrong reason.
+	if _, faults := domain.DecodeConfigBlockByBlock(raw); len(faults) != 1 ||
+		faults[0].Field != "pricing" {
+		t.Fatalf("le bloc pricing n'a pas été abîmé : fautes = %+v", faults)
+	}
+}
+
+// readRaw reads the bytes of a file, or fails the test naming it.
+func readRaw(t *testing.T, path string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("lecture de %s : %v", path, err)
+	}
+	return raw
 }
 
 // TestTheWrittenFileIsReadableByAHumanBeing is not cosmetic: §11.1 keeps the

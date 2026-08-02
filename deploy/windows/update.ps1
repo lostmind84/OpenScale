@@ -21,6 +21,10 @@
        imprimante sans papier répond 503 sur /readyz, et une mise à jour qui se croirait
        ratée pour un rouleau vide restaurerait la version précédente d'un poste sain.
     4. RESTAURE automatiquement la version précédente si la vérification échoue.
+    5. Une fois la bascule réussie, MIGRE la configuration (openscale config migrate) :
+       clés d'un ancien fichier converties ou retirées, celles qu'il ne sait pas trancher
+       restent et se règlent à la main. Ne bloque JAMAIS la mise à jour, déjà réussie à
+       ce stade — un code de retour non nul signale seulement qu'un point reste à décider.
 
   La configuration et la base NE SONT PAS TOUCHÉES : elles vivent dans ProgramData, pas
   à côté du binaire. Les migrations s'appliquent au démarrage, précédées d'un VACUUM INTO
@@ -267,6 +271,23 @@ if ($failure) {
     -BackupPath $backup -DatabaseBackups $new
   Start-OpenScaleKiosk -LogFile $paths.LogFile
   exit 11
+}
+
+# --- 5. Migration de la configuration ------------------------------------------------
+# ICI et pas avant : la bascule vient d'être jugée réussie, et le retour arrière automatique
+# de l'étape 4 est déjà écarté. Migrer plus tôt exposerait un retour arrière à restaurer un
+# binaire PRÉCÉDENT qui relirait un config.json déjà migré, et perdrait ce que la migration
+# a porté. Migrer ici n'ôte rien : le poste a démarré sans dépendre du fichier, la migration
+# en mémoire suffit à le faire tourner.
+#
+# Un code de retour non nul n'est PAS un échec de la mise à jour, qui a déjà réussi : il
+# signale qu'une clé reste à trancher à la main, sur un poste qui tourne.
+& $paths.Binary config migrate $paths.Config
+if ($LASTEXITCODE -ne 0) {
+  Write-Step 'configuration : une décision reste à prendre à la main (voir ci-dessus)' $paths.LogFile
+}
+else {
+  Write-Step 'configuration migrée' $paths.LogFile
 }
 
 Write-Step "mise à jour réussie : le poste répond sur $address" $paths.LogFile

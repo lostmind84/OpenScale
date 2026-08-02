@@ -60,6 +60,22 @@ func (s *Server) reloadConfigFromDisk(w http.ResponseWriter, r *http.Request) {
 	}
 
 	onDisk, err := s.configStore.Read(r.Context())
+	// A block that did not decode is REFUSED here and not repaired, and this is the one
+	// caller for which that is the whole right answer: putting it in service would run the
+	// factory tariffs on a station whose file declares the shop's, and « relire le fichier »
+	// would have quietly meant « oublier ce bloc ». The block is named so a volunteer knows
+	// what to open.
+	var unreadable *domain.UnreadableBlocksError
+	if errors.As(err, &unreadable) {
+		writeJSON(w, http.StatusUnprocessableEntity, problem{
+			Code: "ERR-CFG-01",
+			Message: "Le fichier n'est pas remis en service : " +
+				unreadable.BlockPhrase() + " " + unreadable.NotRead() + ", et le poste " +
+				"tournerait sur la configuration d'usine " + unreadable.InTheirPlace() + ".",
+			Faults: faultsOf(unreadable.Faults),
+		})
+		return
+	}
 	if err != nil {
 		// The zero configuration LOOKS like a configuration, and putting it in service
 		// would replace the tariffs, the safeguards and the categories of a cooperative

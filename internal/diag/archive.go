@@ -136,7 +136,10 @@ func (b *Bundle) Diagnostic(ctx context.Context, w io.Writer) error {
 	writer.json("system.json", systemMember(report, health, healthErr))
 
 	if loaded.Present && loaded.Parsed {
-		redacted, err := Redact(loaded.Config)
+		// The decoding faults travel WITH the configuration: they are what tells a block the
+		// station declared from a block this binary replaced, and after this point the two
+		// look exactly alike (warnSubstitutedBlocks).
+		redacted, err := Redact(loaded.Config, loaded.DecodeFaults)
 		if err != nil {
 			writer.fail("config.redacted.json", err)
 		} else {

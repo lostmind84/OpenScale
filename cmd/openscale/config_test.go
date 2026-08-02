@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"openscale/internal/domain"
+	"openscale/internal/platform"
 	"openscale/internal/web"
 )
 
@@ -494,6 +496,130 @@ func stringsCarriedBy(t *testing.T, exported domain.Config) map[string]string {
 	return found
 }
 
+// TestMigrateWritesOnceAndSaysSoTheSecondTime: the command is what update.ps1 and update.sh
+// call, so running it twice on the same station -- two updates in a row -- must be a
+// no-operation the second time, and must not rotate config.json.1 over a version that
+// mattered.
+func TestMigrateWritesOnceAndSaysSoTheSecondTime(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "config.json")
+	if err := os.WriteFile(path, []byte(
+		`{"version":1,"station":{"number":2},"ui":{"tile_size":"large"}}`), 0o644); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+
+	var first bytes.Buffer
+	if err := runConfig([]string{"migrate", path}, nil, &first); err != nil {
+		t.Fatalf("première migration : %v", err)
+	}
+	if !strings.Contains(first.String(), "tile_size") {
+		t.Errorf("la première migration ne dit pas ce qu'elle a changé :\n%s", first.String())
+	}
+	if _, err := os.Stat(path + ".1"); err != nil {
+		t.Errorf("la version d'avant n'a pas été gardée : %v", err)
+	}
+
+	migrated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("relecture : %v", err)
+	}
+
+	var second bytes.Buffer
+	if err := runConfig([]string{"migrate", path}, nil, &second); err != nil {
+		t.Fatalf("seconde migration : %v", err)
+	}
+	if !strings.Contains(second.String(), "rien à faire") {
+		t.Errorf("la seconde migration n'annonce pas qu'elle ne fait rien :\n%s", second.String())
+	}
+	again, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("relecture : %v", err)
+	}
+	if string(again) != string(migrated) {
+		t.Errorf("la seconde migration a réécrit le fichier :\n%s\n%s", migrated, again)
+	}
+}
+
+// TestMigrateLeavesARefusedKeyInPlace: what this binary will not guess stays where it is,
+// and the command says so with a non-zero status so update.ps1 can show it.
+func TestMigrateLeavesARefusedKeyInPlace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(
+		`{"version":1,"barcode":{"weight_decimals":3}}`), 0o644); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+
+	var out bytes.Buffer
+	err := runConfig([]string{"migrate", path}, nil, &out)
+	if err == nil {
+		t.Fatal("une clé refusée doit donner un code de retour non nul")
+	}
+	after, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("relecture : %v", readErr)
+	}
+	if !strings.Contains(string(after), "weight_decimals") {
+		t.Errorf("la clé refusée a été retirée quand même : %s", after)
+	}
+}
+
+// TestMigrateMixesTwoKindsOfRefusalWithoutDuplicating watches a COINCIDENCE, not a rule:
+// migrateConfig's deduplication between Migrate's notes and cfg.Retired() works because
+// carryCoefficientToDiscount (configmigration.go) and scanRetired (config.go) build the
+// SAME dotted path for the same field -- two independent functions that never cite one
+// another. If either one changes its template one day without the other following, the
+// deduplication breaks IN SILENCE: a key would show up twice, under two different
+// messages, with no test noticing. This one mixes both families of refusal in the same
+// file to catch that.
+//
+// pricing.tiers[0].coef_num AND pricing.tiers[0].coef_den both stay in the document
+// (carryCoefficientToDiscount only removes them on the branch that succeeds), so
+// scanRetired finds both of them -- but Migrate only ever wrote ONE note, under
+// "pricing.tiers[0].coef_num". The deduplication therefore cancels only that one: coef_den
+// gets its own line, with its own reason (ADR-034, "there is no more denominator"). That is
+// NOT a duplicated message -- it is a third point, on a third JSON key that genuinely still
+// stands -- and this test pins that too, so a future reader does not mistake it for an
+// unfixed bug.
+func TestMigrateMixesTwoKindsOfRefusalWithoutDuplicating(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	before := []byte(`{"version":1,"pricing":{"tiers":[
+		{"code":"X","label":"X","abbrev":"X","coef_num":3,"coef_den":7,"rank":1}
+	]},"barcode":{"weight_decimals":3}}`)
+	if err := os.WriteFile(path, before, 0o644); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+
+	var out bytes.Buffer
+	err := runConfig([]string{"migrate", path}, nil, &out)
+	if err == nil {
+		t.Fatal("un fichier portant deux familles de clés refusées doit rendre un code non nul")
+	}
+
+	printed := out.String()
+	for _, key := range []string{
+		"pricing.tiers[0].coef_num", "pricing.tiers[0].coef_den", "barcode.weight_decimals",
+	} {
+		if count := strings.Count(printed, key); count != 1 {
+			t.Errorf("%s apparaît %d fois dans la sortie, attendu 1 :\n%s", key, count, printed)
+		}
+	}
+	if !strings.Contains(printed, "3 changement(s)") {
+		t.Errorf("le compte de points refusés n'est pas 3 (coef_num, coef_den, weight_decimals) :\n%s", printed)
+	}
+	if !strings.Contains(err.Error(), "3 point(s)") {
+		t.Errorf("l'erreur ne nomme pas les 3 points refusés : %v", err)
+	}
+
+	after, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("relecture : %v", readErr)
+	}
+	if string(after) != string(before) {
+		t.Errorf("le fichier a été modifié alors qu'un point reste refusé :\navant : %s\naprès : %s",
+			before, after)
+	}
+}
+
 func collectStrings(path string, value any, out map[string]string) {
 	switch typed := value.(type) {
 	case string:
@@ -510,5 +636,280 @@ func collectStrings(path string, value any, out map[string]string) {
 		for index, item := range typed {
 			collectStrings(fmt.Sprintf("%s[%d]", path, index), item, out)
 		}
+	}
+}
+
+// shopFileWithAnUnreadablePricingBlock writes the delivered configuration of §17.2 with
+// two things done to it, and both are needed to reproduce the defect.
+//
+// "bankers" is not one of the three rounding words, so RoundingPolicy.UnmarshalJSON
+// refuses it and the WHOLE pricing block falls back on the neutral profile -- the shop's
+// tariffs, the members' discount included, replaced by the factory grid IN MEMORY.
+// ui.tile_size gives the file a migration that DOES succeed, which is what made the
+// command announce a change, exit 0 and write.
+func shopFileWithAnUnreadablePricingBlock(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(deliveredConfig(t))
+	if err != nil {
+		t.Fatalf("lecture du fichier livré : %v", err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("le fichier livré ne se décode pas : %v", err)
+	}
+
+	var pricing map[string]json.RawMessage
+	if err := json.Unmarshal(document["pricing"], &pricing); err != nil {
+		t.Fatalf("le bloc pricing ne se décode pas : %v", err)
+	}
+	pricing["amount_rounding"] = json.RawMessage(`"bankers"`)
+	document["pricing"] = mustMarshal(t, pricing)
+
+	var ui map[string]json.RawMessage
+	if len(document["ui"]) > 0 {
+		if err := json.Unmarshal(document["ui"], &ui); err != nil {
+			t.Fatalf("le bloc ui ne se décode pas : %v", err)
+		}
+	} else {
+		ui = map[string]json.RawMessage{}
+	}
+	ui["tile_size"] = json.RawMessage(`"large"`)
+	document["ui"] = mustMarshal(t, ui)
+
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, mustMarshal(t, document), 0o644); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+	return path
+}
+
+func mustMarshal(t *testing.T, value any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("encodage : %v", err)
+	}
+	return raw
+}
+
+// TestMigrateRefusesToWriteOverABlockItCouldNotRead.
+//
+// Block-by-block decoding turned a fault the operator SAW into a plausible factory value
+// nobody declared, and `config migrate` -- which update.ps1 runs on its own after every
+// successful update -- wrote it back. Reproduced on the delivered file: the shop's
+// tariffs became [('STANDARD', None)], the members' 10 % discount was gone, and the
+// command reported one unrelated change and exited 0.
+func TestMigrateRefusesToWriteOverABlockItCouldNotRead(t *testing.T) {
+	path := shopFileWithAnUnreadablePricingBlock(t)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("lecture : %v", err)
+	}
+
+	var out bytes.Buffer
+	runErr := runConfig([]string{"migrate", path}, nil, &out)
+	if runErr == nil {
+		t.Fatal("la migration a réécrit un fichier dont un bloc n'a pas pu être lu")
+	}
+	if exitCodeFor(runErr) == 0 {
+		t.Fatal("code de sortie nul : update.ps1 ne verrait rien")
+	}
+	// The BLOCK, by name: « un changement » on another key is what made the operator
+	// believe the tariffs had been read.
+	if !strings.Contains(runErr.Error(), "pricing") {
+		t.Errorf("le refus ne nomme pas le bloc en cause : %v", runErr)
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("relecture : %v", err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("le fichier a été réécrit :\navant : %s\naprès : %s", before, after)
+	}
+	if _, err := os.Stat(path + ".1"); err == nil {
+		t.Error("une version a été tournée alors que rien ne devait être écrit")
+	}
+}
+
+// TestValidateReportsTheDecodingFaultsTheStationWouldStartWith.
+//
+// `openscale config validate` computed Config.Validate alone, and the neutral block
+// substituted for the unreadable one passes it without complaint: the command answered
+// « aucune faute » about a file the station comes up on in ERR-CFG-01. serve already
+// concatenates the decoding faults; the two doors must not disagree, which is the whole
+// point of one single entrance. install.ps1 reads this status.
+func TestValidateReportsTheDecodingFaultsTheStationWouldStartWith(t *testing.T) {
+	path := shopFileWithAnUnreadablePricingBlock(t)
+
+	var out bytes.Buffer
+	err := runConfig([]string{"validate", path}, nil, &out)
+	if err == nil {
+		t.Fatalf("« aucune faute » sur un fichier qui démarre en configuration d'usine :\n%s",
+			out.String())
+	}
+	if exitCodeFor(err) == 0 {
+		t.Fatal("code de sortie nul : install.ps1 croirait le poste sain")
+	}
+	if !strings.Contains(out.String(), "pricing") {
+		t.Errorf("le bloc illisible n'est pas nommé :\n%s", out.String())
+	}
+}
+
+// TestFingerprintRefusesAConfigurationItDidNotReadWhole.
+//
+// The eight characters are what four stations of one cooperative compare BY EYE to know
+// they share a configuration (ADR-012, §11.4). Measured on the delivered file with an
+// unreadable pricing block: 428807b3 sain, 7b386ddb abîmé, code de retour 0 — a different,
+// plausible answer, in silence, about a configuration nobody declared.
+func TestFingerprintRefusesAConfigurationItDidNotReadWhole(t *testing.T) {
+	path := shopFileWithAnUnreadablePricingBlock(t)
+	sane := fingerprintOf(t, deliveredConfig(t))
+
+	var out bytes.Buffer
+	err := runConfig([]string{"fingerprint", path}, nil, &out)
+	if err == nil {
+		t.Fatalf("une empreinte a été rendue sur un fichier non lu en entier : %q", out.String())
+	}
+	if exitCodeFor(err) == 0 {
+		t.Fatal("code de sortie nul sur une empreinte qui ne peut pas être garantie")
+	}
+	if !strings.Contains(err.Error(), "pricing") {
+		t.Errorf("le refus ne nomme pas le bloc en cause : %v", err)
+	}
+	// Nothing that looks like an answer: eight characters printed next to a refusal
+	// would be copied onto the installation sheet anyway.
+	if strings.Contains(out.String(), sane) || len(strings.TrimSpace(out.String())) != 0 {
+		t.Errorf("la commande a quand même écrit quelque chose : %q", out.String())
+	}
+}
+
+// TestExportRefusesAConfigurationItDidNotReadWhole is the same defect where it does the
+// most damage: `export` writes the file that gets COPIED onto the other stations (§11.5).
+// One unreadable block on one station, and the factory grid goes off to be cloned onto the
+// three others — the failure of `config migrate`, propagated by the cloning.
+func TestExportRefusesAConfigurationItDidNotReadWhole(t *testing.T) {
+	path := shopFileWithAnUnreadablePricingBlock(t)
+	written := filepath.Join(t.TempDir(), "export.json")
+
+	var out bytes.Buffer
+	err := runConfig([]string{"export", path, "--output", written}, nil, &out)
+	if err == nil {
+		t.Fatal("un export a été produit depuis un fichier non lu en entier")
+	}
+	if exitCodeFor(err) == 0 {
+		t.Fatal("code de sortie nul sur un export qui emporterait la configuration d'usine")
+	}
+	if !strings.Contains(err.Error(), "pricing") {
+		t.Errorf("le refus ne nomme pas le bloc en cause : %v", err)
+	}
+	if _, statErr := os.Stat(written); statErr == nil {
+		t.Error("le fichier d'export a été écrit alors que la commande refuse")
+	}
+}
+
+// TestTheDeliveredFileStillExportsAndFingerprints keeps the two refusals above from
+// becoming a refusal of everything: the file of §17.2 is sound, and both commands must
+// answer on it exactly as before.
+func TestTheDeliveredFileStillExportsAndFingerprints(t *testing.T) {
+	written := filepath.Join(t.TempDir(), "export.json")
+
+	var printed bytes.Buffer
+	if err := runConfig([]string{"fingerprint", deliveredConfig(t)}, nil, &printed); err != nil {
+		t.Fatalf("empreinte du fichier livré : %v", err)
+	}
+	if len(strings.TrimSpace(printed.String())) != 8 {
+		t.Errorf("empreinte %q, attendu huit caractères", strings.TrimSpace(printed.String()))
+	}
+
+	var exported bytes.Buffer
+	if err := runConfig([]string{"export", deliveredConfig(t), "--output", written}, nil,
+		&exported); err != nil {
+		t.Fatalf("export du fichier livré : %v", err)
+	}
+	if _, statErr := os.Stat(written); statErr != nil {
+		t.Errorf("l'export du fichier livré n'a rien écrit : %v", statErr)
+	}
+}
+
+// TestComingBackFromManualEntryIsNotStoppedByAFaultInAnotherBlock is the SINGLE-BLOCK
+// door, and the one whose failure is invisible from a desk.
+//
+// This station runs under Assigned Access: opening config.json is not a gesture a
+// volunteer has. A fault on `pricing` that refused this read would leave them locked
+// INSIDE manual weight entry, unable to come back and unable to repair the file — from the
+// screen, the button simply stops working.
+func TestComingBackFromManualEntryIsNotStoppedByAFaultInAnotherBlock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeDamagedBlock(t, path, "pricing")
+	store, err := platform.NewConfigStore(path)
+	if err != nil {
+		t.Fatalf("NewConfigStore : %v", err)
+	}
+
+	cfg, err := configForComingBack(context.Background(), store)
+	if err != nil {
+		t.Fatalf("le retour de la saisie manuelle est refusé pour une faute ailleurs : %v", err)
+	}
+	// The block it came for is the shop's own, not the neutral profile's.
+	if cfg.Scale.Type != "gram-xfoc-plus" {
+		t.Errorf("scale.type = %q, attendu celui du fichier", cfg.Scale.Type)
+	}
+}
+
+// TestComingBackFromManualEntryIsRefusedWhenTheScaleBlockIsTheFaultyOne is the other half.
+// The neutral profile declares NO scale, so coming back to one this station never declared
+// is how it ends up polling a serial port that is not there.
+func TestComingBackFromManualEntryIsRefusedWhenTheScaleBlockIsTheFaultyOne(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeDamagedBlock(t, path, "scale")
+	store, err := platform.NewConfigStore(path)
+	if err != nil {
+		t.Fatalf("NewConfigStore : %v", err)
+	}
+
+	if _, err := configForComingBack(context.Background(), store); err == nil {
+		t.Fatal("le retour est accepté alors que la balance déclarée est justement inconnue")
+	}
+}
+
+// writeDamagedBlock writes the delivered configuration with ONE named block made
+// undecodable.
+//
+// The block becomes a STRING where a structure is expected, which is a type error and not
+// a syntax error — what a field whose type changed between two versions looks like, and
+// the case block-by-block decoding was built for (§11.6). It also works on every block
+// without this helper having to know a real field of each.
+//
+// An earlier version of this wrote `{"type":[1,2,3]}`, and it damaged nothing: `type` is
+// not a field of PricingRules, encoding/json drops what no field claims, and the block
+// decoded clean. The test passed with the fix REMOVED — verified by removing it. A helper
+// that cannot break what it claims to break makes every test standing on it worthless,
+// which is why the check below is here rather than in the two tests.
+func writeDamagedBlock(t *testing.T, path, block string) {
+	t.Helper()
+	raw, err := os.ReadFile(deliveredConfig(t))
+	if err != nil {
+		t.Fatalf("lecture du fichier livré : %v", err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("le fichier livré ne se décode pas : %v", err)
+	}
+	if _, present := document[block]; !present {
+		t.Fatalf("le fichier livré ne porte pas de bloc %q", block)
+	}
+	document[block] = json.RawMessage(`"ceci n'est pas un bloc"`)
+	if raw, err = json.Marshal(document); err != nil {
+		t.Fatalf("encodage : %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("écriture : %v", err)
+	}
+
+	// The damage is REAL and lands where it was aimed: without this, a test standing on
+	// this helper proves nothing at all.
+	if _, faults := domain.DecodeConfigBlockByBlock(raw); len(faults) != 1 || faults[0].Field != block {
+		t.Fatalf("le bloc %q n'a pas été abîmé : fautes = %+v", block, faults)
 	}
 }

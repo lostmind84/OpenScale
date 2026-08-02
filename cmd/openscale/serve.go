@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -235,10 +234,12 @@ Options :
 func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	clock := platform.NewSystemClock()
 
-	cfg, err := readConfig(o.configPath)
+	cfg, notes, decodeFaults, err := platform.LoadConfig(o.configPath)
 	if err != nil {
-		return err
+		return &serviceFailure{Exit: exitFailure, Err: err, Message: fmt.Sprintf(
+			"le fichier de configuration %s ne peut pas être lu : %v", o.configPath, err)}
 	}
+	reportMigration(out, o.configPath, notes)
 	// The service OWNS its data directory and creates it (§15.3). Nothing here is a
 	// mount point and nothing here is shared: an administrator who wants files to
 	// arrive from a share mounts what they like where they like and synchronises into
@@ -294,7 +295,7 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	// the neutral profile, IN MEMORY AND WITHOUT WRITING, in the one terminal state,
 	// and the administration screen serves the whole list of faults. A broken
 	// configuration must never produce a black screen.
-	faults := cfg.Validate(registries)
+	faults := append(decodeFaults, cfg.Validate(registries)...)
 	outOfService := len(faults) > 0
 	if outOfService {
 		reportFaults(out, o.configPath, faults)
@@ -682,30 +683,6 @@ func detailOf(err error) string {
 	return err.Error()
 }
 
-// readConfig reads config.json.
-//
-// A file that cannot be READ is not the « configuration invalide » of §11.3, and the
-// difference decides whether the process starts. An invalid configuration is one we
-// UNDERSTOOD and can list the faults of, field by field, on a screen a volunteer then
-// fixes; a file that does not parse yields one parse error at one byte offset, no
-// station number, no listening address, and nothing the administration screen could
-// safely write back — saving from that screen would overwrite a file whose content was
-// never understood. So this one refuses, in French, naming the file, and the service
-// manager restarts the way it does for any other failed start.
-func readConfig(path string) (domain.Config, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return domain.Config{}, &serviceFailure{Exit: exitFailure, Err: err, Message: fmt.Sprintf(
-			"le fichier de configuration %s ne peut pas être lu : %v", path, err)}
-	}
-	var cfg domain.Config
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return domain.Config{}, &serviceFailure{Exit: exitFailure, Err: err, Message: fmt.Sprintf(
-			"le fichier de configuration %s n'est pas un JSON exploitable : %v", path, err)}
-	}
-	return cfg, nil
-}
-
 // fallbackProfile is what a station RUNS when its own configuration is unusable (§11.3).
 //
 // It is the neutral profile, plus the two things that must survive the fallback — and
@@ -772,6 +749,23 @@ func reportFaults(out io.Writer, path string, faults []domain.Fault) {
 		"d'usine (ERR-CFG-01) et sert l'écran d'administration :\n", path, len(faults))
 	for _, fault := range faults {
 		fmt.Fprintf(out, "  %s\n", fault.String())
+	}
+}
+
+// reportMigration writes what this binary had to change to read the file, where whoever
+// started the service can read it.
+//
+// It says nothing when there is nothing to say: a station whose file is already at this
+// schema must not print a paragraph at every boot.
+func reportMigration(out io.Writer, path string, notes []domain.MigrationNote) {
+	if len(notes) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "openscale : %s a été écrit par une version précédente — %d "+
+		"changement(s), appliqués EN MÉMOIRE. Le fichier n'est pas modifié ; "+
+		"« openscale config migrate » l'écrit :\n", path, len(notes))
+	for _, note := range notes {
+		fmt.Fprintf(out, "  %s\n", note)
 	}
 }
 

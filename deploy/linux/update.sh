@@ -8,7 +8,12 @@
 #   1. arrêt du service AVEC contrôle d'erreur, sur le budget de §13.4 ;
 #   2. sauvegarde du binaire sous un nom HORODATÉ ;
 #   3. copie, redémarrage, vérification de /healthz — JAMAIS /readyz ;
-#   4. restauration automatique de la version précédente en cas d'échec.
+#   4. restauration automatique de la version précédente en cas d'échec ;
+#   5. une fois la bascule réussie, migration de la configuration (config migrate) :
+#      clés d'un ancien fichier converties ou retirées, celles qu'elle ne sait pas
+#      trancher restent et se règlent à la main. Ne bloque JAMAIS la mise à jour, déjà
+#      réussie à ce stade — un code de retour non nul signale seulement qu'un point
+#      reste à décider.
 #
 # La configuration et la base ne sont pas touchées : elles vivent dans /etc/openscale et
 # /var/lib/openscale, pas à côté du binaire.
@@ -159,6 +164,18 @@ END
   fi
   exit 1
 fi
+
+# --- 5. Migration de la configuration --------------------------------------------------
+# ICI et pas avant : la bascule vient d'être jugée réussie, et le retour arrière automatique
+# de l'étape 4 est déjà écarté. Migrer plus tôt exposerait un retour arrière à restaurer un
+# binaire PRÉCÉDENT qui relirait un config.json déjà migré, et perdrait ce que la migration a
+# porté. Migrer ici n'ôte rien : le poste a démarré sans dépendre du fichier, la migration en
+# mémoire suffit à le faire tourner.
+#
+# Un code de retour non nul n'est PAS un échec de la mise à jour, qui a déjà réussi : il
+# signale qu'une clé reste à trancher à la main, sur un poste qui tourne.
+"$BINARY" config migrate "$CONFIG" || \
+  log 'configuration : une décision reste à prendre à la main (voir ci-dessus)'
 
 log "mise à jour réussie : le poste répond sur $ADDRESS"
 printf 'Version précédente conservée dans %s\n' "$BACKUP"

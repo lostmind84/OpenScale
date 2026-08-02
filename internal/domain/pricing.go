@@ -50,17 +50,25 @@ func (d Discount) String() string {
 	return fmt.Sprintf("%s%d,%d", sign, whole, frac)
 }
 
+// JSONText writes the discount the way JSON spells it -- a dot and not a French comma.
+//
+// It exists so that a migration can put a discount back into a document without a second
+// copy of the arithmetic String and MarshalJSON already share.
+func (d Discount) JSONText() string {
+	sign, whole, frac := d.parts()
+	if frac == 0 {
+		return fmt.Sprintf("%s%d", sign, whole)
+	}
+	return fmt.Sprintf("%s%d.%d", sign, whole, frac)
+}
+
 // MarshalJSON writes the shortest exact decimal: 102 is "10.2", 100 is "10".
 //
 // Deterministic on purpose: the SHA-256 fingerprint of the canonical JSON
 // (ADR-012) is what four stations compare by eye, and two spellings of the same
 // discount would make them differ over nothing.
 func (d Discount) MarshalJSON() ([]byte, error) {
-	sign, whole, frac := d.parts()
-	if frac == 0 {
-		return fmt.Appendf(nil, "%s%d", sign, whole), nil
-	}
-	return fmt.Appendf(nil, "%s%d.%d", sign, whole, frac), nil
+	return []byte(d.JSONText()), nil
 }
 
 // UnmarshalJSON reads a percentage written with AT MOST ONE decimal digit.

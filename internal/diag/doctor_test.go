@@ -431,6 +431,84 @@ func TestAMissingConfigurationFileIsNamedAsMissing(t *testing.T) {
 	}
 }
 
+// runConfigurationControlOn writes raw as config.json on a bench whose registries name
+// every driver the neutral profile declares — printer preview AND catalog local_drop —
+// and returns the report's control « configuration ».
+//
+// Without the catalog registry, `unknownDrivers` (doctor.go) always finds catalog.type
+// unverifiable and the control never gets past INCONNU : none of the tests of this
+// section could otherwise reach a WARN or a PASS, only the neighbouring FAIL cases can,
+// which is why they never needed this helper.
+func runConfigurationControlOn(t *testing.T, raw string) Control {
+	t.Helper()
+	b := newBench(t)
+	b.registries.CatalogSources = []domain.DriverDescriptor{
+		{ID: domain.CatalogSourceLocalDrop, Label: "Répertoire de dépôt"},
+	}
+	if err := os.WriteFile(b.configPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("écriture du fichier de configuration : %v", err)
+	}
+	doctor, err := New(b.options())
+	if err != nil {
+		t.Fatalf("construction du doctor : %v", err)
+	}
+	report := doctor.Run(context.Background())
+	return control(t, report, ControlConfiguration)
+}
+
+// TestConfigurationControlNamesTheSchemaVersion: whoever opens diagnostic.zip has to be
+// able to tell a station whose file this binary rewrote from one whose file it only read.
+//
+// The document carries ui.tile_size, a key Migrate actually TRANSLATES (retireTileSize),
+// and not just an old "version" number: stampSchemaVersion bumps the number in silence
+// when nothing else needed changing, so a file that names no legacy key at all produces
+// no migration note and would never exercise this control.
+func TestConfigurationControlNamesTheSchemaVersion(t *testing.T) {
+	raw := `{"version":1,"station":{"number":2},"ui":{"tile_size":"large"},` +
+		`"admin":{"password_hash":"` + benchPasswordHash + `"}}`
+	found := runConfigurationControlOn(t, raw)
+
+	if found.Status != StatusWarn {
+		t.Fatalf("fichier au schéma précédent : %s — %s", found.Status, found.Observed)
+	}
+	if !strings.Contains(found.Observed, "schéma") {
+		t.Errorf("le contrôle ne nomme pas la version du schéma : %q", found.Observed)
+	}
+	if !strings.Contains(found.Observed, "openscale config migrate") {
+		t.Errorf("le contrôle ne dit pas quoi lancer : %q", found.Observed)
+	}
+}
+
+// TestConfigurationControlNamesARolledBackStationWithoutPromisingARewrite covers the
+// station update.ps1 / update.sh rolled back on its own after a failed update : its
+// config.json was written by a NEWER binary, so stampSchemaVersion refuses to touch the
+// version field and reports it (domain.SchemaVersionKey). That refusal reaches this
+// control with an EMPTY Config.Retired() — "version" is not in domain's retiredKeys — so
+// it is never caught by the fault cascade above, and the control has to tell it apart
+// from an ordinary file that is merely behind : it is not behind, and « openscale config
+// migrate » will not write it, because migrateConfig refuses to write ANYTHING while a
+// single note is refused.
+func TestConfigurationControlNamesARolledBackStationWithoutPromisingARewrite(t *testing.T) {
+	raw := `{"version":3,"station":{"number":2},"admin":{"password_hash":"` + benchPasswordHash + `"}}`
+	found := runConfigurationControlOn(t, raw)
+
+	if found.Status != StatusWarn {
+		t.Fatalf("fichier écrit par un binaire plus récent : %s — %s", found.Status, found.Observed)
+	}
+	if strings.Contains(found.Observed, "en attente") ||
+		strings.Contains(found.Observed, "n'est pas encore au schéma") {
+		t.Errorf("le contrôle dit que le fichier est EN RETARD, alors qu'il est en AVANCE : %q",
+			found.Observed)
+	}
+	if !strings.Contains(found.Observed, "plus récente") {
+		t.Errorf("le contrôle ne dit pas que le fichier vient d'un binaire plus récent : %q",
+			found.Observed)
+	}
+	if strings.Contains(found.Remedy, "réécrit le fichier") {
+		t.Errorf("le remède promet une réécriture que « config migrate » va refuser : %q", found.Remedy)
+	}
+}
+
 // --- 8. The database --------------------------------------------------------
 
 func TestABaseThatWillNotOpenNamesItsCode(t *testing.T) {
@@ -1031,5 +1109,89 @@ func TestALinuxStationIsNotJudgedOnAPolicyItDoesNotOwn(t *testing.T) {
 	}
 	if found.Observed == "" {
 		t.Error("le contrôle ne dit pas ce qu'il a vu")
+	}
+}
+
+// TestTheReportShowsNoFingerprintWhenABlockWasSubstituted is the rule ConfigStore.Versions
+// already holds, on the other document support reads: « elle est inconnue, pas inventée »
+// (§14.4).
+//
+// A block that will not decode falls back on the neutral profile, so the eight characters
+// in the header of doctor.txt and diagnostic.zip would describe a configuration NOBODY
+// DECLARED — next to a red control saying so, on the very document four stations get
+// compared with. Showing none refuses nothing: the report is still produced, and the
+// control still names the block.
+func TestTheReportShowsNoFingerprintWhenABlockWasSubstituted(t *testing.T) {
+	b := newBench(t)
+	b.writeConfig()
+	substituteAnUnreadablePricingBlock(t, b.configPath)
+
+	doctor, err := New(b.options())
+	if err != nil {
+		t.Fatalf("construction du doctor : %v", err)
+	}
+	report := doctor.Run(context.Background())
+
+	if report.Fingerprint != "" {
+		t.Errorf("empreinte %q sur un fichier dont un bloc n'a pas décodé : elle est "+
+			"inconnue, pas inventée", report.Fingerprint)
+	}
+	// The diagnosis still happens, and still names the block: this is not a refusal.
+	found := control(t, report, ControlConfiguration)
+	if found.Status != StatusFail {
+		t.Errorf("contrôle de configuration = %s, attendu ÉCHEC", found.Status)
+	}
+	if !strings.Contains(found.Observed, "pricing") {
+		t.Errorf("le contrôle ne nomme pas le bloc : %q", found.Observed)
+	}
+}
+
+// TestAnInvalidButFullyReadFileKeepsItsFingerprint is the other half, and the reason the
+// criterion is « une faute de DÉCODAGE » and not « une faute ».
+//
+// A file whose every block decoded and whose values are wrong describes itself perfectly
+// well: its eight characters are read off what the operator declared, so they stay. Losing
+// them would take the fingerprint away from the ordinary broken station, which is most of
+// them.
+func TestAnInvalidButFullyReadFileKeepsItsFingerprint(t *testing.T) {
+	b := newBench(t).tweak(func(cfg *domain.Config) { cfg.Journal.MaxRows = -1 })
+
+	report := b.run()
+
+	if report.Fingerprint == "" {
+		t.Error("un fichier entièrement lu mais invalide a perdu son empreinte")
+	}
+	if found := control(t, report, ControlConfiguration); found.Status != StatusFail {
+		t.Errorf("contrôle de configuration = %s, attendu ÉCHEC", found.Status)
+	}
+}
+
+// substituteAnUnreadablePricingBlock rewrites the file with its pricing block made
+// undecodable, and nothing else touched. "bankers" is not one of the three rounding words,
+// so RoundingPolicy.UnmarshalJSON refuses it and exactly ONE of the fourteen blocks falls
+// back on the neutral profile.
+func substituteAnUnreadablePricingBlock(t *testing.T, path string) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("lecture de %s : %v", path, err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("décodage de %s : %v", path, err)
+	}
+	var pricing map[string]json.RawMessage
+	if err := json.Unmarshal(document["pricing"], &pricing); err != nil {
+		t.Fatalf("décodage du bloc pricing : %v", err)
+	}
+	pricing["amount_rounding"] = json.RawMessage(`"bankers"`)
+	if document["pricing"], err = json.Marshal(pricing); err != nil {
+		t.Fatalf("encodage du bloc pricing : %v", err)
+	}
+	if raw, err = json.Marshal(document); err != nil {
+		t.Fatalf("encodage de %s : %v", path, err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("écriture de %s : %v", path, err)
 	}
 }

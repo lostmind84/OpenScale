@@ -1,8 +1,12 @@
 package web
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -189,6 +193,13 @@ func TestTheRecoveryCodeResetsThePasswordFromTheScreen(t *testing.T) {
 // sheet. And that station runs the NEUTRAL PROFILE in memory while its file keeps the
 // cooperative's tariffs, safeguards and categories (§11.3). Writing the running
 // configuration back would have wiped all of it on the single gesture meant to rescue it.
+//
+// It proves the ROUTE and nothing else: configStore is an in-memory double that never
+// refuses a read, so this test is blind to everything ConfigStore.Read decides. Saying it
+// held « one half » of the property was wrong, and expensively so: it stayed green through
+// the whole time the route was writing the fourteen factory blocks onto the shop's file.
+// What holds the property end to end is
+// TestARescueThroughTheRealStoreKeepsTheShopsBlocks, below, on a real file and a real store.
 func TestARescueDoesNotReplaceTheShopsConfigurationWithTheFactoryOne(t *testing.T) {
 	shop := loadConfig(t)
 	saved := &savedConfig{}
@@ -228,20 +239,213 @@ func TestARescueDoesNotReplaceTheShopsConfigurationWithTheFactoryOne(t *testing.
 	}
 }
 
+// TestARescueThroughTheRealStoreKeepsTheShopsBlocks is the half the test above cannot
+// reach, and the one that was open.
+//
+// Everything here is REAL: a file on disk, a platform.ConfigStore over it, and the
+// recovery route. The double the test above uses never refuses a read, so it went on
+// passing through the whole time this was broken — a station out of service, whose file
+// has ONE unreadable block, had the fourteen FACTORY blocks written over it by the single
+// gesture meant to rescue it: identity, tariffs, catalog source and its credentials,
+// safeguards. HTTP 200, no warning.
+func TestARescueThroughTheRealStoreKeepsTheShopsBlocks(t *testing.T) {
+	shop := loadConfig(t)
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeRawConfig(t, path, shop)
+	damagePricingBlock(t, path)
+
+	file, err := platform.NewConfigStore(path)
+	if err != nil {
+		t.Fatalf("NewConfigStore : %v", err)
+	}
+	b := newBench(t, func(o *benchOptions) {
+		o.configStore = realConfigStore{file}
+		// What a station in factory configuration RUNS (§11.3), which is not its file.
+		o.config = func(cfg *domain.Config) { *cfg = domain.NeutralProfile() }
+	})
+	b.setPassword("oublie", "ABCD2345")
+
+	before := readRaw(t, path)
+
+	response := b.post("/admin/api/session/recovery", `{"code":"ABCD2345","password":"nouveau-mot"}`)
+	got := decodeStatus[sessionDTO](t, response, http.StatusOK)
+
+	// The FILE, decoded the way a station decodes it: what matters is what boots tomorrow.
+	written, _ := domain.DecodeConfigBlockByBlock(readRaw(t, path))
+	if coop := written.Station.Coop; coop != shop.Station.Coop {
+		t.Errorf("station.coop = %q, attendu %q : le profil d'usine a été écrit sur le "+
+			"fichier du magasin", coop, shop.Station.Coop)
+	}
+	// pricing is the block that was damaged, so it cannot be asserted through a decode —
+	// it is asserted on the BYTES, which is where the members' discount has to survive.
+	if !bytes.Contains(readRaw(t, path), []byte(`"discount_percent":10`)) {
+		t.Error("la remise des adhérents a disparu du fichier")
+	}
+	if source := written.Catalog.Type; source != shop.Catalog.Type {
+		t.Errorf("catalog.type = %q, attendu %q : la source du catalogue a été remplacée",
+			source, shop.Catalog.Type)
+	}
+	if basket, want := written.Limits.BasketMin, shop.Limits.BasketMin; basket != want {
+		t.Errorf("limits.basket_min = %v, attendu %v : les garde-fous ont été remplacés",
+			basket, want)
+	}
+	// Nothing at all was written, which is the strongest form of the four assertions above
+	// and the one that also covers the blocks this test does not name.
+	if !bytes.Equal(before, readRaw(t, path)) {
+		t.Error("le fichier a été réécrit alors qu'un de ses blocs n'a pas pu être lu")
+	}
+
+	// The door still opens — a rescue that refused would leave this station with no way in
+	// at all — and it says plainly what is not saved, naming the block to repair.
+	if got.Warning == "" {
+		t.Fatal("la session s'ouvre sans dire que le mot de passe n'est pas enregistré")
+	}
+	if !strings.Contains(got.Warning, "pricing") {
+		t.Errorf("l'avertissement ne nomme pas le bloc à corriger : %q", got.Warning)
+	}
+	// And the password is in force IN MEMORY, which is what makes the session usable.
+	if !VerifySecret(b.hub.Config().Admin.PasswordHash, "nouveau-mot") {
+		t.Error("le nouveau mot de passe n'est pas en service")
+	}
+}
+
+// benchOverADamagedFile stands a bench on a REAL file whose pricing block does not decode,
+// with the station running the neutral profile — which is what §11.3 puts it on.
+//
+// shopEdit changes what the cooperative declared BEFORE the file is written and damaged;
+// nil writes the delivered file of §17.2 as it stands. It exists because that file ships
+// with an empty WebDAV password — rightly, it is published — so a test about carrying a
+// secret over has to put one there or it proves nothing.
+//
+// It returns the bench, the path, and the shop's configuration as written, so a test can
+// compare the file against what the cooperative actually declared.
+func benchOverADamagedFile(t *testing.T, shopEdit func(*domain.Config),
+	tweaks ...func(*benchOptions)) (*bench, string, domain.Config) {
+
+	t.Helper()
+	shop := loadConfig(t)
+	if shopEdit != nil {
+		shopEdit(&shop)
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeRawConfig(t, path, shop)
+	damagePricingBlock(t, path)
+
+	file, err := platform.NewConfigStore(path)
+	if err != nil {
+		t.Fatalf("NewConfigStore : %v", err)
+	}
+	options := append([]func(*benchOptions){func(o *benchOptions) {
+		o.configStore = realConfigStore{file}
+		o.config = func(cfg *domain.Config) { *cfg = domain.NeutralProfile() }
+	}}, tweaks...)
+	return newBench(t, options...), path, shop
+}
+
+// writeRawConfig marshals a configuration onto disk the way a station writes it.
+func writeRawConfig(t *testing.T, path string, cfg domain.Config) {
+	t.Helper()
+	raw, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatalf("sérialisation : %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("écriture de %s : %v", path, err)
+	}
+}
+
+// readRaw reads the bytes of a configuration file, or fails the test naming it.
+func readRaw(t *testing.T, path string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("relecture de %s : %v", path, err)
+	}
+	return raw
+}
+
+// damagePricingBlock makes exactly ONE of the fourteen blocks undecodable. "bankers" is
+// not one of the three rounding words, so RoundingPolicy.UnmarshalJSON refuses it and the
+// pricing block alone falls back on the neutral profile.
+func damagePricingBlock(t *testing.T, path string) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("lecture de %s : %v", path, err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("décodage de %s : %v", path, err)
+	}
+	var pricing map[string]json.RawMessage
+	if err := json.Unmarshal(document["pricing"], &pricing); err != nil {
+		t.Fatalf("décodage du bloc pricing : %v", err)
+	}
+	pricing["amount_rounding"] = json.RawMessage(`"bankers"`)
+	if document["pricing"], err = json.Marshal(pricing); err != nil {
+		t.Fatalf("encodage du bloc pricing : %v", err)
+	}
+	if raw, err = json.Marshal(document); err != nil {
+		t.Fatalf("encodage de %s : %v", path, err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("écriture de %s : %v", path, err)
+	}
+
+	// The damage is REAL and lands on pricing alone. Without this, a montage that stopped
+	// damaging anything would leave every test standing on it green for the wrong reason --
+	// which is exactly what happened to the ManualEntry montage on 02/08/2026.
+	if _, faults := domain.DecodeConfigBlockByBlock(raw); len(faults) != 1 ||
+		faults[0].Field != "pricing" {
+		t.Fatalf("le bloc pricing n'a pas été abîmé : fautes = %+v", faults)
+	}
+}
+
+// legacyLaCagetteRawWithARefusedKey is legacyLaCagetteRaw with weight_decimals added to
+// the barcode block: one of the six numbering-plan keys, retired by DECLARATION
+// (retiredVerdicts, configmigration.go) and not by a calculation on its value. No
+// migration step touches it at all -- migrationSteps carries only ui.tile_size and the
+// price coefficients -- so it survives ConfigStore.Read exactly as written, and
+// TestEveryRetiredKeyHasADeclaredVerdict forbids anyone from moving its verdict without
+// noticing. The two recovery tests below need exactly that: a retired key that survives
+// the read path unmigrated, so RefuseIfRetired still has something to refuse writing back.
+//
+// This is chosen over a coefficient the ARITHMETIC happens to refuse (coef_num/coef_den at
+// a ratio that is not a whole tenth of a point, as legacyLaCagetteRaw's own 9/10 used to
+// be before it started converting exactly): if Discount's scale or its rounding ever
+// changed, such a ratio could quietly become convertible, and these two tests would stop
+// protecting anything WITHOUT A SINGLE TEST GOING RED. A key retired by declaration cannot
+// drift that way -- moving it takes a human editing retiredVerdicts on purpose, and the
+// test that keeps the two tables in step catches it.
+func legacyLaCagetteRawWithARefusedKey(t *testing.T) []byte {
+	t.Helper()
+	before := legacyLaCagetteRaw(t)
+	const (
+		bare    = `"barcode": { "verify_reference_check_digit": true },`
+		refused = `"barcode": { "verify_reference_check_digit": true, "weight_decimals": 3 },`
+	)
+	edited := strings.Replace(string(before), bare, refused, 1)
+	if edited == string(before) {
+		t.Fatal("l'ajout de weight_decimals n'a rien trouvé : le test ne prouve rien")
+	}
+	return []byte(edited)
+}
+
 // TestARecoveryOnALegacyFileDoesNotLaunderTheDiscount (the defect this fix closes).
 //
 // This is the station the guard exists for: an upgraded site whose file control 20
 // refuses runs the neutral profile, the volunteer cannot log in, and reaches for the
 // recovery code on the installation sheet. Before this fix, that single gesture read
 // the on-disk file, set the new password hash, and wrote the WHOLE struct back —
-// which drops coef_num, because encoding/json only ever kept what a field claims. The
-// member discount coef_num stood for would be gone from the file, silently, and
-// control 20 would find nothing on the station's next start. The real ConfigStore is
-// used here, and not the in-memory double: the guard lives in Save, and a double that
-// never calls it would prove nothing about the file on disk.
+// which drops a retired key, because encoding/json only ever kept what a field claims.
+// Whatever weight_decimals stood for on a numbering plan this binary no longer trusts
+// would be gone from the file, silently, and control 20 would find nothing on the
+// station's next start. The real ConfigStore is used here, and not the in-memory double:
+// the guard lives in Save, and a double that never calls it would prove nothing about the
+// file on disk.
 func TestARecoveryOnALegacyFileDoesNotLaunderTheDiscount(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	before := legacyLaCagetteRaw(t)
+	before := legacyLaCagetteRawWithARefusedKey(t)
 	if err := os.WriteFile(path, before, 0o644); err != nil {
 		t.Fatalf("préparation du fichier : %v", err)
 	}
@@ -266,11 +470,11 @@ func TestARecoveryOnALegacyFileDoesNotLaunderTheDiscount(t *testing.T) {
 		t.Fatalf("relecture : %v", err)
 	}
 	if string(after) != string(before) {
-		t.Fatalf("le fichier a été réécrit : la clé retirée -- et la remise qu'elle "+
-			"portait -- a disparu.\navant :\n%s\naprès :\n%s", before, after)
+		t.Fatalf("le fichier a été réécrit : la clé retirée a disparu.\navant :\n%s\naprès :\n%s",
+			before, after)
 	}
-	if !strings.Contains(string(after), "coef_num") {
-		t.Fatal("coef_num n'est plus dans le fichier : la remise a été blanchie")
+	if !strings.Contains(string(after), "weight_decimals") {
+		t.Fatal("weight_decimals n'est plus dans le fichier : la clé retirée a été blanchie")
 	}
 }
 
@@ -283,7 +487,7 @@ func TestARecoveryOnALegacyFileDoesNotLaunderTheDiscount(t *testing.T) {
 // overcharge for a station nobody can administer.
 func TestARecoveryStillOpensASessionWhenTheFileCannotBeSaved(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, legacyLaCagetteRaw(t), 0o644); err != nil {
+	if err := os.WriteFile(path, legacyLaCagetteRawWithARefusedKey(t), 0o644); err != nil {
 		t.Fatalf("préparation du fichier : %v", err)
 	}
 	store, err := platform.NewConfigStore(path)
@@ -297,8 +501,8 @@ func TestARecoveryStillOpensASessionWhenTheFileCannotBeSaved(t *testing.T) {
 	response := b.post("/admin/api/session/recovery",
 		`{"code":"ABCD2345","password":"nouveau-mot"}`)
 	got := decodeStatus[sessionDTO](t, response, http.StatusOK)
-	if got.Warning == "" || !strings.Contains(got.Warning, "coef_num") {
-		t.Fatalf("l'avertissement ne nomme pas coef_num : %q", got.Warning)
+	if got.Warning == "" || !strings.Contains(got.Warning, "weight_decimals") {
+		t.Fatalf("l'avertissement ne nomme pas weight_decimals : %q", got.Warning)
 	}
 
 	// The volunteer really is in: the new password is in force, and a session was
@@ -668,6 +872,11 @@ type savedConfig struct {
 	written  int
 	versions []ConfigVersion
 	saveErr  error
+	// readErr makes Read fail the way a file that EXISTS and cannot be opened fails --
+	// a permission, an I/O error, a mount that went away. It is deliberately NOT
+	// fs.ErrNotExist: that one says the file is gone, and is the only case where writing
+	// what memory holds destroys nothing.
+	readErr error
 }
 
 // Read hands back the document this store holds, which stands in for the file. A store
@@ -676,6 +885,9 @@ type savedConfig struct {
 func (s *savedConfig) Read(context.Context) (domain.Config, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.readErr != nil {
+		return domain.Config{}, s.readErr
+	}
 	if s.written == 0 {
 		return domain.Config{}, errNoConfigFile
 	}
@@ -720,6 +932,55 @@ func (s *savedConfig) saved() domain.Config {
 var errNoSuchVersion = errors.New("version inconnue")
 
 // errNoConfigFile is what a store answers before anything was written to it.
-var errNoConfigFile = errors.New("aucun fichier de configuration")
+//
+// It wraps fs.ErrNotExist because that is what it MEANS -- « il n'y a pas de fichier » --
+// and because recoverSession tells that case apart from « le fichier est là et illisible »:
+// the first is the one where writing what memory holds destroys nothing, the second is
+// where it would replace the shop's configuration with the factory one.
+var errNoConfigFile = fmt.Errorf("aucun fichier de configuration : %w", fs.ErrNotExist)
 
 var _ ConfigStore = (*savedConfig)(nil)
+
+// TestARescueDoesNotOverwriteAFileItCouldNotOpen closes a blind spot OLDER than the
+// block-by-block decode, found while fixing the one next to it.
+//
+// A file that EXISTS and will not open — a permission, an I/O error, a mount that went
+// away — is not a file that is gone. The read failed, `stored` stayed at the configuration
+// in force, and on a station that started out of service that is the neutral profile: the
+// rescue wrote the fourteen factory blocks onto a file it had never managed to read. Same
+// destruction as the typed case, by a road the type does not cover.
+func TestARescueDoesNotOverwriteAFileItCouldNotOpen(t *testing.T) {
+	shop := loadConfig(t)
+	saved := &savedConfig{}
+	if err := saved.Save(context.Background(), shop); err != nil {
+		t.Fatalf("préparation du fichier : %v", err)
+	}
+	// The file is there — it was just written — and now it will not open.
+	saved.readErr = errors.New("accès refusé")
+
+	b := newBench(t, func(o *benchOptions) {
+		o.configStore = saved
+		o.config = func(cfg *domain.Config) { *cfg = domain.NeutralProfile() }
+	})
+	b.setPassword("oublie", "ABCD2345")
+
+	response := b.post("/admin/api/session/recovery", `{"code":"ABCD2345","password":"nouveau-mot"}`)
+	got := decodeStatus[sessionDTO](t, response, http.StatusOK)
+
+	written := saved.saved()
+	if written.Station.Coop != shop.Station.Coop {
+		t.Errorf("station.coop = %q, attendu %q : le profil d'usine a été écrit sur un "+
+			"fichier que le poste n'a pas su lire", written.Station.Coop, shop.Station.Coop)
+	}
+	if got, want := len(written.Pricing.Tiers), len(shop.Pricing.Tiers); got != want {
+		t.Errorf("%d tarif(s) au lieu de %d : la grille du magasin a été remplacée", got, want)
+	}
+	// The door opens anyway — refusing would leave this station with no way in at all —
+	// and it says what is not saved.
+	if got.Warning == "" {
+		t.Error("la session s'ouvre sans dire que le mot de passe n'est pas enregistré")
+	}
+	if !VerifySecret(b.hub.Config().Admin.PasswordHash, "nouveau-mot") {
+		t.Error("le nouveau mot de passe n'est pas en service")
+	}
+}

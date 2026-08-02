@@ -114,49 +114,81 @@ func TestServeStopsUnderThreeSecondsWithFourSubscribers(t *testing.T) {
 //
 // A configuration that is INVALID never kills the process: the station starts on the
 // neutral profile and serves the whole list of faults, which is the assertion of
-// TestAnInvalidConfigurationStillServes below. A file that cannot be READ AT ALL is a
-// different fact — there is no station number, no listening address and nothing an
-// administration screen could safely write back — and it refuses, in French, naming the
-// file, with a non-zero exit code and NO PANIC.
+// TestAnInvalidConfigurationStillServes below, and — since porte 1 — of
+// TestATrulyBrokenConfigurationStillServes too: even a document that is not JSON at all
+// falls back rather than refusing. A file that cannot be READ AT ALL is a different fact —
+// there is no station number, no listening address and nothing an administration screen
+// could safely write back — and it alone refuses, in French, naming the file, with a
+// non-zero exit code and NO PANIC.
 func TestAnUnreadableConfigurationRefusesToServe(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "config.json")
+
+	// A BOUNDED context, so that a subcommand which starts anyway fails here instead of
+	// hanging: a station built on a configuration nobody could read would listen on an
+	// address nobody chose and wait for a signal for ever, and a test that hangs says
+	// nothing to whoever broke it.
+	ctx, cancel := context.WithTimeout(context.Background(), startBudget)
+	defer cancel()
+
+	var out bytes.Buffer
+	err := runServe(ctx, []string{"--config", missing, "--data", t.TempDir()}, &out)
+	if err == nil {
+		t.Fatal("un fichier absent a laissé le poste démarrer")
+	}
+	if code := exitCodeFor(err); code == 0 {
+		t.Fatalf("code de sortie %d : un démarrage refusé doit être visible du gestionnaire de service", code)
+	}
+	message := explain(err)
+	if !strings.Contains(message, missing) {
+		t.Fatalf("le refus ne nomme pas le fichier fautif : %s", message)
+	}
+	if !strings.Contains(message, "configuration") {
+		t.Fatalf("le refus n'est pas en français et ne dit pas de quoi il parle : %s", message)
+	}
+}
+
+// TestATrulyBrokenConfigurationStillServes is porte 1 (LoadConfig,
+// TestLoadConfigOfATruncatedFileIsNotAnError), exercised at the level `serve` runs at.
+//
+// A document that is not JSON at all used to refuse to start, alongside a missing file.
+// It no longer does: DecodeConfigBlockByBlock falls back to the neutral profile for a
+// document it cannot decode at all exactly as it does for one bad block, and the station
+// serves ERR-CFG-01 like any other invalid configuration
+// (TestAnInvalidConfigurationStillServes) — the file is illisible, but it EXISTS, and a
+// wrong path in a service unit is the one case that must still refuse.
+func TestATrulyBrokenConfigurationStillServes(t *testing.T) {
 	dir := t.TempDir()
-	missing := filepath.Join(dir, "config.json")
-	unparseable := filepath.Join(dir, "cassé.json")
-	if err := os.WriteFile(unparseable, []byte("{\"station\": {\"number\": "), 0o644); err != nil {
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte("{\"station\": {\"number\": "), 0o644); err != nil {
 		t.Fatalf("écriture du fichier cassé : %v", err)
 	}
 
-	for _, c := range []struct {
-		name string
-		path string
-	}{
-		{"fichier absent", missing},
-		{"JSON tronqué", unparseable},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			// A BOUNDED context, so that a subcommand which starts anyway fails here
-			// instead of hanging: a station built on a configuration nobody could read
-			// would listen on an address nobody chose and wait for a signal for ever,
-			// and a test that hangs says nothing to whoever broke it.
-			ctx, cancel := context.WithTimeout(context.Background(), startBudget)
-			defer cancel()
+	b := &serveBench{
+		t:          t,
+		configPath: path,
+		dataDir:    filepath.Join(dir, "data"),
+		out:        &syncBuffer{},
+		returned:   make(chan error, 1),
+		client:     &http.Client{},
+	}
+	// --listen, and not the neutral profile's own 127.0.0.1:8085: that address is shared
+	// by every station of the parc, including the one this developer may have installed
+	// on their own machine.
+	b.options = serveOptions{configPath: path, dataDir: b.dataDir, listen: freeAddress(t)}
+	b.start()
 
-			var out bytes.Buffer
-			err := runServe(ctx, []string{"--config", c.path, "--data", t.TempDir()}, &out)
-			if err == nil {
-				t.Fatal("une configuration illisible a laissé le poste démarrer")
-			}
-			if code := exitCodeFor(err); code == 0 {
-				t.Fatalf("code de sortie %d : un démarrage refusé doit être visible du gestionnaire de service", code)
-			}
-			message := explain(err)
-			if !strings.Contains(message, c.path) {
-				t.Fatalf("le refus ne nomme pas le fichier fautif : %s", message)
-			}
-			if !strings.Contains(message, "configuration") {
-				t.Fatalf("le refus n'est pas en français et ne dit pas de quoi il parle : %s", message)
-			}
-		})
+	live := b.get("/healthz")
+	if live.StatusCode != http.StatusOK {
+		t.Fatalf("/healthz = %d : un document illisible a tué le poste", live.StatusCode)
+	}
+	_ = live.Body.Close()
+
+	if got := b.output(); !strings.Contains(got, "ERR-CFG-01") {
+		t.Fatalf("la sortie ne nomme pas ERR-CFG-01 :\n%s", got)
+	}
+
+	if err := b.stop(); err != nil {
+		t.Fatalf("serve a rendu une erreur sur un arrêt demandé : %v", err)
 	}
 }
 

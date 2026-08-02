@@ -2,7 +2,6 @@ package diag
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -117,7 +116,21 @@ type loadedConfig struct {
 	Parsed bool
 	Config domain.Config
 	Faults []domain.Fault
-	Err    error
+	// DecodeFaults are the ones DecodeConfigBlockByBlock produced. They are also in Faults,
+	// and they are kept apart because they carry a consequence no Validate fault carries: a
+	// decoding fault means a BLOCK WAS REPLACED by the neutral profile, so anything computed
+	// over the configuration AS A WHOLE -- the fingerprint above all -- then describes a
+	// document nobody wrote. A file whose every block decoded describes itself perfectly
+	// well even when every value in it is wrong.
+	DecodeFaults []domain.Fault
+	// MigrationNotes is what platform.LoadConfig had to change to bring the document up
+	// to the schema this binary speaks. It is the ONLY trace left of that once Config is
+	// built: LoadConfig migrates the document BEFORE decoding it, so Config.Version reads
+	// domain.CurrentSchemaVersion whether the file on disk was one version behind or
+	// already current — comparing it against anything would compare a number against
+	// itself. An empty slice means the file needed nothing.
+	MigrationNotes []domain.MigrationNote
+	Err            error
 }
 
 // Run performs the controls, in the order §15.4 enumerates them, and hands back
@@ -146,7 +159,13 @@ func (d *Doctor) Run(ctx context.Context) Report {
 		StationName: loaded.Config.Station.Name,
 		Coop:        loaded.Config.Station.Coop,
 	}
-	if loaded.Parsed {
+	// No fingerprint when a block was substituted, which is the rule ConfigStore.Versions
+	// already holds on the other document support reads (§14.4): « elle est inconnue, pas
+	// inventée ». The eight characters would otherwise describe a configuration nobody
+	// declared, in the header of the very file four stations get compared with -- and right
+	// above a red control saying so. Nothing is refused by leaving it out: the report is
+	// still produced, and the configuration control still names the block.
+	if loaded.Parsed && len(loaded.DecodeFaults) == 0 {
 		report.Fingerprint = loaded.Config.Fingerprint()
 	}
 
@@ -202,28 +221,48 @@ func (d *Doctor) openBase() (Database, error) {
 	return d.o.OpenDatabase(platform.DatabasePath(d.o.DataDir))
 }
 
-// readConfiguration reads config.json once, and tells « unreadable » from « invalid ».
+// readConfiguration reads config.json once, through the same door serve and `openscale
+// config` read it with (platform.LoadConfig), and tells « unreadable » from « invalid ».
 //
 // The distinction decides a remedy and it is the one §11.3 insists on: an INVALID
 // configuration is one we understood and can list the faults of, field by field; a file
-// that does not parse yields one offset and nothing an administration screen could safely
-// write back.
+// that does not parse yields nothing an administration screen could safely write back.
+//
+// Parsed is derived from domain.WholeDocumentField and not from a second parse of the
+// file: DecodeConfigBlockByBlock already tells « the document itself did not decode » from
+// « one block did not », by the Field its fault names, and re-deriving the same verdict a
+// second way here is how the two come to disagree.
 func (d *Doctor) readConfiguration() loadedConfig {
 	if d.o.ConfigPath == "" {
 		return loadedConfig{Err: errors.New("aucun fichier de configuration n'a été désigné")}
 	}
-	raw, err := os.ReadFile(d.o.ConfigPath)
+	cfg, notes, decodeFaults, err := platform.LoadConfig(d.o.ConfigPath)
 	if err != nil {
 		return loadedConfig{Err: err}
 	}
-	out := loadedConfig{Present: true}
-	if err := json.Unmarshal(raw, &out.Config); err != nil {
-		out.Err = err
+	out := loadedConfig{Present: true, Config: cfg, MigrationNotes: notes}
+	if wholeDocument := wholeDocumentFault(decodeFaults); wholeDocument != nil {
+		out.Err = errors.New(wholeDocument.Message)
 		return out
 	}
 	out.Parsed = true
-	out.Faults = out.Config.Validate(d.o.Registries)
+	out.DecodeFaults = decodeFaults
+	// A fresh slice rather than appending onto decodeFaults: the two fields would otherwise
+	// share a backing array, and a future append on one would be reading the other.
+	out.Faults = append(append([]domain.Fault{}, decodeFaults...),
+		out.Config.Validate(d.o.Registries)...)
 	return out
+}
+
+// wholeDocumentFault reports the fault that names the DOCUMENT itself, or nil when every
+// fault names a block within it.
+func wholeDocumentFault(faults []domain.Fault) *domain.Fault {
+	for i := range faults {
+		if faults[i].Field == domain.WholeDocumentField {
+			return &faults[i]
+		}
+	}
+	return nil
 }
 
 // --- 1. The service ---------------------------------------------------------
@@ -571,11 +610,13 @@ func (d *Doctor) checkConfiguration(loaded loadedConfig) Control {
 			"(config.json.1 à .5)."
 		return control
 	case !loaded.Parsed:
-		control.Status = StatusFail
-		control.Observed = fmt.Sprintf("%s n'est pas un JSON exploitable : %v", d.o.ConfigPath, loaded.Err)
-		control.Remedy = "Le service ne démarrera pas. Corrigez la faute de syntaxe — c'est presque " +
-			"toujours une virgule en trop avant une accolade — ou restaurez config.json.1, la " +
-			"version précédente rangée à côté du fichier (§11.4)."
+		control.Status, control.Code = StatusFail, codeFactoryConfig
+		control.Observed = fmt.Sprintf("%s n'est pas un JSON exploitable (%v) — le poste tourne "+
+			"quand même, en configuration d'usine, et ne calcule aucun prix ; l'écran "+
+			"d'administration répond", d.o.ConfigPath, loaded.Err)
+		control.Remedy = "Corrigez la faute de syntaxe — c'est presque toujours une virgule en " +
+			"trop avant une accolade — ou restaurez config.json.1, la version précédente " +
+			"rangée à côté du fichier (§11.4)."
 		return control
 	case len(loaded.Faults) > 0:
 		control.Status, control.Code = StatusFail, codeFactoryConfig
@@ -620,10 +661,75 @@ func (d *Doctor) checkConfiguration(loaded loadedConfig) Control {
 		control.Status = StatusWarn
 		control.Observed = fmt.Sprintf("aucune faute, et %d clé(s) retirée(s) traînent encore dans le "+
 			"fichier : %s", len(retired), strings.Join(retired, ", "))
-		control.Remedy = "Supprimez ces lignes du fichier : elles ne sont plus lues, et un mainteneur " +
-			"qui les voit croira qu'elles règlent encore quelque chose (§11.2)."
+		control.Remedy = "Lancez d'abord « openscale config migrate " + d.o.ConfigPath + " » : il migre " +
+			"tout seul ce qui se convertit, et détaille pourquoi il refuse le reste. Ce qu'il refuse ne " +
+			"se devine pas ; retirez ces lignes-là à la main du fichier, puis relancez la migration (§11.2)."
 		return control
 	}
+
+	// The schema version, because "this station's file was rewritten by the update" and
+	// "this station's file is only being read as if it were" are two different states, and
+	// diagnostic.zip is where somebody decides which one they are looking at. It is placed
+	// LAST among the warnings and never among the faults: the station already runs on the
+	// migrated form, in memory, so an out-of-date FILE is at most something to catch up on
+	// — and it must never bury the two warnings above, which both call for action sooner
+	// (no way in at all, or lines nobody can explain).
+	//
+	// A note is not automatically "behind, and migrate catches it up": migrateConfig
+	// refuses to write ANYTHING while a single note is MigrationRefused (cmd/openscale/
+	// config.go), so promising a rewrite on the strength of len(notes) alone would be
+	// wrong exactly when it matters — a refused note is never routine. One refusal in
+	// particular is not even an old file: a note on domain.SchemaVersionKey is what a
+	// ROLLED-BACK station looks like from here, written by a binary NEWER than this one,
+	// and it earns its own sentence rather than being folded into "des changements".
+	if notes := loaded.MigrationNotes; len(notes) > 0 {
+		control.Status = StatusWarn
+		var refused []domain.MigrationNote
+		var rolledBack *domain.MigrationNote
+		for i := range notes {
+			if notes[i].Action != domain.MigrationRefused {
+				continue
+			}
+			refused = append(refused, notes[i])
+			if notes[i].Key == domain.SchemaVersionKey {
+				rolledBack = &notes[i]
+			}
+		}
+
+		switch {
+		case rolledBack != nil:
+			control.Observed = fmt.Sprintf("aucune faute ; empreinte %s ; %s : %s",
+				loaded.Config.Fingerprint(), d.o.ConfigPath, rolledBack.Message)
+			control.Remedy = "Ce n'est pas un fichier en retard : cherchez pourquoi ce poste tourne " +
+				"sur un binaire plus ancien qu'il ne l'a fait — les journaux de mise à jour " +
+				"(update.ps1 ou update.sh) sur CE poste disent ce qui a échoué. « openscale config " +
+				"migrate " + d.o.ConfigPath + " » ne réécrira rien tant que ce fichier vient d'un " +
+				"binaire plus récent."
+		// Unreachable TODAY, and kept because it is the right welcome for the first refusal
+		// that is not one of retiredKeys. Every refusal this binary can produce on a key
+		// other than `version` LEAVES THAT KEY IN THE DOCUMENT -- that is what a refusal
+		// consists of (ADR-058) -- so Config.Retired() finds it and the branch above returns
+		// first. Only `version` reaches a refusal with nothing left behind, and it has its
+		// own case, right above this one.
+		case len(refused) > 0:
+			control.Observed = fmt.Sprintf("aucune faute ; empreinte %s ; %s porte %d changement(s) "+
+				"que ce binaire ne convertit pas — « openscale config migrate » les nommera, chacun "+
+				"avec sa raison, mais n'écrira RIEN tant qu'ils y restent",
+				loaded.Config.Fingerprint(), d.o.ConfigPath, len(refused))
+			control.Remedy = "Lancez « openscale config migrate " + d.o.ConfigPath + " » pour lire la " +
+				"raison de chaque point refusé, tranchez-les à la main, puis relancez la commande : " +
+				"elle n'écrit le fichier qu'une fois qu'il n'y en a plus."
+		default:
+			control.Observed = fmt.Sprintf("aucune faute ; empreinte %s ; %s n'est pas encore au schéma %d "+
+				"que ce binaire écrit (%d changement(s) en attente) — « openscale config migrate » le "+
+				"réécrit (le poste tourne déjà sur la forme à jour, en mémoire)",
+				loaded.Config.Fingerprint(), d.o.ConfigPath, domain.CurrentSchemaVersion, len(notes))
+			control.Remedy = "« openscale config migrate " + d.o.ConfigPath + " » réécrit le fichier sur " +
+				"cette forme ; rien ne presse, le poste fonctionne déjà normalement."
+		}
+		return control
+	}
+
 	control.Status = StatusPass
 	control.Observed = fmt.Sprintf("aucune faute ; empreinte %s", loaded.Config.Fingerprint())
 	return control

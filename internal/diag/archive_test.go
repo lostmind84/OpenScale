@@ -163,6 +163,64 @@ func TestTheRedactedConfigurationKeepsWhatIsNotSecret(t *testing.T) {
 	}
 }
 
+// TestTheRedactedConfigurationSaysWhichBlockIsNotTheStations.
+//
+// A block that will not decode falls back on the neutral profile, so config.redacted.json
+// carried the FACTORY grid presented as the shop's own — support read it six months later,
+// remotely, with no way of telling. The member stays (a station with 13 readable blocks out
+// of 14 is exactly the one support needs to see), it stays valid JSON, and _readme carries
+// the warning: that field is the mode d'emploi JSON cannot hold as a comment, and it is out
+// of the fingerprint by construction, so it disturbs nothing that gets compared.
+func TestTheRedactedConfigurationSaysWhichBlockIsNotTheStations(t *testing.T) {
+	b := newArchiveBench(t)
+	b.damage = func(path string) { substituteAnUnreadablePricingBlock(t, path) }
+	archive := b.build()
+
+	raw := readNamed(t, archive, "config.redacted.json")
+
+	// Valid JSON first: an out-of-band header would have broken every machine reading it.
+	var document map[string]any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("config.redacted.json n'est plus du JSON valide : %v\n%s", err, raw)
+	}
+	readme, _ := document["_readme"].(string)
+	if !strings.Contains(readme, "pricing") {
+		t.Errorf("_readme ne nomme pas le bloc qui n'a pas été lu : %q", readme)
+	}
+	// Case-insensitive: the sentence shouts « D'USINE », and the assertion is on the fact,
+	// not on the typography.
+	if !strings.Contains(strings.ToLower(readme), "usine") {
+		t.Errorf("_readme ne dit pas que ce qui figure à la place est la configuration "+
+			"d'usine : %q", readme)
+	}
+	// The warning reads FIRST: the mode d'emploi the file already carried is kept, behind it.
+	if !strings.HasPrefix(readme, "ATTENTION") {
+		t.Errorf("l'avertissement ne se lit pas en premier : %q", readme)
+	}
+	if !strings.Contains(readme, "Modifiable depuis l'écran d'administration") {
+		t.Errorf("l'avertissement a écrasé le mode d'emploi que le fichier portait : %q", readme)
+	}
+
+	// The station is still described: removing the member would have protected nothing and
+	// diagnosed nothing.
+	if !strings.Contains(string(raw), `"number": 2`) {
+		t.Errorf("la configuration caviardée a perdu les blocs qui, eux, ont été lus :\n%s", raw)
+	}
+
+	// THE guarantee of this member, asserted on the damaged file too: the redaction is
+	// untouched by any of the above.
+	for secret, what := range map[string]string{
+		benchPasswordHash:    "l'empreinte du mot de passe d'administration",
+		benchRecoveryHash:    "l'empreinte du code de secours",
+		secretWebDAVPassword: "le mot de passe WebDAV",
+		secretWebDAVURL:      "l'URL complète de la source",
+	} {
+		if bytes.Contains(raw, []byte(secret)) {
+			t.Errorf("%s a fui dans config.redacted.json : %s", what, quoteAround(raw, secret))
+		}
+	}
+}
+
 // TestAnArchiveIsStillProducedWhenEverythingIsBroken is the second rule of the file: the
 // mornings somebody presses this button are exactly the mornings something is broken.
 func TestAnArchiveIsStillProducedWhenEverythingIsBroken(t *testing.T) {
@@ -233,6 +291,11 @@ type archiveBench struct {
 	journal      *fakeJournal
 	journalFails bool
 	labels       string
+	// damage runs on the configuration FILE once it is written and before the doctor reads
+	// it. It exists for the one case the bench cannot express through domain.Config: a
+	// document a station really carries and this binary cannot decode -- which no valid Go
+	// value can produce.
+	damage func(path string)
 }
 
 // newArchiveBench builds it.
@@ -263,6 +326,9 @@ func newArchiveBench(t *testing.T) *archiveBench {
 func (b *archiveBench) build() *zip.Reader {
 	b.t.Helper()
 	b.writeConfig()
+	if b.damage != nil {
+		b.damage(b.configPath)
+	}
 	doctor, err := New(b.options())
 	if err != nil {
 		b.t.Fatalf("construction du doctor : %v", err)

@@ -3,6 +3,94 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Un `config.json` ancien se met à jour tout seul, après qu'un poste réel soit tombé
+dessus (01/08/2026).** Un poste de test mis à jour a démarré en **configuration d'usine
+(ERR-CFG-01)** : son fichier, conservé tel quel comme la procédure de mise à jour le
+prévoit, portait encore `ui.tile_size` — retiré **le jour même** par ADR-057. La
+réparation a été manuelle, et rien dans le binaire ne savait retirer une clé d'un fichier
+déjà posé sur un poste. **ADR-058** répond en faisant du contrôle 20 (§11.3) trois
+verdicts au lieu d'un refus uniforme — **portée**, **retirée**, **refusée** — au lieu
+d'écarter neuf clés en bloc : trois d'entre elles ont réellement été écrites par un
+binaire publié (`ui.tile_size`, `coef_num`/`coef_den`, v0.1 à v0.3), les six autres du
+plan de numérotation sont entrées dans le code **déjà retirées** et n'ont jamais existé
+dans un fichier réel.
+
+`domain.Migrate` (§11.6) travaille sur le document JSON **avant** décodage — ce qui lui
+permet de rattraper un champ dont le type a changé, qu'`encoding/json` ne pardonne pas —
+et un refus y consiste à **ne rien faire** : la clé reste dans le document, intacte
+jusqu'au contrôle 20, qui dit la phrase qu'il disait déjà. `ui.tile_size` se **retire**
+sans se convertir en nombre de colonnes — une densité est une proportion, pas un compte,
+et la convertir ressusciterait ADR-031 par la bande. `coef_num`/`coef_den` se **portent**
+vers `discount_percent` seulement quand la fraction tombe exactement au dixième de
+point ; sinon, refusés en nommant les deux nombres plutôt qu'arrondis en silence — c'est
+la garantie qu'ADR-034 tenait déjà pour la lecture d'un fichier neuf, étendue ici à la
+migration d'un fichier ancien. `domain.DecodeConfigBlockByBlock` décode ensuite les
+quatorze blocs un par un, si bien qu'un seul bloc illisible ne fait plus tomber les
+treize autres ; un document qui n'est même pas un objet JSON exploitable ne fait plus
+non plus sortir le service, comme c'était pourtant le cas avant ce lot — il produit une
+faute et le poste sert ERR-CFG-01, exactement comme n'importe quelle autre configuration
+invalide (§11.3 est corrigé sur ce point précis). `platform.LoadConfig` devient la
+**porte unique** par laquelle les octets d'un fichier deviennent une `Config` : il y en
+avait quatre avant ce lot, et c'est cette quadruplication qui a permis à l'incident
+d'exister. **Une porte unique n'est pas un verdict unique, et l'oublier a coûté quatre
+défauts (02/08/2026)** : elle rend *quatre* valeurs, dont les fautes de décodage, et trois
+de ses cinq appelants jetaient la quatrième. Un bloc illisible devient alors une valeur
+d'usine plausible que personne n'a déclarée — et `openscale config migrate`, que
+`update.ps1` lance après chaque mise à jour réussie, la rendait **définitive** : mesuré, la
+remise de 10 % des adhérents disparaissait pendant que la commande annonçait un changement
+sans rapport et sortait 0. `config migrate` et `config validate` comptent désormais ces
+fautes, et `ConfigStore.Read` — dont les appelants **montrent** le fichier, le
+**réécrivent entier**, ou n'en lisent **qu'un seul bloc** — refuse de nouveau, en nommant
+le bloc. **Trois portes de plus disaient la même chose autrement** : `config fingerprint` rendait `7b386ddb` là où
+le fichier sain donne `428807b3`, en silence et code 0, alors que ces huit caractères sont
+ce que quatre postes comparent à l'œil ; `config export` écrivait le fichier **destiné à
+être recopié sur les autres postes**, donc partait cloner la grille d'usine ; et l'empreinte
+en tête d'`openscale doctor` et de `diagnostic.zip` était inventée de la même façon. Les
+deux premières refusent, la troisième n'est plus affichée — `doctor` ne refusant toujours
+rien. **Et `config.redacted.json` de `diagnostic.zip` portait le bloc substitué sans le
+dire** : il reste dans l'archive — le retirer aveuglerait le support sur le poste qui a
+treize blocs lisibles sur quatorze — et l'avertissement va dans son `_readme`, ajouté en
+tête, qui est le seul véhicule à la fois valide en JSON, caviardé comme le reste et **hors
+empreinte**. Les octets bruts ont été écartés sans discussion : ils y remettraient le hash
+du mot de passe et les identifiants WebDAV, dans le fichier dont la promesse est « vous
+pouvez l'envoyer sans le relire ».
+
+**Et le refus sec de `ConfigStore.Read` était lui-même un défaut, pire que celui qu'il
+corrigeait.** Sur un poste hors service, la récupération par code de secours cessait de
+lire le fichier et lui écrivait les **quatorze blocs d'usine** — identité, tarifs, source
+du catalogue et ses identifiants, garde-fous —, en HTTP 200 et sans un avertissement, sur
+le seul geste qui existe pour sauver ce poste. La leçon n'est pas le sens du choix mais
+qu'il n'y en avait pas un seul à faire : **« je n'ai pas pu tout lire » a trois réponses**,
+selon qu'on **affiche** le fichier, qu'on le **réécrit** ou qu'on n'en lit **qu'un bloc**.
+`domain.UnreadableBlocksError` porte donc la `Config` telle qu'elle a été lue et nomme les
+blocs qui ne l'ont pas été, et chaque appelant tranche par `errors.As` selon ce qu'il fait
+du fichier — la table est en §11.6, et c'est le seul endroit où elle est écrite. Ce qui l'avait caché : le test de secours passait par un double en
+mémoire qui ne refuse jamais, si bien qu'il est resté vert tout du long ; il en existe
+maintenant un sur un **vrai fichier et un vrai store**, et un par porte corrigée. Le démarrage **n'écrit toujours pas** : seule `openscale config migrate` —
+lancée à la main ou par `update.ps1`/`update.sh` une fois le poste debout, sur le
+**chemin de réussite uniquement** et sans jamais changer le code de sortie de la mise à
+jour elle-même — touche le disque. `TestEveryRetiredKeyHasADeclaredVerdict` tient la
+promesse dans la durée : retirer une dixième clé demain sans lui donner de verdict fait
+échouer ce test, pas seulement une relecture humaine.
+
+**Ce qui n'est PAS fait, et n'est pas à croire fait.** Le **bandeau de l'écran
+d'administration** — l'endroit où un exploitant apprendrait, sans ouvrir un terminal, que
+son fichier n'est pas au schéma de son binaire — n'existe pas : il demande du Svelte et un
+`make front`, donc un cycle de vérification que ce lot n'a pas ouvert, et `openscale
+doctor` porte l'information en attendant. Le **corpus `testdata/config/`** de la conception
+n'a pas été créé — le répertoire n'existe pas —, les documents de migration étant écrits
+**en ligne dans les tests** : chacun tient en une ligne, et un fichier par forme rendrait
+moins lisible ce qu'un test vérifie ; le prix est qu'aucun de ces documents n'est
+réutilisable hors du paquet qui le porte. Et la propriété « **`config-lacagette.json` migre
+vers lui-même** » n'est testée **nulle part** : le fichier livré est resté à
+`"version": 1`, donc une migration le réécrit — l'estampille seule, sans note — et rien ne
+retiendrait un pas de migration futur qui toucherait au fichier témoin.
+
+**Vérifié à la clôture de ce lot (02/08/2026) :** `go test ./... -short -count=1` —
+**35 paquets testés, 0 échec** (2 paquets sans fichier de test, `internal/scale/corpus`
+et `tools/boundary`, comme avant ce lot) ; `go vet ./...` silencieux ; `boundary` et `deps`
+verts ; `gofmt -l cmd internal deploy tools` sans sortie.
+
 **Le nombre de colonnes de la grille devient un réglage, et l'automatique reste le défaut
 (01/08/2026).** Le magasin voulait moins de défilement : sur le poste installé, les 331
 pesables se parcourent en **34 écrans**, à 10 tuiles d'un coup. **ADR-057** ouvre

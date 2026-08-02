@@ -1780,3 +1780,43 @@ func TestTheClientScreenComesBackOnTheFailurePathsToo(t *testing.T) {
 		t.Error("le chemin d'échec ne relance pas l'écran client")
 	}
 }
+
+// TestUpdateScriptsMigrateTheConfigurationAfterTheHealthCheck: both scripts roll the
+// previous binary back when the station does not answer, and a previous binary reading an
+// already-migrated file would lose what the migration carried. So the call comes AFTER the
+// rollback verdict, never before -- and, more precisely than "after the health check" alone,
+// after the rollback BLOCK itself: a call placed right past the check but still inside the
+// block that can restore the previous binary would run before that block has finished
+// deciding whether to restore anything.
+func TestUpdateScriptsMigrateTheConfigurationAfterTheHealthCheck(t *testing.T) {
+	for _, c := range []struct{ path, health, rollback string }{
+		// The rollback marker is the line each script reaches only once it has restored the
+		// previous binary: `rolled-back` for PowerShell, the restoring `install` for shell.
+		{filepath.Join("windows", "update.ps1"), "Test-StationHealth", "Write-Outcome -Status 'rolled-back'"},
+		{filepath.Join("linux", "update.sh"), "healthy", `install -m 0755 "$BACKUP" "$BINARY"`},
+	} {
+		t.Run(c.path, func(t *testing.T) {
+			// codeOnly, so a comment naming "config migrate" to explain the placement is not
+			// mistaken for the call it explains.
+			body := codeOnly(readFile(t, c.path))
+			migrate := strings.Index(body, "config migrate")
+			if migrate < 0 {
+				t.Fatalf("%s n'appelle pas « config migrate »", c.path)
+			}
+			health := strings.Index(body, c.health)
+			if health < 0 || migrate < health {
+				t.Error("« config migrate » vient avant le contrôle de santé : " +
+					"un retour arrière relirait un fichier déjà migré")
+			}
+			rollback := strings.Index(body, c.rollback)
+			if rollback < 0 {
+				t.Fatalf("%s : le repère du bloc de retour arrière est introuvable, ce test ne "+
+					"prouve plus rien", c.path)
+			}
+			if migrate < rollback {
+				t.Error("« config migrate » vient avant la fin du bloc de retour arrière : " +
+					"un binaire restauré relirait un fichier déjà migré")
+			}
+		})
+	}
+}

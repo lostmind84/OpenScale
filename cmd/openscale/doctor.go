@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -133,28 +132,26 @@ func serviceAddress(o doctorOptions) string {
 	if o.listen != "" {
 		return o.listen
 	}
-	if cfg, err := readConfigLeniently(o.configPath); err == nil && cfg.Network.Listen != "" {
+	if cfg, _, _, err := readConfigLeniently(o.configPath); err == nil && cfg.Network.Listen != "" {
 		return cfg.Network.Listen
 	}
 	return domain.NeutralProfile().Network.Listen
 }
 
-// readConfigLeniently reads the file for the ONE field this command needs before the
-// diagnosis starts, and reports its failures to nobody.
+// readConfigLeniently reads the file the way the service does, migration included, so that
+// `openscale config validate` judges what the station would ACTUALLY run and not what the
+// file literally says.
 //
-// The diagnosis reads the same file again and judges it there, with the two remedies §11.3
-// separates — unreadable and invalid. Judging it twice, in two places, is how the two
-// verdicts come to disagree.
-func readConfigLeniently(path string) (domain.Config, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return domain.Config{}, err
-	}
-	var cfg domain.Config
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return domain.Config{}, err
-	}
-	return cfg, nil
+// The notes are returned rather than discarded, so that `openscale config validate` can
+// report them BEFORE the fault list without calling platform.LoadConfig a second time.
+//
+// The DECODING faults are returned for a harder reason: a block that would not decode is
+// replaced by the one of the neutral profile, and that substitute passes Validate without
+// a word. A caller that dropped them would answer « aucune faute » about a station that
+// comes up in ERR-CFG-01 -- which is exactly what `openscale config validate` did until
+// 02/08/2026, while serve, reading the same file, reported them.
+func readConfigLeniently(path string) (domain.Config, []domain.MigrationNote, []domain.Fault, error) {
+	return platform.LoadConfig(path)
 }
 
 // writeArchive writes diagnostic.zip where `--zip` asked for it.

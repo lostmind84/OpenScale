@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math/big"
 	"net"
 	"net/http"
@@ -477,9 +478,34 @@ func (s *Server) recoverSession(w http.ResponseWriter, r *http.Request) {
 	// Writing the running configuration to disk there would replace tariffs, safeguards
 	// and categories with the factory ones, on the single gesture whose whole purpose is
 	// to rescue that station.
+	//
+	// A file only PART of which decoded is a third case, and it is the dangerous one. The
+	// blocks that DID decode are still the shop's own and are what must go back; the ones
+	// that did not are the neutral profile, and writing those is the destruction this whole
+	// paragraph exists to prevent -- on 02/08/2026 a flat refusal here sent the fourteen
+	// factory blocks onto the file, because `err != nil` fell through to the configuration
+	// in force. So the read blocks are taken, and the write is suspended, exactly as it is
+	// for a retired key below.
+	// A file that EXISTS and cannot be read suspends the write too, whatever the reason --
+	// an I/O error, a permission, a mount that went away. None of those says the file is
+	// gone, and all of them used to leave `stored` at the configuration in force, which is
+	// the same fourteen factory blocks by another road.
+	//
+	// A file that does NOT exist is the one case where writing memory is right: there is
+	// nothing to destroy, and a station whose file was never written still has to be able
+	// to accept a password. That is why the test is on the ABSENCE and not on the error.
 	stored := cfg
-	if onDisk, err := s.configStore.Read(r.Context()); err == nil {
+	persist := true
+	var unreadable *domain.UnreadableBlocksError
+	onDisk, readErr := s.configStore.Read(r.Context())
+	switch {
+	case readErr == nil:
 		stored = onDisk
+	case errors.As(readErr, &unreadable):
+		stored = unreadable.Config
+		persist = false
+	case !errors.Is(readErr, fs.ErrNotExist):
+		persist = false
 	}
 	stored.Admin.PasswordHash = hash
 
@@ -494,21 +520,47 @@ func (s *Server) recoverSession(w http.ResponseWriter, r *http.Request) {
 	// that it will not survive a restart until the file itself is repaired. Any other
 	// failure to write (a full disk, a read-only mount) is not this case and stays a
 	// hard failure, as it always has.
+	//
+	// A file that could not be READ earns the same treatment for the same reason, decided
+	// one step earlier: there, the file would be laundered by a write; here, it would be
+	// overwritten by values nobody declared. Both leave the volunteer a way in and both say
+	// what is not saved. The two are told apart because only one of them can be repaired by
+	// opening a named block.
 	var warning string
-	if err := s.configStore.Save(r.Context(), stored); err != nil {
-		var retired *domain.RetiredKeysError
-		if !errors.As(err, &retired) {
-			writeProblem(w, http.StatusInternalServerError, "",
-				"Configuration non écrite : "+err.Error())
-			return
-		}
+	switch {
+	case unreadable != nil:
 		warning = fmt.Sprintf(
-			"Mot de passe actif, mais NON enregistré : le fichier de configuration porte "+
-				"encore %s. Il ne survivra pas à un redémarrage tant que le fichier n'est "+
-				"pas corrigé.", strings.Join(retired.Keys, ", "))
+			"Mot de passe actif, mais NON enregistré : %s du fichier de configuration %s, "+
+				"et réécrire le fichier y poserait la configuration d'usine. Il ne survivra "+
+				"pas à un redémarrage tant que le fichier n'est pas corrigé.",
+			unreadable.BlockPhrase(), unreadable.NotRead())
+		s.technical.Technical(domain.LevelError, "config", "ERR-CFG-01",
+			"Mot de passe réinitialisé en mémoire seulement : un bloc du fichier de "+
+				"configuration n'a pas pu être lu.", strings.Join(unreadable.Blocks(), ", "))
+	case !persist:
+		warning = "Mot de passe actif, mais NON enregistré : le fichier de configuration " +
+			"n'a pas pu être lu, et l'écraser remplacerait les réglages du magasin par ceux " +
+			"d'usine. Il ne survivra pas à un redémarrage tant que le fichier n'est pas " +
+			"lisible."
 		s.technical.Technical(domain.LevelError, "config", "ERR-CFG-01",
 			"Mot de passe réinitialisé en mémoire seulement : le fichier de configuration "+
-				"porte encore une clé retirée.", strings.Join(retired.Keys, ", "))
+				"n'a pas pu être lu.", readErr.Error())
+	default:
+		if err := s.configStore.Save(r.Context(), stored); err != nil {
+			var retired *domain.RetiredKeysError
+			if !errors.As(err, &retired) {
+				writeProblem(w, http.StatusInternalServerError, "",
+					"Configuration non écrite : "+err.Error())
+				return
+			}
+			warning = fmt.Sprintf(
+				"Mot de passe actif, mais NON enregistré : le fichier de configuration porte "+
+					"encore %s. Il ne survivra pas à un redémarrage tant que le fichier n'est "+
+					"pas corrigé.", strings.Join(retired.Keys, ", "))
+			s.technical.Technical(domain.LevelError, "config", "ERR-CFG-01",
+				"Mot de passe réinitialisé en mémoire seulement : le fichier de configuration "+
+					"porte encore une clé retirée.", strings.Join(retired.Keys, ", "))
+		}
 	}
 	// And the station keeps running what it was running, with the new password in force:
 	// a recovery is not a moment to hand a station a configuration nobody has validated.
