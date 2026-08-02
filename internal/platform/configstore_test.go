@@ -280,8 +280,8 @@ func TestTheFirstSaveOfAFreshInstallationHasNoPreviousVersion(t *testing.T) {
 //
 // Read is NOT LoadConfig, and the difference is deliberate (readConfigFile). serve, doctor
 // and the two `openscale config` commands want the tolerant reading, because a station
-// serving its fault list is worth more than a station that will not come up. The six
-// callers of Read want the opposite: every one of them either SHOWS the file to a
+// serving its fault list is worth more than a station that will not come up. Every
+// caller of Read wants the opposite: every one of them either SHOWS the file to a
 // volunteer or WRITES IT BACK WHOLE, and a configuration that merely looks like the file
 // is the one thing none of them may be handed.
 func TestReadSaysWhichFileItCannotRead(t *testing.T) {
@@ -300,8 +300,15 @@ func TestReadSaysWhichFileItCannotRead(t *testing.T) {
 		t.Fatalf("écriture : %v", err)
 	}
 	_, err = store.Read(context.Background())
-	if err == nil || !strings.Contains(err.Error(), path) {
-		t.Fatalf("un JSON tronqué doit être refusé en nommant le fichier : %v", err)
+	var unreadable *domain.UnreadableBlocksError
+	if !errors.As(err, &unreadable) {
+		t.Fatalf("un JSON tronqué doit être refusé, et de façon interrogeable : %v", err)
+	}
+	// The PATH is not in this error and must not be: whoever opened the file says which
+	// one it was, once. Putting it here too printed it twice in the one sentence a
+	// volunteer reads (`openscale config password`, 02/08/2026).
+	if strings.Contains(err.Error(), path) {
+		t.Errorf("l'erreur nomme le fichier, que l'appelant nomme déjà : %v", err)
 	}
 }
 
@@ -327,11 +334,26 @@ func TestReadRefusesAFileWhoseBlockFellBackOnTheFactoryOne(t *testing.T) {
 		t.Fatalf("un fichier dont le bloc pricing est illisible a été rendu comme s'il "+
 			"avait été lu : %d tarif(s), coop %q", len(cfg.Pricing.Tiers), cfg.Station.Coop)
 	}
-	if !strings.Contains(err.Error(), path) {
-		t.Errorf("le refus ne nomme pas le fichier : %v", err)
+	var unreadable *domain.UnreadableBlocksError
+	if !errors.As(err, &unreadable) {
+		t.Fatalf("le refus n'est pas interrogeable : ses appelants ne peuvent pas "+
+			"décider ce qu'ils en font : %v", err)
 	}
-	if !strings.Contains(err.Error(), "pricing") {
-		t.Errorf("le refus ne nomme pas le bloc en cause : %v", err)
+	if blocks := unreadable.Blocks(); len(blocks) != 1 || blocks[0] != "pricing" {
+		t.Errorf("le refus nomme %v, attendu [pricing]", blocks)
+	}
+	// The Config comes back ZERO alongside the error, and that is the guard rail that makes
+	// forgetting the error harmless: a caller that ignored it gets nothing usable rather
+	// than the shop's name with the factory grid quietly inside.
+	if cfg.Station.Coop != "" || len(cfg.Pricing.Tiers) != 0 || cfg.Network.Listen != "" {
+		t.Errorf("Read rend une configuration à côté de son erreur : coop %q, %d tarif(s), "+
+			"listen %q", cfg.Station.Coop, len(cfg.Pricing.Tiers), cfg.Network.Listen)
+	}
+	// And the blocks that DID decode travel WITH the error, or no caller could repair
+	// anything from it.
+	if unreadable.Config.Station.Coop != shop.Station.Coop {
+		t.Errorf("l'erreur ne porte pas les blocs lus : coop %q, attendu %q",
+			unreadable.Config.Station.Coop, shop.Station.Coop)
 	}
 	// The shop's file is untouched on disk: refusing to READ it is not refusing to keep it.
 	if onDisk := readRaw(t, path); !strings.Contains(string(onDisk), shop.Station.Coop) {
@@ -391,6 +413,13 @@ func writeWithAnUnreadablePricingBlock(t *testing.T, path string) {
 	}
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		t.Fatalf("écriture : %v", err)
+	}
+
+	// The damage is REAL and lands on pricing alone -- a montage that stopped damaging
+	// anything would leave every test standing on it green for the wrong reason.
+	if _, faults := domain.DecodeConfigBlockByBlock(raw); len(faults) != 1 ||
+		faults[0].Field != "pricing" {
+		t.Fatalf("le bloc pricing n'a pas été abîmé : fautes = %+v", faults)
 	}
 }
 

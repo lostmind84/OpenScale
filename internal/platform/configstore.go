@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"openscale/internal/domain"
@@ -162,7 +161,7 @@ func (s *ConfigStore) Versions(_ context.Context) ([]ConfigVersion, error) {
 		entry := ConfigVersion{Version: version, ModifiedAt: info.ModTime()}
 		// LoadConfig is read directly here, and not through readConfigFile, because a
 		// backup that will not decode is LISTED rather than refused -- readConfigFile's
-		// error is the right answer for the six callers that write the file back, and the
+		// error is the right answer for the callers that write the file back, and the
 		// wrong one for a screen whose whole job is to offer that backup for restoring.
 		// The verdict is the same one, though: documentUnreadable, so « pas d'empreinte »
 		// and « pas de lecture » cannot come to mean two different things.
@@ -289,31 +288,13 @@ func readConfigFile(path string) (domain.Config, error) {
 		return domain.Config{}, err
 	}
 	if documentUnreadable(faults) {
-		// Wrapped so the message names the FILE -- a station has six of them -- while
-		// errors.As still reaches the typed error underneath.
-		return domain.Config{}, fmt.Errorf("%s, et ce qui en tient lieu est la configuration "+
-			"d'usine : %w", unreadablePart(path, faults),
-			&domain.UnreadableBlocksError{Config: cfg, Faults: faults})
+		// The typed error and nothing around it. Wrapping it in a sentence that named the
+		// path put the path TWICE in what an operator read -- once here, once in the caller
+		// that already says which file it was opening -- and exposed the English Error() at
+		// the end of a French phrase. Whoever knows the path says it; this says what it is.
+		return domain.Config{}, &domain.UnreadableBlocksError{Config: cfg, Faults: faults}
 	}
 	return cfg, nil
-}
-
-// unreadablePart names what did not decode, in the French of the two cases §11.3 keeps
-// apart: ONE block of an otherwise sound file, which is repaired in place, and a document
-// that is not JSON at all, which is restored from config.json.1. « le bloc config.json »
-// would be a third thing, and there is no such thing.
-func unreadablePart(path string, faults []domain.Fault) string {
-	blocks := make([]string, 0, len(faults))
-	for _, fault := range faults {
-		if fault.Field == domain.WholeDocumentField {
-			return fmt.Sprintf("%s n'est pas un document JSON exploitable", path)
-		}
-		blocks = append(blocks, fault.Field)
-	}
-	if len(blocks) > 1 {
-		return fmt.Sprintf("%s : les blocs %s n'ont pas pu être lus", path, strings.Join(blocks, ", "))
-	}
-	return fmt.Sprintf("%s : le bloc %s n'a pas pu être lu", path, strings.Join(blocks, ", "))
 }
 
 // documentUnreadable reports whether the decoding faults make the Config that came with

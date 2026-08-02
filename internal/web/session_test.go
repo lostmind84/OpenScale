@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -388,6 +390,14 @@ func damagePricingBlock(t *testing.T, path string) {
 	}
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		t.Fatalf("écriture de %s : %v", path, err)
+	}
+
+	// The damage is REAL and lands on pricing alone. Without this, a montage that stopped
+	// damaging anything would leave every test standing on it green for the wrong reason --
+	// which is exactly what happened to the ManualEntry montage on 02/08/2026.
+	if _, faults := domain.DecodeConfigBlockByBlock(raw); len(faults) != 1 ||
+		faults[0].Field != "pricing" {
+		t.Fatalf("le bloc pricing n'a pas été abîmé : fautes = %+v", faults)
 	}
 }
 
@@ -862,6 +872,11 @@ type savedConfig struct {
 	written  int
 	versions []ConfigVersion
 	saveErr  error
+	// readErr makes Read fail the way a file that EXISTS and cannot be opened fails --
+	// a permission, an I/O error, a mount that went away. It is deliberately NOT
+	// fs.ErrNotExist: that one says the file is gone, and is the only case where writing
+	// what memory holds destroys nothing.
+	readErr error
 }
 
 // Read hands back the document this store holds, which stands in for the file. A store
@@ -870,6 +885,9 @@ type savedConfig struct {
 func (s *savedConfig) Read(context.Context) (domain.Config, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.readErr != nil {
+		return domain.Config{}, s.readErr
+	}
 	if s.written == 0 {
 		return domain.Config{}, errNoConfigFile
 	}
@@ -914,6 +932,55 @@ func (s *savedConfig) saved() domain.Config {
 var errNoSuchVersion = errors.New("version inconnue")
 
 // errNoConfigFile is what a store answers before anything was written to it.
-var errNoConfigFile = errors.New("aucun fichier de configuration")
+//
+// It wraps fs.ErrNotExist because that is what it MEANS -- « il n'y a pas de fichier » --
+// and because recoverSession tells that case apart from « le fichier est là et illisible »:
+// the first is the one where writing what memory holds destroys nothing, the second is
+// where it would replace the shop's configuration with the factory one.
+var errNoConfigFile = fmt.Errorf("aucun fichier de configuration : %w", fs.ErrNotExist)
 
 var _ ConfigStore = (*savedConfig)(nil)
+
+// TestARescueDoesNotOverwriteAFileItCouldNotOpen closes a blind spot OLDER than the
+// block-by-block decode, found while fixing the one next to it.
+//
+// A file that EXISTS and will not open — a permission, an I/O error, a mount that went
+// away — is not a file that is gone. The read failed, `stored` stayed at the configuration
+// in force, and on a station that started out of service that is the neutral profile: the
+// rescue wrote the fourteen factory blocks onto a file it had never managed to read. Same
+// destruction as the typed case, by a road the type does not cover.
+func TestARescueDoesNotOverwriteAFileItCouldNotOpen(t *testing.T) {
+	shop := loadConfig(t)
+	saved := &savedConfig{}
+	if err := saved.Save(context.Background(), shop); err != nil {
+		t.Fatalf("préparation du fichier : %v", err)
+	}
+	// The file is there — it was just written — and now it will not open.
+	saved.readErr = errors.New("accès refusé")
+
+	b := newBench(t, func(o *benchOptions) {
+		o.configStore = saved
+		o.config = func(cfg *domain.Config) { *cfg = domain.NeutralProfile() }
+	})
+	b.setPassword("oublie", "ABCD2345")
+
+	response := b.post("/admin/api/session/recovery", `{"code":"ABCD2345","password":"nouveau-mot"}`)
+	got := decodeStatus[sessionDTO](t, response, http.StatusOK)
+
+	written := saved.saved()
+	if written.Station.Coop != shop.Station.Coop {
+		t.Errorf("station.coop = %q, attendu %q : le profil d'usine a été écrit sur un "+
+			"fichier que le poste n'a pas su lire", written.Station.Coop, shop.Station.Coop)
+	}
+	if got, want := len(written.Pricing.Tiers), len(shop.Pricing.Tiers); got != want {
+		t.Errorf("%d tarif(s) au lieu de %d : la grille du magasin a été remplacée", got, want)
+	}
+	// The door opens anyway — refusing would leave this station with no way in at all —
+	// and it says what is not saved.
+	if got.Warning == "" {
+		t.Error("la session s'ouvre sans dire que le mot de passe n'est pas enregistré")
+	}
+	if !VerifySecret(b.hub.Config().Admin.PasswordHash, "nouveau-mot") {
+		t.Error("le nouveau mot de passe n'est pas en service")
+	}
+}

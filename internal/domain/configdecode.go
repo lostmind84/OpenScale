@@ -91,6 +91,60 @@ func (e *UnreadableBlocksError) Names(block string) bool {
 	return false
 }
 
+// The three French fragments below exist so that every sentence a human reads about an
+// unreadable block AGREES IN NUMBER, and agrees the same way everywhere.
+//
+// Error() stays English -- Go convention, and RetiredKeysError does the same: a Go error
+// string is read by developers and by logs. These are what goes on a screen and into a
+// terminal a volunteer is looking at, and until 02/08/2026 the two were the same string,
+// so `openscale config password` ended a French sentence with « domain: config block(s)
+// did not decode: pricing ».
+//
+// Fragments and not one finished sentence, because the four places that say this say four
+// different things -- refusing to reload, refusing to restore, refusing to persist a
+// rescue, refusing to rewrite the file -- and only the agreement is common. Two blocks is
+// the ORDINARY case of an old file whose two fields changed type, which is the subject of
+// this whole lot, so the plural is not an edge to be handled later.
+
+// BlockPhrase names the unreadable blocks, with their determiner agreed: « le bloc
+// « pricing » », « les blocs « pricing », « catalog » ». A whole document that did not
+// decode has no block to name and says so.
+func (e *UnreadableBlocksError) BlockPhrase() string {
+	if e.Names(WholeDocumentField) {
+		return "le document"
+	}
+	quoted := make([]string, 0, len(e.Faults))
+	for _, fault := range e.Faults {
+		quoted = append(quoted, "« "+fault.Field+" »")
+	}
+	if len(quoted) > 1 {
+		return "les blocs " + strings.Join(quoted, ", ")
+	}
+	return "le bloc " + strings.Join(quoted, ", ")
+}
+
+// NotRead is the verb that follows BlockPhrase, agreed with it.
+func (e *UnreadableBlocksError) NotRead() string {
+	if len(e.Faults) > 1 && !e.Names(WholeDocumentField) {
+		return "n'ont pas pu être lus"
+	}
+	return "n'a pas pu être lu"
+}
+
+// InTheirPlace is the possessive that designates what stands where those blocks should be.
+func (e *UnreadableBlocksError) InTheirPlace() string {
+	if len(e.Faults) > 1 && !e.Names(WholeDocumentField) {
+		return "à leur place"
+	}
+	return "à sa place"
+}
+
+// UserMessage is the whole sentence, in French, for a caller that has nothing to add to it.
+func (e *UnreadableBlocksError) UserMessage() string {
+	return fmt.Sprintf("%s %s, et ce qui en tient lieu est la configuration d'usine",
+		e.BlockPhrase(), e.NotRead())
+}
+
 // joinFields lists the fields of some faults, comma separated.
 func joinFields(faults []Fault) string {
 	out := make([]string, 0, len(faults))

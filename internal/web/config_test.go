@@ -434,7 +434,7 @@ func writeFileOf(t *testing.T, saved *savedConfig, cfg domain.Config) {
 
 // --- Un fichier dont un bloc n'a pas décodé, porte par porte -----------------
 //
-// The six callers of ConfigStore.Read do three different things with the file, and each
+// The callers of ConfigStore.Read do three different things with the file, and each
 // needs its own answer. One flat verdict for all of them is what produced a defect in each
 // direction on 02/08/2026 (domain.UnreadableBlocksError). One test per door, below.
 
@@ -550,4 +550,74 @@ func TestSavingOverAFileWithAnUnreadableBlockKeepsTheCatalogPassword(t *testing.
 		t.Error("le compte WebDAV du producteur a été effacé par un enregistrement qui ne " +
 			"le concernait pas")
 	}
+}
+
+// TestAnUnconfirmedRestorationOverAnUnreadableBlockPutsTheShopsFileBack is the ROLLBACK
+// door, and the one whose failure nobody is standing in front of.
+//
+// The restoration arms the sixty-second countdown of §11.4, and what the countdown writes
+// back is FileBefore. Leaving it nil — which is what a read treated as a plain failure
+// does — makes the rollback fall back on the configuration IN SERVICE, and on a station
+// that started out of service that is the neutral profile. The shop's file is therefore
+// overwritten with the factory one a full minute after the volunteer walked away, with
+// nothing on any screen.
+//
+// Everything is real: a file on disk, a platform.ConfigStore, the station's own rollback.
+func TestAnUnconfirmedRestorationOverAnUnreadableBlockPutsTheShopsFileBack(t *testing.T) {
+	b, path, shop := benchOverADamagedFile(t, nil)
+	// A backup that differs on the HARDWARE, so the restoration arms a countdown at all.
+	backup := reread(t, shop)
+	backup.Scale.Options["port"] = json.RawMessage(`"COM9"`)
+	writeRawConfig(t, path+".1", backup)
+	b.setPassword("mot-de-passe-long", "ABCD2345")
+	b.login("mot-de-passe-long")
+
+	restored := decodeStatus[configDTO](t,
+		b.post("/admin/api/config/restore", `{"version":1}`), http.StatusOK)
+	if restored.Pending == nil {
+		t.Fatal("restaurer une version qui change le matériel n'arme aucun compte à rebours")
+	}
+
+	// Nobody confirms.
+	b.advance(61 * time.Second)
+	written := awaitFileWithout(t, b, path, "COM9")
+
+	if written.Station.Coop != shop.Station.Coop {
+		t.Errorf("station.coop = %q, attendu %q : le retour arrière a écrit le profil "+
+			"d'usine sur le fichier du magasin, soixante secondes après",
+			written.Station.Coop, shop.Station.Coop)
+	}
+	if written.Catalog.Type != shop.Catalog.Type {
+		t.Errorf("catalog.type = %q, attendu %q : la source du catalogue a été remplacée "+
+			"par le retour arrière", written.Catalog.Type, shop.Catalog.Type)
+	}
+	if written.Limits.BasketMin != shop.Limits.BasketMin {
+		t.Errorf("limits.basket_min = %v, attendu %v : les garde-fous ont été remplacés",
+			written.Limits.BasketMin, shop.Limits.BasketMin)
+	}
+}
+
+// awaitFileWithout waits until the file on disk no longer carries the unconfirmed port,
+// which is what says the rollback has run, and returns it decoded the way a station decodes
+// it.
+func awaitFileWithout(t *testing.T, b *bench, path, unconfirmedPort string) domain.Config {
+	t.Helper()
+	deadline := time.Now().Add(hang)
+	for time.Now().Before(deadline) {
+		// A transient read failure is EXPECTED here and is not the answer: §11.4 replaces
+		// the file by renaming a temporary over it, and on Windows that window is an open
+		// that fails. Polling through it is what makes this test about the rollback rather
+		// than about the atomic write beside it.
+		if raw, err := os.ReadFile(path); err == nil {
+			written, _ := domain.DecodeConfigBlockByBlock(raw)
+			if port, declared := written.Scale.Options.Text("port"); !declared || port != unconfirmedPort {
+				return written
+			}
+		}
+		b.clock.Advance(time.Second)
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("le fichier porte encore la configuration non confirmée : le retour arrière ne " +
+		"l'a jamais réécrit, et le prochain démarrage repartirait dessus")
+	return domain.Config{}
 }

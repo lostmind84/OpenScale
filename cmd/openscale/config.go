@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"openscale/internal/domain"
@@ -78,13 +79,13 @@ func runConfig(args []string, in io.Reader, out io.Writer) error {
 		return validateConfig(out, path, cfg, notes, decodeFaults)
 	case "export":
 		if err := refuseWhatWasNotRead(path, decodeFaults,
-			"l'export emporterait la configuration d'usine à sa place vers les autres postes"); err != nil {
+			"l'export emporterait la configuration d'usine %s vers les autres postes"); err != nil {
 			return err
 		}
 		return exportConfig(out, cfg, *hardware, *output)
 	case "fingerprint":
 		if err := refuseWhatWasNotRead(path, decodeFaults,
-			"l'empreinte porterait sur la configuration d'usine à sa place, et les huit "+
+			"l'empreinte porterait sur la configuration d'usine %s, et les huit "+
 				"caractères que les postes comparent ne diraient plus rien de ce fichier"); err != nil {
 			return err
 		}
@@ -207,28 +208,63 @@ func reportPendingMigrations(out io.Writer, path string, notes []domain.Migratio
 //
 // `validate` is not in this list and must not be: its job is precisely to NAME the faults,
 // so it reports them rather than refusing to look.
+//
+// consequence carries ONE %s, filled with the possessive agreed with the number of blocks:
+// « à sa place » for one, « à leur place » for two, which is the ordinary case of an old
+// file whose two fields changed type.
 func refuseWhatWasNotRead(path string, faults []domain.Fault, consequence string) error {
 	if len(faults) == 0 {
 		return nil
 	}
-	return &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf(
-		"%s : %s. Corrigez-le, ou repartez de %s.1, la version d'avant",
-		unreadablePart(path, faults), consequence, path)}
+	unreadable := &domain.UnreadableBlocksError{Faults: faults}
+	return &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf("%s : %s. %s",
+		unreadablePart(path, faults), fmt.Sprintf(consequence, unreadable.InTheirPlace()),
+		wayOut(path))}
 }
 
-// unreadablePart names what did not decode, in the French of the two cases §11.3 keeps
-// apart: ONE block of an otherwise sound file, which is repaired in place, and a document
-// that is not JSON at all, which is restored from config.json.1. « le bloc config.json »
-// would be a third thing, and there is no such thing.
+// unreadablePart names what did not decode AND the file it was in, in French, agreed in
+// number.
+//
+// The agreement itself is not decided here: domain.UnreadableBlocksError owns it, so that
+// this sentence and the four the administration screen writes cannot come to disagree —
+// which they already had, « les blocs pricing, catalog ne s'y lit pas ». The two cases
+// §11.3 keeps apart stay apart: ONE block of an otherwise sound file is repaired in place,
+// a document that is not JSON at all is restored from config.json.1.
 func unreadablePart(path string, faults []domain.Fault) string {
-	blocks := make([]string, 0, len(faults))
-	for _, fault := range faults {
-		if fault.Field == domain.WholeDocumentField {
-			return fmt.Sprintf("%s n'est pas un document JSON exploitable", path)
-		}
-		blocks = append(blocks, fault.Field)
+	unreadable := &domain.UnreadableBlocksError{Faults: faults}
+	if unreadable.Names(domain.WholeDocumentField) {
+		return fmt.Sprintf("%s n'est pas un document JSON exploitable", path)
 	}
-	return fmt.Sprintf("le bloc %s de %s n'a pas pu être lu", strings.Join(blocks, ", "), path)
+	return fmt.Sprintf("%s de %s %s", unreadable.BlockPhrase(), path, unreadable.NotRead())
+}
+
+// wayOut names the one gesture that gets a station out of this, by the BASE NAME of the
+// backup and not by its whole path.
+//
+// The path is already in the sentence this follows, and a station's config.json sits at
+// C:\ProgramData\OpenScale — printing it twice made the useful half of a message a
+// volunteer has to read scroll off a console line. Naming the file they will look for,
+// beside the one they already know about, says the same thing in eight characters.
+func wayOut(path string) string {
+	return fmt.Sprintf("Corrigez-le, ou repartez de %s, la version d'avant rangée à côté",
+		filepath.Base(path)+".1")
+}
+
+// readFailure is the WHOLE sentence, in French, saying why a configuration file could not
+// be read — the path exactly once, and nothing in English at the end of it.
+//
+// It exists because `%w` on a typed error puts its Error() — English, by Go convention —
+// at the end of a phrase a volunteer is reading. Measured on `openscale config password`
+// before this: « le fichier de configuration …/config.json ne peut pas être lu :
+// …/config.json : le bloc pricing n'a pas pu être lu, … : domain: config block(s) did not
+// decode: pricing ». The path twice, and the last clause in another language.
+func readFailure(path string, err error) string {
+	var unreadable *domain.UnreadableBlocksError
+	if errors.As(err, &unreadable) {
+		return fmt.Sprintf("%s, et ce qui en tient lieu est la configuration d'usine. %s",
+			unreadablePart(path, unreadable.Faults), wayOut(path))
+	}
+	return fmt.Sprintf("le fichier de configuration %s ne peut pas être lu : %v", path, err)
 }
 
 // minPasswordLength is the floor POST /admin/api/session/recovery already holds (§14.4).
@@ -253,7 +289,7 @@ func setAdminPassword(in io.Reader, out io.Writer, path string) error {
 	ctx := context.Background()
 	cfg, err := store.Read(ctx)
 	if err != nil {
-		return fmt.Errorf("le fichier de configuration %s ne peut pas être lu : %w", path, err)
+		return errors.New(readFailure(path, err))
 	}
 
 	fmt.Fprintf(out, "Nouveau mot de passe d'administration pour %s\n"+
@@ -300,7 +336,7 @@ func mintRecoveryCode(out io.Writer, path string) error {
 	ctx := context.Background()
 	cfg, err := store.Read(ctx)
 	if err != nil {
-		return fmt.Errorf("le fichier de configuration %s ne peut pas être lu : %w", path, err)
+		return errors.New(readFailure(path, err))
 	}
 	replacing := cfg.Admin.RecoveryCodeHash != ""
 
@@ -467,8 +503,9 @@ func migrateConfig(out io.Writer, path string) error {
 		}
 		return &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf(
 			"%s : le fichier n'est pas modifié, le réécrire poserait la configuration d'usine "+
-				"à sa place. Corrigez-le, puis relancez la migration",
-			unreadablePart(path, decodeFaults))}
+				"%s. Corrigez-le, puis relancez la migration",
+			unreadablePart(path, decodeFaults),
+			(&domain.UnreadableBlocksError{Faults: decodeFaults}).InTheirPlace())}
 	}
 
 	store, err := platform.NewConfigStore(path)

@@ -70,8 +70,8 @@ func (s *Server) reloadConfigFromDisk(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, problem{
 			Code: "ERR-CFG-01",
 			Message: "Le fichier n'est pas remis en service : " +
-				blockOrBlocks(unreadable.Blocks()) + " ne s'y lit pas, et le poste tournerait " +
-				"sur la configuration d'usine à sa place.",
+				unreadable.BlockPhrase() + " " + unreadable.NotRead() + ", et le poste " +
+				"tournerait sur la configuration d'usine " + unreadable.InTheirPlace() + ".",
 			Faults: faultsOf(unreadable.Faults),
 		})
 		return

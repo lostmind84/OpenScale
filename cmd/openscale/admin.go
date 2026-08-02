@@ -176,8 +176,10 @@ func (t adminTroubleshooting) ManualEntry(ctx context.Context, on bool) error {
 	if !on {
 		read, err := configForComingBack(ctx, t.file)
 		if err != nil {
+			// The French sentence and not %w: this one lands on the screen of a volunteer
+			// standing at the station, and a typed error's Error() is English.
 			return fmt.Errorf("la configuration de ce poste ne peut pas être relue, "+
-				"la balance déclarée est donc inconnue : %w", err)
+				"la balance déclarée est donc inconnue : %s", readFailure(t.file.Path(), err))
 		}
 		asked = read
 	}

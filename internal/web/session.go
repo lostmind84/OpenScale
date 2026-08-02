@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math/big"
 	"net"
 	"net/http"
@@ -485,6 +486,14 @@ func (s *Server) recoverSession(w http.ResponseWriter, r *http.Request) {
 	// factory blocks onto the file, because `err != nil` fell through to the configuration
 	// in force. So the read blocks are taken, and the write is suspended, exactly as it is
 	// for a retired key below.
+	// A file that EXISTS and cannot be read suspends the write too, whatever the reason --
+	// an I/O error, a permission, a mount that went away. None of those says the file is
+	// gone, and all of them used to leave `stored` at the configuration in force, which is
+	// the same fourteen factory blocks by another road.
+	//
+	// A file that does NOT exist is the one case where writing memory is right: there is
+	// nothing to destroy, and a station whose file was never written still has to be able
+	// to accept a password. That is why the test is on the ABSENCE and not on the error.
 	stored := cfg
 	persist := true
 	var unreadable *domain.UnreadableBlocksError
@@ -494,6 +503,8 @@ func (s *Server) recoverSession(w http.ResponseWriter, r *http.Request) {
 		stored = onDisk
 	case errors.As(readErr, &unreadable):
 		stored = unreadable.Config
+		persist = false
+	case !errors.Is(readErr, fs.ErrNotExist):
 		persist = false
 	}
 	stored.Admin.PasswordHash = hash
@@ -510,20 +521,30 @@ func (s *Server) recoverSession(w http.ResponseWriter, r *http.Request) {
 	// failure to write (a full disk, a read-only mount) is not this case and stays a
 	// hard failure, as it always has.
 	//
-	// A block that did not decode earns the same treatment for the same reason, decided one
-	// step earlier: there, the file would be laundered by a write; here, by values nobody
-	// declared. Both leave the volunteer a way in and both say what is not saved.
+	// A file that could not be READ earns the same treatment for the same reason, decided
+	// one step earlier: there, the file would be laundered by a write; here, it would be
+	// overwritten by values nobody declared. Both leave the volunteer a way in and both say
+	// what is not saved. The two are told apart because only one of them can be repaired by
+	// opening a named block.
 	var warning string
 	switch {
-	case !persist:
+	case unreadable != nil:
 		warning = fmt.Sprintf(
-			"Mot de passe actif, mais NON enregistré : %s du fichier de configuration n'a "+
-				"pas pu être lu, et réécrire le fichier y poserait la configuration d'usine. "+
-				"Il ne survivra pas à un redémarrage tant que le fichier n'est pas corrigé.",
-			blockOrBlocks(unreadable.Blocks()))
+			"Mot de passe actif, mais NON enregistré : %s du fichier de configuration %s, "+
+				"et réécrire le fichier y poserait la configuration d'usine. Il ne survivra "+
+				"pas à un redémarrage tant que le fichier n'est pas corrigé.",
+			unreadable.BlockPhrase(), unreadable.NotRead())
 		s.technical.Technical(domain.LevelError, "config", "ERR-CFG-01",
 			"Mot de passe réinitialisé en mémoire seulement : un bloc du fichier de "+
 				"configuration n'a pas pu être lu.", strings.Join(unreadable.Blocks(), ", "))
+	case !persist:
+		warning = "Mot de passe actif, mais NON enregistré : le fichier de configuration " +
+			"n'a pas pu être lu, et l'écraser remplacerait les réglages du magasin par ceux " +
+			"d'usine. Il ne survivra pas à un redémarrage tant que le fichier n'est pas " +
+			"lisible."
+		s.technical.Technical(domain.LevelError, "config", "ERR-CFG-01",
+			"Mot de passe réinitialisé en mémoire seulement : le fichier de configuration "+
+				"n'a pas pu être lu.", readErr.Error())
 	default:
 		if err := s.configStore.Save(r.Context(), stored); err != nil {
 			var retired *domain.RetiredKeysError

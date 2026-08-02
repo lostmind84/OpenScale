@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"openscale/internal/domain"
@@ -91,10 +90,15 @@ type confirmationDTO struct {
 // with no readable file has left to show.
 //
 // A file only PART of which decoded is served as it was READ — the shop's own blocks, not
-// what memory holds — with the substituted ones NAMED in `unreadable_blocks`. Showing them
-// silently would put the factory tariffs on the screen under the shop's station name, and
-// the save that followed would write them back: the very « détruire » of the paragraph
-// above, arrived by another road.
+// what memory holds — with the substituted ones named in `unreadable_blocks`. Serving them
+// with nothing to distinguish them would put the factory tariffs on the screen under the
+// shop's station name, and the save that followed would write them back: the very
+// « détruire » of the paragraph above, arrived by another road.
+//
+// The field is SERVED, and no screen reads it yet: the banner that would show it is
+// declared not done in SUIVI.md, and `openscale doctor` is what names the block in the
+// meantime. Said plainly here because a comment that implied otherwise would be the only
+// thing standing between a reader and the belief that this case is handled end to end.
 func (s *Server) readConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.hub.Config()
 	var substituted []faultDTO
@@ -512,8 +516,8 @@ func (s *Server) restoreConfig(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, problem{
 			Code: "ERR-CFG-01",
 			Message: "La version " + strconv.Itoa(body.Version) + " existe, mais " +
-				blockOrBlocks(unreadable.Blocks()) + " ne s'y lit pas : la restaurer poserait " +
-				"la configuration d'usine à sa place.",
+				unreadable.BlockPhrase() + " " + unreadable.NotRead() + " : la restaurer " +
+				"poserait la configuration d'usine " + unreadable.InTheirPlace() + ".",
 			Faults: faultsOf(unreadable.Faults),
 		})
 		return
@@ -601,22 +605,6 @@ func faultsOf(faults []domain.Fault) []faultDTO {
 		out = append(out, faultDTO{Field: f.Field, Message: f.Message, Allowed: f.Values})
 	}
 	return out
-}
-
-// blockOrBlocks names unreadable configuration blocks in a sentence a volunteer reads.
-//
-// One helper and not one phrasing per route: these sentences arrive on a screen at the
-// worst moment somebody can meet them, and « le bloc pricing, catalog » — which is what a
-// join alone produces — reads like a defect in the message rather than a defect in the
-// file. The whole document failing names itself, and there is no block to speak of.
-func blockOrBlocks(blocks []string) string {
-	if len(blocks) == 1 && blocks[0] == domain.WholeDocumentField {
-		return "le document"
-	}
-	if len(blocks) > 1 {
-		return "les blocs " + strings.Join(blocks, ", ")
-	}
-	return "le bloc " + strings.Join(blocks, ", ")
 }
 
 // changedBlocks names the blocks two configurations disagree about, by the SAME

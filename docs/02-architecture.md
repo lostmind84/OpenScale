@@ -3072,7 +3072,7 @@ flowchart TD
 
 | Appelant | Ce qu'il fait du fichier | Son verdict |
 |---|---|---|
-| `GET /admin/api/config` | l'affiche | montre les blocs **lus**, et nomme les substitués dans `unreadable_blocks` |
+| `GET /admin/api/config` | l'affiche | montre les blocs **lus**, et nomme les substitués dans `unreadable_blocks` — **champ servi, qu'aucun écran ne lit encore** (le bandeau est recensé non fait dans `SUIVI.md` ; `openscale doctor` nomme le bloc en attendant) |
 | Récupération par code de secours | le réécrit entier | repart des blocs **lus**, **ne persiste pas**, ouvre la session avec un avertissement |
 | `PUT /admin/api/config`, restauration | le réécrit | s'en sert comme référence — garde « clé retirée », report du mot de passe du catalogue, cible du retour arrière de 60 s |
 | `POST /admin/api/config/reload` | le met en service | **refuse**, en nommant le bloc |

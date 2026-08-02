@@ -63,8 +63,8 @@ le seul geste qui existe pour sauver ce poste. La leçon n'est pas le sens du ch
 qu'il n'y en avait pas un seul à faire : **« je n'ai pas pu tout lire » a trois réponses**,
 selon qu'on **affiche** le fichier, qu'on le **réécrit** ou qu'on n'en lit **qu'un bloc**.
 `domain.UnreadableBlocksError` porte donc la `Config` telle qu'elle a été lue et nomme les
-blocs qui ne l'ont pas été, et les sept appelants tranchent chacun par `errors.As` — la
-table est en §11.6. Ce qui l'avait caché : le test de secours passait par un double en
+blocs qui ne l'ont pas été, et chaque appelant tranche par `errors.As` selon ce qu'il fait
+du fichier — la table est en §11.6, et c'est le seul endroit où elle est écrite. Ce qui l'avait caché : le test de secours passait par un double en
 mémoire qui ne refuse jamais, si bien qu'il est resté vert tout du long ; il en existe
 maintenant un sur un **vrai fichier et un vrai store**, et un par porte corrigée. Le démarrage **n'écrit toujours pas** : seule `openscale config migrate` —
 lancée à la main ou par `update.ps1`/`update.sh` une fois le poste debout, sur le
