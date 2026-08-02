@@ -416,13 +416,24 @@ func quote(s string) string {
 // setPassword puts a REAL argon2id hash in the running configuration, so that a test
 // can log in. The shipped file carries a placeholder on purpose: nobody knows the
 // password of a station that has not been installed.
+//
+// The cost is the LOWEST argon2id takes, and that is not a corner cut. VerifySecret
+// reads m, t and p back FROM THE STORED STRING — that is what
+// TestVerificationReadsTheCostFromTheStoredHash states — so a hash written cheaply
+// here is verified just as cheaply, while HashSecret, the one an installed station
+// calls, keeps the 64 MiB that TestArgon2idRoundTrip pins.
+//
+// What it buys: at the delivered cost, the thirty-four mountings of this package and
+// the logins that follow them spent 26 of the 30 seconds `go test -race ./internal/web`
+// took. A key derivation is EXPENSIVE ON PURPOSE; paying that price once per test is
+// paying for a guarantee no test is asking for.
 func (b *bench) setPassword(password, recovery string) {
 	b.t.Helper()
-	hash, err := HashSecret(password)
+	hash, err := hashWithCost(password, 8, 1, 1)
 	if err != nil {
 		b.t.Fatalf("hachage : %v", err)
 	}
-	recoveryHash, err := HashSecret(recovery)
+	recoveryHash, err := hashWithCost(recovery, 8, 1, 1)
 	if err != nil {
 		b.t.Fatalf("hachage : %v", err)
 	}
