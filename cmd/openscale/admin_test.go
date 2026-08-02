@@ -729,15 +729,20 @@ func withPassword(cfg *domain.Config) {
 const benchPassword = "un-mot-de-passe-de-banc-2026"
 
 // argon2idHash writes one PHC string the session store can verify.
+//
+// The cost is the lowest argon2id takes, not the one an installed station writes:
+// web.VerifySecret reads m, t and p back from the string it is given, so the bench
+// pays for the FORMAT — which is what these tests are about — and not for the seconds
+// of key derivation that protect a password nobody is attacking here.
 func argon2idHash(secret string) string {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
 		panic("tirage du sel impossible : " + err.Error())
 	}
 	const (
-		memory     = 64 * 1024
-		iterations = 3
-		threads    = 2
+		memory     = 8
+		iterations = 1
+		threads    = 1
 		keyLength  = 32
 	)
 	key := argon2.IDKey([]byte(secret), salt, iterations, memory, threads, keyLength)
