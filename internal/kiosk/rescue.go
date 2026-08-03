@@ -74,7 +74,7 @@ func fileURL(path string) string {
 // metres away.
 func rescueHTML(reason RescueReason, address string, shortLives int) string {
 	title := rescueTitle(reason)
-	message, instruction := "", ""
+	var message, instruction string
 	switch reason {
 	case RescueCrashLoop:
 		message = CodeCrashLoop + " — l'affichage n'arrive pas à rester ouvert " +

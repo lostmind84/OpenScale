@@ -15,6 +15,14 @@ import (
 	"openscale/internal/scale/serial"
 )
 
+// The `openscale capture` subcommand: what it measures, what it prints, and what it
+// refuses. It is the instrument of unknown n° 3 of §21 — the real emission cadence of
+// the scale — so the assertions are about the OBSERVED median and the stable ratio.
+//
+// The serial port it listens to is a double, in scriptedstream_test.go; the file it
+// writes is asserted in corpuswriter_test.go, and the French units of its summary in
+// report_test.go.
+
 // captureStart is the instant every capture test begins at. A fixed one, because the
 // clock is INJECTED and nothing here has any business reading the real one.
 var captureStart = time.Date(2026, 7, 25, 9, 30, 0, 0, time.UTC)
@@ -30,105 +38,6 @@ const (
 	// test that used it could not tell a measurement from a default.
 	cadence = 412 * time.Millisecond
 )
-
-// --- the port ---------------------------------------------------------------------
-
-// scriptedRead is one answer of a scripted port: how long the read took, what it
-// hands back, and whether it fails.
-type scriptedRead struct {
-	after time.Duration
-	data  string
-	err   error
-}
-
-// scriptedStream is the io.ReadCloser a test hands back instead of a serial port.
-//
-// Every read ADVANCES THE INJECTED CLOCK by the delay the script gives it, which is
-// what lets a thirty-minute capture be exercised in microseconds and without a single
-// time.Sleep: the instants the capture records are the ones the script decided, and
-// the cadence it measures is the one the script emitted at.
-type scriptedStream struct {
-	clock  *fake.Clock
-	script []scriptedRead
-	at     int
-	closes int
-	// silence is what the stream does once the script runs dry: it comes back with no
-	// byte and no error, which is what a real port does between two frames, and it is
-	// what lets the capture reach its deadline.
-	silence time.Duration
-	// endErr, when set, is what the port answers instead of staying silent -- a cable
-	// pulled in the middle of a measurement campaign.
-	endErr error
-	// link is the last set of options the opener was handed, and opens counts how many
-	// times it was called at all.
-	//
-	// A double that IGNORED its options cannot tell a caller which built a usable link
-	// from one which handed over a struct with no bitrate, no parity and no stop bits --
-	// and a real port refuses the second before it touches the device. Recording them is
-	// what makes that assertion possible; internal/scale/gramxfoc does the same with the
-	// port name.
-	link  serial.Options
-	opens int
-}
-
-// newScriptedStream returns a port that answers these reads, in order, and then goes
-// quiet one read timeout at a time.
-func newScriptedStream(clock *fake.Clock, script ...scriptedRead) *scriptedStream {
-	return &scriptedStream{clock: clock, script: script, silence: time.Second}
-}
-
-// emitting returns a port that sends count frames at the nominal cadence of the
-// script, marking the frames at the given ranks unstable.
-func emitting(clock *fake.Clock, count int, unstableRanks ...int) *scriptedStream {
-	unstable := make(map[int]bool, len(unstableRanks))
-	for _, rank := range unstableRanks {
-		unstable[rank] = true
-	}
-	script := make([]scriptedRead, 0, count)
-	for rank := 1; rank <= count; rank++ {
-		frame := nominalFrame
-		if unstable[rank] {
-			frame = unstableFrame
-		}
-		script = append(script, scriptedRead{after: cadence, data: frame})
-	}
-	return newScriptedStream(clock, script...)
-}
-
-func (s *scriptedStream) Read(buffer []byte) (int, error) {
-	if s.at >= len(s.script) {
-		s.clock.Advance(s.silence)
-		return 0, s.endErr
-	}
-	read := s.script[s.at]
-	s.at++
-	s.clock.Advance(read.after)
-	return copy(buffer, read.data), read.err
-}
-
-func (s *scriptedStream) Close() error {
-	s.closes++
-	return nil
-}
-
-// opener is the seam capture is injected through: a serial port cannot be opened by
-// `go test`, so the whole command is exercised through this.
-//
-// It KEEPS what it was handed, so that a test can assert on the link a caller built and
-// not only on the bytes it read back.
-func (s *scriptedStream) opener() serial.Opener {
-	return func(o serial.Options) (io.ReadCloser, error) {
-		s.link = o
-		s.opens++
-		return s, nil
-	}
-}
-
-// refusingOpener is a port that is not there: the commonest failure of the bench, and
-// the one a volunteer meets when the adapter is on another COM number.
-func refusingOpener(err error) serial.Opener {
-	return func(serial.Options) (io.ReadCloser, error) { return nil, err }
-}
 
 // --- the bench --------------------------------------------------------------------
 
@@ -319,54 +228,6 @@ func TestCaptureDumpsHexadecimalAndText(t *testing.T) {
 		t.Errorf("les octets non imprimables ne sont pas rendus par un point :\n%s", screen)
 	}
 	requireLine(t, screen, "1 +0,412 s 1,236 kg stable")
-}
-
-// TestCaptureFileIsSelfDescribing: a capture outlives the session that produced it.
-// It lands in the living corpus months later, or inside a diagnostic.zip with no
-// context at all, and it has to say which port, which link settings and which day it
-// came from.
-func TestCaptureFileIsSelfDescribing(t *testing.T) {
-	clock := fake.NewClock(captureStart)
-	_, file, _ := runCaptureOnScript(t, emitting(clock, 3), clock, 5*time.Second, true)
-
-	const wantHeader = "# openscale capture — COM8 · 9600 bauds 8N1 · 2026-07-25T09:30:00Z · durée demandée 5s"
-	if !strings.HasPrefix(file, wantHeader) {
-		t.Errorf("en-tête inattendu :\n%s", file)
-	}
-	for _, want := range []string{
-		"# Corpus vivant (§15.4)",
-		"# Toute ligne commençant par # est un commentaire.",
-	} {
-		if !strings.Contains(file, want) {
-			t.Errorf("le fichier ne se décrit pas : %q absent de\n%s", want, file)
-		}
-	}
-}
-
-// TestCaptureKeepsAnUnterminatedFrameAsAComment: a fragment is not a frame. Writing
-// "ST,GS,+  1.2" as a line of the corpus would add a frame no scale ever sent to the
-// permanent tests, and turning a truncated frame into a mass is the one thing
-// frame.Parse exists to refuse. It is kept, quoted, because it is evidence.
-func TestCaptureKeepsAnUnterminatedFrameAsAComment(t *testing.T) {
-	clock := fake.NewClock(captureStart)
-	stream := newScriptedStream(clock,
-		scriptedRead{after: cadence, data: nominalFrame},
-		scriptedRead{after: cadence, data: "ST,GS,+  1.2"},
-	)
-	_, file, path := runCaptureOnScript(t, stream, clock, 5*time.Second, true)
-
-	if !strings.Contains(file, `# fin de capture, trame incomplète et donc NON rejouée : "ST,GS,+  1.2"`) {
-		t.Errorf("le reliquat n'a pas été conservé en commentaire :\n%s", file)
-	}
-	if strings.Contains(file, "@412 ST,GS,+  1.2\n") {
-		t.Errorf("le reliquat a été écrit comme une trame :\n%s", file)
-	}
-	// And replaying it back decodes the one frame that was whole, and only that one.
-	var out bytes.Buffer
-	if err := runReplay([]string{path, "--quiet"}, &out); err != nil {
-		t.Fatalf("runReplay : %v", err)
-	}
-	requireLine(t, out.String(), "1 trame décodée sur 1 ligne, 0 resynchronisation")
 }
 
 // TestCaptureNeverReconnects is the one place capture departs from the production
@@ -569,71 +430,6 @@ func TestRunCaptureRefusesBeforeTouchingTheHardware(t *testing.T) {
 	}
 }
 
-// TestFrenchNumbersUseIntegerArithmetic: no float ever reaches this application, and a
-// percentage on a diagnostic screen is no reason to introduce the first one.
-func TestFrenchNumbersUseIntegerArithmetic(t *testing.T) {
-	percents := []struct {
-		part, whole int
-		want        string
-	}{
-		{10, 12, "83,3 %"},
-		{100, 100, "100,0 %"},
-		{0, 7, "0,0 %"},
-		{1, 3, "33,3 %"},
-		{1, 0, "—"},
-	}
-	for _, c := range percents {
-		if got := percent(c.part, c.whole); got != c.want {
-			t.Errorf("percent(%d, %d) = %q, want %q", c.part, c.whole, got, c.want)
-		}
-	}
-
-	durations := []struct {
-		d              time.Duration
-		milli, seconds string
-	}{
-		{412 * time.Millisecond, "412 ms", "0,4 s"},
-		{2400 * time.Millisecond, "2400 ms", "2,4 s"},
-		{5 * time.Second, "5000 ms", "5 s"},
-		{0, "0 ms", "0 s"},
-	}
-	for _, c := range durations {
-		if got := millis(c.d); got != c.milli {
-			t.Errorf("millis(%s) = %q, want %q", c.d, got, c.milli)
-		}
-		if got := secondsLabel(c.d); got != c.seconds {
-			t.Errorf("secondsLabel(%s) = %q, want %q", c.d, got, c.seconds)
-		}
-	}
-
-	offsets := []struct {
-		d    time.Duration
-		want string
-	}{
-		{0, "+0,000 s"},
-		{412 * time.Millisecond, "+0,412 s"},
-		{75 * time.Second, "+75,000 s"},
-		{-2 * time.Millisecond, "-0,002 s"},
-	}
-	for _, c := range offsets {
-		if got := offsetLabel(c.d); got != c.want {
-			t.Errorf("offsetLabel(%s) = %q, want %q", c.d, got, c.want)
-		}
-	}
-}
-
-// TestObservationsLabelSaysWhichIntervalsTheMedianRestsOn. RateMeter remembers the
-// LAST 64 intervals, so on a thirty-minute capture the median is a recent one and not
-// the median of the session. Saying « sur 64 intervalles » flat would be a quiet lie.
-func TestObservationsLabelSaysWhichIntervalsTheMedianRestsOn(t *testing.T) {
-	if got := observationsLabel(11); got != "sur 11 intervalles" {
-		t.Errorf("observationsLabel(11) = %q", got)
-	}
-	if got := observationsLabel(64); got != "sur les 64 derniers intervalles" {
-		t.Errorf("observationsLabel(64) = %q", got)
-	}
-}
-
 // TestCaptureUsageIsFrenchAndNamesThePeakHour. The usage is read by whoever runs the
 // binary, and the audience of this project is a cooperative, not a Go developer --
 // and the one instruction that decides whether the measurement is worth anything is
@@ -647,75 +443,6 @@ func TestCaptureUsageIsFrenchAndNamesThePeakHour(t *testing.T) {
 	for _, want := range []string{"EN HEURE DE POINTE", "--duration", "--port", "openscale replay"} {
 		if !strings.Contains(usage, want) {
 			t.Errorf("usage sans %q :\n%s", want, usage)
-		}
-	}
-}
-
-// TestCaptureDoesNotSplitACRLFAcrossTwoLines: a terminator delivered in two reads is
-// still ONE terminator, exactly as frame.Accumulator treats it. The opposite would
-// double the line count of every capture taken on a busy machine.
-func TestCaptureDoesNotSplitACRLFAcrossTwoLines(t *testing.T) {
-	clock := fake.NewClock(captureStart)
-	stream := newScriptedStream(clock,
-		scriptedRead{after: cadence, data: "ST,GS,+  1.236KG\r"},
-		scriptedRead{after: 2 * time.Millisecond, data: "\nST,GS,+  0.850KG\r\n"},
-	)
-	screen, file, _ := runCaptureOnScript(t, stream, clock, 5*time.Second, true)
-
-	requireLine(t, screen, "2 trames décodées sur 2 lignes, 0 resynchronisation")
-	if got := strings.Count(file, "\n"); got != 9 {
-		t.Errorf("%d lignes dans le fichier, 7 de commentaire + 2 de trame attendues :\n%s", got, file)
-	}
-	if !strings.Contains(file, "@0 ST,GS,+  1.236KG\r\n") {
-		t.Errorf("la trame coupée n'a pas été recollée :\n%q", file)
-	}
-}
-
-// failingWriter is a disk that fills up in the middle of a capture.
-type failingWriter struct{ err error }
-
-func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
-
-// TestCorpusWriterGivesUpLoudlyWhenItCannotWrite. A capture that lost frames to a
-// full disk and said nothing would produce a corpus file that LOOKS complete, and the
-// cadence measured from it would be a fiction -- the exact failure the living corpus
-// exists to make impossible.
-func TestCorpusWriterGivesUpLoudlyWhenItCannotWrite(t *testing.T) {
-	_, decoder := benchProtocol(t)
-	writer := &corpusWriter{to: failingWriter{err: errors.New("disque plein")}, cut: decoder}
-	if err := writer.feed([]byte(nominalFrame), captureStart); err == nil {
-		t.Error("une trame perdue n'a pas été signalée")
-	}
-	// A fragment waits for its terminator, so feeding it writes nothing; it is finish
-	// that has to fail on it.
-	if err := writer.feed([]byte("ST,GS,+  1.2"), captureStart); err != nil {
-		t.Errorf("une trame incomplète a été écrite avant son terminateur : %v", err)
-	}
-	if err := writer.finish(); err == nil {
-		t.Error("un reliquat perdu n'a pas été signalé")
-	}
-	if err := writer.header(captureRequest{link: serial.Options{Port: "COM8"}}, captureStart); err == nil {
-		t.Error("un en-tête perdu n'a pas été signalé")
-	}
-}
-
-// Compile-time proof that the scripted port satisfies what an Opener has to return.
-var _ io.ReadCloser = (*scriptedStream)(nil)
-
-// TestScriptedStreamNeverNeedsTheRealClock guards the guard: if this double ever
-// stopped driving the injected clock, every temporal assertion above would silently
-// become a test of nothing.
-func TestScriptedStreamNeverNeedsTheRealClock(t *testing.T) {
-	clock := fake.NewClock(captureStart)
-	stream := emitting(clock, 3)
-	buffer := make([]byte, 64)
-	for i := 1; i <= 3; i++ {
-		n, err := stream.Read(buffer)
-		if err != nil || n == 0 {
-			t.Fatalf("lecture %d : %d octets, %v", i, n, err)
-		}
-		if want := captureStart.Add(time.Duration(i) * cadence); !clock.Now().Equal(want) {
-			t.Fatalf("lecture %d : horloge à %s, %s attendu", i, clock.Now(), want)
 		}
 	}
 }

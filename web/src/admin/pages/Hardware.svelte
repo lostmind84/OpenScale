@@ -2,14 +2,25 @@
   import { onDestroy, onMount } from 'svelte'
   import Act from '../components/Act.svelte'
   import Field from '../components/Field.svelte'
+  import StandingHeader from '../components/StandingHeader.svelte'
   import * as api from '../lib/api'
-  import { AdminError } from '../lib/api'
+  import { AdminError, isCredentialRefusal } from '../lib/api'
   import type { Draft } from '../lib/draft.svelte'
   import type { DetectionDTO, HealthDTO, PortDTO, PrinterDeviceDTO } from '../lib/dto'
+  import { allowedFor, faultOf } from '../lib/faults'
   import { labelOf } from '../lib/fields'
-  import { frenchDateTime, frenchDuration, frenchInteger } from '../lib/format'
-  import type { LightLevel } from '../lib/lights'
+  import { decodedOf, hexOf } from '../lib/frames'
+  import { askLabel, detectLabel, framesCaption, type Listening } from '../lib/listening'
   import type { Admin } from '../lib/session.svelte'
+  import { printerObservation, standingOfPrinter, standingOfScale } from '../lib/standing'
+  import { census } from '../lib/tally'
+  import {
+    DEVICE_HINTS,
+    DEVICE_KEYS,
+    deviceKeyOf,
+    reachElsewhere,
+    transportChoices,
+  } from '../lib/transports'
 
   /**
    * La page Matériel de §14.4 — celle devant laquelle on est assis le jour de la mise en
@@ -87,14 +98,6 @@
     refused: boolean
   }
 
-  /** L'en-tête d'état d'un panneau : un point, un mot, et la phrase qui va avec. */
-  interface Standing {
-    level: LightLevel
-    /** Le mot français que lit un bénévole. Jamais un jeton du service. */
-    word: string
-    detail: string
-  }
-
   /** Pourquoi l'écoute d'un port s'est arrêtée. Le port est nommé : la phrase le cite. */
   interface Halt {
     port: string
@@ -159,63 +162,13 @@
   /** Les trames affichées : celles du port écouté, et d'aucun autre. */
   const shown = $derived(framesPort === port ? frames : [])
 
-  /**
-   * Les trois clés de `printer.options` qui DÉSIGNENT UN APPAREIL (§8.4).
-   *
-   * Elles sont énumérées ici pour deux choses seulement : ouvrir le volet sur celle qu'un
-   * contrôle a refusée, et savoir laquelle le champ d'appareil doit lâcher quand le
-   * transport change. **Laquelle est la bonne n'est jamais décidé ici** : c'est le poste
-   * qui le dit, transport par transport, dans `health.printer_transports`.
-   */
-  const DEVICE_KEYS = ['queue', 'path', 'address']
-
-  /**
-   * La clé sur laquelle la page se rabat quand elle ne peut pas savoir.
-   *
-   * Deux cas, tous deux rares et tous deux honnêtes : un binaire sans registre de
-   * transports, et un fichier nommant un transport que ce poste ne connaît pas. La liste
-   * déroulante dit déjà le second en toutes lettres ; ce que ce repli achète, c'est qu'il
-   * reste un champ à corriger au lieu d'un volet vide.
-   */
-  const DEFAULT_DEVICE_KEY = 'queue'
-
-  /** Ce que chaque clé d'appareil décide, en une phrase de bénévole. */
-  const DEVICE_HINTS: Record<string, string> = {
-    queue: 'Choisissez-la dans la liste ci-dessus : une file mal orthographiée ne s’imprime pas.',
-    path: 'Le nœud d’impression de ce poste, /dev/usb/lp0 ou le lien que la règle udev lui donne.',
-    address:
-      'L’adresse de l’imprimante sur le réseau, 192.168.0.43 — le port 9100 est ajouté s’il manque.',
-  }
-
   /** Les transports que CE POSTE porte, et pour chacun la clé où il fait écrire (§8.4). */
   const transports = $derived(health.printer_transports)
   const transport = $derived(draft.text('printer.options.transport'))
-  /** Vrai quand la configuration nomme un transport que ce poste ne déclare pas. */
-  const transportUnknown = $derived(
-    transport !== '' && !transports.some((candidate) => candidate.id === transport),
-  )
-  /**
-   * Ce que la liste « Transport » propose, la valeur en cours COMPRISE.
-   *
-   * Un `<select>` dont la valeur ne figure dans aucune option se rabat en silence sur la
-   * première : l'écran afficherait « File d'impression Windows » sur un poste réglé sur
-   * autre chose, et le premier geste de qui vient corriger ce réglage serait de le
-   * réenregistrer tel qu'il croit le lire. La valeur inconnue est donc gardée, et nommée.
-   */
-  const transportChoices = $derived(
-    transports.length === 0
-      ? []
-      : [
-          ...(transportUnknown
-            ? [{ value: transport, label: `${transport} — inconnu de ce poste` }]
-            : []),
-          ...transports.map((candidate) => ({ value: candidate.id, label: candidate.label })),
-        ],
-  )
+  /** Ce que la liste « Transport » propose, la valeur en cours COMPRISE. */
+  const choices = $derived(transportChoices(transports, transport))
   /** La clé de `printer.options` que le transport CHOISI lit, et elle seule. */
-  const deviceKey = $derived(
-    transports.find((candidate) => candidate.id === transport)?.key ?? DEFAULT_DEVICE_KEY,
-  )
+  const deviceKey = $derived(deviceKeyOf(transports, transport))
   const devicePath = $derived('printer.options.' + deviceKey)
   /**
    * Les destinations que le transport choisi peut VRAIMENT ouvrir.
@@ -229,21 +182,43 @@
   /** Combien de destinations sont écartées parce qu'un autre transport les lit. */
   const unreachable = $derived(printers.length - reachable.length)
 
-  const scaleStanding = $derived(standingOfScale())
-  const printerStanding = $derived(standingOfPrinter())
-  const framesCaption = $derived(captionOfFrames())
+  const scaleStanding = $derived(standingOfScale(health.scale_present, scale))
+  const printerStanding = $derived(standingOfPrinter(printer))
+
+  /**
+   * Tout ce que les phrases du visualiseur lisent, rassemblé en un objet.
+   *
+   * Elles le prennent ENTIER plutôt que par morceaux : chacune d'elles doit pouvoir dire
+   * « je ne sais pas encore », et une fonction à qui l'on cache la moitié de l'état le
+   * devine au lieu de le lire.
+   */
+  const watch = $derived<Listening>({
+    configRead,
+    declaredWithoutScale,
+    port,
+    listed,
+    portKnown: known(port),
+    halt,
+    acting,
+    framesShown: shown.length,
+    framesKept: FRAMES_KEPT,
+  })
+
+  const caption = $derived(framesCaption(watch))
   /** Ce que le bouton de capture propose, ou rien quand il n'y a rien à demander. */
-  const askLabel = $derived(labelOfAsk())
+  const ask = $derived(askLabel(watch))
+  /** Ce que dit le bouton du balayage, et où il en est. */
+  const detecting = $derived(detectLabel({ acting, listening, scanned, toScan }))
   /** Les réglages série s'ouvrent d'office quand un contrôle a refusé l'un d'eux. */
   const scaleRefused = $derived(
-    faultOf('scale.type') !== '' || faultOf('scale.options.port') !== '',
+    faultOf(draft, 'scale.type') !== '' || faultOf(draft, 'scale.options.port') !== '',
   )
   const printerRefused = $derived(
-    faultOf('printer.type') !== '' ||
-      faultOf('printer.options.transport') !== '' ||
+    faultOf(draft, 'printer.type') !== '' ||
+      faultOf(draft, 'printer.options.transport') !== '' ||
       // Les TROIS clés d'appareil, et pas seulement la file : un refus sur l'adresse
       // laissait le volet fermé sur le champ qu'il fallait corriger.
-      DEVICE_KEYS.some((key) => faultOf('printer.options.' + key) !== ''),
+      DEVICE_KEYS.some((key) => faultOf(draft, 'printer.options.' + key) !== ''),
   )
 
   /**
@@ -509,225 +484,6 @@
     }
   }
 
-  /** Ce que dit le bouton du balayage, et où il en est (« port 2 sur 5 »). */
-  function detectLabel(): string {
-    if (acting !== 'detect') return 'Détecter automatiquement'
-    if (listening) return 'Détection : le port se libère…'
-    if (toScan === 0) return 'Détection : énumération des ports…'
-    return `Détection : port ${frenchInteger(scanned)} sur ${frenchInteger(toScan)}…`
-  }
-
-  /** L'en-tête d'état de la balance : ce que le poste OBSERVE, jamais ce qu'on déclare. */
-  function standingOfScale(): Standing {
-    if (!health.scale_present) {
-      return {
-        level: 'off',
-        word: 'Sans balance',
-        detail:
-          'Ce poste est déclaré sans balance : le feu est éteint et le poids se saisit à la main.',
-      }
-    }
-    if (!scale.connected) {
-      return {
-        level: 'fault',
-        word: 'Sans réponse',
-        detail:
-          'Elle ne répond plus. Vérifiez le câble et l’alimentation, puis « Tester la ' +
-          'balance » sur la page Dépannage.',
-      }
-    }
-    if (scale.too_slow) {
-      return {
-        level: 'warn',
-        word: 'Trop lente',
-        detail:
-          cadence() +
-          ' À cette cadence, un poids serait déclaré périmé avant l’arrivée de la mesure suivante.',
-      }
-    }
-    return { level: 'ok', word: 'Connectée', detail: 'Elle répond. ' + cadence() }
-  }
-
-  /** La cadence OBSERVÉE, et rien quand aucun intervalle n'a encore été mesuré. */
-  function cadence(): string {
-    if (scale.observations_count === 0) {
-      return 'Aucun intervalle n’a encore été mesuré : la cadence sera connue dès les premières trames.'
-    }
-    const measured = `Une mesure toutes les ${frenchDuration(scale.median_ms)} sur ${frenchInteger(
-      scale.observations_count,
-    )} intervalles`
-    return measured + (scale.provisional ? ', cadence encore provisoire.' : '.')
-  }
-
-  /**
-   * L'en-tête d'état de l'imprimante, EN FRANÇAIS.
-   *
-   * `printer.health` vaut `ready`, `consumable`, `faulted` ou `unknown` : quatre jetons
-   * anglais que la page affichait tels quels à un bénévole. Un jeton que cette table ne
-   * connaît pas ne passe pas non plus — il devient « État inconnu », ce qui est la vérité.
-   */
-  function standingOfPrinter(): Standing {
-    const said = PRINTER_STANDINGS[printer.health] ?? {
-      level: 'unknown' as LightLevel,
-      word: 'État inconnu',
-      detail: 'Le poste a répondu un état que cet écran ne sait pas nommer.',
-    }
-    return { ...said, detail: printer.detail === '' ? said.detail : printer.detail }
-  }
-
-  /** Les quatre états que le superviseur d'impression publie (§13.1), et leurs mots. */
-  const PRINTER_STANDINGS: Record<string, Standing> = {
-    ready: {
-      level: 'ok',
-      word: 'Prête',
-      detail: 'Elle répond et n’a rien à signaler.',
-    },
-    consumable: {
-      level: 'warn',
-      word: 'Rouleau en fin de vie',
-      detail: 'Elle imprime, mais le rouleau arrive en fin de vie.',
-    },
-    faulted: {
-      level: 'fault',
-      word: 'En panne',
-      detail: 'Elle ne peut pas imprimer.',
-    },
-    unknown: {
-      level: 'unknown',
-      word: 'Silencieuse',
-      detail:
-        'Elle prend les étiquettes et ne dit rien en retour : c’est la réponse normale ' +
-        'd’une file Windows en RAW ou d’un fichier de périphérique, pas une panne.',
-    },
-  }
-
-  /** Ce que l'imprimante a dit, et QUAND elle l'a dit. */
-  function printerObservation(): string {
-    const when =
-      printer.observed_at === ''
-        ? 'Jamais observée depuis le démarrage'
-        : `Observée le ${frenchDateTime(printer.observed_at)}`
-    const pending = printer.pending_jobs_count
-    return `${when}, ${frenchInteger(pending)} ${pending > 1 ? 'travaux' : 'travail'} en attente.`
-  }
-
-  /** La légende du visualiseur : ce qui est écouté, puis ce qui a été entendu. */
-  function captionOfFrames(): string {
-    const heard = captionOfHeard()
-    return heard === '' ? captionOfListening() : `${captionOfListening()} ${heard}`
-  }
-
-  /**
-   * Ce que la page fait du port, en une phrase — et « je ne sais pas encore » quand c'est
-   * la vérité.
-   *
-   * Tant que la configuration n'est pas arrivée, `port` vaut la chaîne vide parce que la
-   * clé est ABSENTE, et non parce que personne ne l'a renseignée. La page affirmait
-   * « Aucun port n'est indiqué » à trois centimètres de « cette page ne déclare rien de ce
-   * poste ».
-   */
-  function captionOfListening(): string {
-    if (!configRead) {
-      return 'Lecture de la configuration en cours : le port à écouter n’est pas encore connu.'
-    }
-    if (declaredWithoutScale) return 'Ce poste est déclaré sans balance : aucun port n’est écouté.'
-    if (port === '') {
-      return 'Aucun port n’est indiqué : choisissez-en un dans la liste ci-dessus pour écouter les trames.'
-    }
-    if (!listed) {
-      return acting === 'ports'
-        ? `Énumération des ports en cours : l’écoute de ${port} démarre dès qu’il est vu.`
-        : `Les ports de ce poste n’ont pas été énumérés : « Lister les ports » dira si ${port} existe.`
-    }
-    if (!known(port)) {
-      return `${port} n’est pas visible depuis ce poste : rien n’est écouté en continu.`
-    }
-    if (halt !== '') return `L’écoute de ${port} est arrêtée.`
-    if (acting !== '') return `L’écoute de ${port} est suspendue le temps de l’acte en cours.`
-    return `Écoute de ${port}.`
-  }
-
-  /** Ce que le visualiseur montre, accordé à ce qu'il y a vraiment dedans. */
-  function captionOfHeard(): string {
-    if (shown.length === 0) return 'Aucune trame reçue pour l’instant.'
-    // Une balance qui n'émet qu'au posé de sac rend UNE trame par manche : « les 1
-    // dernières trames » est le cas normal de la mise en service, pas un cas limite.
-    if (shown.length === 1) {
-      return `Une seule trame reçue — ${frenchInteger(FRAMES_KEPT)} au plus sont gardées.`
-    }
-    return (
-      `Les ${frenchInteger(shown.length)} dernières trames — ` +
-      `${frenchInteger(FRAMES_KEPT)} au plus, la plus récente en bas.`
-    )
-  }
-
-  /**
-   * Ce que le bouton de capture propose, ou rien quand la boucle tourne toute seule.
-   *
-   * Deux situations le font apparaître, et une seule phrase ne couvre pas les deux : le
-   * poste a REFUSÉ la dernière manche — il faut insister, avec le mot de passe s'il le
-   * faut — ou le port n'est pas énuméré, et l'écoute permanente ne s'en saisira jamais.
-   */
-  function labelOfAsk(): string {
-    if (!configRead || declaredWithoutScale || port === '') return ''
-    if (halt !== '') return 'Reprendre l’écoute'
-    if (listed && !known(port)) return 'Écouter ce port une fois'
-    return ''
-  }
-
-  /**
-   * Le total d'une liste, et son plafond quand elle en a un.
-   *
-   * Aucune liste de cette page n'est servie entière sans le dire : un poste peut porter
-   * trente files d'impression — PDF, OneNote, télécopie — et une liste tronquée en
-   * silence est une liste qui ment.
-   *
-   * @param singular - le nom au singulier, accord compris.
-   * @param plural - le même au pluriel.
-   * @param total - combien il y en a vraiment.
-   */
-  function census(singular: string, plural: string, total: number): string {
-    const head = `${frenchInteger(total)} ${total > 1 ? plural : singular}`
-    if (total <= ROWS_SHOWN) return head + '.'
-    // « lignes » et non le nom compté : l'accord reste juste quel que soit ce qu'on liste.
-    return `${head} — seules les ${frenchInteger(ROWS_SHOWN)} premières lignes sont affichées.`
-  }
-
-  /**
-   * Le libellé du premier transport qui lit cette clé, ou rien.
-   *
-   * Le PREMIER, parce que deux transports peuvent lire la même clé — `devfile` et `file`
-   * lisent tous deux `path` — et que l'ordre du registre est celui de §8.4 : le défaut
-   * d'abord.
-   *
-   * @param key - la clé d'appareil.
-   */
-  function labelOfTransportReading(key: string): string {
-    return transports.find((candidate) => candidate.key === key)?.label ?? ''
-  }
-
-  /**
-   * Ce que dit la ligne des destinations écartées.
-   *
-   * Un compte tout seul — « 4 destinations ne sont pas proposées » — laisse chercher ; ce
-   * qui fait gagner du temps est le nom du réglage à changer, dans les mots mêmes de la
-   * liste déroulante qui est juste en dessous.
-   */
-  function reachElsewhere(): string {
-    const elsewhere = [
-      ...new Set(
-        printers
-          .filter((device) => device.key !== deviceKey)
-          .map((device) => labelOfTransportReading(device.key)),
-      ),
-    ].filter((label) => label !== '')
-    const count = `${frenchInteger(unreachable)} ${
-      unreachable > 1 ? 'destinations ne sont pas proposées' : 'destination n’est pas proposée'
-    }`
-    if (elsewhere.length === 0) return `${count} : aucun transport de ce poste ne les lit.`
-    return `${count} : choisissez « ${elsewhere.join(' » ou « ')} » pour les voir.`
-  }
-
   /**
    * Ce qu'un champ propose en autocomplétion, PLAFONNÉ.
    *
@@ -741,64 +497,8 @@
    * @param detected - les noms que le poste a détectés, quand il en a détecté.
    */
   function suggestions(path: string, detected: string[]): string[] {
-    const named = allowedFor(path)
+    const named = allowedFor(draft, path)
     return named.length > 0 ? named : detected.slice(0, ROWS_SHOWN)
-  }
-
-  /** Les octets d'une trame, en hexadécimal : ce qu'un support demande d'abord. */
-  function hexOf(frame: string): string {
-    return [...new TextEncoder().encode(frame)]
-      .map((byte) => byte.toString(16).toUpperCase().padStart(2, '0'))
-      .join(' ')
-  }
-
-  /** Les caractères de commande qu'une trame de balance porte (§9.1), par leur nom. */
-  const CONTROL_NAMES: Record<number, string> = {
-    0: 'NUL',
-    2: 'STX',
-    3: 'ETX',
-    4: 'EOT',
-    5: 'ENQ',
-    6: 'ACK',
-    9: 'TAB',
-    10: 'LF',
-    13: 'CR',
-    21: 'NAK',
-    27: 'ESC',
-    127: 'DEL',
-  }
-
-  /**
-   * La trame DÉCODÉE : les mêmes octets tels qu'un humain les lit.
-   *
-   * C'est le « dump hexa + ASCII » de `openscale capture` (§15.1) porté à l'écran. Les
-   * caractères de commande sont NOMMÉS plutôt que rendus : c'est le STX manquant ou le CR
-   * en trop qui explique un poste muet, et un caractère invisible ne se lit pas au
-   * téléphone.
-   *
-   * @param frame - une trame brute, telle que le poste l'a lue sur le câble.
-   */
-  function decodedOf(frame: string): string {
-    let read = ''
-    for (const character of frame) {
-      const code = character.codePointAt(0) ?? 0
-      if (code >= 32 && code !== 127) {
-        read += character
-        continue
-      }
-      read += `⟨${CONTROL_NAMES[code] ?? code.toString(16).toUpperCase().padStart(2, '0')}⟩`
-    }
-    return read
-  }
-
-  /** Le message du contrôle qui a refusé cette clé, quand il y en a un (§11.3). */
-  function faultOf(path: string): string {
-    return draft.faults.find((fault) => fault.field === path)?.message ?? ''
-  }
-
-  /** Les valeurs qu'un contrôle a nommées comme acceptables. */
-  function allowedFor(path: string): string[] {
-    return draft.faults.find((fault) => fault.field === path)?.allowed ?? []
   }
 
   /**
@@ -812,11 +512,6 @@
     if (failure instanceof AdminError) return failure.message
     if (failure instanceof Error) return 'Le poste n’a pas répondu : ' + failure.message
     return 'Le poste n’a pas répondu.'
-  }
-
-  /** Vrai quand un refus se règle en s'authentifiant : il REMONTE jusqu'à `protect`. */
-  function isCredentialRefusal(failure: unknown): boolean {
-    return failure instanceof AdminError && failure.needsCredentials
   }
 
   /** Les trois auto-tests de §8.6, et le nom français de chacun. */
@@ -844,12 +539,7 @@
 
 <div class="pages">
   <section class="panel">
-    <header class="head">
-      <h2>Balance</h2>
-      <span class="standing" data-standing="scale" data-level={scaleStanding.level}>
-        <span class="dot"></span>{scaleStanding.word}
-      </span>
-    </header>
+    <StandingHeader title="Balance" name="scale" standing={scaleStanding} />
     <p class="fact">{scaleStanding.detail}</p>
     <p class="note">
       L’état et la cadence viennent de ce que le poste observe vraiment, jamais d’un réglage.
@@ -899,7 +589,7 @@
       -->
       <Act
         act="detect"
-        label={detectLabel()}
+        label={detecting}
         protected
         disabled={acting !== ''}
         onrun={() => void act('detect', detect)}
@@ -910,7 +600,7 @@
       <p class="count" data-ports-count>
         {ports.length === 0
           ? 'Aucun port série n’est visible depuis ce poste.'
-          : census('port détecté', 'ports détectés', ports.length)}
+          : census('port détecté', 'ports détectés', ports.length, ROWS_SHOWN)}
       </p>
       {#if ports.length > 0}
         <ul class="list">
@@ -934,7 +624,9 @@
     {/if}
 
     {#if verdicts.length > 0}
-      <p class="count">{census('port interrogé', 'ports interrogés', verdicts.length)}</p>
+      <p class="count">
+        {census('port interrogé', 'ports interrogés', verdicts.length, ROWS_SHOWN)}
+      </p>
       <ul class="list" data-detections>
         {#each verdicts.slice(0, ROWS_SHOWN) as verdict (verdict.port)}
           <li data-verdict class:refused={verdict.refused}>
@@ -964,8 +656,8 @@
           path="scale.type"
           value={draft.text('scale.type')}
           hint="Les valeurs acceptées apparaissent ici si l’enregistrement est refusé."
-          fault={faultOf('scale.type')}
-          allowed={allowedFor('scale.type')}
+          fault={faultOf(draft, 'scale.type')}
+          allowed={allowedFor(draft, 'scale.type')}
           disabled={!configRead}
           onchange={(value) => draft.set('scale.type', value)}
         />
@@ -974,7 +666,7 @@
           path="scale.options.port"
           value={draft.text('scale.options.port')}
           hint="Choisissez-le dans la liste détectée ci-dessus plutôt que de le taper : l’écoute permanente ne suit que des ports détectés."
-          fault={faultOf('scale.options.port')}
+          fault={faultOf(draft, 'scale.options.port')}
           allowed={suggestions(
             'scale.options.port',
             ports.map((candidate) => candidate.name),
@@ -991,14 +683,14 @@
       montre un exactement quand elle ne peut pas tourner, en disant pourquoi.
     -->
     <div class="frames" data-frames>
-      <p class="frames-head" data-caption>{framesCaption}</p>
-      {#if halt !== '' || askLabel !== ''}
+      <p class="frames-head" data-caption>{caption}</p>
+      {#if halt !== '' || ask !== ''}
         <p class="interrupted" data-interrupted>
           {halt}
-          {#if askLabel !== ''}
+          {#if ask !== ''}
             <Act
               act="listen"
-              label={askLabel}
+              label={ask}
               protected
               busy={acting === 'listen'}
               disabled={acting !== ''}
@@ -1021,14 +713,9 @@
   </section>
 
   <section class="panel">
-    <header class="head">
-      <h2>Imprimante</h2>
-      <span class="standing" data-standing="printer" data-level={printerStanding.level}>
-        <span class="dot"></span>{printerStanding.word}
-      </span>
-    </header>
+    <StandingHeader title="Imprimante" name="printer" standing={printerStanding} />
     <p class="fact">{printerStanding.detail}</p>
-    <p class="note">{printerObservation()}</p>
+    <p class="note">{printerObservation(printer)}</p>
 
     <div class="actions">
       <!--
@@ -1081,7 +768,7 @@
 
     {#if reachable.length > 0}
       <p class="count" data-printers-count>
-        {census('destination', 'destinations', reachable.length)}
+        {census('destination', 'destinations', reachable.length, ROWS_SHOWN)}
       </p>
       <ul class="list">
         {#each reachable.slice(0, ROWS_SHOWN) as device (device.name)}
@@ -1109,7 +796,7 @@
       recherche qui n'a rien trouvé.
     -->
     {#if unreachable > 0}
-      <p class="note" data-unreachable>{reachElsewhere()}</p>
+      <p class="note" data-unreachable>{reachElsewhere(printers, transports, deviceKey)}</p>
     {/if}
 
     <!-- Même règle que le volet de la balance : l'ouverture est LIÉE, jamais poussée. -->
@@ -1121,8 +808,8 @@
           path="printer.type"
           value={draft.text('printer.type')}
           hint="Gardez le driver raster : c’est celui que les postes en service utilisent."
-          fault={faultOf('printer.type')}
-          allowed={allowedFor('printer.type')}
+          fault={faultOf(draft, 'printer.type')}
+          allowed={allowedFor(draft, 'printer.type')}
           disabled={!configRead}
           onchange={(value) => draft.set('printer.type', value)}
         />
@@ -1141,9 +828,9 @@
           path="printer.options.transport"
           value={transport}
           hint="Local par défaut : une file Windows ou un nœud d’impression de ce poste."
-          fault={faultOf('printer.options.transport')}
-          allowed={allowedFor('printer.options.transport')}
-          choices={transportChoices}
+          fault={faultOf(draft, 'printer.options.transport')}
+          allowed={allowedFor(draft, 'printer.options.transport')}
+          {choices}
           disabled={!configRead}
           onchange={(value) => draft.set('printer.options.transport', value)}
         />
@@ -1158,7 +845,7 @@
           path={devicePath}
           value={draft.text(devicePath)}
           hint={DEVICE_HINTS[deviceKey] ?? ''}
-          fault={faultOf(devicePath)}
+          fault={faultOf(draft, devicePath)}
           allowed={suggestions(
             devicePath,
             reachable.map((device) => device.name),
@@ -1195,70 +882,6 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-1);
-  }
-
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  h2 {
-    margin: 0;
-    font-size: 1.5rem;
-    font-weight: 700;
-  }
-
-  /*
-   * L'en-tête d'état : un point de couleur et un MOT FRANÇAIS.
-   *
-   * La couleur porte le sens et les lettres le répètent — §14.2 interdit de confier une
-   * information à la seule teinte, et --warning comme --fault n'atteignent pas les 7:1
-   * exigés d'un texte : ils sont donc un point et un lavis, jamais de l'encre.
-   */
-  .standing {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    height: 2rem;
-    padding: 0 0.75rem;
-    border-radius: var(--radius-pill);
-    background: var(--waiting-wash);
-    font-size: 1rem;
-    font-weight: 700;
-  }
-
-  .standing[data-level='ok'] {
-    background: var(--ready-wash);
-  }
-
-  .standing[data-level='warn'] {
-    background: var(--warning-wash);
-  }
-
-  .standing[data-level='fault'] {
-    background: var(--fault-wash);
-  }
-
-  .dot {
-    width: 0.625rem;
-    height: 0.625rem;
-    border-radius: var(--radius-pill);
-    background: var(--waiting);
-  }
-
-  .standing[data-level='ok'] .dot {
-    background: var(--ready);
-  }
-
-  .standing[data-level='warn'] .dot {
-    background: var(--warning);
-  }
-
-  .standing[data-level='fault'] .dot {
-    background: var(--fault);
   }
 
   .fact {

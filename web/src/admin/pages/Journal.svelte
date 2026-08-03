@@ -1,11 +1,18 @@
 <script lang="ts">
   import Act from '../components/Act.svelte'
   import Panel from '../components/Panel.svelte'
+  import TechnicalLines from '../components/TechnicalLines.svelte'
   import * as api from '../lib/api'
   import type { TechnicalLineDTO, WeighingDTO } from '../lib/dto'
-  import { logSourceLabelOf } from '../lib/fields'
   import { frenchDateTime, frenchDuration, frenchInteger } from '../lib/format'
-  import { preferences } from '../lib/preferences.svelte'
+  import {
+    MODES,
+    RESULTS,
+    RESULT_FILTERS,
+    SOURCES,
+    STABILITIES,
+    french,
+  } from '../lib/journal-words'
   import type { Admin } from '../lib/session.svelte'
 
   /**
@@ -73,60 +80,6 @@
 
   /** How many columns the table draws, so the detail row can span every one of them. */
   const COLUMN_COUNT = 7
-
-  /**
-   * How a weighing ended, in French — never the token the service wrote.
-   *
-   * The four values are the whole of `internal/domain/journal.go`. `sent` is the SUCCESS,
-   * and it is spelled out rather than shortened to « imprimée » because the station does
-   * not know whether the label came out: it knows it handed the bytes over (important-7).
-   */
-  const RESULTS: Record<string, string> = {
-    sent: 'envoyée à l’imprimante',
-    rejected: 'refusée',
-    failed: 'en échec',
-    reprint: 'réimpression',
-  }
-
-  /** The same four values as a filter, plus « toutes ». The plural reads as a heading. */
-  const RESULT_FILTERS: { value: string; label: string }[] = [
-    { value: '', label: 'toutes' },
-    { value: 'sent', label: 'envoyées à l’imprimante' },
-    { value: 'rejected', label: 'refusées' },
-    { value: 'failed', label: 'en échec' },
-    { value: 'reprint', label: 'réimpressions' },
-  ]
-
-  /** Where a weight came from, in French. The three values of §12.3. */
-  const SOURCES: Record<string, string> = {
-    scale: 'balance',
-    manual: 'saisie manuelle',
-    replay: 'trame rejouée',
-  }
-
-  /** What the frame said about stability, in French. The four values of §9.2. */
-  const STABILITIES: Record<string, string> = {
-    stable: 'stable',
-    unstable: 'instable',
-    unknown: 'non déclarée par la balance',
-    not_applicable: 'sans objet — saisie manuelle',
-  }
-
-  /** How the product is sold, in French. The two modes of ADR-021. */
-  const MODES: Record<string, string> = {
-    by_weight: 'au poids',
-    by_unit: 'à l’unité',
-  }
-
-  /** The severity of a technical line, in French. The five levels of `internal/store`. */
-  const LEVELS: Record<string, string> = {
-    debug: 'mise au point',
-    info: 'information',
-    warn: 'avertissement',
-    error: 'erreur',
-    critical: 'critique',
-  }
-
 
   let weighings = $state<WeighingDTO[]>([])
   let technical = $state<TechnicalLineDTO[]>([])
@@ -300,20 +253,6 @@
       `${frenchInteger(shown)} ${noun} : c’est ce que cette page demande au poste, ` +
       `pas ce qu’il garde. ${beyond}`
     )
-  }
-
-  /**
-   * Reads one token of the service in French, and never lets an unknown one through.
-   *
-   * A value this file has never heard of must not reach a volunteer as it came: it would
-   * appear as an English word in a French column, and nobody would know it was new.
-   *
-   * @param table - the translations of that field.
-   * @param token - what the service wrote.
-   * @param unknown - the French sentence for a token nobody has declared.
-   */
-  function french(table: Record<string, string>, token: string, unknown: string): string {
-    return table[token] ?? unknown
   }
 </script>
 
@@ -523,34 +462,7 @@
       </p>
     {:else}
       <p class="fact muted" data-tally="technical">{technicalTally}</p>
-      <div class="lines-box" data-scroll="technical">
-        <ul class="lines">
-          {#each technical as line (line.id)}
-            <li data-level={line.level}>
-              <span class="when">{frenchDateTime(line.occurred_at)}</span>
-              <span class="level">{french(LEVELS, line.level, 'niveau inconnu')}</span>
-              <span class="from">{logSourceLabelOf(line.source)}</span>
-              <!--
-                The event code is a TECHNICAL NAME and sits behind the switch, like the
-                configuration keys: `ERR-CAT-05` teaches nothing to whoever will never open
-                the source, and the French message beside it says what happened on its own.
-
-                It stays reachable in three places, which is why hiding it costs nothing:
-                the switch is two clicks away in the rail, `technical.csv` inside
-                `diagnostic.zip` carries the `code` column whatever the screen shows
-                (internal/diag/archive.go), and the station's own text log keeps it. The CSV
-                export of this page never carried it — that one exports weighings, and a
-                weighing has no event code (internal/web/admin.go).
-              -->
-              {#if line.code !== '' && preferences.showTechnicalNames}
-                <span class="code">{line.code}</span>
-              {/if}
-              <span class="message">{line.message}</span>
-              {#if line.detail !== ''}<span class="detail-text">{line.detail}</span>{/if}
-            </li>
-          {/each}
-        </ul>
-      </div>
+      <TechnicalLines lines={technical} />
     {/if}
   </Panel>
 </div>
@@ -664,27 +576,19 @@
   }
 
   /*
-   * The two boxes that hold a list, and the reason both exist.
+   * The box that holds the table, and the reason it exists.
    *
    * Nothing on this page may grow without a bound: 200 weighings drew about 17 000 px,
    * which pushed the technical journal out of anyone's reach and took the column headings
    * with it. `overflow: auto` is what lets seven nowrap columns be wider than the body
    * without the body itself ever scrolling sideways.
    */
-  .table-box,
-  .lines-box {
+  .table-box {
     overflow: auto;
     background: var(--bg);
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-sm);
-  }
-
-  .table-box {
     max-height: 34rem;
-  }
-
-  .lines-box {
-    max-height: 28rem;
   }
 
   table {
@@ -797,57 +701,6 @@
 
   .detail-cell code {
     overflow-wrap: anywhere;
-  }
-
-  .lines {
-    margin: 0;
-    padding: 0 0.75rem;
-    list-style: none;
-  }
-
-  .lines li {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    align-items: baseline;
-    padding: 0.375rem 0;
-    border-top: 1px solid var(--border);
-    font-size: 1.0625rem;
-  }
-
-  .lines li:first-child {
-    border-top: none;
-  }
-
-  /* A line in fault carries a rule and never red ink: --fault reaches 6,54:1 on
-     --surface, under the 7:1 that §14.2 demands of anything read. */
-  .lines li[data-level='error'],
-  .lines li[data-level='critical'] {
-    border-left: 0.25rem solid var(--fault);
-    padding-left: 0.5rem;
-  }
-
-  .lines li[data-level='warn'] {
-    border-left: 0.25rem solid var(--warning);
-    padding-left: 0.5rem;
-  }
-
-  .when,
-  .level,
-  .from,
-  .code,
-  .detail-text {
-    color: var(--ink-muted);
-  }
-
-  .level {
-    flex: none;
-    width: 8rem;
-  }
-
-  .message {
-    flex: 1 1 20rem;
-    font-weight: 700;
   }
 
   /* The heading of the last column is read aloud and drawn nowhere: a column of « détail »

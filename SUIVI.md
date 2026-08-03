@@ -3,6 +3,53 @@
 > Tableau de bord. À mettre à jour au fil de l'eau — c'est le premier fichier à lire
 > pour savoir où on en est.
 
+**Un fichier, une responsabilité : 281 fichiers de production deviennent 405, et rien
+d'autre ne bouge (03/08/2026).** Le dépôt portait vingt-quatre fichiers de plus de 600
+lignes, dont cinq au-dessus de 1 400 ; il en reste **cinq**, tous des pages `.svelte`
+de l'administration. Le geste est **mécanique et rien d'autre** : découper un fichier en
+plusieurs fichiers du même paquet, déplacer des déclarations entre eux, extraire un
+helper non exporté quand une duplication est réellement constatée. Aucun identifiant
+exporté, aucune signature, aucun comportement. Les 61 routes HTTP, les 353 balises
+`json:` et les 152 codes de statut d'`internal/web` sont identiques au caractère près ;
+`internal/domain` rend ses fautes de validation dans le même ordre, mot pour mot.
+
+Les plus gros, avant → après : `domain/config.go` **2408 → 377**, `domain/machine.go`
+**1679 → 182**, `diag/doctor.go` **1481 → 292**, `printing/conformance/conformance.go`
+**1134 → 273**, `station/station.go` **1128 → 256**, `station/hub.go` **1097 → 341**,
+`cmd/openscale/serve.go` **1079 → 528**, `web/admin.go` **746 → supprimé**, réparti en
+cinq fichiers nommés par sujet dont aucun ne pouvait honnêtement s'appeler « admin ».
+Côté front, `Rules.svelte` **1214 → 291**, `Hardware.svelte` **1462 → 1085**,
+`Catalog.svelte` **2139 → 1502**. Le total de production passe de 74 460 à 77 081 lignes,
+soit **+3,5 %** : ce sont les `package`, les `import` et un commentaire d'en-tête par
+fichier neuf, qui dit ce que le fichier rassemble.
+
+**Ce sont des `wc -l`, des deux côtés, et cette précision a coûté un chiffre faux.**
+`Measure-Object -Line` de PowerShell ne compte **que les lignes non vides** : il rend 354
+là où `wc -l` rend 377 pour le même `config.go`, un écart de 6 % qui a d'abord été
+rapporté comme un résultat. Deux mesures dans deux unités ne se comparent pas, et un
+« 2408 → 354 » mélangeait les deux.
+
+**La vérification a rattrapé quatre pertes réelles, qu'aucune relecture n'avait vues.**
+Le découpage a été comparé mécaniquement — multiensemble des lignes, des littéraux
+chaîne et des déclarations, par `go/ast` et jamais par `grep` — et cette comparaison a
+trouvé ce que trois lectures de diff avaient laissé passer : le paragraphe qui justifie
+le **contrôle 43** (§11.5, ADR-026) disparu de `CheckPrice`, le godoc de `Command`, huit
+lignes d'en-tête dans `catalog`, sept phrases de justification dans le front. Toutes
+restaurées. La leçon tient en une ligne : **sur du texte, la relecture ne remplace pas le
+comptage.**
+
+**Trois choses restent ouvertes, et elles sont nommées.** Neuf fonctions dépassent le
+seuil de complexité **cognitive** de 25 — `(*Template).ValidateOn` à **70**, listées une
+par une dans `.golangci.yml` avec leur compte : déplacer du code entre fichiers ne
+simplifie pas un corps de fonction, et les rouvrir n'est pas du rangement. L'**ordre**
+dans lequel `Config.Validate` rend ses fautes n'était couvert que **par accident** —
+chaque test cherchait sa faute par son champ, si bien qu'intervertir deux groupes de
+contrôles laissait la suite verte ; c'est ce que voient `openscale doctor`, l'écran
+d'administration et un bénévole devant un poste en ERR-CFG-01, et un test l'épingle
+désormais (`validate_order_test.go`). Enfin `admin-catalog.test.ts` lit le **texte source**
+de la page qu'il éprouve, ce qui interdit structurellement de descendre `Catalog.svelte`
+sous ~1 500 lignes : c'est le test qu'il faut reprendre d'abord, pas la page.
+
 **Un `config.json` ancien se met à jour tout seul, après qu'un poste réel soit tombé
 dessus (01/08/2026).** Un poste de test mis à jour a démarré en **configuration d'usine
 (ERR-CFG-01)** : son fichier, conservé tel quel comme la procédure de mise à jour le

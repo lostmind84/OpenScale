@@ -2102,7 +2102,7 @@ L'auto-test `barcode-frame` et l'auto-test `character-table` **disparaissent** :
 ### 9.1 La boucle série, écrite une fois
 
 ```go
-// internal/scale/serial/loop.go — 95% of a serial driver's code.
+// internal/scale/serial/options.go — the package holds 95% of a serial driver's code.
 
 // Options holds the link settings of a serial scale plus the single decoder
 // that varies from one model to the next.
@@ -3027,7 +3027,7 @@ flowchart TD
 
 **Le reste des options de driver voyage**, et ce défaut est délibéré : une option de
 réglage est partagée par les quatre postes jusqu'à preuve du contraire, et la preuve
-s'écrit dans `stationSpecificOptions` (`internal/domain/config.go`). Le décalage
+s'écrit dans `stationSpecificOptions` (`internal/domain/redact.go`). Le décalage
 d'étiquette est le cas qui a tranché — la notice promet depuis toujours qu'il voyage
 avec la configuration clonée, et il partait avec `printer.options`.
 
@@ -3590,7 +3590,7 @@ flowchart TD
 ```
 
 ```go
-// internal/station/hub.go
+// internal/station/loop.go
 func (h *Hub) run(ctx context.Context) {
     defer close(h.done)
 
@@ -4819,10 +4819,10 @@ Pipeline : `npm ci && npm run build` **avant** `go` (`//go:embed all:dist`) · `
 
 | Module budgété | Ce qui s'est passé | Où c'est écrit | Forme du refus |
 |---|---|---|---|
-| `github.com/alexbrainman/printer` | sept appels `syscall` vers `winspool.drv`, liés paresseusement | `internal/printing/transport/winspool_windows.go:18` | surface trop petite |
-| `github.com/go-pdf/fpdf` | cinq objets PDF, une table d'offsets, un trailer | `internal/printing/pdf.go:11` | surface trop petite |
-| `github.com/kardianos/service` | `golang.org/x/sys/windows/svc` était déjà une dépendance du module | `internal/platform/service_windows.go:22` | redondante |
-| `github.com/oklog/ulid/v2` | le front frappe la clé d'idempotence au `pointerdown` ; `deriveJobID` est une fonction pure, sans entropie ni horloge, et n'a donc jamais à en générer une | `internal/domain/machine.go:1651`, `web/src/lib/ulid.ts` | sans objet |
+| `github.com/alexbrainman/printer` | sept appels `syscall` vers `winspool.drv`, liés paresseusement | `internal/printing/transport/winspool_windows.go` | surface trop petite |
+| `github.com/go-pdf/fpdf` | cinq objets PDF, une table d'offsets, un trailer | `internal/printing/pdf.go` | surface trop petite |
+| `github.com/kardianos/service` | `golang.org/x/sys/windows/svc` était déjà une dépendance du module | `internal/platform/service_windows.go` | redondante |
+| `github.com/oklog/ulid/v2` | le front frappe la clé d'idempotence au `pointerdown` ; `deriveJobID` est une fonction pure, sans entropie ni horloge, et n'a donc jamais à en générer une | `deriveJobID` (`internal/domain/reading.go`), `web/src/lib/ulid.ts` | sans objet |
 
 Le quatrième est le plus instructif : **aucune ligne de code maison n'a remplacé `oklog/ulid`**. C'est une décision de conception qui a fait disparaître le besoin. La meilleure dépendance est celle qu'une décision d'architecture supprime.
 

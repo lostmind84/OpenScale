@@ -270,7 +270,6 @@ type Poller interface {
 // between a deterministic test and a flaky one, and it was measured, not guessed.
 func (s *Station) runUpdateWorker(ctx context.Context, grace <-chan time.Time,
 	ticks <-chan time.Time, stop func(), poller Poller) {
-
 	defer stop()
 	select {
 	case <-ctx.Done():

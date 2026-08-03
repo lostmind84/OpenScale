@@ -1,5 +1,5 @@
 import * as api from './api'
-import { AdminError } from './api'
+import { isCredentialRefusal } from './api'
 import type { ConfigDTO, ConfirmationDTO, FaultDTO } from './dto'
 import type { Admin } from './session.svelte'
 
@@ -219,16 +219,4 @@ export class Draft {
  */
 function faultsOfLastRefusal(admin: Admin): FaultDTO[] {
   return admin.lastFaults
-}
-
-/**
- * Vrai quand un refus se règle en s'authentifiant, et non en corrigeant sa saisie.
- *
- * Ceux-là REMONTENT jusqu'à `Admin.protect`, qui demande de quoi s'authentifier puis rejoue
- * l'acte. Tous les autres — un 422 et ses contrôles en tête, mais aussi le 409 d'un compte
- * à rebours déjà armé — s'affichent ici : rouvrir un panneau de mot de passe par-dessus
- * cacherait la faute qu'il faut lire.
- */
-function isCredentialRefusal(failure: unknown): boolean {
-  return failure instanceof AdminError && failure.needsCredentials
 }

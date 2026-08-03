@@ -4,8 +4,11 @@
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
   import type { Draft } from '../lib/draft.svelte'
+  import { faultOf } from '../lib/faults'
   import { frenchInteger } from '../lib/format'
+  import { dotsAt, refusalOf } from '../lib/preview'
   import type { Admin } from '../lib/session.svelte'
+  import { numberTyped } from '../lib/typed-values'
 
   /**
    * The Label page of §14.4, and the one screen of the whole product that makes a setting
@@ -61,12 +64,6 @@
    */
   const FLOOR_DOTS = 0
 
-  /** What the screen says when the station refused to render and said nothing readable. */
-  const RENDER_REFUSED = 'L’aperçu n’a pas pu être rendu par le poste.'
-
-  /** What it says when the station DID render the address and the browser showed nothing. */
-  const IMAGE_UNREADABLE = 'Le poste a rendu l’aperçu, mais le navigateur ne l’a pas affiché.'
-
   /** Which self-test to print (§8.6). */
   type SelfTest = 'alignment' | 'ruler'
 
@@ -116,8 +113,8 @@
   const configRead = $derived(draft.config !== null)
   const offsetX = $derived(draft.number(OFFSET_X))
   const offsetY = $derived(draft.number(OFFSET_Y))
-  const faultX = $derived(faultOf(OFFSET_X))
-  const faultY = $derived(faultOf(OFFSET_Y))
+  const faultX = $derived(faultOf(draft, OFFSET_X))
+  const faultY = $derived(faultOf(draft, OFFSET_Y))
   const staleSentence = $derived(staleSentenceOf())
   /** True while an act of this page is in flight: the print buttons disarm. */
   const busy = $derived(admin.busy || printing !== '')
@@ -186,21 +183,6 @@
   }
 
   /**
-   * One number of a document, read by its dotted path; zero when the key is absent.
-   *
-   * @param document - a configuration exactly as the station serves it.
-   * @param path - the dotted key.
-   */
-  function dotsAt(document: Record<string, unknown>, path: string): number {
-    let node: unknown = document
-    for (const key of path.split('.')) {
-      if (node === null || typeof node !== 'object') return 0
-      node = (node as Record<string, unknown>)[key]
-    }
-    return typeof node === 'number' ? node : 0
-  }
-
-  /**
    * Moves one offset by one dot, and never below the floor.
    *
    * It does NOT ask for the image again, and that is the whole point of this page's
@@ -233,11 +215,6 @@
   /**
    * Says why the preview is missing — with the ENGINE's sentence whenever it can.
    *
-   * An `<img>` tag does not hand over the body of a refusal: it fires `error` and says
-   * nothing more. The same address is therefore asked once again, as JSON, to read the
-   * sentence of the 422 — « le décalage sort de la découpe » — which is the only one that
-   * says which dot to give back.
-   *
    * NOTHING is written before that answer comes back. Posting the fallback sentence up
    * front accused the station of a refusal it had not uttered, and left that accusation on
    * screen when the second request came back with a perfectly rendered image.
@@ -250,25 +227,6 @@
     // one that counts.
     if (url !== source) return
     refusal = sentence
-  }
-
-  /**
-   * What the station answers about an address the browser could not display.
-   *
-   * @param url - the address to ask about, as JSON this time.
-   */
-  async function refusalOf(url: string): Promise<string> {
-    try {
-      const response = await fetch(url, { headers: { accept: 'application/json' } })
-      if (response.ok) return IMAGE_UNREADABLE
-      const problem = JSON.parse(await response.text()) as { message?: string }
-      if (typeof problem.message === 'string' && problem.message !== '') return problem.message
-      return RENDER_REFUSED
-    } catch {
-      // The station answered nothing readable at all: the fallback sentence says what is
-      // known, and inventing a cause would say more than that.
-      return RENDER_REFUSED
-    }
   }
 
   /**
@@ -309,17 +267,12 @@
    * than an edit. An emptied field keeps what the file holds.
    *
    * @param path - the key to write.
-   * @param raw - what the field carries, exactly as it was typed.
+   * @param typed - what the field carries, exactly as it was typed.
    */
-  function writeNumber(path: string, raw: string): void {
-    const value = Number(raw)
-    if (raw.trim() === '' || Number.isNaN(value)) return
+  function writeNumber(path: string, typed: string): void {
+    const value = numberTyped(typed)
+    if (value === null) return
     draft.set(path, value)
-  }
-
-  /** The message of the control that refused this key, empty when there is none (§11.3). */
-  function faultOf(path: string): string {
-    return draft.faults.find((fault) => fault.field === path)?.message ?? ''
   }
 
   /**
@@ -452,7 +405,7 @@
       path={TEMPLATE}
       value={template}
       hint="Le gabarit reproduit à l’identique s’appelle weighing_identical (A1)."
-      fault={faultOf(TEMPLATE)}
+      fault={faultOf(draft, TEMPLATE)}
       disabled={!configRead}
       onchange={(value) => {
         draft.set(TEMPLATE, value)
@@ -465,7 +418,7 @@
       kind="number"
       value={draft.text('printer.options.darkness')}
       hint="Trop bas, l’étiquette pâlit au soleil ; trop haut, elle bave et le scanner refuse."
-      fault={faultOf('printer.options.darkness')}
+      fault={faultOf(draft, 'printer.options.darkness')}
       disabled={!configRead}
       onchange={(value) => writeNumber('printer.options.darkness', value)}
     />
@@ -474,7 +427,7 @@
       path="printer.options.speed"
       kind="number"
       value={draft.text('printer.options.speed')}
-      fault={faultOf('printer.options.speed')}
+      fault={faultOf(draft, 'printer.options.speed')}
       disabled={!configRead}
       onchange={(value) => writeNumber('printer.options.speed', value)}
     />
@@ -484,7 +437,7 @@
       kind="number"
       value={draft.text('printer.options.copies')}
       hint="Un client repart avec une étiquette : deux exemplaires se justifient, pas se devinent."
-      fault={faultOf('printer.options.copies')}
+      fault={faultOf(draft, 'printer.options.copies')}
       disabled={!configRead}
       onchange={(value) => writeNumber('printer.options.copies', value)}
     />

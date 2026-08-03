@@ -117,7 +117,9 @@ func (r *rowReader) Next() (catalog.Row, []domain.Finding, error) {
 		// The array is finished. What follows it still has to be walked, because that is
 		// where `next_page` lives in an answer that puts its products first.
 		if err := r.finishPage(); err != nil {
-			r.closeBody()
+			// The close error is explicitly ignored: it is the READ error that travels
+			// up, and overwriting it with a close failure would lose the cause.
+			_ = r.closeBody()
 			return catalog.Row{}, nil, err
 		}
 		// Closing the answer BEFORE asking for the next page is what keeps one connection
@@ -161,7 +163,8 @@ func (r *rowReader) open(number int) error {
 	// materialised as a slice: decoding the object whole would put the entire page — and
 	// its photos — in memory before the first row came out.
 	if err := r.seekProducts(); err != nil {
-		r.closeBody()
+		// Same reason as above: the cause that travels up is the one from the read.
+		_ = r.closeBody()
 		return err
 	}
 	return nil
@@ -302,11 +305,11 @@ func (r *rowReader) closeBody() error {
 // claiming three megabytes is refused after 256 kB have been read, not after three
 // megabytes have been allocated. The extra byte is what lets the assembler tell « exactly
 // at the ceiling » from « past it » and name the ceiling in a sentence a volunteer reads.
-func unwrapPhoto(encoded string, max int) ([]byte, error) {
+func unwrapPhoto(encoded string, ceiling int) ([]byte, error) {
 	decoder := base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))
 	var decoded bytes.Buffer
-	decoded.Grow(min(len(encoded)*3/4+3, max+1))
-	if _, err := io.Copy(&decoded, io.LimitReader(decoder, int64(max)+1)); err != nil {
+	decoded.Grow(min(len(encoded)*3/4+3, ceiling+1))
+	if _, err := io.Copy(&decoded, io.LimitReader(decoder, int64(ceiling)+1)); err != nil {
 		return nil, fmt.Errorf("le champ photo n'est pas du base64 lisible (%v)", err)
 	}
 	return decoded.Bytes(), nil

@@ -1,7 +1,12 @@
 package raster
 
+// This file is everything New refuses at construction: the bounds the manual imposes on
+// the three adjustments, the head a frame is addressed to, and the comparison between
+// that head and the template it is asked to burn.
+
 import (
 	"fmt"
+	"strings"
 
 	"openscale/internal/domain"
 )
@@ -177,4 +182,35 @@ func (h Head) Validate() []domain.Fault {
 				h.MaxWidthBytes)})
 	}
 	return faults
+}
+
+// checkTemplateHead reports whether a template can be printed by this head.
+//
+// The resolution of the whole application has ONE source, template.media.dots_per_mm
+// (mineur-3), and the capability of a driver is what it is COMPARED to. A 12 dots/mm
+// template sent to a WS408 prints at two thirds of its size, with a symbol under every
+// GS1 floor, and no byte of the frame says so: the label simply comes out wrong.
+func checkTemplateHead(t domain.Template, h Head) []domain.Fault {
+	if t.Media.DotsPerMM == h.DotsPerMM {
+		return nil
+	}
+	if t.Media.DotsPerMM <= 0 {
+		return []domain.Fault{{Field: "printer.template",
+			Message: fmt.Sprintf("le gabarit %q ne déclare aucune résolution (media.dots_per_mm = %g) : "+
+				"c'est elle qui donne au bitmap sa taille physique", t.Name, t.Media.DotsPerMM)}}
+	}
+	return []domain.Fault{{Field: "printer.template",
+		Message: fmt.Sprintf("le gabarit %q est dessiné pour une tête de %g dots/mm et cette imprimante "+
+			"en fait %g : l'étiquette sortirait à une autre échelle",
+			t.Name, t.Media.DotsPerMM, h.DotsPerMM)}}
+}
+
+// joinFaults gathers every fault into the single French message an operator reads on
+// the administration screen, one per line, each naming its own key.
+func joinFaults(faults []domain.Fault) string {
+	lines := make([]string, 0, len(faults))
+	for _, f := range faults {
+		lines = append(lines, f.String())
+	}
+	return strings.Join(lines, " ; ")
 }

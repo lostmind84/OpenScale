@@ -172,6 +172,37 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # Le jeu de règles de .golangci.yml est VERT, et c'est ce qui le rend
+      # utile ici : il n'échoue que sur ce qu'on vient d'écrire. Ce qu'il
+      # n'active pas est écrit dans ce fichier, avec le compte relevé et la
+      # raison — `make audit` le rejoue à la demande, et ne tourne pas ici.
+      #
+      # `go install` plutôt que golangci/golangci-lint-action, et c'est un choix :
+      # toutes les actions de ce fichier sont épinglées par SHA, et ajouter une
+      # action de plus voudrait dire relever puis maintenir un SHA de plus.
+      #
+      # La VERSION n'est pas écrite ici : elle est lue dans le Makefile, qui en
+      # est la source unique. Écrite aux deux endroits, elle finit par diverger,
+      # et un développeur verrait alors rouge là où la CI voit vert — ou
+      # l'inverse, ce qui est pire, parce que personne ne cherche la cause d'un
+      # vert.
+      #
+      # L'installation se fait dans un répertoire jetable pour que le module
+      # courant n'en garde AUCUNE trace : `make deps` compare go.mod aux deux
+      # tables de §17.1 dans les deux sens (ADR-039), et une dépendance de
+      # développement qui s'y inscrirait ouvrirait un écart permanent.
+      #
+      # Puis c'est `make lint` qui est appelé, et non la commande recopiée : si
+      # la cible change, la CI suit. C'est le principe que pose l'en-tête de
+      # make.ps1 — « le Makefile reste la référence, c'est lui que la CI
+      # exécute » — et une étape qui porte son nom sans l'exécuter le trahit.
+      - name: make lint
+        run: |
+          version=$(make -s golangci-version)
+          (cd "$(mktemp -d)" && go mod init lintinstall >/dev/null 2>&1 \
+            && go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$version")
+          make lint
+
       - name: make boundary
         run: go run ./tools/boundary
 
@@ -267,6 +298,27 @@ jobs:
       - name: npm ci
         working-directory: web
         run: npm ci
+
+      # AVANT `svelte-check`, et l'ordre porte une intention : ces deux-là lisent le code
+      # sans rien exécuter, ils répondent en quelques secondes, et ce qu'ils reprochent se
+      # corrige sans réfléchir. Les faire passer en premier évite d'attendre une suite de
+      # mille tests pour apprendre qu'il manque une accolade de style.
+      #
+      # `npm run lint` ne double PAS `npm run check` : svelte-check ne vérifie que des
+      # TYPES. Une promesse qu'on oublie d'attendre, un `${}` posé sur un objet qui rendra
+      # « [object Object] » à un bénévole, un fichier qui enfle — rien de tout cela n'est
+      # une erreur de type, et rien ne le regardait avant ce jeu de règles.
+      - name: eslint
+        working-directory: web
+        run: npm run lint
+
+      # Prettier arrive sur un dépôt écrit à la main : les 55 fichiers qui ne suivent pas
+      # encore sa mise en forme sont nommés un par un dans `web/.prettierignore`, avec la
+      # raison. C'est un CLIQUET — tout fichier écrit à partir d'aujourd'hui est vérifié,
+      # et la liste se vide fichier par fichier sans qu'un lot ait à s'arrêter pour ça.
+      - name: prettier
+        working-directory: web
+        run: npm run format:check
 
       - name: svelte-check
         working-directory: web

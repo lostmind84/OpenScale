@@ -1,18 +1,20 @@
 <script lang="ts">
   import Act from '../components/Act.svelte'
+  import ConfigDiffTable from '../components/ConfigDiffTable.svelte'
   import Field from '../components/Field.svelte'
+  import ImportFaults from '../components/ImportFaults.svelte'
   import Maintenance from '../components/Maintenance.svelte'
   import Panel from '../components/Panel.svelte'
   import * as api from '../lib/api'
-  import { AdminError } from '../lib/api'
-  import { differences, valueAt } from '../lib/diff'
-  import type { Difference } from '../lib/diff'
+  import { comparisonOf, frenchList, strippedBlocks } from '../lib/clone'
+  import { handToBrowser, readExport, submitCandidate } from '../lib/config-file'
+  import { valueAt } from '../lib/diff'
   import type { Draft } from '../lib/draft.svelte'
-  import type { ConfigVersionDTO, FaultDTO, HealthDTO, ProblemDTO } from '../lib/dto'
-  import { labelOf } from '../lib/fields'
+  import type { ConfigVersionDTO, FaultDTO, HealthDTO } from '../lib/dto'
+  import { allowedFor, faultOf } from '../lib/faults'
   import { frenchBytes, frenchDateTime, frenchInteger } from '../lib/format'
-  import { preferences } from '../lib/preferences.svelte'
   import type { Admin } from '../lib/session.svelte'
+  import { tally } from '../lib/tally'
 
   /**
    * The Station page of §14.4: identity, export and import with the field-by-field diff,
@@ -77,67 +79,8 @@
   /** How many rows of the diff are drawn. The file itself carries the rest. */
   const DIFF_SHOWN = 40
 
-  /** How many refused controls are drawn, out of the 45 of §11.3. */
-  const FAULTS_SHOWN = 20
-
   /** How many versions are drawn. The station never keeps more than five (§11.4). */
   const VERSIONS_SHOWN = 5
-
-  /**
-   * The two keys the comparison LEAVES OUT, and why it has to.
-   *
-   * `modified_at` is stamped by whoever writes the file — `writeConfig` fills it from the
-   * station's own clock on every save — so the file carried from station 1 holds the
-   * instant station 1 was configured and station 2 holds its own. Compared, the two ALWAYS
-   * differ: the table announced « 1 champ qui change » and offered « Recopier ce champ »
-   * at the exact moment §11.5 wanted somebody to read « rien ne change ». The fingerprint
-   * of §11.5 clears the same field for the same reason (`Config.Fingerprint`), and copying
-   * it into the draft would change nothing anyway — the next save overwrites it.
-   *
-   * `catalog.options.password` is a secret NEITHER document carries in clear: the station
-   * blanks it before serving anything (`configPayload`) and `Config.Export` deletes it
-   * outright, whatever `hardware` says. The row therefore compared « » to « — », which is
-   * a difference between two ways of not saying a password — and « Recopier » treated it
-   * like any other, wrote `undefined` into the draft, and `JSON.stringify` dropped the key
-   * on the way out. The cooperative's WebDAV account disappeared from the file through
-   * Importer → Recopier → Enregistrer, in silence. A write-only field has nothing to do in
-   * a field-by-field diff; the service carries the secret over on its own side.
-   */
-  const NOT_COMPARED = new Set(['modified_at', 'catalog.options.password'])
-
-  /**
-   * What a hardware-free export does NOT carry, and the French name of each.
-   *
-   * `Config.Export(false)` clears seven things — the station number and name, the whole
-   * network block, the station-specific keys of the three option maps, and the image path
-   * of the catalog — and the import puts back only the number and the two secrets.
-   * Everything else comes back EMPTY, so those rows of the diff hold nothing, and
-   * « Recopier » copies emptiness as faithfully as it copies a value: the WebDAV account
-   * of the catalog is in that list. This is what the screen has to name before anybody
-   * presses the button.
-   *
-   * The rows watch the exact KEYS the export clears, and no longer the whole option
-   * maps. Watching a map stopped working the day the export kept its shared keys: the
-   * map comes back carrying the separator and the label offset, so it is not blank, so
-   * the warning fell silent — including for the WebDAV account, the emptiness this
-   * screen exists to name. The volunteer would have pressed « Recopier » on a file whose
-   * share address was gone, and nothing would have said so.
-   */
-  const CLONE_STRIPS: { path: string; name: string }[] = [
-    { path: 'station.name', name: 'le nom du poste' },
-    { path: 'network.listen', name: 'l’adresse d’écoute' },
-    { path: 'scale.options.port', name: 'le port de la balance' },
-    // Les TROIS clés d'appareil de l'imprimante, parce que l'export sans matériel efface
-    // les trois (§8.4, `Config.Export`). La ligne n'en nommait qu'une : sur un poste réglé
-    // sur `tcp`, « Recopier » emportait l'adresse de l'imprimante sans un mot, ce que cet
-    // encadré existe précisément pour dire.
-    { path: 'printer.options.queue', name: 'la file d’impression' },
-    { path: 'printer.options.path', name: 'le nœud d’impression' },
-    { path: 'printer.options.address', name: 'l’adresse de l’imprimante' },
-    { path: 'catalog.options.url', name: 'l’adresse du partage' },
-    { path: 'catalog.options.username', name: 'le compte du partage' },
-    { path: 'catalog.images.path', name: 'le chemin des images' },
-  ]
 
   let versions = $state<ConfigVersionDTO[]>([])
   /**
@@ -201,19 +144,10 @@
   /** Which blocks of §11.5 the file leaves empty while the station has something there. */
   const stripped = $derived(strippedBlocks(served, candidate))
   const shownDiff = $derived(diff.slice(0, DIFF_SHOWN))
-  const shownFaults = $derived(candidateFaults.slice(0, FAULTS_SHOWN))
   const shownVersions = $derived(versions.slice(0, VERSIONS_SHOWN))
 
   const diffTally = $derived(
     tally(shownDiff.length, diff.length, 'champ qui change', 'champs qui changent'),
-  )
-  const faultTally = $derived(
-    tally(
-      shownFaults.length,
-      candidateFaults.length,
-      'contrôle refuse une clé',
-      'contrôles refusent une clé',
-    ),
   )
   const versionTally = $derived(
     tally(shownVersions.length, versions.length, 'version enregistrée', 'versions enregistrées'),
@@ -227,63 +161,6 @@
   )
 
   void loadVersions()
-
-  /**
-   * What the file would change on the station, field by field.
-   *
-   * @param station - the configuration in service, or null when it could not be read.
-   * @param file - what the station read in the imported file, or null before any import.
-   * @returns the fields that differ, minus the ones {@link NOT_COMPARED} names. It is
-   * EMPTY when there is nothing to compare against, which is why nothing reads « no
-   * difference » out of its length alone — see {@link compared}.
-   */
-  function comparisonOf(
-    station: Record<string, unknown> | null,
-    file: Record<string, unknown> | null,
-  ): Difference[] {
-    if (station === null || file === null) return []
-    return differences(station, file).filter((entry) => !NOT_COMPARED.has(entry.path))
-  }
-
-  /**
-   * The blocks of §11.5 the file carries EMPTY while the station has a value there.
-   *
-   * @param station - the configuration in service.
-   * @param file - what the station read in the imported file.
-   */
-  function strippedBlocks(
-    station: Record<string, unknown> | null,
-    file: Record<string, unknown> | null,
-  ): { path: string; name: string }[] {
-    if (station === null || file === null) return []
-    const inService = station
-    const inFile = file
-    return CLONE_STRIPS.filter(
-      (block) => isBlank(inFile, block.path) && !isBlank(inService, block.path),
-    )
-  }
-
-  /**
-   * True when a document carries nothing at that path: absent, null, empty text, empty map.
-   *
-   * The four forms all come out of one export: `Config.Export(false)` writes `""` on the
-   * station name, `null` on the three option maps, and the zero value of the network block.
-   *
-   * @param document - the document to read.
-   * @param path - the dotted path of the key.
-   */
-  function isBlank(document: Record<string, unknown>, path: string): boolean {
-    const value = valueAt(document, path)
-    if (value === undefined || value === null || value === '') return true
-    if (typeof value !== 'object' || Array.isArray(value)) return false
-    return Object.keys(value).length === 0
-  }
-
-  /** « le nom du poste, l’adresse d’écoute et les réglages de la balance ». */
-  function frenchList(names: string[]): string {
-    if (names.length < 2) return names.join('')
-    return `${names.slice(0, -1).join(', ')} et ${names[names.length - 1] ?? ''}`
-  }
 
   /**
    * Re-reads the configuration in service whenever the station's fingerprint moves.
@@ -340,10 +217,10 @@
   /**
    * Exports the configuration, as a PROTECTED act (ADR-033).
    *
-   * `GET /admin/api/config/export` is the one read the station keeps behind the password,
-   * because it is the one payload that still carries the password hash (§11.5). Two bare
-   * `<a download>` fetched it, and an anchor cannot see a refusal: on an expired session
-   * the browser saved a file named like an export and holding « Session expirée ».
+   * The read itself is {@link readExport}, and the reason the station keeps it behind the
+   * password is written there, beside the `fetch` it describes. What this function adds is
+   * the protection and what follows it: a refusal turned into a re-authentication, then
+   * the bytes handed to the browser.
    *
    * @param withHardware - whether the serial port, the print queue and the network travel.
    */
@@ -352,7 +229,7 @@
     admin.notice = ''
     admin.actionError = ''
     try {
-      const file = await admin.protect(() => readExport(withHardware))
+      const file = await admin.protect(() => readExport(health.station, withHardware))
       if (file === null) return
       handToBrowser(file.name, file.blob)
       // What this page can attest, and nothing beyond: the bytes left the station and the
@@ -364,108 +241,6 @@
     } finally {
       working = ''
     }
-  }
-
-  /** One exported configuration, and the name it is saved under. */
-  interface ExportedFile {
-    name: string
-    blob: Blob
-  }
-
-  /**
-   * Fetches one export, and turns a refusal into what {@link Admin.protect} answers.
-   *
-   * The call lives here and not in `lib/api.ts` because it is the only one of the contract
-   * that answers a FILE: everything in that module reads a body and parses it as JSON,
-   * which is exactly what must not happen to a document somebody is about to save.
-   *
-   * @param withHardware - what the `hardware` parameter of §11.5 selects.
-   */
-  async function readExport(withHardware: boolean): Promise<ExportedFile> {
-    const route = `/admin/api/config/export?hardware=${withHardware ? '1' : '0'}`
-    const response = await fetch(route, { headers: { accept: 'application/json' } })
-    if (!response.ok) {
-      throw new AdminError(response.status, refusalOf(await response.text(), 'L’export'))
-    }
-    return { name: exportName(withHardware), blob: await response.blob() }
-  }
-
-  /**
-   * The name an export is saved under, and why the screen chooses it.
-   *
-   * The station names every export `config-export.json`, so the clone of §11.5 — one
-   * operator, one file, three other stations — ends with four identically named files in
-   * one folder, two of which do not carry the hardware and must not be applied as if they
-   * did. §11.5 names the file after the station it came from and the day it was taken.
-   *
-   * @param withHardware - whether this is the complete export.
-   */
-  function exportName(withHardware: boolean): string {
-    const variant = withHardware ? '' : '-sans-materiel'
-    return `config-poste${String(health.station)}${variant}-${isoDay()}.json`
-  }
-
-  /** Today as `2026-07-27`: the one date form that sorts right in a folder listing. */
-  function isoDay(): string {
-    const now = new Date()
-    const month = String(now.getMonth() + 1).padStart(2, '0')
-    const day = String(now.getDate()).padStart(2, '0')
-    return `${String(now.getFullYear())}-${month}-${day}`
-  }
-
-  /**
-   * Hands one file to the browser's own download.
-   *
-   * The anchor is created, clicked and dropped: it exists for the length of one gesture
-   * and never sits in the page — a permanent `<a download>` is precisely what could not
-   * see the station refuse.
-   *
-   * The object URL is released ON THE NEXT TURN of the loop, never on this one. A click
-   * only QUEUES the download; a browser that reads the address afterwards finds nothing
-   * and cancels it, and the sentence on screen would have announced an export nobody
-   * received. One turn is enough, and it is what keeps the URL from leaking either.
-   *
-   * @param name - the name the file is saved under.
-   * @param blob - the bytes the station answered.
-   */
-  function handToBrowser(name: string, blob: Blob): void {
-    const address = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = address
-    link.download = name
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    setTimeout(() => {
-      URL.revokeObjectURL(address)
-    }, 0)
-  }
-
-  /** What `POST /admin/api/config/import` answers of the file it was given. */
-  interface InspectedConfig {
-    config: Record<string, unknown>
-    faults: FaultDTO[]
-  }
-
-  /**
-   * Has THE STATION read the file, and turns a refusal into what `protect` answers.
-   *
-   * `changed_blocks` travels in the same body and is deliberately not drawn: the twelve
-   * block names are English tokens of `internal/web/config.go`, and the field-by-field
-   * diff §14.4 asks for says strictly more than « le bloc printer a changé » — which does
-   * not tell whether it is the print queue or the darkness.
-   *
-   * @param contents - the parsed file.
-   */
-  async function submitCandidate(contents: Record<string, unknown>): Promise<InspectedConfig> {
-    const response = await fetch('/admin/api/config/import', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(contents),
-    })
-    const raw = await response.text()
-    if (!response.ok) throw new AdminError(response.status, refusalOf(raw, 'L’import'))
-    return JSON.parse(raw) as InspectedConfig
   }
 
   /**
@@ -572,61 +347,6 @@
     }
   }
 
-  /**
-   * The French sentence of a refusal: the station's own, when it wrote one.
-   *
-   * @param raw - the body of the refused answer.
-   * @param what - the act, for the sentence of last resort.
-   */
-  function refusalOf(raw: string, what: string): string {
-    try {
-      const problem = JSON.parse(raw) as ProblemDTO | null
-      if (typeof problem?.message === 'string' && problem.message !== '') return problem.message
-    } catch {
-      // The station answered something that is not a problem document.
-    }
-    return `${what} a été refusé par le poste.`
-  }
-
-  /**
-   * The message of the control that refused this key, when there is one (§11.3).
-   *
-   * The three editable fields of this page had none: a save refused on `station.number`
-   * lit the global banner « Cette configuration ne peut pas être appliquée » and left the
-   * offending field looking perfectly fine.
-   *
-   * @param path - the dotted path of the key.
-   */
-  function faultOf(path: string): string {
-    return draft.faults.find((fault) => fault.field === path)?.message ?? ''
-  }
-
-  /**
-   * The values a control named as acceptable, when it knows them (§11.4, step 1).
-   *
-   * @param path - the dotted path of the key.
-   */
-  function allowedFor(path: string): string[] {
-    return draft.faults.find((fault) => fault.field === path)?.allowed ?? []
-  }
-
-  /**
-   * « 40 lignes affichées sur 137 champs qui changent. », or « 16 champs qui changent. ».
-   *
-   * A cap that does not say what it hides is a lie by omission, and this page had the
-   * worst kind: a diff of a hundred and thirty rows with the button that acts on it below
-   * the fold.
-   *
-   * @param shown - how many rows are drawn.
-   * @param total - how many there are.
-   * @param singular - what one of them is called.
-   * @param plural - what several of them are called.
-   */
-  function tally(shown: number, total: number, singular: string, plural: string): string {
-    const noun = total > 1 ? plural : singular
-    if (shown >= total) return `${frenchInteger(total)} ${noun}.`
-    return `${frenchInteger(shown)} lignes affichées sur ${frenchInteger(total)} ${noun}.`
-  }
 </script>
 
 <div class="pages">
@@ -640,8 +360,8 @@
       path="station.number"
       kind="number"
       value={draft.text('station.number')}
-      fault={faultOf('station.number')}
-      allowed={allowedFor('station.number')}
+      fault={faultOf(draft, 'station.number')}
+      allowed={allowedFor(draft, 'station.number')}
       hint="C’est de lui que dérive le nom du fichier de catalogue attendu, flv_<n>.csv."
       onchange={(value) => draft.set('station.number', Number(value))}
     />
@@ -649,8 +369,8 @@
       label="Nom du poste"
       path="station.name"
       value={draft.text('station.name')}
-      fault={faultOf('station.name')}
-      allowed={allowedFor('station.name')}
+      fault={faultOf(draft, 'station.name')}
+      allowed={allowedFor(draft, 'station.name')}
       hint="Ce que lit un bénévole : « Poste 2 — fruits »."
       onchange={(value) => draft.set('station.name', value)}
     />
@@ -658,8 +378,8 @@
       label="Coopérative"
       path="station.coop"
       value={draft.text('station.coop')}
-      fault={faultOf('station.coop')}
-      allowed={allowedFor('station.coop')}
+      fault={faultOf(draft, 'station.coop')}
+      allowed={allowedFor(draft, 'station.coop')}
       onchange={(value) => draft.set('station.coop', value)}
     />
     <dl class="identity">
@@ -742,44 +462,7 @@
       <p class="fact filename" data-filename>Fichier lu : {candidateName}</p>
 
       {#if candidateFaults.length > 0}
-        <div class="faults" data-faults>
-          <p class="fact">Ce fichier serait refusé en l’état : {faultTally}</p>
-          <!--
-            Deliberately UNKEYED: one field carries as many controls as it breaks, so a
-            `each` keyed by `field` would throw `each_key_duplicate` on the first file that
-            breaks two rules on the same key, and take the whole screen with it.
-          -->
-          <ul>
-            {#each shownFaults as fault}
-              <li>
-                <!--
-                  The French name FIRST, as the save bar of `App.svelte` renders the very
-                  same refusals: the service answers a key plus a message, and « 99999 hors
-                  bornes [1, 50000] » names nothing on its own once the key is hidden. The
-                  two lists show the same object and must read the same way — one of them
-                  spelling the key out would put back on screen what the switch hides.
-                -->
-                <strong>{labelOf(fault.field)}</strong>
-                {#if preferences.showTechnicalNames}<code>{fault.field}</code>{/if}
-                {fault.message}
-                <!--
-                  Half the control was being thrown away: `allowed` carries the values that
-                  WOULD work, and §11.4 step 1 asks for them in so many words. « Ce port
-                  n'existe pas sur ce poste » without the list of the ports that do exist
-                  is a refusal nobody can act on — least of all here, where the file is not
-                  correctable field by field.
-                -->
-                {#if fault.allowed !== undefined && fault.allowed.length > 0}
-                  <span class="allowed">Valeurs acceptées : {fault.allowed.join(', ')}.</span>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-          <p class="fact muted">
-            Recopier reste possible : les valeurs entrent dans le brouillon, où elles se
-            corrigent champ par champ avant l’enregistrement.
-          </p>
-        </div>
+        <ImportFaults faults={candidateFaults} />
       {/if}
 
       {#if !compared}
@@ -802,44 +485,7 @@
             Les autres sont dans le fichier, et « Recopier » les prend tous.
           {/if}
         </p>
-        <div class="scroll">
-          <table data-diff>
-            <thead>
-              <tr>
-                <th>Champ</th>
-                <th>En service</th>
-                <th>Dans le fichier</th>
-              </tr>
-            </thead>
-            <tbody>
-              <!--
-                The path stays the KEY of the row and its `data-path`, and stops being what
-                the row is named by. A dotted key identifies a line to whoever wrote the
-                file; it identifies nothing to the volunteer this table was widened for,
-                and the switch is what tells the two apart.
-
-                `labelOf` falls back to the path, so a row the index does not name stays
-                readable — a clone diff always carries a few of those, `pricing.tiers` and
-                `catalog.categories` among them. The `name !== entry.path` guard is what
-                keeps that fallback from being written twice in the same cell once the
-                switch is on.
-              -->
-              {#each shownDiff as entry (entry.path)}
-                {@const name = labelOf(entry.path)}
-                <tr data-path={entry.path}>
-                  <td>
-                    {name}
-                    {#if preferences.showTechnicalNames && name !== entry.path}
-                      <code>{entry.path}</code>
-                    {/if}
-                  </td>
-                  <td>{entry.before}</td>
-                  <td>{entry.after}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
+        <ConfigDiffTable rows={shownDiff} />
         {#if stripped.length > 0}
           <p class="fact warned" data-stripped>
             Ce fichier ne porte pas {frenchList(stripped.map((block) => block.name))} :
@@ -1060,29 +706,6 @@
     background: var(--fault-wash);
   }
 
-  /* A file that would be refused is not a failure of the station: it is something to fix
-     in the draft before saving, hence the warning wash and not the fault one. */
-  .faults {
-    margin-top: 0.75rem;
-    padding: 0.25rem 1rem 0.5rem;
-    border-left: 0.375rem solid var(--warning);
-    border-radius: var(--radius);
-    background: var(--warning-wash);
-  }
-
-  .faults ul {
-    margin: 0;
-    padding-left: 1.25rem;
-    font-size: 1.0625rem;
-  }
-
-  /* The values that WOULD work, on their own line: they are what somebody types next. */
-  .allowed {
-    display: block;
-    color: var(--ink-muted);
-    font-size: 1rem;
-  }
-
   /*
    * Every list of this page is BOUNDED and scrolls inside its own box.
    *
@@ -1095,27 +718,6 @@
     overflow: auto;
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-lg);
-    background: var(--bg);
-  }
-
-  table {
-    border-collapse: collapse;
-    width: 100%;
-    font-size: 1.0625rem;
-  }
-
-  th,
-  td {
-    padding: 0.375rem 0.75rem;
-    text-align: left;
-    border-bottom: 1px solid var(--border);
-  }
-
-  th {
-    position: sticky;
-    top: 0;
-    color: var(--ink-muted);
-    font-size: 1rem;
     background: var(--bg);
   }
 

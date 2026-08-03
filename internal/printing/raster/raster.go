@@ -42,18 +42,19 @@
 // moves.
 package raster
 
+// This file is the driver itself: what it is given, what it declares, how one job
+// becomes a frame, and how it lets go. What it answers about the device is in
+// status.go, the three patterns of §8.6 and its answer to them in selftest.go, and
+// what New refuses at construction in settings.go.
+
 import (
 	"context"
-	"errors"
 	"fmt"
 	"image"
-	"strings"
 	"sync"
-	"time"
 
 	"openscale/internal/domain"
 	"openscale/internal/printing"
-	"openscale/internal/printing/sbpl"
 	"openscale/internal/station/ports"
 )
 
@@ -75,14 +76,6 @@ const Label = "Imprimante d'étiquettes (rendu image)"
 //
 // Three copies is how a fourth diverges: one of them is renamed, the other two keep
 // answering the old word, and the button on the screen stops reaching the driver.
-
-// statusBudget is how long a status probe waits for the printer to say something
-// (§8.5, level N3). It bounds a transport that answers, never a weighing.
-//
-// It stays HERE, next to the driver that spends it, where the ENQ byte and the reading
-// of the answer have gone to internal/printing/sbpl: how long a station is willing to
-// wait is a policy of the station, and the SATO reference states no such delay.
-const statusBudget = 500 * time.Millisecond
 
 // Options is everything the driver needs, and nothing it could invent.
 type Options struct {
@@ -315,7 +308,6 @@ func (p *Printer) copiesFor(job ports.PrintJob) (int, error) {
 	return job.Copies, nil
 }
 
-// send hands one finished frame to the transport and times it on the injected clock.
 // refuseWhenClosed reports the refusal a closed printer owes its caller, or nil.
 //
 // It exists so that Print can answer that refusal before it draws anything, while send
@@ -330,6 +322,7 @@ func (p *Printer) refuseWhenClosed(op string) error {
 	return nil
 }
 
+// send hands one finished frame to the transport and times it on the injected clock.
 func (p *Printer) send(ctx context.Context, op, jobID string, frame []byte) (ports.PrintReceipt, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -357,107 +350,6 @@ func (p *Printer) send(ctx context.Context, op, jobID string, frame []byte) (por
 	return ports.PrintReceipt{JobID: jobID, Bytes: n, Duration: elapsed}, nil
 }
 
-// Status reports what the device says about itself, or an honest admission that we do
-// not know (§8.5).
-//
-// It NEVER turns a silence into a failure. A transport that cannot ask answers
-// PrinterUnknown, which is the whole reason that value exists, and a printer that
-// stays quiet for 500 ms is reported as unknown rather than faulted: confirming a
-// physical event with a probe that does not observe it is exactly the mistake
-// important-7 removed.
-func (p *Printer) Status(ctx context.Context) ports.PrinterStatus {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.closed {
-		return ports.PrinterStatus{Health: ports.PrinterUnknown,
-			Detail: "l'imprimante a été fermée par le poste."}
-	}
-
-	answer, err := p.transport.Query(ctx, sbpl.Enquiry(), statusBudget)
-	switch {
-	case errors.Is(err, ports.ErrUnsupported):
-		return ports.PrinterStatus{Health: ports.PrinterUnknown,
-			Detail: fmt.Sprintf("état inconnu : %s ne peut pas interroger l'imprimante. "+
-				"L'étiquette part, la réponse ne revient pas.", p.transport.Describe())}
-	case err != nil:
-		return ports.PrinterStatus{Health: ports.PrinterFaulted, Raw: answer,
-			Detail: fmt.Sprintf("l'imprimante n'a pas répondu (%s) : %v", p.transport.Describe(), err)}
-	case len(answer) == 0:
-		return ports.PrinterStatus{Health: ports.PrinterUnknown,
-			Detail: fmt.Sprintf("état inconnu : %s n'a rien renvoyé en %s.",
-				p.transport.Describe(), statusBudget)}
-	}
-	// The frame IS decoded now — the L0 bench captured it — but only far enough to name
-	// a FAULT. Read sbpl.FaultOfStatusFrame for why readiness is still never claimed.
-	if fault, named := sbpl.FaultOfStatusFrame(answer); named {
-		return ports.PrinterStatus{Health: fault.Health, Raw: answer,
-			Detail: fmt.Sprintf("%s (%s).", fault.Reason, p.transport.Describe())}
-	}
-
-	// Any non-empty answer means the printer is ALIVE (§8.5) — and alive is not ready.
-	// PrinterReady means « answered and has NOTHING TO REPORT » (ports), and this
-	// printer does not answer that question when it is idle: see sbpl.FaultOfStatusFrame.
-	// Claiming ready here would be a green light on /readyz over an empty roll (§14.5).
-	//
-	// The detail names the TRANSPORT and stops there. What the answer means is the
-	// aggregation's sentence (internal/printing/status.go), and a driver that spelled
-	// the same conclusion produced it twice in a row on the troubleshooting screen.
-	return ports.PrinterStatus{Health: ports.PrinterUnknown, Raw: answer,
-		Detail: p.transport.Describe()}
-}
-
-// SelfTest prints one built-in pattern (§8.6).
-//
-// `alignment` and `ruler` are drawn HERE, from the geometry of the template in
-// service: they carry no business data, so nothing has to be injected for them to
-// exist. `label` is a real label and therefore needs a real Label, which only the
-// station can build.
-func (p *Printer) SelfTest(ctx context.Context, what string) error {
-	switch printing.SelfTest(what) {
-	case printing.SelfTestLabel:
-		return p.printDemoLabel(ctx)
-	case printing.SelfTestAlignment:
-		return p.printPattern(ctx, "raster.SelfTest.alignment", alignmentPattern(p.template))
-	case printing.SelfTestRuler:
-		return p.printPattern(ctx, "raster.SelfTest.ruler", rulerPattern(p.template))
-	}
-	return &ports.PrintError{Kind: ports.KindConfig, Op: "raster.SelfTest",
-		Message: fmt.Sprintf("auto-test inconnu %q : les auto-tests disponibles sont %s, %s et %s",
-			what, printing.SelfTestLabel, printing.SelfTestAlignment, printing.SelfTestRuler)}
-}
-
-// printDemoLabel prints the demonstration label of the `label` self-test.
-func (p *Printer) printDemoLabel(ctx context.Context) error {
-	if p.demoLabel == nil {
-		return &ports.PrintError{Kind: ports.KindConfig, Op: "raster.SelfTest.label",
-			Message: "aucune étiquette de démonstration n'a été fournie à l'imprimante : " +
-				"l'étiquette de test porte un produit et des prix, qui viennent du catalogue et de la " +
-				"configuration du poste, jamais du driver"}
-	}
-	label, err := p.demoLabel()
-	if err != nil {
-		return &ports.PrintError{Kind: ports.KindData, Op: "raster.SelfTest.label", Err: err,
-			Message: fmt.Sprintf("l'étiquette de démonstration n'a pas pu être préparée : %v", err)}
-	}
-	_, err = p.Print(ctx, ports.PrintJob{
-		Label:    label,
-		Template: p.template,
-		Locale:   string(domain.LocaleFrench),
-		Copies:   1,
-	})
-	return err
-}
-
-// printPattern encapsulates one built-in pattern and sends it.
-func (p *Printer) printPattern(ctx context.Context, op string, img *image.Gray) error {
-	frame, err := encodeLabel(img, p.template, p.settings, p.head, 1)
-	if err != nil {
-		return err
-	}
-	_, err = p.send(ctx, op, op, frame)
-	return err
-}
-
 // Close releases the transport and the font faces the renderer memoised.
 //
 // It is idempotent: the Hub closes on a configuration reload and again on shutdown
@@ -475,35 +367,4 @@ func (p *Printer) Close() error {
 		err = fontErr
 	}
 	return err
-}
-
-// checkTemplateHead reports whether a template can be printed by this head.
-//
-// The resolution of the whole application has ONE source, template.media.dots_per_mm
-// (mineur-3), and the capability of a driver is what it is COMPARED to. A 12 dots/mm
-// template sent to a WS408 prints at two thirds of its size, with a symbol under every
-// GS1 floor, and no byte of the frame says so: the label simply comes out wrong.
-func checkTemplateHead(t domain.Template, h Head) []domain.Fault {
-	if t.Media.DotsPerMM == h.DotsPerMM {
-		return nil
-	}
-	if t.Media.DotsPerMM <= 0 {
-		return []domain.Fault{{Field: "printer.template",
-			Message: fmt.Sprintf("le gabarit %q ne déclare aucune résolution (media.dots_per_mm = %g) : "+
-				"c'est elle qui donne au bitmap sa taille physique", t.Name, t.Media.DotsPerMM)}}
-	}
-	return []domain.Fault{{Field: "printer.template",
-		Message: fmt.Sprintf("le gabarit %q est dessiné pour une tête de %g dots/mm et cette imprimante "+
-			"en fait %g : l'étiquette sortirait à une autre échelle",
-			t.Name, t.Media.DotsPerMM, h.DotsPerMM)}}
-}
-
-// joinFaults gathers every fault into the single French message an operator reads on
-// the administration screen, one per line, each naming its own key.
-func joinFaults(faults []domain.Fault) string {
-	lines := make([]string, 0, len(faults))
-	for _, f := range faults {
-		lines = append(lines, f.String())
-	}
-	return strings.Join(lines, " ; ")
 }

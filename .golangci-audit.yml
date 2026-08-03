@@ -1,0 +1,101 @@
+# Configuration de golangci-lint pour OpenScale — cible `make audit`, NON BLOQUANTE.
+#
+# Elle active large et ne fait échouer personne. Sa raison d'être est de RENDRE
+# VISIBLE ce que `.golangci.yml` écarte : le jeu bloquant est vert parce qu'il
+# ne contient que ce qui tient aujourd'hui, et un dépôt où l'on ne verrait plus
+# jamais le reste finirait par croire qu'il n'y a plus rien à faire.
+#
+# Elle ne tourne PAS dans l'intégration continue. Elle se lance à la main, quand
+# on ouvre un lot de qualité, et son relevé sert à le dimensionner.
+#
+# Les raisons pour lesquelles chacun de ces linters n'est pas bloquant sont
+# écrites dans `.golangci.yml`, avec le compte relevé. Ne les dupliquez pas ici :
+# deux listes finissent toujours par diverger.
+
+version: "2"
+
+# SANS CE BLOC, LA CIBLE D'INVENTAIRE MENT — et c'est exactement ce qu'elle est
+# censée éviter. golangci-lint tronque par défaut à 3 signalements identiques et
+# 50 par linter : cette configuration rendait 136 signalements de production là
+# où il y en a 432, et les comptes qu'on en tirait étaient faux d'un facteur 10
+# sur errcheck. Une cible dont le rôle est de MONTRER la dette ne peut pas être
+# celle qui la sous-estime.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  # golangci-lint ne rend QU'UN signalement par ligne par défaut. Quand gocognit
+  # et funlen visent la même fonction, un seul sort — et lequel dépend de
+  # l'ordre, pas du fond. Un inventaire ne peut pas se permettre ça : c'est ce
+  # qui faisait dire que funlen ne voyait que deux fonctions alors qu'il en voit
+  # neuf dès que gocognit se tait sur la même ligne.
+  uniq-by-line: false
+
+run:
+  timeout: 15m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    # Le socle Go, que le jeu bloquant ne peut pas encore porter
+    - errcheck
+    - staticcheck
+    - unused
+
+    # Ce qui mesure ce qu'un corps de fonction est devenu
+    - gocognit
+    - funlen
+    - nestif
+    - cyclop
+
+    # Sécurité et exhaustivité
+    - gosec
+    - exhaustive
+
+    # Fautes probables
+    - bodyclose
+    - errorlint
+    - nilerr
+    - noctx
+    - errname
+    - predeclared
+
+    # Style et conventions
+    - revive
+    - gocritic
+    - goconst
+    - unparam
+    - prealloc
+    - unconvert
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+    - copyloopvar
+    - ineffassign
+    - govet
+
+  settings:
+    cyclop:
+      max-complexity: 15
+    funlen:
+      lines: 80
+      statements: 50
+    gocognit:
+      min-complexity: 25
+    nestif:
+      min-complexity: 5
+    goconst:
+      min-len: 4
+      min-occurrences: 4
+
+  exclusions:
+    generated: lax
+    paths:
+      - web/node_modules
+
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    paths:
+      - web/node_modules

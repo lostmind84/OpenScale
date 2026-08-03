@@ -280,11 +280,6 @@ func (p *Printer) compose(job ports.PrintJob) (*image.Gray, error) {
 	return img, nil
 }
 
-// write encodes the bitmap twice and reports how many bytes reached the disk.
-//
-// The PNG goes down FIRST and the PDF second, and both are written before the receipt is
-// returned: the pair is what a volunteer is asked to send, and half of it is a support
-// request that has to be made twice.
 // refuseWhenClosed reports the refusal a closed preview owes its caller, or nil.
 //
 // It exists so that Print can answer that refusal before it draws anything, while write
@@ -299,6 +294,11 @@ func (p *Printer) refuseWhenClosed(op string) error {
 	return nil
 }
 
+// write encodes the bitmap twice and reports how many bytes reached the disk.
+//
+// The PNG goes down FIRST and the PDF second, and both are written before the receipt is
+// returned: the pair is what a volunteer is asked to send, and half of it is a support
+// request that has to be made twice.
 func (p *Printer) write(ctx context.Context, op, jobID string, img *image.Gray, media domain.Media) (ports.PrintReceipt, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

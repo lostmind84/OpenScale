@@ -21,7 +21,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('all', 'test', 'driver', 'vet', 'boundary', 'deps', 'build', 'dist', 'release', 'cover', 'front', 'front-check', 'clean', 'help')]
+  [ValidateSet('all', 'test', 'driver', 'vet', 'lint', 'audit', 'boundary', 'deps', 'build', 'dist', 'release', 'cover', 'front', 'front-check', 'clean', 'help')]
   [string]$Target = 'all',
 
   # -Version impose le numéro au lieu de le dériver de l'histoire, comme
@@ -96,6 +96,88 @@ function Assert-Success([string]$what) {
 function Invoke-Vet {
   go vet ./...
   Assert-Success 'go vet'
+}
+
+function Get-GolangciVersion {
+  <#
+  .SYNOPSIS
+  Rend la version de golangci-lint épinglée par le Makefile.
+
+  .DESCRIPTION
+  Le Makefile écrit cette version à UN SEUL endroit et dit que la CI, ce script
+  et lui la lisent tous d'ici. La CI la lit par `make -s golangci-version` ; ce
+  script ne le peut pas, puisqu'il existe pour les postes sans `make`. Il lit
+  donc la ligne, et LÈVE plutôt que de retomber sur une valeur par défaut : un
+  numéro deviné ici rendrait à nouveau deux sources de vérité, et c'est
+  exactement ce que le Makefile cherche à empêcher.
+  #>
+  $makefile = Join-Path $PSScriptRoot 'Makefile'
+  $pinned = Select-String -Path $makefile -Pattern '^GOLANGCI_VERSION\s*\?=\s*(\S+)'
+  if (-not $pinned) {
+    throw "GOLANGCI_VERSION est introuvable dans $makefile. La version y est épinglée et nulle part ailleurs : ce script ne peut pas la deviner."
+  }
+  return $pinned.Matches[0].Groups[1].Value
+}
+
+function Get-GolangciLint {
+  <#
+  .SYNOPSIS
+  Rend le chemin de golangci-lint, ou lève en disant comment l'installer.
+
+  .DESCRIPTION
+  L'outil est cherché dans le PATH d'abord, puis dans le GOPATH : `go install`
+  l'y dépose sans que le PATH le sache toujours sous Windows.
+
+  Le message d'installation porte la version épinglée, et non `@latest` : un
+  développeur qui suit un `@latest` obtient un jeu de règles autre que celui de
+  la CI, donc le rouge-là-où-la-CI-voit-vert que le Makefile décrit — ou son
+  inverse, qui est pire, parce que personne ne cherche la cause d'un vert.
+  #>
+  $inPath = (Get-Command golangci-lint -ErrorAction SilentlyContinue)
+  if ($inPath) { return $inPath.Source }
+  $inGopath = Join-Path (go env GOPATH) 'bin\golangci-lint.exe'
+  if (Test-Path $inGopath) { return $inGopath }
+  $version = Get-GolangciVersion
+  throw "golangci-lint introuvable. Installez-le HORS module : go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$version"
+}
+
+function Invoke-Lint {
+  <#
+  .SYNOPSIS
+  Le jeu de règles bloquant, qui est VERT.
+
+  .DESCRIPTION
+  Les deux vont ensemble : un jeu qui rougit dès le premier jour n'est pas lu,
+  il est contourné. .golangci.yml ne porte que ce que le dépôt tient
+  aujourd'hui, et il écrit à côté de chaque linter écarté le nombre de
+  signalements qu'il produirait — pour que « pas activé » ne se lise jamais
+  « sans valeur ».
+  #>
+  & (Get-GolangciLint) run ./...
+  Assert-Success 'make lint'
+}
+
+function Invoke-Audit {
+  <#
+  .SYNOPSIS
+  L'inventaire complet, qui ne bloque rien.
+
+  .DESCRIPTION
+  Active tout, ne fait échouer personne, et ne tourne pas dans l'intégration
+  continue. Elle se lance à la main quand on ouvre un lot de qualité, et son
+  relevé sert à le dimensionner. Ne pas lui ajouter d'Assert-Success : une
+  cible d'inventaire qui échoue est une cible qu'on cesse de lancer.
+  #>
+  & (Get-GolangciLint) run -c .golangci-audit.yml ./...
+  # Le `|| true` du Makefile est INCONDITIONNEL ; ici, ne rien faire ne suffit
+  # pas. L'absence d'Assert-Success s'appuie sur $PSNativeCommandUseErrorAction-
+  # Preference, une préférence GLOBALE que ce script ne fixe pas et qui vaut
+  # $true par défaut sur certaines versions de PowerShell 7 : sur un poste ainsi
+  # réglé, une commande native sortant en 1 ferait échouer la cible. Remettre le
+  # code à zéro rend la garantie identique des deux côtés, quelle que soit la
+  # préférence du poste.
+  $global:LASTEXITCODE = 0
+  'audit : relevé ci-dessus. Les raisons de chaque exclusion sont dans .golangci.yml'
 }
 
 function Invoke-Boundary {
@@ -257,8 +339,10 @@ function Invoke-Release {
 }
 
 switch ($Target) {
-  'help' { 'Cibles : test - driver - vet - boundary - deps - build - dist - release - cover - front - front-check - clean' }
+  'help' { 'Cibles : test - driver - vet - lint - audit - boundary - deps - build - dist - release - cover - front - front-check - clean' }
   'vet' { Invoke-Vet }
+  'lint' { Invoke-Lint }
+  'audit' { Invoke-Audit }
   'boundary' { Invoke-Boundary }
   'deps' { Invoke-Deps }
   'driver' { Invoke-Driver }

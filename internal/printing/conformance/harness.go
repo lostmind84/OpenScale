@@ -104,8 +104,8 @@ func DemoLabel() (domain.Label, error) {
 // the pitch of the head it was drawn for — which is precisely the fault no byte of the
 // frame reports.
 func foreign(t domain.Template) domain.Template {
-	t.Name = t.Name + "_foreign"
-	t.Media.DotsPerMM = t.Media.DotsPerMM * 1.5
+	t.Name += "_foreign"
+	t.Media.DotsPerMM *= 1.5
 	return t
 }
 
