@@ -16,6 +16,8 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 
+	// Le quatrième format, qui ne vient pas de la bibliothèque standard : les exports de
+	// l'ERP en portent, et sans cet enregistrement leur en-tête ne serait lu par personne.
 	_ "golang.org/x/image/bmp"
 
 	"openscale/internal/domain"
@@ -69,11 +71,11 @@ func (f photoFault) Error() string { return f.why }
 // everything it found: that is what refuses a field claiming three megabytes after 256 kB
 // have been read instead of after three megabytes have been allocated. The check here is
 // the second half of that guard, and it is the one that names the ceiling.
-func describePhoto(content []byte, max int, seenAt time.Time) (domain.Image, error) {
-	if len(content) > max {
+func describePhoto(content []byte, ceiling int, seenAt time.Time) (domain.Image, error) {
+	if len(content) > ceiling {
 		return domain.Image{}, photoFault{tooLarge: true, why: fmt.Sprintf(
 			"elle dépasse le plafond de %d ko une fois décodée, quand la plus grosse du "+
-				"catalogue de référence en pèse 12", max>>10)}
+				"catalogue de référence en pèse 12", ceiling>>10)}
 	}
 
 	format, recognised := sniff(content)

@@ -22,11 +22,11 @@ import (
 // not after three megabytes have been allocated. It deliberately stops at max+1 rather
 // than at max — that extra byte is what lets the assembler tell « exactly at the
 // ceiling » from « past it » and name the ceiling in the finding.
-func unwrap(encoded string, max int) ([]byte, error) {
+func unwrap(encoded string, ceiling int) ([]byte, error) {
 	decoder := base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))
 	var decoded bytes.Buffer
-	decoded.Grow(min(len(encoded)*3/4+3, max+1))
-	if _, err := io.Copy(&decoded, io.LimitReader(decoder, int64(max)+1)); err != nil {
+	decoded.Grow(min(len(encoded)*3/4+3, ceiling+1))
+	if _, err := io.Copy(&decoded, io.LimitReader(decoder, int64(ceiling)+1)); err != nil {
 		return nil, fmt.Errorf("le champ image n'est pas du base64 lisible (%v)", err)
 	}
 	return decoded.Bytes(), nil
