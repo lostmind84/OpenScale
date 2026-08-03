@@ -24,6 +24,21 @@ import (
 	"openscale/internal/station"
 )
 
+// What every test of this package drives the HTTP layer with: a whole station on a FAKE
+// CLOCK behind the real routes, the four verbs its handlers are exercised through, and the
+// doubles that stand in for the store, the journal and the technical log.
+//
+// # Why this file stays whole at 705 lines
+//
+// It is the largest file of the repository, and splitting it was considered and refused.
+// The two candidates for a file of their own — the configuration store double and the
+// administration bench — are used by nearly every test here, so moving them out replaces
+// one long file that is read top to bottom by two files that are read together. Measured:
+// the split adds the two package clauses, the two import blocks and the two headers, and
+// takes the pair to roughly 880 lines for the same content. A bench is not read the way a
+// production file is; what it owes its reader is that everything it hands over be in one
+// place.
+
 // epoch is the instant every test starts at.
 //
 // A fixed instant and not « now »: a snapshot, a golden file and a countdown then read

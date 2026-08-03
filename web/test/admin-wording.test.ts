@@ -261,10 +261,19 @@ describe('l’index des champs', () => {
   })
 })
 
-/** Le fichier Go qui décide, seul, quels blocs peuvent apparaître dans le bandeau. */
+/**
+ * Le fichier Go qui décide, seul, quels blocs peuvent apparaître dans le bandeau.
+ *
+ * Ce chemin est une DETTE, et elle s'est déjà payée : `changedBlocks` vivait dans
+ * `config.go`, un découpage l'a portée dans `configwrite.go`, et ce banc est devenu rouge
+ * pour un déplacement qui ne changeait rien. Un banc qui épingle l'EMPLACEMENT d'une
+ * fonction juge la forme du code au lieu de son comportement. Le remède n'est pas de
+ * suivre le fichier à chaque fois : c'est que le service EXPOSE cette liste — elle
+ * décide déjà de ce que le navigateur affiche — et que le banc la lise là.
+ */
 const CHANGED_BLOCKS_SOURCE = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  '../../internal/web/config.go',
+  '../../internal/web/configwrite.go',
 )
 
 /**

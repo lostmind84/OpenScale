@@ -2,8 +2,11 @@ package web
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"openscale/internal/domain"
 )
 
 // securityHeaders is what every answer of this layer must carry, and the value it must
@@ -107,4 +110,83 @@ func directiveOf(policy, name string) string {
 		}
 	}
 	return ""
+}
+
+// --- The cross-site guard ----------------------------------------------------
+
+// TestAMutatingRequestFromAnotherOriginIsRefused: cross-site request forgery, and DNS
+// rebinding against 127.0.0.1, which is the attack a loopback service really faces —
+// no firewall protects it.
+func TestAMutatingRequestFromAnotherOriginIsRefused(t *testing.T) {
+	b := newBench(t)
+
+	refused := b.do(http.MethodPost, "/api/v1/cancel", `{}`,
+		http.Header{"Origin": {"http://ailleurs.example"}})
+	refused.Body.Close()
+	if refused.StatusCode != http.StatusForbidden {
+		t.Fatalf("origine étrangère = %d, attendu 403", refused.StatusCode)
+	}
+
+	// The station's own origin passes.
+	accepted := b.do(http.MethodPost, "/api/v1/cancel", `{}`,
+		http.Header{"Origin": {b.http.URL}})
+	accepted.Body.Close()
+	if accepted.StatusCode == http.StatusForbidden {
+		t.Fatal("la propre origine du poste est refusée")
+	}
+
+	// No Origin at all is not a browser: curl, the kiosk supervisor, a test.
+	bare := b.post("/api/v1/cancel", `{}`)
+	bare.Body.Close()
+	if bare.StatusCode == http.StatusForbidden {
+		t.Fatal("une requête sans origine est refusée : plus rien ne peut piloter le poste")
+	}
+}
+
+// TestARequestAddressedToAForeignNameIsRefused closes the rebinding half.
+func TestARequestAddressedToAForeignNameIsRefused(t *testing.T) {
+	b := newBench(t)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/cancel", strings.NewReader(`{}`))
+	request.Host = "poste.attaquant.example"
+	recorder := httptest.NewRecorder()
+	b.server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("Host étranger = %d, attendu 403", recorder.Code)
+	}
+}
+
+// TestTheAdministrationStaysOnTheLoopbackUnlessItIsOpened is network.admin_on_lan,
+// which would otherwise be a setting that does nothing.
+func TestTheAdministrationStaysOnTheLoopbackUnlessItIsOpened(t *testing.T) {
+	b := newBench(t)
+
+	fromLAN := httptest.NewRequest(http.MethodGet, "/admin/api/health", nil)
+	fromLAN.RemoteAddr = "10.0.0.5:51234"
+	recorder := httptest.NewRecorder()
+	b.server.Handler().ServeHTTP(recorder, fromLAN)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("administration depuis le LAN = %d, attendu 403", recorder.Code)
+	}
+
+	// The CLIENT screen is untouched: a station whose grid stopped answering because
+	// somebody tightened an administration setting would be a station that stopped
+	// selling.
+	client := httptest.NewRequest(http.MethodGet, "/api/v1/catalog", nil)
+	client.RemoteAddr = "10.0.0.5:51234"
+	recorder = httptest.NewRecorder()
+	b.server.Handler().ServeHTTP(recorder, client)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("écran client depuis le LAN = %d, attendu 200", recorder.Code)
+	}
+
+	opened := newBench(t, func(o *benchOptions) {
+		o.config = func(cfg *domain.Config) { cfg.Network.AdminOnLAN = true }
+	})
+	recorder = httptest.NewRecorder()
+	fromLAN = httptest.NewRequest(http.MethodGet, "/admin/api/health", nil)
+	fromLAN.RemoteAddr = "10.0.0.5:51234"
+	opened.server.Handler().ServeHTTP(recorder, fromLAN)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("administration ouverte sur le LAN = %d, attendu 200", recorder.Code)
+	}
 }
