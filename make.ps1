@@ -98,6 +98,27 @@ function Invoke-Vet {
   Assert-Success 'go vet'
 }
 
+function Get-GolangciVersion {
+  <#
+  .SYNOPSIS
+  Rend la version de golangci-lint épinglée par le Makefile.
+
+  .DESCRIPTION
+  Le Makefile écrit cette version à UN SEUL endroit et dit que la CI, ce script
+  et lui la lisent tous d'ici. La CI la lit par `make -s golangci-version` ; ce
+  script ne le peut pas, puisqu'il existe pour les postes sans `make`. Il lit
+  donc la ligne, et LÈVE plutôt que de retomber sur une valeur par défaut : un
+  numéro deviné ici rendrait à nouveau deux sources de vérité, et c'est
+  exactement ce que le Makefile cherche à empêcher.
+  #>
+  $makefile = Join-Path $PSScriptRoot 'Makefile'
+  $pinned = Select-String -Path $makefile -Pattern '^GOLANGCI_VERSION\s*\?=\s*(\S+)'
+  if (-not $pinned) {
+    throw "GOLANGCI_VERSION est introuvable dans $makefile. La version y est épinglée et nulle part ailleurs : ce script ne peut pas la deviner."
+  }
+  return $pinned.Matches[0].Groups[1].Value
+}
+
 function Get-GolangciLint {
   <#
   .SYNOPSIS
@@ -106,12 +127,18 @@ function Get-GolangciLint {
   .DESCRIPTION
   L'outil est cherché dans le PATH d'abord, puis dans le GOPATH : `go install`
   l'y dépose sans que le PATH le sache toujours sous Windows.
+
+  Le message d'installation porte la version épinglée, et non `@latest` : un
+  développeur qui suit un `@latest` obtient un jeu de règles autre que celui de
+  la CI, donc le rouge-là-où-la-CI-voit-vert que le Makefile décrit — ou son
+  inverse, qui est pire, parce que personne ne cherche la cause d'un vert.
   #>
   $inPath = (Get-Command golangci-lint -ErrorAction SilentlyContinue)
   if ($inPath) { return $inPath.Source }
   $inGopath = Join-Path (go env GOPATH) 'bin\golangci-lint.exe'
   if (Test-Path $inGopath) { return $inGopath }
-  throw "golangci-lint introuvable. Installez-le HORS module : go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+  $version = Get-GolangciVersion
+  throw "golangci-lint introuvable. Installez-le HORS module : go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$version"
 }
 
 function Invoke-Lint {
