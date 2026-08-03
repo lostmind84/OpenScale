@@ -1,0 +1,89 @@
+# Ce que Prettier ne doit pas toucher.
+#
+# `internal/web/dist` est le bundle COMMITÉ (§14.1) : il est produit par vite, jamais
+# écrit à la main, et le reformater ferait diverger les octets livrés de ceux que la CI
+# reconstruit. Il est hors de ce dossier, donc hors de portée d'un `prettier .` lancé
+# ici ; la ligne est écrite pour celui qui le lancera un jour depuis la racine du dépôt.
+../internal/web/dist/
+
+node_modules/
+
+# Les données de banc : des exports Odoo réels et des tables de référence. Ce sont des
+# pièces à conviction, et leur forme fait foi contre toute documentation.
+testdata/
+public/
+
+# ---------------------------------------------------------------------------------
+# LA DETTE, nommée fichier par fichier — et c'est un CLIQUET, pas une amnistie.
+#
+# Prettier arrive sur un dépôt écrit à la main. Le style de base coïncide déjà — pas de
+# point-virgule, guillemets simples, 100 colonnes — et l'écart tient au seul retour à la
+# ligne : 543 lignes sur 33 fichiers de `src`, 21 fichiers de plus dans `test`. Les
+# reformater d'un coup noierait le lot de rangement qui vient d'être livré, et rendrait
+# illisible la comparaison de DOM qui prouve qu'il n'a rien changé.
+#
+# Ces 55 fichiers sont donc EXEMPTÉS, et rien d'autre : tout fichier créé à partir
+# d'aujourd'hui est vérifié. Le jour où l'un d'eux est reformaté — `npx prettier --write`
+# sur lui seul — sa ligne part d'ici, et la liste se vide sans qu'aucun lot n'ait à
+# s'arrêter pour ça.
+#
+# Ce qu'il reste à faire tient en une commande :
+#     npx prettier --write .
+# et en une vérification : les bancs, et la comparaison de DOM du lot de rangement.
+# ---------------------------------------------------------------------------------
+src/admin/App.svelte
+src/admin/components/CatalogSourcePanel.svelte
+src/admin/components/FindingsPanel.svelte
+src/admin/components/ImportFaults.svelte
+src/admin/components/Light.svelte
+src/admin/components/Maintenance.svelte
+src/admin/components/PasswordPanel.svelte
+src/admin/components/SafeguardList.svelte
+src/admin/components/TierGrid.svelte
+src/admin/components/WaiverList.svelte
+src/admin/lib/api.ts
+src/admin/lib/config-file.ts
+src/admin/lib/dto.ts
+src/admin/lib/format.ts
+src/admin/lib/inventory.ts
+src/admin/lib/lights.ts
+src/admin/lib/read-state.ts
+src/admin/lib/safeguards.ts
+src/admin/pages/Catalog.svelte
+src/admin/pages/Dashboard.svelte
+src/admin/pages/Hardware.svelte
+src/admin/pages/Journal.svelte
+src/admin/pages/Label.svelte
+src/admin/pages/Rules.svelte
+src/admin/pages/Station.svelte
+src/admin/pages/Troubleshooting.svelte
+src/admin/pages/Update.svelte
+src/app.css
+src/App.svelte
+src/components/Icon.svelte
+src/components/SearchField.svelte
+src/components/Tile.svelte
+src/lib/color.ts
+src/main.ts
+test/admin-act.test.ts
+test/admin-catalog.test.ts
+test/admin-hardware.test.ts
+test/admin-inventory.test.ts
+test/admin-journal.test.ts
+test/admin-lights.test.ts
+test/admin-rules.test.ts
+test/admin-source.test.ts
+test/admin-station.test.ts
+test/admin-troubleshooting.test.ts
+test/admin-two-levels.test.ts
+test/catalog-fixture.test.ts
+test/chips.test.ts
+test/client-health.test.ts
+test/fixtures/odoo.ts
+test/layers.test.ts
+test/normalize.test.ts
+test/screen.test.ts
+test/tokens.test.ts
+test/typography.test.ts
+test/unit-products.test.ts
+

@@ -26,12 +26,22 @@ LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.dat
 
 TARGETS := windows/amd64 linux/amd64 linux/arm64
 
-.PHONY: all test vet boundary deps driver build dist release front front-check clean cover help
+.PHONY: all test vet lint audit boundary deps driver build dist release front front-check clean cover help
 
 all: test build
 
 help:
-	@echo "Cibles : test · driver · vet · boundary · deps · build · dist · release · cover · front · front-check · clean"
+	@echo "Cibles : test · driver · vet · lint · audit · boundary · deps · build · dist · release · cover · front · front-check · clean"
+
+# GOLANGCI est cherché dans le PATH d'abord, puis dans le GOPATH, parce que
+# `go install` y dépose l'outil sans que le PATH le sache toujours sous Windows.
+GOLANGCI ?= $(shell command -v golangci-lint 2>/dev/null || echo "$$(go env GOPATH)/bin/golangci-lint")
+
+# La version est ÉPINGLÉE ici, et c'est le seul endroit où elle est écrite : la
+# CI, make.ps1 et ce fichier la lisent tous d'ici. Un développeur sur une
+# version plus récente verrait rouge là où la CI voit vert — ou l'inverse, ce
+# qui est pire, parce que personne ne cherche la cause d'un vert.
+GOLANGCI_VERSION ?= v2.12.2
 
 # front construit l'écran client vers internal/web/dist, qui est COMMITÉ : `go
 # build` doit fonctionner sur une machine sans Node (§14.1).
@@ -51,6 +61,44 @@ front-check: front
 
 vet:
 	go vet ./...
+
+# lint est BLOQUANTE et VERTE, et les deux vont ensemble : un jeu de règles qui
+# rougit dès le premier jour n'est pas lu, il est contourné. .golangci.yml ne
+# contient donc que ce que le dépôt tient AUJOURD'HUI, et il écrit à côté de
+# chaque linter écarté le nombre de signalements qu'il produirait — pour que
+# « pas activé » ne se lise jamais « sans valeur ».
+#
+# L'outil s'installe HORS module, et c'est ADR-039 qui l'impose : `make deps`
+# compare go.mod aux deux tables de §17.1 dans les deux sens, et une dépendance
+# de développement inscrite là y ouvrirait un écart permanent. Pas de tools.go.
+# La CI lit la version par ici plutôt qu'en la recopiant dans son fichier. Une
+# cible ordinaire, et non une astuce de ligne de commande : ce qu'on ne peut pas
+# lancer à la main pour vérifier finit par casser sans qu'on sache où.
+.PHONY: golangci-version
+golangci-version:
+	@echo $(GOLANGCI_VERSION)
+
+lint:
+	@test -x "$(GOLANGCI)" || { \
+	  echo "lint : golangci-lint introuvable."; \
+	  echo "       go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)"; \
+	  exit 1; \
+	}
+	$(GOLANGCI) run ./...
+
+# audit active TOUT et ne bloque rien. Elle ne tourne pas dans l'intégration
+# continue : elle se lance à la main quand on ouvre un lot de qualité, et son
+# relevé sert à le dimensionner. Le `|| true` est la cible même de cette règle,
+# pas un oubli — une cible d'inventaire qui échoue est une cible qu'on cesse de
+# lancer.
+audit:
+	@test -x "$(GOLANGCI)" || { \
+	  echo "audit : golangci-lint introuvable."; \
+	  echo "        go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)"; \
+	  exit 1; \
+	}
+	@$(GOLANGCI) run -c .golangci-audit.yml ./... || true
+	@echo "audit : relevé ci-dessus. Les raisons de chaque exclusion sont dans .golangci.yml"
 
 boundary:
 	go run ./tools/boundary

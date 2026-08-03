@@ -1,0 +1,299 @@
+# Configuration de golangci-lint pour OpenScale — cible `make lint`, BLOQUANTE.
+#
+# Elle est verte, et c'est une décision, pas une facilité : un jeu de règles qui
+# rougit dès le premier jour n'est pas lu, il est contourné. Chaque linter a été
+# MESURÉ sur le dépôt avant d'être retenu ou écarté, et le compte relevé est
+# écrit à côté de la raison.
+#
+# Un linter écarté ici n'est pas un linter jugé sans valeur : c'est un lot de
+# travail qui n'a pas encore été fait. Le compte dit ce qu'il coûterait, et
+# `make audit` — qui active TOUT et ne bloque rien — le montre à la demande.
+#
+# L'outil s'installe HORS module :
+#     go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+# et jamais par un `tools.go`. `make deps` compare go.mod aux deux tables de
+# docs/02-architecture.md §17.1 dans les deux sens (ADR-039) : une dépendance de
+# développement inscrite dans go.mod y ouvrirait un écart permanent.
+
+version: "2"
+
+# SANS CE BLOC, ON DÉCIDE SUR DES CHIFFRES FAUX. golangci-lint tronque par
+# défaut à 3 signalements identiques et 50 par linter : la première mesure de ce
+# dépôt annonçait 14 pour errcheck là où il y en a 147, et 7 pour goconst là où
+# il y en a 85. Les comptes écrits plus bas sont ceux d'après cette correction,
+# `uniq-by-line` désactivé compris — voir la note en fin de fichier.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+run:
+  timeout: 10m
+  tests: true
+
+linters:
+  # PAS `default: standard` : errcheck (50), staticcheck (20) et unused (5) ont
+  # de l'existant, et les rendre verts demande de changer des comportements.
+  # Ils sont dans `make audit`, avec leur compte, en attendant leur lot.
+  default: none
+
+  enable:
+    - govet          # le socle que la CI joue déjà par `go vet`
+    - ineffassign    # affectation jamais lue
+    - copyloopvar    # Go 1.22+ : la variable de boucle ne se recopie plus
+    - usestdlibvars  # http.MethodGet plutôt que "GET"
+    - wastedassign   # valeur écrite puis écrasée sans lecture
+    - whitespace     # ligne vide en tête ou en fin de bloc
+    - nestif         # imbrication de `if` au-delà de ce qui se lit
+
+    # Zéro signalement en production, tous les deux : ils ne coûtent rien
+    # aujourd'hui et interdisent une faute réelle demain. bodyclose surtout —
+    # ce poste lit son catalogue en WebDAV, et un corps de réponse non refermé
+    # fuit une connexion par import.
+    - bodyclose
+    - predeclared    # masquer `max`, `min`, `close`…
+
+    # --- Ce qu'un corps de fonction ne doit pas devenir --------------------
+    #
+    # Ces deux-là sont au seuil QUI MORD, et les fonctions existantes qui le
+    # dépassent sont exclues NOMMÉMENT, plus bas, chacune avec son chiffre.
+    #
+    # C'est un choix contre les deux réflexes habituels. Poser le seuil
+    # au-dessus du pire cas — 70, la valeur de Template.ValidateOn — n'aurait
+    # rien interdit : tout ce qu'on peut écrire de raisonnable passe dessous.
+    # Ne pas les activer du tout aurait laissé la dette dans un commentaire que
+    # personne ne relit. Nommer les fautives fait les deux à la fois : aucun
+    # code NOUVEAU ne peut dépasser, et la liste d'exclusions EST la liste de
+    # travail — visible, chiffrée, et qui rétrécit quand on la traite.
+    #
+    # Une exclusion se retire quand la fonction repasse sous le seuil. Aucune ne
+    # s'ajoute sans que ce fichier dise pourquoi.
+    - gocognit
+    - funlen
+
+  settings:
+    nestif:
+      # Seuil posé JUSTE AU-DESSUS du pire cas mesuré : c'est un cliquet. Il
+      # n'exige pas de réparer l'existant, il interdit de l'aggraver.
+      min-complexity: 6
+    gocognit:
+      # 25 est le seuil usuel, et il mord ici : neuf fonctions de production le
+      # dépassent. Elles sont nommées dans exclusions.rules.
+      min-complexity: 25
+    funlen:
+      lines: 80
+      statements: 50
+
+  exclusions:
+    generated: lax
+
+    paths:
+      # Un fichier Go VENDORÉ dans les dépendances npm : web/node_modules porte
+      # flatted/golang/pkg/flatted/flatted.go, qui n'est pas notre code et que
+      # rien ne compile. Sans cette ligne, il apparaît dans chaque relevé.
+      - web/node_modules
+
+    rules:
+      # Un test qui ÉPELLE un scénario est long par construction, et le
+      # raccourcir le rendrait moins lisible, pas plus.
+      #
+      # bodyclose y est aussi : 135 signalements, tous sur des réponses qu'un
+      # banc lit et jette dans la foulée, dans un processus qui s'arrête après.
+      # predeclared également : 18 signalements, tous des variables locales
+      # nommées `copy` dans un test qui copie une base — le mot dit ce qu'il
+      # fait, et aucune de ces portées n'appelle la fonction prédéclarée.
+      #
+      # LES DEUX SONT À ZÉRO EN PRODUCTION, et c'est ce qui les rend gratuits :
+      # ils n'exigent rien du code livré et interdisent la faute demain.
+      - path: _test\.go
+        linters:
+          - funlen
+          - gocognit
+          - nestif
+          - bodyclose
+          - predeclared
+
+      # ── LA DETTE DE COMPLEXITÉ, NOMMÉE ────────────────────────────────────
+      #
+      # Neuf fonctions au-dessus de 25 en complexité COGNITIVE, deux au-dessus
+      # des bornes de longueur. Relevé du 03/08/2026, sans troncature.
+      #
+      # Le lot de rangement qui a produit ce fichier était MÉCANIQUE : il a
+      # déplacé du code entre fichiers, ce qui ne simplifie aucun corps de
+      # fonction. Ces onze-là sont donc exactement ce qu'elles étaient avant, et
+      # les traiter est le lot le plus utile qui reste.
+      #
+      # Chaque ligne porte sa valeur. Quand une fonction repasse sous le seuil,
+      # sa ligne se retire — et le fichier redevient plus court, ce qui est le
+      # seul indicateur de progrès qui ne se falsifie pas.
+
+      # Cognitif ET longueur — les plus lourdes, celles qui coûtent des deux
+      # côtés. La valeur cognitive d'abord, la longueur ensuite.
+      - linters: [gocognit, funlen]              # cognitif 70, 77 instr. — la pire du dépôt
+        path: internal/domain/template_validate\.go
+        text: "ValidateOn"
+      - linters: [gocognit, funlen]              # cognitif 33, 105 instr. — la racine de composition
+        path: cmd/openscale/serve\.go
+        text: "'serve'|func .serve."
+      - linters: [gocognit, funlen]              # cognitif 28, 55 instr.
+        path: cmd/openscale/capture\.go
+        text: "'capture'|func .capture."
+      - linters: [gocognit, funlen]              # cognitif 28, 87 lignes — la boucle du Hub
+        path: internal/station/loop\.go
+        text: "'run'|Hub..run"
+      - linters: [gocognit, funlen]              # cognitif 26, 83 lignes
+        path: internal/domain/safeguard\.go
+        text: "'Evaluate'|func .Evaluate."
+
+      # Cognitif seul — longues à suivre, mais pas longues à lire.
+      - linters: [gocognit]                      # 35
+        path: internal/domain/validate_options\.go
+        text: "OptionSchema..check"
+      - linters: [gocognit]                      # 32
+        path: internal/domain/ean13\.go
+        text: "validateCodeSets"
+      - linters: [gocognit]                      # 32
+        path: tools/boundary/drivers\.go
+        text: "registryEntry"
+      - linters: [gocognit]                      # 28
+        path: tools/boundary/clock\.go
+        text: "checkNoClockReads"
+
+      # Longueur seule — droites, mais trop longues d'un tenant.
+      - linters: [funlen]                        # 88 lignes pour 80
+        path: internal/web/configwrite\.go
+        text: "writeConfig"
+      - linters: [funlen]                        # 65 instructions pour 50
+        path: internal/web/sessionroutes\.go
+        text: "recoverSession"
+      - linters: [funlen]                        # 83 lignes pour 80
+        path: cmd/openscale/price\.go
+        text: "runPrice"
+      - linters: [funlen]                        # 56 instructions pour 50
+        path: internal/diag/doctor_config\.go
+        text: "checkConfiguration"
+
+formatters:
+  # gofmt seul. Ni gofumpt ni goimports : le dépôt est gofmt-é d'un bout à
+  # l'autre (`gofmt -l .` sort vide), et changer de formateur produirait un diff
+  # massif sans rapport avec ce qu'on corrigerait.
+  enable:
+    - gofmt
+  exclusions:
+    paths:
+      - web/node_modules
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CE QUI N'EST PAS ACTIVÉ, ET CE QUE ÇA COÛTERAIT
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Comptes relevés le 03/08/2026, production et tests séparés, `make audit`
+# joué SANS troncature et SANS déduplication par ligne. Les premiers chiffres
+# écrits ici étaient ceux de la sortie tronquée, faux d'un facteur 10 sur
+# errcheck — c'est la raison du bloc `issues:` en tête des deux fichiers.
+#
+# Ordonnés par ce qu'ils rapporteraient si on les traitait.
+#
+#   errcheck    147 prod, 249 test — des retours d'erreur non vérifiés. Le plus
+#                 gros gisement du dépôt, et le plus lent : chaque occurrence
+#                 demande de décider quoi faire de l'erreur. Beaucoup sont des
+#                 Close() différés, mais pas tous, et c'est le « pas tous » qui
+#                 coûte.
+#
+#   goconst      85 prod, 335 test — des chaînes répétées. Plusieurs sont des
+#                 textes affichés en FRANÇAIS : les extraire en constante
+#                 déplacerait un libellé hors du fichier qui le montre, ce que
+#                 la revue de wording ne veut pas. À trier avant de traiter.
+#
+#   gosec        71 prod — G115 conversions d'entiers, G301/G302/G306 droits de
+#                 fichiers, G204 sous-processus (sc.exe, schtasks.exe). Ce sont
+#                 les gestes normaux d'une application de poste qui pilote des
+#                 services Windows. Soixante et onze annotations #nosec
+#                 justifiées une par une : un lot en soi. → `make audit`.
+#
+#   errorlint    30 prod — des fmt.Errorf en %v là où %w conviendrait. Passer à
+#                 %w change l'ENVELOPPE : errors.Is se mettrait à correspondre
+#                 là où il ne correspondait pas. Comportement, pas style — et
+#                 trente fois, donc trente décisions.
+#
+#   revive       20 prod — la plupart sûrs (unused-parameter, blank-imports,
+#                 empty-block, time-naming) ; six exigent de changer une
+#                 SIGNATURE (error-return ×3, context-as-argument ×2).
+#                 Activable après le lot des sûrs, avec les six exclus.
+#                 Deux faux positifs connus, à exclure et non à corriger :
+#                 `defaultBackoffMin` va avec `defaultBackoffMax` — « Min » y
+#                 est MINIMUM, pas minutes ; et la branche vide du verrou de
+#                 stabilité documente « la fenêtre continue, l'ancre ne bouge
+#                 pas ».
+#
+#   exhaustive   17 prod — des switch sur énumération sans tous les cas, DONT
+#                 TROIS sur domain.State, la machine à états. Ajouter les cas
+#                 manquants change le comportement.
+#
+#   staticcheck  12 prod, 4 test — dont neuf S1016 (conversion de struct plutôt
+#                 que littéral champ à champ), sûrs ; et QF1001, QF1002, ST1005,
+#                 qui touchent une expression booléenne, un switch et un message
+#                 d'erreur FRANÇAIS — donc un texte affiché.
+#
+#   cyclop        9 prod — complexité CYCLOMATIQUE, qui compte chaque `case`
+#                 d'un switch à égalité avec un `if` imbriqué. domain.State
+#                 .String() — seize états, un case chacun, lisible d'un coup
+#                 d'œil — y marque 17 quand gocognit lui donne 1. Mauvais juge
+#                 pour ce dépôt ; gocognit, qui EST activé, dit la même chose
+#                 en mieux.
+#
+#   noctx         9 prod, 56 test — des requêtes HTTP sans context. Dix sont
+#                 délibérées : la sonde `net.Listen` teste si l'adresse est
+#                 prenable et la rend aussitôt. Les autres changent des
+#                 signatures.
+#
+#   errname       5 prod — des types d'erreur nommés hors convention :
+#                 DatabaseFailure, DowntimeRefused, ErrUnknownFont. Les
+#                 renommer change une API publique.
+#
+#   unparam       5 prod — des paramètres inutilisés dans des fonctions qui
+#                 implémentent une interface. Les retirer casse l'interface.
+#
+#   nilerr        4 prod — rendre nil alors que l'erreur ne l'est pas. Trois
+#                 sont dans internal/diag/probes.go, où une SONDE qui échoue
+#                 répond légitimement « je ne sais pas » plutôt qu'une erreur.
+#                 À lire une par une avant de trancher, jamais en bloc.
+#
+#   unconvert     2 prod — et ce sont DEUX FAUX POSITIFS, gardés comme exemple :
+#                     exit := error(ErrScriptExhausted)   (scale/replay)
+#                     exitErr := error(ErrLoopStopped)    (scale/serial)
+#                 La conversion n'est pas inutile, elle donne à la variable le
+#                 type statique `error` au lieu du type concret de la sentinelle.
+#                 La retirer change le type de la variable. Le linter a tort ;
+#                 c'est pourquoi il n'est pas dans le jeu bloquant.
+#
+#   unused        2 prod, 3 test — du code mort réel, dont `type page` dans
+#                 internal/catalog/example/ qui est un MODÈLE À COPIER cité par
+#                 docs/08 : y retirer une déclaration demande de vérifier que le
+#                 document ne s'en sert pas.
+#
+#   gocritic      2 prod — et ce sont DEUX VRAIS PIÈGES, nommés ici parce qu'ils
+#                 ne relèvent pas du style : cmd/openscale/config.go et
+#                 cmd/openscale/serve.go font `faults := append(decodeFaults, …)`,
+#                 qui écrit dans le tableau de l'APPELANT si sa capacité le
+#                 permet. C'est sur le chemin qui décide si le poste part hors
+#                 service. Le réparer est un correctif, pas un rangement.
+#
+#   prealloc      2 prod — de la micro-optimisation. Sans mesure qui la
+#                 justifie, elle ajoute du bruit.
+#
+# UN PIÈGE DE MESURE À CONNAÎTRE AVANT DE TOUCHER À CE FICHIER.
+# golangci-lint ne rend QU'UN signalement par ligne (`uniq-by-line`, actif par
+# défaut). Quand gocognit et funlen visent la même fonction, un seul sort — et
+# lequel dépend de l'ordre, pas du fond. C'est pourquoi cinq des règles
+# d'exclusion ci-dessus nomment les DEUX linters : dès que gocognit se tait sur
+# `serve`, `capture`, `Evaluate`, `ValidateOn` ou `(*Hub).run`, funlen les voit.
+# Sans cette précaution, le cliquet aurait cinq trous que rien ne signalerait.
+# `.golangci-audit.yml` désactive `uniq-by-line` pour cette raison : un
+# inventaire qui cache la moitié de ce qu'il compte ne sert à rien.
+#
+# Deux appendAssign signalés par gocritic méritent d'être nommés ici parce que
+# ce sont de VRAIS pièges et non du style : cmd/openscale/config.go et
+# cmd/openscale/serve.go font `faults := append(decodeFaults, …)`, qui écrit
+# dans le tableau de l'appelant si sa capacité le permet. C'est sur le chemin
+# qui décide si le poste part hors service. Le réparer est un correctif, pas un
+# rangement : il n'a donc pas été fait ici.
