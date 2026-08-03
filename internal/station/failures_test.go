@@ -28,9 +28,9 @@ import (
 //	 1     | TestScaleLossTriggeredByStatusAlone                    | hub_test.go
 //	 1 bis | TestTheScaleComesBackInsideTwoHundredMilliseconds      | HERE
 //	       | TestTheScaleComesBack                                  | hub_test.go
-//	 1 ter | TestSerialToManualAndBack                           (a)| reload_test.go
-//	       | TestAStartThatFailsBeforeItsGoroutineStillAnswers    (b)| reload_test.go
-//	       | TestACloseThatNeverReturnsIsBounded                  (c)| reload_test.go
+//	 1 ter | TestSerialToManualAndBack                           (a)| devices_test.go
+//	       | TestAStartThatFailsBeforeItsGoroutineStillAnswers    (b)| devices_test.go
+//	       | TestACloseThatNeverReturnsIsBounded                  (c)| devices_test.go
 //	 2     | TestABabblingScaleYieldsNoMeasurement                  | HERE
 //	 3     | TestAScaleThatNeverSaysStableStillPrintsInAdvisory     | HERE
 //	 3 bis | TestASlowScaleIsCappedAtTheCeilingAndKeepsWeighing     | HERE
@@ -43,11 +43,11 @@ import (
 //	       | TestAFullDiskLightsTheDashboardRedAndRefusesNobody     | web
 //	 8     | TestACatalogFileStillGrowingIsNotRead                  | failures_catalog_test.go
 //	 9     | TestACorruptedCatalogIsQuarantinedAndNMinusOneServesOn | failures_catalog_test.go
-//	 10    | TestTheSameCatalogTwiceIsAppliedThenUnchanged          | failures_catalog_test.go
+//	 10    | TestTheSameCatalogTwiceIsAppliedThenUnchanged          | failures_catalog_content_test.go
 //	 11    | TestACatalogFileThatCannotBeDeletedIsAmberAndNotBanned | failures_catalog_test.go
-//	 12    | TestAnAmputatedCatalogIsRefusedAndNamesItsReasons      | failures_catalog_test.go
-//	 12 bis| TestAnOrdinaryCatalogLightsNothingRed                  | failures_catalog_test.go
-//	 12 ter| TestAProductThatLeavesTheFileIsWithdrawnAndKeepsAll    | failures_catalog_test.go
+//	 12    | TestAnAmputatedCatalogIsRefusedAndNamesItsReasons      | failures_catalog_content_test.go
+//	 12 bis| TestAnOrdinaryCatalogLightsNothingRed                  | failures_catalog_content_test.go
+//	 12 ter| TestAProductThatLeavesTheFileIsWithdrawnAndKeepsAll    | failures_catalog_content_test.go
 //	 13    | TestTheCatalogNeverSwapsUnderAFinger                   | hub_test.go
 //	 14    | TestALockedDatabaseNeverReachesTheCustomer             | HERE
 //	 15    | TestDoubleTapPrintsOneLabel                            | hub_test.go

@@ -273,7 +273,6 @@ Code de retour : 0 quand aucun contrôle n'est en échec, 1 sinon.
 // of the same facts, and the day the two disagree nobody would know which one to believe.
 func newStationDiagnostic(o serveOptions, clock platform.SystemClock, address string,
 	registries domain.Registries, db *store.DB) (*diag.Bundle, error) {
-
 	doctor, err := diag.New(diag.Options{
 		Clock:      clock,
 		ConfigPath: o.configPath,
