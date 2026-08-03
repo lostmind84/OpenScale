@@ -28,7 +28,7 @@ const releaseWorkflow = "../.github/workflows/release.yml"
 // ICI » — so a naive search finds the word in the explanation and passes even after the
 // directive itself has been deleted. That is exactly what happened while writing this
 // file: removing fetch-depth: 0 turned nothing red, because the comment mentioning it was
-// still there. The sibling tests of deploy_test.go had already met the trap.
+// still there. The other script tests of this package had already met the trap.
 func readWorkflow(t *testing.T) string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Clean(releaseWorkflow))

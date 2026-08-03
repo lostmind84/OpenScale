@@ -13,7 +13,7 @@ import (
 
 // Les tests de l'installation en une commande.
 //
-// Ils lisent bootstrap.ps1 et bootstrap.cmd comme deploy_test.go lit les autres scripts :
+// Ils lisent bootstrap.ps1 et bootstrap.cmd comme le reste de ce paquet lit ses scripts :
 // par le texte, sans Windows sous la main. Ce que Windows seul peut prouver — l'invite
 // UAC, la réponse de l'API, le service qui démarre — reste la recette de §15.2 ; ce qui
 // est vérifiable ici l'est ici.

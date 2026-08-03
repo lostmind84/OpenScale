@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -304,3 +305,13 @@ func (d *fakeDatabase) Path() string                         { return d.path }
 func (d *fakeDatabase) SchemaVersion() (int, error)          { return d.schema, d.schemaErr }
 func (d *fakeDatabase) IntegrityCheck(context.Context) error { return d.integrityErr }
 func (d *fakeDatabase) Close() error                         { d.closed = true; return nil }
+
+// reportHead renders the report and returns its first line.
+func reportHead(t *testing.T, report Report) string {
+	t.Helper()
+	out := &strings.Builder{}
+	if err := report.WriteText(out); err != nil {
+		t.Fatalf("rendu du rapport : %v", err)
+	}
+	return out.String()
+}
