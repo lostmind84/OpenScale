@@ -1,32 +1,20 @@
 package printing
 
+// This file is the RENDER ENGINE of §7.3: the two entry points that turn a label into the
+// dots a print head burns, the journal a truncation is reported to, and the two ink
+// primitives every stroke of this package goes through. What a single field does inside
+// its box is in field.go, the final binarisation in threshold.go, the bench overlay in
+// annotate.go.
+
 import (
 	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
 	"log/slog"
-	"strings"
 	"sync"
 
-	"golang.org/x/image/math/fixed"
-
 	"openscale/internal/domain"
-)
-
-// The differentiated thresholds of §7.3, and the reason there are two of them.
-const (
-	// symbolThreshold is applied to the symbol block. The symbol is already drawn in
-	// pure black and white -- DrawEAN13 thresholds its own HRI on a scratch band --
-	// so the value is insensitive, and 0x80 says so.
-	symbolThreshold = 0x80
-
-	// defaultTextThreshold is the 0x68 a template that says nothing gets. Text goes
-	// lower than the symbol to preserve thin stems at 7 pt.
-	//
-	// Zero is treated as "unset" rather than obeyed: no dot is below a threshold of
-	// zero, so a template that left the field empty would print a blank label.
-	defaultTextThreshold = 0x68
 )
 
 // The technical anomalies a render can report. None of them stops a label: a
@@ -257,124 +245,6 @@ func (r *Rasterizer) anomaly(code, message, detail string) {
 	r.log.Technical("warn", "printer", code, message, detail)
 }
 
-// drawElement sets one field of the label inside its box.
-func (r *Rasterizer) drawElement(dst *image.Gray, g *domain.Template, e domain.Element, label domain.Label, w words) error {
-	text, err := fieldText(e.Field, label, w)
-	if err != nil {
-		return err
-	}
-	if e.Framed {
-		drawFrame(dst, elementBox(g, e))
-	}
-	if text == "" {
-		return nil
-	}
-
-	box := textBox(g, e)
-	if box.Dx() <= 0 {
-		return fmt.Errorf("printing: le champ %q dispose de %d dots de large", e.Field, box.Dx())
-	}
-	p, err := r.place(g, e, text, fixed.I(box.Dx()))
-	if err != nil {
-		return err
-	}
-
-	pen := fixed.I(box.Min.X)
-	if e.Align == domain.AlignRight {
-		pen = fixed.I(box.Max.X) - p.width
-	}
-	drawRuns(dst, p.runs, pen, baselineDots(g, e))
-
-	if p.truncated {
-		r.anomaly(codeFieldTruncated,
-			fmt.Sprintf("le champ %q ne tient pas dans sa boîte, il a été tronqué", e.Field),
-			fmt.Sprintf("« %s » réduit de %d à %d µm puis coupé à « %s » pour %d dots",
-				text, e.FontSizeUM, p.sizeUM, p.text, box.Dx()))
-	}
-	if len(p.missing) > 0 {
-		r.anomaly(codeGlyphMissing,
-			fmt.Sprintf("des caractères du champ %q ne sont dans aucune police embarquée", e.Field),
-			fmt.Sprintf("« %s » : %s", text, describeRunes(p.missing)))
-	}
-	return nil
-}
-
-// place runs the automatic reduction of §7.3 on one field.
-//
-// It descends by 0.1 mm from the nominal body to the floor of the element, and only
-// when the floor itself does not fit does it truncate with an ellipsis. It never
-// returns "it does not fit": something is always drawn, and the caller always hears
-// about it.
-func (r *Rasterizer) place(g *domain.Template, e domain.Element, text string, maxWidth fixed.Int26_6) (placement, error) {
-	floor := reductionFloor(e)
-	for size := e.FontSizeUM; ; size -= reductionStepUM {
-		if size < floor {
-			size = floor
-		}
-		p, err := r.compose(g, e, text, size)
-		if err != nil {
-			return placement{}, err
-		}
-		if p.width <= maxWidth {
-			return p, nil
-		}
-		if size == floor {
-			return r.truncate(g, e, text, size, maxWidth)
-		}
-	}
-}
-
-// compose measures one field at one body, in the weight that body implies.
-func (r *Rasterizer) compose(g *domain.Template, e domain.Element, text string, sizeUM domain.Micrometers) (placement, error) {
-	bold := isBold(g.Media, e, sizeUM)
-	primary, err := r.fonts.Face(labelFont, int(sizeUM), g.Media.DotsPerMM, bold)
-	if err != nil {
-		return placement{}, err
-	}
-	fallback, err := r.fonts.Face(fallbackFont, int(sizeUM), g.Media.DotsPerMM, bold)
-	if err != nil {
-		return placement{}, err
-	}
-	runs, missing := splitRuns(text, primary, fallback)
-	return placement{
-		runs:    runs,
-		width:   runsWidth(runs),
-		sizeUM:  sizeUM,
-		bold:    bold,
-		text:    text,
-		missing: missing,
-	}, nil
-}
-
-// truncate cuts a field with an ellipsis at the smallest body its element allows.
-//
-// LAST RESORT, and never silent: the caller journals a technical anomaly naming the
-// field, the bodies tried and what was kept. Truncating without a word is how a
-// product name starts printing half-eaten and nobody finds out until a customer
-// complains at the till.
-func (r *Rasterizer) truncate(g *domain.Template, e domain.Element, text string, sizeUM domain.Micrometers, maxWidth fixed.Int26_6) (placement, error) {
-	runes := []rune(text)
-	for n := len(runes); n >= 0; n-- {
-		kept := strings.TrimRight(string(runes[:n]), " ") + ellipsis
-		p, err := r.compose(g, e, kept, sizeUM)
-		if err != nil {
-			return placement{}, err
-		}
-		if p.width <= maxWidth {
-			p.truncated = true
-			return p, nil
-		}
-	}
-	// Not even the ellipsis fits. A box that narrow is a template fault, not a data
-	// one, but the rest of the label still prints.
-	p, err := r.compose(g, e, "", sizeUM)
-	if err != nil {
-		return placement{}, err
-	}
-	p.truncated = true
-	return p, nil
-}
-
 // drawSymbol lays the EAN-13 block down and reports the geometry it used, which is
 // what the differentiated threshold needs afterwards.
 //
@@ -398,55 +268,6 @@ func (r *Rasterizer) drawSymbol(dst *image.Gray, g *domain.Template, label domai
 	return o, nil
 }
 
-// applyThreshold burns every dot of r to pure black or pure white.
-//
-// Strictly below the threshold is ink. A dot exactly at the threshold stays white,
-// which is what makes 0x80 a no-op on a block already drawn in 0x00 and 0xFF.
-func applyThreshold(img *image.Gray, r image.Rectangle, threshold uint8) {
-	r = r.Intersect(img.Bounds())
-	for y := r.Min.Y; y < r.Max.Y; y++ {
-		for x := r.Min.X; x < r.Max.X; x++ {
-			burnt := color.Gray{Y: 0xFF}
-			if img.GrayAt(x, y).Y < threshold {
-				burnt = color.Gray{Y: 0x00}
-			}
-			img.SetGray(x, y, burnt)
-		}
-	}
-}
-
-// textThreshold is the binarisation threshold of everything that is not the symbol.
-func textThreshold(g *domain.Template) uint8 {
-	if g.TextThreshold == 0 {
-		return defaultTextThreshold
-	}
-	return g.TextThreshold
-}
-
-// surrounding returns the rectangles that cover outer minus inner -- "the rest of
-// the label" of §7.3, expressed as rectangles because that is what applyThreshold
-// takes.
-func surrounding(outer, inner image.Rectangle) []image.Rectangle {
-	inner = inner.Intersect(outer)
-	if inner.Empty() {
-		return []image.Rectangle{outer}
-	}
-	var out []image.Rectangle
-	if inner.Min.Y > outer.Min.Y {
-		out = append(out, image.Rect(outer.Min.X, outer.Min.Y, outer.Max.X, inner.Min.Y))
-	}
-	if inner.Max.Y < outer.Max.Y {
-		out = append(out, image.Rect(outer.Min.X, inner.Max.Y, outer.Max.X, outer.Max.Y))
-	}
-	if inner.Min.X > outer.Min.X {
-		out = append(out, image.Rect(outer.Min.X, inner.Min.Y, inner.Min.X, inner.Max.Y))
-	}
-	if inner.Max.X < outer.Max.X {
-		out = append(out, image.Rect(inner.Max.X, inner.Min.Y, outer.Max.X, inner.Max.Y))
-	}
-	return out
-}
-
 // drawFrame outlines a box with the one dot rule §7.2 gives primary_unit_price, and
 // which annotate reuses for its own boxes.
 func drawFrame(dst *image.Gray, box image.Rectangle) {
@@ -462,71 +283,4 @@ func drawFrame(dst *image.Gray, box image.Rectangle) {
 // fill burns a rectangle black, clipped to the image.
 func fill(dst *image.Gray, r image.Rectangle) {
 	draw.Draw(dst, r, image.NewUniform(color.Gray{Y: 0x00}), image.Point{}, draw.Src)
-}
-
-// annotate draws the bench overlay: the printable area, the two quiet zones of the
-// symbol and a millimetre ruler.
-//
-// IT IS DRAWN AFTER THE THRESHOLDING, and that is the only order that works: an
-// overlay laid down before would be dissolved by the very threshold it has to
-// survive -- a grey rule above 0x68 comes out white. Drawn in pure black afterwards
-// it is binary by construction, so the "nothing but 0x00 and 0xFF" invariant holds
-// either way.
-//
-// It overlaps the label on purpose. An overlay is read OVER a rendering, and a
-// ruler pushed into the margin would measure the margin.
-func annotate(dst *image.Gray, g *domain.Template, o SymbolOptions) {
-	drawFrame(dst, image.Rect(0, 0,
-		roundDots(g.Media, g.PrintableWidthUM), roundDots(g.Media, g.PrintableHeightUM)))
-
-	block := o.Bounds()
-	barsLeft := o.barsLeft()
-	drawFrame(dst, image.Rect(block.Min.X, block.Min.Y, barsLeft, block.Max.Y))
-	drawFrame(dst, image.Rect(barsLeft+o.BarsWidthDots(), block.Min.Y, block.Max.X, block.Max.Y))
-
-	drawRuler(dst, g.Media.DotsPerMM)
-}
-
-// drawRuler lays a millimetre scale along the top and left edges, ticks growing at
-// every fifth and every tenth millimetre.
-//
-// It is what turns "the label looks slightly short" into a number, and it is the
-// same scale the `ruler` self-test prints on a real roll (§8.6).
-func drawRuler(dst *image.Gray, dotsPerMM float64) {
-	b := dst.Bounds()
-	for mm := 0; ; mm++ {
-		at := int(float64(mm)*dotsPerMM + 0.5)
-		if at >= b.Dx() && at >= b.Dy() {
-			return
-		}
-		length := 2
-		switch {
-		case mm%10 == 0:
-			length = 6
-		case mm%5 == 0:
-			length = 4
-		}
-		if at < b.Dx() {
-			fill(dst, image.Rect(at, 0, at+1, length))
-		}
-		if at < b.Dy() {
-			fill(dst, image.Rect(0, at, length, at+1))
-		}
-	}
-}
-
-// describeRunes names the characters no embedded font carries, by code point as well
-// as by shape: a message a volunteer forwards to the producer has to survive being
-// pasted into a mail client that cannot display them either.
-func describeRunes(runes []rune) string {
-	seen := make(map[rune]bool, len(runes))
-	var out []string
-	for _, r := range runes {
-		if seen[r] {
-			continue
-		}
-		seen[r] = true
-		out = append(out, fmt.Sprintf("U+%04X %q", r, string(r)))
-	}
-	return strings.Join(out, ", ")
 }

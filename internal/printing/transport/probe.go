@@ -44,7 +44,6 @@ const probeBufferSize = 512
 // in microseconds instead of half a second per case (§5.3, §16.4).
 func interrogate(ctx context.Context, clk ports.Clock, target string,
 	open func() (Duplex, error), request []byte, budget time.Duration) ([]byte, error) {
-
 	switch {
 	case len(request) == 0:
 		return nil, fmt.Errorf("%s : aucune requête de statut à envoyer ; l'interrogation native "+
