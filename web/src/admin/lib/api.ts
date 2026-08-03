@@ -76,6 +76,26 @@ export class AdminError extends Error {
   }
 }
 
+/**
+ * Vrai quand un refus se règle en s'authentifiant, et non en corrigeant sa saisie.
+ *
+ * La même question que {@link AdminError.needsCredentials}, posée à ce qu'un `catch`
+ * attrape : n'importe quoi peut y arriver, et seul un refus du poste porte un statut. Ceux
+ * qui répondent oui REMONTENT jusqu'à `Admin.protect`, qui demande de quoi s'authentifier
+ * puis rejoue l'acte. Tous les autres — un 422 et ses contrôles en tête, mais aussi le 409
+ * d'un compte à rebours déjà armé — s'affichent là où ils sont nés : rouvrir un panneau de
+ * mot de passe par-dessus cacherait la faute qu'il faut lire.
+ *
+ * Elle est ici pour la raison qui a déjà fait descendre `needsCredentials` dans cette
+ * classe : trois fichiers en portaient une copie de trois lignes — `Maintenance.svelte`,
+ * `draft.svelte.ts` et `Hardware.svelte`, strictement identiques toutes les trois.
+ *
+ * @param failure - ce que le `catch` a reçu.
+ */
+export function isCredentialRefusal(failure: unknown): boolean {
+  return failure instanceof AdminError && failure.needsCredentials
+}
+
 // --- Le tableau de bord, sans mot de passe (ADR-018) ------------------------
 
 /** Lit le tableau de bord de §14.4. C'est la seule route que la page bénévole lit. */

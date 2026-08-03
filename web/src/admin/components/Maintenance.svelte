@@ -33,7 +33,7 @@
   import Act from './Act.svelte'
   import Panel from './Panel.svelte'
   import * as api from '../lib/api'
-  import { AdminError } from '../lib/api'
+  import { isCredentialRefusal } from '../lib/api'
   import type { Admin } from '../lib/session.svelte'
 
   /**
@@ -113,11 +113,6 @@
     } finally {
       working = ''
     }
-  }
-
-  /** Vrai quand un refus se règle en s'authentifiant, et non en corrigeant le fichier. */
-  function isCredentialRefusal(failure: unknown): boolean {
-    return failure instanceof AdminError && failure.needsCredentials
   }
 
   /** Demande au poste de redémarrer, puis attend qu'il réponde de nouveau. */

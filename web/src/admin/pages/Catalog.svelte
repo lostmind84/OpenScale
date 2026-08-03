@@ -16,31 +16,39 @@
     nameSizeCeiling,
   } from '../../lib/typography'
   import Act from '../components/Act.svelte'
-  import Field from '../components/Field.svelte'
+  import CatalogSourcePanel from '../components/CatalogSourcePanel.svelte'
+  import DecisionsInForcePanel from '../components/DecisionsInForcePanel.svelte'
+  import FindingsPanel from '../components/FindingsPanel.svelte'
+  import ImportHistoryPanel from '../components/ImportHistoryPanel.svelte'
   import Inventory from '../components/Inventory.svelte'
   import Panel from '../components/Panel.svelte'
+  import Toggle from '../components/Toggle.svelte'
   import * as api from '../lib/api'
+  import { decisionActs, decisionSentence, waiverTyped } from '../lib/decisions'
   import type { Draft } from '../lib/draft.svelte'
-  import type { DecisionDTO, FindingDTO, HealthDTO, ImportDTO, ReloadDTO } from '../lib/dto'
-  import { labelOf } from '../lib/fields'
-  import { frenchDate, frenchDateTime, frenchInteger } from '../lib/format'
-  import { importResultWord, importSourceWord } from '../lib/inventory'
+  import type { FindingDTO, HealthDTO, ImportDTO, ReloadDTO } from '../lib/dto'
+  import { frenchInteger } from '../lib/format'
+  import {
+    byUnitSentence,
+    gridSentences,
+    otherScreenWarning,
+    type ScreenCount,
+  } from '../lib/grid-count'
   import { preferences } from '../lib/preferences.svelte'
+  import { productNameOf, type ReadState } from '../lib/read-state'
   import { ReloadWatch } from '../lib/reload.svelte'
   import type { Admin } from '../lib/session.svelte'
+  import { matchTally, withdrawnSentence } from '../lib/tally'
 
   /**
    * The Catalogue page of §14.4.
    *
-   * The list of not-weighable products is a NEUTRAL INVENTORY and never a list of
-   * errors: a prepackaged bulgur is not at fault, it is simply no business of a scale.
-   * Anomalies, on the other hand, each carry the NAME of the product, their CSV line
-   * number, their reason in French and the offending value — that is the difference
-   * between « 16 anomalies » and a work plan somebody can follow in Odoo (§10.3 bis).
-   * The name comes from the import itself and never from the catalog in service: it is
-   * the one the file carried, so the findings of an import from March keep saying what
-   * that import said, and a batch the station refused — whose products never entered the
-   * base at all — is named too.
+   * What is left here is what only this page can hold: the acts ADR-033 protects, and the
+   * grid preview, whose numbers are asked of the browser rather than computed. Everything
+   * a reader recognises as a subject of its own — where the catalog comes from, the three
+   * lists of findings, the decisions in force, the history — is a component of
+   * `admin/components/`, and every sentence that is arithmetic and grammar rather than
+   * layout is a module of `admin/lib/`.
    *
    * Six things this page owes ADR-033 and §14.4, and had not:
    *
@@ -84,12 +92,6 @@
   /** How many products the search draws. Past that, the search gets narrowed. */
   const MATCHES_SHOWN = 20
 
-  /** How many rows one list of findings draws. The file itself carries the rest. */
-  const FINDINGS_SHOWN = 50
-
-  /** How many human decisions in force are drawn at once. */
-  const DECISIONS_SHOWN = 20
-
   /** The reasons that describe a product WITH NO TILE, and that are not faults. */
   const NOT_WEIGHABLE_CODES = [
     'NO_BARCODE',
@@ -108,31 +110,6 @@
    * operator is the sentence below, which shows the result BEFORE the save.
    */
   const GRID_COLUMNS_CHOICES = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-
-  /**
-   * The settings each source owns OUTRIGHT.
-   *
-   * Switching source wipes them, because the station refuses their mere PRESENCE under
-   * the other one: no account and no password to read a directory one owns (control 39),
-   * no directory of this machine behind an address (control 47). Without that clean-up,
-   * the one gesture this panel exists to offer came back as three refusals over fields
-   * nobody had filled in. What holds for both sources — the watch cadence, the separator,
-   * the ceilings — is not listed here and therefore never moves.
-   */
-  const OWN_OPTIONS: Record<string, string[]> = {
-    local_drop: ['catalog.options.directory'],
-    webdav: ['catalog.options.url', 'catalog.options.username', 'catalog.options.password'],
-  }
-
-  /**
-   * The source the document declares, empty for as long as it has not been read.
-   *
-   * No fallback on « dépôt local »: a document with no source is refused by the station
-   * (control 5), and ticking a radio in its place would have the screen read out a choice
-   * the file does not carry — then answer « aucune source de catalogue n'est déclarée » to
-   * a save that nothing had announced.
-   */
-  const source = $derived(draft.text('catalog.type'))
 
   let imports = $state<ImportDTO[]>([])
   let findings = $state<FindingDTO[]>([])
@@ -167,18 +144,10 @@
   let report = $state('')
   /** Which protected act is in flight, or an empty string. */
   let working = $state('')
-  /**
-   * Whether the import history and its findings have been READ.
-   *
-   * Three values and not two, for the reason {@link Admin.load} gives about itself: an
-   * empty array with no explanation reads as « there is none », which is false. A station
-   * with no journal (ADR-013) answers 503 « ce poste n'a pas d'historique d'imports » to
-   * every read, and four panels of this page used to answer that with « Aucune anomalie
-   * sur le dernier import. » — permanently, and reassuringly.
-   */
-  let historyState = $state<'loading' | 'read' | 'unread'>('loading')
+  /** Whether the import history and its findings have been READ. */
+  let historyState = $state<ReadState>('loading')
   /** Whether the client catalog has been read, so a missing name can be explained. */
-  let namesState = $state<'loading' | 'read' | 'unread'>('loading')
+  let namesState = $state<ReadState>('loading')
 
   const busy = $derived(admin.busy || working !== '')
 
@@ -204,29 +173,9 @@
    */
   const byUnitCount = $derived(products.filter((product) => product.mode === 'by_unit').length)
 
-  /**
-   * What this station does with them, in one French sentence.
-   *
-   * It follows the SWITCH and not the saved file, so that the trade-off is legible
-   * before the save rather than after it. And it states nothing this page has not read:
-   * a station whose client catalog could not be opened does not know this number.
-   */
-  const byUnitSentence = $derived.by(() => {
-    if (namesState === 'loading') return 'Lecture du catalogue en service…'
-    if (namesState === 'unread') {
-      return 'Le catalogue en service n’a pas pu être lu : cet écran ne sait pas combien de ' +
-        'produits se vendent à l’unité.'
-    }
-    if (byUnitCount === 0) {
-      return 'Aucun produit vendu à l’unité dans le catalogue en service.'
-    }
-    const many = byUnitCount > 1
-    const subject = many ? 'produits vendus à l’unité sont' : 'produit vendu à l’unité est'
-    const said = draft.flag('ui.show_by_unit_products')
-      ? `${many ? 'montrés' : 'montré'} dans la grille de ce poste`
-      : `${many ? 'masqués' : 'masqué'} sur ce poste`
-    return `${frenchInteger(byUnitCount)} ${subject} ${said}.`
-  })
+  const byUnitSaid = $derived(
+    byUnitSentence(namesState, byUnitCount, draft.flag('ui.show_by_unit_products')),
+  )
 
   /** The column setting AS DRAFTED, `0` for as long as nobody has pinned one. */
   const gridColumns = $derived(draft.number(GRID_COLUMNS_PATH))
@@ -279,26 +228,6 @@
    */
   function draftedFlag(path: string, served: boolean): boolean {
     return draft.value(path) === undefined ? served : draft.flag(path)
-  }
-
-  /**
-   * What the layout answered about the draft grid, `null` while it has answered
-   * nothing.
-   *
-   * `null` is not « zero columns »: jsdom lays nothing out, an old browser may lay
-   * out something else, and a screen that states a count it has not read is the one
-   * failure this whole page is written against.
-   */
-  interface ScreenCount {
-    columns: number
-    /** Whole rows of the height the client grid gives its tiles. */
-    rows: number
-    /** Usable width inside one tile, its padding and border already removed. */
-    contentWidthPx: number
-    /** Height of the block a name is fitted into, at the draft. */
-    nameBoxPx: number
-    /** What the tile is scaled by, and therefore where a name starts its shrink. */
-    tileScale: number
   }
 
   /** The box the probes live in: it carries the deduced `--tile-scale`. */
@@ -368,93 +297,26 @@
     return { names, rows: rows.size }
   })
 
-  /**
-   * What the draft grid comes to, in French, and what it costs.
-   *
-   * Same rule as the sentence above it: it follows the DRAFT and not the saved file,
-   * so the trade-off is read before the save rather than after — and it states
-   * nothing this screen has not read. Column count first, because that is the word
-   * the request arrived in.
-   */
-  const gridSentences = $derived.by<string[]>(() => {
-    const layout = screen
-    const lines: string[] = []
-
-    if (gridColumns === GRID_COLUMNS_AUTO) {
-      lines.push(
-        layout === null
-          ? 'Automatique : la grille suit la largeur de l’écran. Un écran plus large en ' +
-              'montre davantage sans qu’on y revienne.'
-          : `Automatique : ${gridSize(layout)} sur cet écran. Un écran plus large en montrera ` +
-              'davantage sans qu’on y revienne.',
-      )
-      return lines
-    }
-
-    if (layout === null) {
-      lines.push(
-        `${frenchInteger(gridColumns)} ${gridColumns > 1 ? 'colonnes' : 'colonne'} sur tous ` +
-          'les écrans. Cet écran ne sait pas dire combien de rangées cela fait ici.',
-      )
-      return lines
-    }
-
-    const seen = layout.columns * layout.rows
-    lines.push(
-      `${gridSize(layout)} — ${frenchInteger(seen)} ${seen > 1 ? 'tuiles' : 'tuile'} d’un coup, ` +
-        `sur cet écran (${String(window.innerWidth)} × ${String(window.innerHeight)}).`,
-    )
-    if (draftTiles.length > 0) {
-      const screens = Math.ceil(draftTiles.length / seen)
-      lines.push(
-        draftTiles.length > 1
-          ? `Les ${frenchInteger(draftTiles.length)} tuiles de la grille tiennent en ` +
-              `${frenchInteger(screens)} ${screens > 1 ? 'écrans' : 'écran'}.`
-          : 'La seule tuile de la grille tient en un écran.',
-      )
-    }
-    // What ADR-025 demands of a setting: not what it buys, what it costs. High
-    // densities are paid for in uneven rows, and that has to be legible BEFORE the
-    // save, not discovered on the station afterwards.
-    const floor = floorReached
-    if (floor !== null && floor.names > 0) {
-      const many = floor.names > 1
-      lines.push(
-        `${frenchInteger(floor.names)} ${many ? 'noms' : 'nom'} sur ` +
-          `${frenchInteger(draftTiles.length)} ${many ? 'atteignent' : 'atteint'} le plancher ` +
-          `de ${frenchInteger(NAME_SIZE_MIN_PX)} px : ` +
-          (floor.rows > 1
-            ? `leurs ${frenchInteger(floor.rows)} rangées peuvent être plus hautes que les autres.`
-            : 'leur rangée peut être plus haute que les autres.'),
-      )
-    }
-    return lines
-  })
+  /** What the draft grid comes to, in French, and what it costs. */
+  const gridLines = $derived(
+    gridSentences({
+      columns: gridColumns,
+      layout: screen,
+      tileCount: draftTiles.length,
+      floor: floorReached,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    }),
+  )
 
   /**
    * The sentence that keeps « sur cet écran » honest, empty when it is.
    *
-   * The administration is reachable from a laptop over the network, and the count
-   * above is then true of the laptop and not of the station. Zero extra data, zero
-   * extra route: the case is NAMED instead of being silently wrong.
+   * It is born WITH the count it qualifies: a screen that has measured nothing has
+   * nothing to relativise.
    */
-  const otherScreenWarning = $derived(
-    screen !== null && !isStationScreen()
-      ? 'Cet écran n’est pas celui du poste : ce compte vaut pour l’écran que vous lisez.'
-      : '',
+  const otherScreen = $derived(
+    screen === null ? '' : otherScreenWarning(window.location.hostname),
   )
-
-  /** « 7 colonnes × 3 rangées », the two numbers in the words of the request. */
-  function gridSize(layout: ScreenCount): string {
-    const columns = `${frenchInteger(layout.columns)} ${layout.columns > 1 ? 'colonnes' : 'colonne'}`
-    const rows = `${frenchInteger(layout.rows)} ${layout.rows > 1 ? 'rangées' : 'rangée'}`
-    return `${columns} × ${rows}`
-  }
-
-  /** Whether this page is being read on the station itself. */
-  function isStationScreen(): boolean {
-    return ['localhost', '127.0.0.1'].includes(window.location.hostname)
-  }
 
   /**
    * Asks the LAYOUT what the draft grid comes to, and answers null when it cannot.
@@ -568,16 +430,12 @@
     query === '' ? [] : filterProducts(products, ALL_CATEGORIES, query),
   )
   const matches = $derived(found.slice(0, MATCHES_SHOWN))
+  const matchesSaid = $derived(matchTally(matches.length, found.length))
 
-  const shownAnomalies = $derived(anomalies.slice(0, FINDINGS_SHOWN))
-  const shownMismatches = $derived(mismatches.slice(0, FINDINGS_SHOWN))
-  const shownNeutral = $derived(neutral.slice(0, FINDINGS_SHOWN))
-
-  /** The human decisions in force, most recent first, capped when drawn. */
+  /** The human decisions in force, most recent first. */
   const decisions = $derived(
     [...health.decisions].sort((a, b) => b.decided_at.localeCompare(a.decided_at)),
   )
-  const shownDecisions = $derived(decisions.slice(0, DECISIONS_SHOWN))
 
   /** The decision in force about the chosen product, or null when there is none. */
   const chosenDecision = $derived(
@@ -593,35 +451,16 @@
   const offeredInForce = $derived(chosenDecision === null ? true : chosenDecision.offered)
   const waiverInForce = $derived(chosenDecision?.min_weight_g ?? null)
 
-  /**
-   * The waiver typed in the form, and whether it can travel.
-   *
-   * `Number('')` is 0 and `Number('abc')` is NaN, which `JSON.stringify` turns into
-   * `null`: an unusable field would silently write « this product may weigh 0 g » or
-   * silently drop a waiver somebody meant to grant.
-   */
-  const typedWaiver = $derived(waiver.trim() === '' ? null : Number(waiver))
-  const waiverIsUsable = $derived(
-    typedWaiver !== null && Number.isFinite(typedWaiver) && typedWaiver > 0,
-  )
+  /** The waiver typed in the form, and whether it can travel. */
+  const typedWaiver = $derived(waiverTyped(waiver))
 
   /** The motive as it will TRAVEL: trimmed, because a space is not an explanation. */
   const motive = $derived(reason.trim())
 
-  /**
-   * Whether the four acts of a decision can travel as things stand.
-   *
-   * The motive is a CONDITION and not a comment, and the field used to present it as one:
-   * the station answers 422 « Indiquez le motif de cette décision. » to every decision it
-   * writes. Arming a button it is certain to refuse — after asking for the password, which
-   * is worse — is a promise this page cannot keep.
-   */
-  const canWithdraw = $derived(motive !== '' || !needsMotive(false, waiverInForce))
-  const canOfferAgain = $derived(motive !== '' || !needsMotive(true, waiverInForce))
-  const canSaveWaiver = $derived(
-    waiverIsUsable && (motive !== '' || !needsMotive(offeredInForce, typedWaiver)),
+  /** Which of the four acts of a decision the station would accept, as things stand. */
+  const acts = $derived(
+    decisionActs({ motive, offeredInForce, waiverInForce, typedWaiver }),
   )
-  const canDropWaiver = $derived(motive !== '' || !needsMotive(offeredInForce, null))
 
   /** How many products the last import withdrew, and since which import (§10.9). */
   const withdrawnCount = $derived(health.catalog?.products_withdrawn_count ?? 0)
@@ -639,42 +478,8 @@
         health.catalog !== null && record.id < health.catalog.id && record.result === 'applied',
     ) ?? null,
   )
-  const withdrawnSentence = $derived(
-    `${frenchInteger(withdrawnCount)} ` +
-      `${withdrawnCount > 1 ? 'produits retirés' : 'produit retiré'}` +
-      (previousImport === null
-        ? '.'
-        : ` depuis l’import du ${frenchDateTime(previousImport.occurred_at)}.`),
-  )
-
-  /** « 20 produits affichés sur 47 — précisez votre recherche. » */
-  const matchTally = $derived(
-    found.length > matches.length
-      ? `${frenchInteger(matches.length)} produits affichés sur ` +
-        `${frenchInteger(found.length)} trouvés — précisez votre recherche.`
-      : `${frenchInteger(found.length)} ${found.length > 1 ? 'produits trouvés' : 'produit trouvé'}.`,
-  )
-
-  /** « 7 imports affichés. » The route never serves more than twenty (§14.5). */
-  const importTally = $derived(
-    `${frenchInteger(imports.length)} ` +
-      `${imports.length > 1 ? 'imports affichés' : 'import affiché'} : ` +
-      'le poste n’en publie jamais plus de vingt.',
-  )
-
-  /** What the three lists of findings say as long as they have not been read. */
-  const findingsUnknown = $derived(
-    historyState === 'loading'
-      ? 'Lecture des signalements du dernier import…'
-      : 'Les signalements du dernier import n’ont pas pu être lus : cet écran ne sait pas ce ' +
-        'qu’ils disent.',
-  )
-
-  /** What the history table says as long as it has not been read. */
-  const historyUnknown = $derived(
-    historyState === 'loading'
-      ? 'Lecture de l’historique des imports…'
-      : 'L’historique des imports n’a pas pu être lu : cet écran ne sait pas ce qu’il contient.',
+  const withdrawnSaid = $derived(
+    withdrawnSentence(withdrawnCount, previousImport?.occurred_at ?? ''),
   )
 
   /**
@@ -800,21 +605,12 @@
   }
 
   /**
-   * Chooses the catalog source, and wipes the settings of the other one.
+   * The name of a product, or an honest sentence when this page cannot give one.
    *
-   * @param chosen - the source, as the service names it.
+   * @param id - the Odoo id of the product.
    */
-  function chooseSource(chosen: string): void {
-    draft.set('catalog.type', chosen)
-    for (const [type, paths] of Object.entries(OWN_OPTIONS)) {
-      if (type === chosen) continue
-      for (const path of paths) draft.unset(path)
-    }
-  }
-
-  /** The message of the control that refused this key, empty when there is none. */
-  function faultOf(path: string): string {
-    return draft.faults.find((fault) => fault.field === path)?.message ?? ''
+  function nameOf(id: string): string {
+    return productNameOf(names.get(id), namesState, 'Nom inconnu : le catalogue n’a pas pu être lu')
   }
 
   /**
@@ -830,20 +626,6 @@
     reason = ''
     const grams = decisions.find((d) => d.product_id === id)?.min_weight_g ?? null
     waiver = grams === null ? '' : String(grams)
-  }
-
-  /**
-   * Whether an act writing these two columns needs a motive to be ACCEPTED.
-   *
-   * The station requires one for every decision it WRITES. The single act exempt is the one
-   * that writes nothing: offered again AND no waiver ERASES the row (`ClearDecision`,
-   * internal/web/admin.go), and a row that no longer exists needs no explaining.
-   *
-   * @param offered - whether the product would go back into the grid.
-   * @param grams - the waiver that would travel with it.
-   */
-  function needsMotive(offered: boolean, grams: number | null): boolean {
-    return !(offered && grams === null)
   }
 
   /**
@@ -971,210 +753,10 @@
     chooser.value = ''
     void importFile(file)
   }
-
-  /**
-   * The name of a product, or an honest sentence when this page cannot give one.
-   *
-   * THREE cases and not two. `unread` used to answer like `read`, so a failed read of the
-   * client catalog made this page state, of every decision in force, that its product had
-   * left the catalog — having never managed to open the catalog.
-   *
-   * @param id - the Odoo id of the product.
-   */
-  function nameOf(id: string): string {
-    const name = names.get(id)
-    if (name !== undefined) return name
-    if (namesState === 'loading') return 'Lecture du nom…'
-    if (namesState === 'unread') return 'Nom inconnu : le catalogue n’a pas pu être lu'
-    return 'Produit absent du catalogue en service'
-  }
-
-  /**
-   * « 50 lignes affichées sur 116 anomalies. », or « 16 anomalies. » when nothing is hidden.
-   *
-   * A cap that does not say what it hides is a lie by omission, and this one used to be
-   * silent on both counts: the search truncated at twenty without a word.
-   *
-   * @param shown - how many rows are drawn.
-   * @param total - how many there are.
-   * @param singular - what one of them is called.
-   * @param plural - what several of them are called.
-   */
-  function tally(shown: number, total: number, singular: string, plural: string): string {
-    const noun = total > 1 ? plural : singular
-    if (shown >= total) return `${frenchInteger(total)} ${noun}.`
-    return `${frenchInteger(shown)} lignes affichées sur ${frenchInteger(total)} ${noun}.`
-  }
-
-  /** What one decision in force says, in one French line. */
-  function decisionSentence(decision: DecisionDTO): string {
-    const parts: string[] = []
-    if (!decision.offered) parts.push('retiré de la grille')
-    if (decision.min_weight_g !== null) {
-      parts.push(`peut peser à partir de ${frenchInteger(decision.min_weight_g)} g`)
-    }
-    return parts.length === 0 ? 'aucune restriction' : parts.join(' · ')
-  }
-
-  /** How an import ended, in French — never the token the service wrote. */
-  function frenchResult(record: ImportDTO): string {
-    const said = importResultWord(record.result)
-    return record.code === '' ? said : `${said} (${record.code})`
-  }
-
-  /** Where an import came from, in French — never the token the service wrote. */
-  function frenchSource(record: ImportDTO): string {
-    return importSourceWord(record.source)
-  }
 </script>
 
-<!--
-  One list per subject, each capped, each announcing its total, and the two acts of a
-  decision separated. Nothing here is a list that can grow without saying so.
--->
-{#snippet rows(list: FindingDTO[], label: string)}
-  <!--
-    Deliberately UNKEYED: `csv_line` is not a key. One CSV row raises one finding per
-    problem it has — a zero price AND a wrong check digit is two findings on line 42 —
-    and a keyed each would have thrown `each_key_duplicate` on the first such file,
-    taking the whole administration screen down with it.
-  -->
-  <div class="scroll" data-rows={label}>
-    <ul class="rows">
-      {#each list as finding}
-        <li>
-          <span class="line">ligne {frenchInteger(finding.csv_line)}</span>
-          <!--
-            The NAME first, and the Odoo id after it: « 4412 » is a number somebody has to
-            look up before they can start, « TOMATE GRAPPE » is the product they already
-            know. The id stays because it is what opens the record in Odoo.
-
-            Drawn only when the import recorded one. Two findings never carry a name — one
-            that bears on no product, and a row too damaged to hold one, which is exactly
-            what UNREADABLE_ROW says in its own message — and inventing a wording for that
-            absence would state a fact this page has not read.
-          -->
-          {#if finding.product_name !== ''}
-            <span class="what" data-name>{finding.product_name}</span>
-          {/if}
-          <span class="id">{finding.product_id}</span>
-          <span class="value">{finding.value}</span>
-          <span class="message">{finding.message}</span>
-        </li>
-      {/each}
-    </ul>
-  </div>
-{/snippet}
-
-<!--
-  A switch, drawn as the Rules page draws its own. `Field` has no boolean kind, and the
-  one flag of this page is not a reason to grow one. It takes a RECORD and not three
-  arguments so that the key it writes reads as `path:` — the form the field index checks
-  for, and the only way this switch cannot be added without its French name.
--->
-{#snippet toggle(field: { path: string; label: string; hint: string })}
-  <label class="toggle" data-flag={field.path} data-on={String(draft.flag(field.path))}>
-    <input
-      type="checkbox"
-      checked={draft.flag(field.path)}
-      onchange={(event) => draft.set(field.path, event.currentTarget.checked)}
-    />
-    <span class="toggle-text">
-      <span class="toggle-label">{field.label}</span>
-      <!-- Behind the switch, as `Field` puts it: the key is written for whoever edits
-           the file, and read out loud by nobody else. -->
-      {#if preferences.showTechnicalNames}<code>{field.path}</code>{/if}
-      <span class="hint">{field.hint}</span>
-    </span>
-  </label>
-{/snippet}
-
 <div class="pages">
-  <!--
-    At the top of the page: where the catalog comes from is read before what it delivered.
-    The directory field only appears under the source that watches one, and the address
-    only under the source that queries one — an empty field under a source that ignores it
-    is an invitation to fill it in, and the station would refuse the save.
-  -->
-  <Panel title="Où le poste va chercher le catalogue">
-    <div class="choice" role="radiogroup" aria-label="Source du catalogue">
-      <label>
-        <input
-          type="radio"
-          name="catalog-source"
-          value="local_drop"
-          checked={source === 'local_drop'}
-          onchange={() => chooseSource('local_drop')}
-        />
-        Un répertoire de ce poste ou du réseau
-      </label>
-      <label>
-        <input
-          type="radio"
-          name="catalog-source"
-          value="webdav"
-          checked={source === 'webdav'}
-          onchange={() => chooseSource('webdav')}
-        />
-        Un serveur WebDAV
-      </label>
-    </div>
-
-    {#if draft.config === null}
-      <p class="fact muted">Lecture des réglages du poste…</p>
-    {:else if source === 'local_drop'}
-      <Field
-        label={labelOf('catalog.options.directory')}
-        path="catalog.options.directory"
-        value={draft.text('catalog.options.directory')}
-        hint="Laissez vide pour le répertoire du poste, celui que le service crée lui-même. Un répertoire nommé ici doit exister : le poste ne le crée pas."
-        fault={faultOf('catalog.options.directory')}
-        onchange={(value) => draft.set('catalog.options.directory', value)}
-      />
-      <p class="fact muted">
-        Le poste y cherche le fichier <code>flv_{health.station}.csv</code>, et le supprime
-        une fois lu : c’est ce qui dit au producteur que la livraison est prise.
-      </p>
-    {:else if source === 'webdav'}
-      <Field
-        label={labelOf('catalog.options.url')}
-        path="catalog.options.url"
-        value={draft.text('catalog.options.url')}
-        fault={faultOf('catalog.options.url')}
-        onchange={(value) => draft.set('catalog.options.url', value)}
-      />
-      <Field
-        label={labelOf('catalog.options.username')}
-        path="catalog.options.username"
-        value={draft.text('catalog.options.username')}
-        fault={faultOf('catalog.options.username')}
-        onchange={(value) => draft.set('catalog.options.username', value)}
-      />
-      <!--
-        The field opens EMPTY and not on the value in service: the station no longer serves
-        the password to the browser. Left empty, it changes nothing.
-      -->
-      <Field
-        label={labelOf('catalog.options.password')}
-        path="catalog.options.password"
-        kind="password"
-        value=""
-        hint="Laissez vide : le mot de passe actuel est conservé."
-        fault={faultOf('catalog.options.password')}
-        onchange={(value) => draft.set('catalog.options.password', value)}
-      />
-      <p class="fact muted" data-webdav-warning>
-        Sur un serveur WebDAV, le dépôt d’un fichier CSV depuis cet écran n’est plus
-        possible : le poste n’a plus de répertoire local où l’écrire. C’est le seul recours
-        du jour de la mise en service.
-      </p>
-    {:else}
-      <p class="fact">
-        Ce poste ne déclare aucune source : choisissez-en une ci-dessus, sinon il n’ira
-        chercher aucun catalogue.
-      </p>
-    {/if}
-  </Panel>
+  <CatalogSourcePanel {draft} station={health.station} />
 
   <Panel title="Dernier import">
     {#if health.catalog === null}
@@ -1225,15 +807,16 @@
     title="Ce que la grille montre"
     note="Un réglage d’affichage : il ne change ni le fichier reçu, ni ce que le poste sait peser."
   >
-    {@render toggle({
-      path: 'ui.show_by_unit_products',
-      label: 'Afficher les produits vendus à l’unité',
-      hint:
-        'Décoché, leurs tuiles quittent la grille et la recherche ne les retrouve plus. ' +
+    <Toggle
+      path="ui.show_by_unit_products"
+      label="Afficher les produits vendus à l’unité"
+      hint={'Décoché, leurs tuiles quittent la grille et la recherche ne les retrouve plus. ' +
         'Ce que le poste perd : une tuile vendue à l’unité imprime une étiquette sans ' +
-        'jamais lire la balance, et c’est le seul geste que ce réglage retire.',
-    })}
-    <p class="fact" data-by-unit>{byUnitSentence}</p>
+        'jamais lire la balance, et c’est le seul geste que ce réglage retire.'}
+      on={draft.flag('ui.show_by_unit_products')}
+      onchange={(on) => draft.set('ui.show_by_unit_products', on)}
+    />
+    <p class="fact" data-by-unit>{byUnitSaid}</p>
     <p class="fact muted">
       Un produit masqué reste vendable : la caisse lit toujours son code-barres, et une
       étiquette déjà imprimée reste valable. Ce réglage ne fait que retirer sa tuile.
@@ -1277,11 +860,11 @@
       {/each}
     </div>
     <div class="fact" data-grid-count>
-      {#each gridSentences as line, index (index)}
+      {#each gridLines as line, index (index)}
         <p>{line}</p>
       {/each}
-      {#if otherScreenWarning !== ''}
-        <p class="muted" data-other-screen>{otherScreenWarning}</p>
+      {#if otherScreen !== ''}
+        <p class="muted" data-other-screen>{otherScreen}</p>
       {/if}
     </div>
     <p class="fact muted">
@@ -1374,56 +957,39 @@
     </p>
   </Panel>
 
-  <Panel
+  <FindingsPanel
     title="Anomalies à corriger dans Odoo"
     note="Chaque ligne porte le nom du produit, son numéro dans le CSV, son motif et la valeur fautive."
-  >
-    {#if historyState !== 'read'}
-      <p class="fact" data-unread="anomalies">{findingsUnknown}</p>
-    {:else if anomalies.length === 0}
-      <p class="fact">Aucune anomalie sur le dernier import.</p>
-    {:else}
-      <p class="fact muted" data-tally="anomalies">
-        {tally(shownAnomalies.length, anomalies.length, 'anomalie', 'anomalies')}
-        {#if anomalies.length > shownAnomalies.length}
-          Corrigez celles-ci dans Odoo : l’import suivant ne signalera que ce qui reste.
-        {/if}
-      </p>
-      {@render rows(shownAnomalies, 'anomalies')}
-    {/if}
-  </Panel>
+    list="anomalies"
+    state={historyState}
+    findings={anomalies}
+    singular="anomalie"
+    plural="anomalies"
+    none="Aucune anomalie sur le dernier import."
+    remedy="Corrigez celles-ci dans Odoo : l’import suivant ne signalera que ce qui reste."
+  />
 
-  <Panel
+  <FindingsPanel
     title="Unités divergentes"
     note="Le produit reste proposé : le code-barres fait foi, seul le libellé du prix est faux."
-  >
-    {#if historyState !== 'read'}
-      <p class="fact" data-unread="mismatches">{findingsUnknown}</p>
-    {:else if mismatches.length === 0}
-      <p class="fact">Aucune unité divergente sur le dernier import.</p>
-    {:else}
-      <p class="fact muted" data-tally="mismatches">
-        {tally(shownMismatches.length, mismatches.length, 'unité divergente', 'unités divergentes')}
-      </p>
-      {@render rows(shownMismatches, 'mismatches')}
-    {/if}
-  </Panel>
+    list="mismatches"
+    state={historyState}
+    findings={mismatches}
+    singular="unité divergente"
+    plural="unités divergentes"
+    none="Aucune unité divergente sur le dernier import."
+  />
 
-  <Panel
+  <FindingsPanel
     title="Produits non pesables"
     note="Un inventaire, pas une liste d’erreurs : ces produits portent déjà leur code-barres et n’ont aucune raison d’être pesés."
-  >
-    {#if historyState !== 'read'}
-      <p class="fact" data-unread="not-weighable">{findingsUnknown}</p>
-    {:else if neutral.length === 0}
-      <p class="fact">Aucun produit non pesable sur le dernier import.</p>
-    {:else}
-      <p class="fact muted" data-tally="not-weighable">
-        {tally(shownNeutral.length, neutral.length, 'produit non pesable', 'produits non pesables')}
-      </p>
-      {@render rows(shownNeutral, 'not-weighable')}
-    {/if}
-  </Panel>
+    list="not-weighable"
+    state={historyState}
+    findings={neutral}
+    singular="produit non pesable"
+    plural="produits non pesables"
+    none="Aucun produit non pesable sur le dernier import."
+  />
 
   <Panel
     title="Produits retirés depuis l’import précédent"
@@ -1434,7 +1000,7 @@
     {:else if withdrawnCount === 0}
       <p class="fact">Aucun produit retiré par le dernier import.</p>
     {:else}
-      <p class="fact" data-withdrawn>{withdrawnSentence}</p>
+      <p class="fact" data-withdrawn>{withdrawnSaid}</p>
       <p class="fact muted">
         Ils restent enregistrés avec leur historique : une étiquette déjà collée reste
         lisible en caisse, et un produit qui revient dans un prochain fichier retrouve sa
@@ -1451,7 +1017,7 @@
     <label class="search" for="product-search">Chercher un produit</label>
     <input id="product-search" type="search" bind:value={query} placeholder="ail, tomme, œufs…" />
     {#if query !== ''}
-      <p class="fact muted" data-tally="matches">{matchTally}</p>
+      <p class="fact muted" data-tally="matches">{matchesSaid}</p>
       <div class="scroll" data-rows="matches">
         <ul class="rows">
           {#each matches as product (product.id)}
@@ -1509,7 +1075,7 @@
                 label="Ne plus proposer ce produit"
                 protected
                 busy={working === 'offered'}
-                disabled={busy || !canWithdraw}
+                disabled={busy || !acts.canWithdraw}
                 onrun={() => void setOffered(false)}
               />
             {:else}
@@ -1519,7 +1085,7 @@
                 label="Le proposer de nouveau"
                 protected
                 busy={working === 'offered'}
-                disabled={busy || !canOfferAgain}
+                disabled={busy || !acts.canOfferAgain}
                 onrun={() => void setOffered(true)}
               />
             {/if}
@@ -1550,7 +1116,7 @@
               label="Enregistrer la dérogation"
               protected
               busy={working === 'waiver'}
-              disabled={busy || !canSaveWaiver}
+              disabled={busy || !acts.canSaveWaiver}
               onrun={() => void setWaiver(typedWaiver)}
             />
             {#if waiverInForce !== null}
@@ -1560,7 +1126,7 @@
                 label="Retirer la dérogation"
                 protected
                 busy={working === 'waiver-off'}
-                disabled={busy || !canDropWaiver}
+                disabled={busy || !acts.canDropWaiver}
                 onrun={() => void setWaiver(null)}
               />
             {/if}
@@ -1574,78 +1140,9 @@
     {/if}
   </Panel>
 
-  <Panel
-    title="Décisions en vigueur"
-    note="Ce qu’un humain a décidé, produit par produit. C’est ici que se reprend un produit retiré de la grille."
-  >
-    {#if decisions.length === 0}
-      <p class="fact">Aucune décision locale : la grille est celle du fichier.</p>
-    {:else}
-      <p class="fact muted" data-tally="decisions">
-        {tally(shownDecisions.length, decisions.length, 'décision en vigueur', 'décisions en vigueur')}
-      </p>
-      <div class="scroll" data-rows="decisions">
-        <ul class="rows">
-          {#each shownDecisions as decision (decision.product_id)}
-            <li>
-              <button type="button" class="pick" onclick={() => choose(decision.product_id)}>
-                Reprendre cette décision
-              </button>
-              <span class="what">{nameOf(decision.product_id)}</span>
-              <span class="id">{decision.product_id}</span>
-              <span class="message">{decisionSentence(decision)}</span>
-              <span class="value">{decision.reason}</span>
-              <span class="line">{frenchDate(decision.decided_at)}</span>
-            </li>
-          {/each}
-        </ul>
-      </div>
-    {/if}
-  </Panel>
+  <DecisionsInForcePanel {decisions} {nameOf} onchoose={choose} />
 
-  <Panel title="Vingt derniers imports">
-    {#if historyState !== 'read'}
-      <p class="fact" data-unread="imports">{historyUnknown}</p>
-    {:else if imports.length === 0}
-      <p class="fact">Aucun import dans l’historique.</p>
-    {:else}
-      <p class="fact muted" data-tally="imports">{importTally}</p>
-      <div class="scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Quand</th>
-              <th>Fichier</th>
-              <th>Source</th>
-              <th>Résultat</th>
-              <th>Motif</th>
-              <th>Lues</th>
-              <th>Pesables</th>
-              <th>Non pesables</th>
-              <th>Anomalies</th>
-              <th>Retirés</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each imports as record (record.id)}
-              <tr>
-                <td>{frenchDateTime(record.occurred_at)}</td>
-                <td>{record.file_name}</td>
-                <td>{frenchSource(record)}</td>
-                <td data-result>{frenchResult(record)}</td>
-                <td class="why">{record.reason}</td>
-                <td>{frenchInteger(record.rows_read_count)}</td>
-                <td>{frenchInteger(record.weighable_count)}</td>
-                <td>{frenchInteger(record.not_weighable_count)}</td>
-                <td>{frenchInteger(record.anomalies_count)}</td>
-                <td>{frenchInteger(record.products_withdrawn_count)}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    {/if}
-  </Panel>
+  <ImportHistoryPanel {imports} state={historyState} />
 </div>
 
 <style>
@@ -1670,66 +1167,6 @@
     flex-wrap: wrap;
     gap: var(--touch-gap);
     margin: 0.75rem 0 0;
-  }
-
-  /* The switch, drawn exactly as the Rules page draws its own: two pages that offer the
-     same kind of control may not look like two different mechanisms. */
-  .toggle {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    min-height: 2.75rem;
-    margin: 0.5rem 0 0;
-    padding: 0.375rem 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--waiting-wash);
-    /* Taken back from the `label` rule of this page: only the switch's own name is bold,
-       and the sentence behind it is prose. */
-    font-weight: 400;
-    cursor: pointer;
-    transition:
-      background-color var(--tap) var(--ease),
-      border-color var(--tap) var(--ease);
-  }
-
-  .toggle[data-on='true'] {
-    background: var(--ready-wash);
-  }
-
-  /* What a mouse expects, and a finger never asked for (app.css). */
-  @media (hover: hover) {
-    .toggle:hover {
-      border-color: var(--ink-muted);
-    }
-  }
-
-  .toggle input {
-    flex: none;
-    width: 1.5rem;
-    height: 1.5rem;
-    min-height: 0;
-    min-width: 0;
-    padding: 0;
-    accent-color: var(--focus);
-  }
-
-  .toggle-text {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    align-items: baseline;
-  }
-
-  .toggle-label {
-    font-size: 1.0625rem;
-    font-weight: 700;
-  }
-
-  .hint {
-    flex: 1 1 20rem;
-    color: var(--ink-muted);
-    font-size: 1rem;
   }
 
   /*
@@ -1912,23 +1349,13 @@
     border-top: none;
   }
 
-  .line,
   .id,
   .value {
     color: var(--ink-muted);
   }
 
-  .line {
-    flex: none;
-    width: 7rem;
-  }
-
   .what {
     font-weight: 700;
-  }
-
-  .message {
-    flex: 1 1 20rem;
   }
 
   .pick {
@@ -1953,41 +1380,6 @@
     margin-top: 0.5rem;
     font-size: 1.0625rem;
     font-weight: 700;
-  }
-
-  /*
-   * The two sources, one under the other: they rule each other out, and two lines compare
-   * better than two boxes side by side on a screen held to a reading width.
-   */
-  .choice {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .choice label {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-    /* 44 px: the density of the administration's form controls. */
-    min-height: 2.75rem;
-    margin: 0;
-    font-weight: 400;
-  }
-
-  /*
-   * A radio button is not a text field, and the `input` rule of this page would hand it
-   * the width, the height, the border and the background of one. Everything is taken back
-   * here so that the browser draws it the way it draws a radio.
-   */
-  .choice input {
-    width: 1.5rem;
-    height: 1.5rem;
-    min-height: 0;
-    flex: 0 0 auto;
-    padding: 0;
-    background: none;
-    border: none;
-    border-radius: 0;
   }
 
   input {
@@ -2106,34 +1498,5 @@
 
   .choose input {
     display: none;
-  }
-
-  table {
-    border-collapse: collapse;
-    width: 100%;
-    font-size: 1.0625rem;
-  }
-
-  th,
-  td {
-    padding: 0.375rem 0.5rem;
-    text-align: left;
-    white-space: nowrap;
-    border-bottom: 1px solid var(--border);
-  }
-
-  /* The reason a file was refused is a sentence, and the one cell allowed to wrap. */
-  .why {
-    white-space: normal;
-    min-width: 16rem;
-    color: var(--ink-muted);
-  }
-
-  th {
-    position: sticky;
-    top: 0;
-    color: var(--ink-muted);
-    font-size: 1rem;
-    background: var(--bg);
   }
 </style>
