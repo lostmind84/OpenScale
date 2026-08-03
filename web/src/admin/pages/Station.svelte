@@ -217,10 +217,10 @@
   /**
    * Exports the configuration, as a PROTECTED act (ADR-033).
    *
-   * `GET /admin/api/config/export` is the one read the station keeps behind the password,
-   * because it is the one payload that still carries the password hash (§11.5). Two bare
-   * `<a download>` fetched it, and an anchor cannot see a refusal: on an expired session
-   * the browser saved a file named like an export and holding « Session expirée ».
+   * The read itself is {@link readExport}, and the reason the station keeps it behind the
+   * password is written there, beside the `fetch` it describes. What this function adds is
+   * the protection and what follows it: a refusal turned into a re-authentication, then
+   * the bytes handed to the browser.
    *
    * @param withHardware - whether the serial port, the print queue and the network travel.
    */
