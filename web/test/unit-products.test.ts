@@ -92,7 +92,8 @@ describe('les puces se recomptent sur ce que la grille montre', () => {
     const counts = Object.fromEntries(bar.map((chip) => [chip.code, chip.count]))
 
     // Les quinze masqués se répartissent 8 légumes, 5 fruits, 2 vrac : aucun rayon ne
-    // passe sous MIN_PRODUCTS_FOR_CHIP, donc aucune puce ne disparaît.
+    // passe sous le seuil servi (`presentation.min_products_for_chip`), donc aucune
+    // puce ne disparaît.
     expect(bar.map((chip) => chip.code)).toEqual([
       ALL_CATEGORIES,
       'fruits',
