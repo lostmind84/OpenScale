@@ -77,7 +77,7 @@ export interface Presentation {
   grid_columns: number
   /**
    * Le nombre de tuiles qu'une catégorie doit avoir sur ce poste pour obtenir sa puce
-   * de filtre. Défaut 5.
+   * de filtre. Défaut {@link MIN_PRODUCTS_FOR_CHIP}.
    *
    * En deçà, la catégorie perd sa PUCE et jamais ses tuiles : ses produits restent dans
    * « Tout » et à la recherche. Ce qui retire vraiment des produits de l'écran est
