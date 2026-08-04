@@ -1,7 +1,7 @@
-// This file holds what the 48 controls answer BEYOND the corpus: everything at
-// once, the admissible values a fault carries, what an EMPTY registry may and may
-// not say, and the controls whose behaviour needs a station of its own to show --
-// 3, 29, 43, 44, 46, 48 and 49.
+// This file holds what the numbered controls answer BEYOND the corpus: everything at
+// once, the admissible values a fault carries, what an EMPTY registry may and may not
+// say, and the controls whose behaviour a single mutated field cannot show -- the ones
+// that need a whole delivered configuration and a station of its own.
 
 package domain
 
