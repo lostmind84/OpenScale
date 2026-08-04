@@ -76,6 +76,10 @@ func TestFingerprintChangesWhenASharedValueChanges(t *testing.T) {
 		// its neighbour follows the screen. Neither is wrong, and a fleet that diverges
 		// by accident must be able to see it by eye.
 		"le nombre de colonnes de la grille": func(c *Config) { c.UI.GridColumns = 7 },
+		// internal/web caches the served catalog bytes on this digest (catalogBytes):
+		// a raised threshold that left the eight characters alone would keep serving
+		// a category bar built for the old one until an unrelated change flushed it.
+		"le seuil de puce des catégories": func(c *Config) { c.UI.MinProductsForChip = 7 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			diverging := loadDelivered(t)
