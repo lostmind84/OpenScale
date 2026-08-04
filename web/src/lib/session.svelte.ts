@@ -1,5 +1,5 @@
 import { fetchCatalog } from './api'
-import type { Catalog, Presentation } from './catalog'
+import { MIN_PRODUCTS_FOR_CHIP, type Catalog, type Presentation } from './catalog'
 import type { StateDTO } from './dto'
 import { linkHealth, type LinkHealth } from './link'
 
@@ -18,6 +18,9 @@ const DEFAULT_PRESENTATION: Presentation = {
   // Automatique, comme le défaut du poste : la grille du squelette est celle
   // d'ADR-035 tant que personne n'a dit autre chose.
   grid_columns: 0,
+  // Le défaut livré, comme le défaut du poste : sans catalogue encore reçu, la barre
+  // du squelette n'a aucun seuil de POSTE à appliquer (ADR-059).
+  min_products_for_chip: MIN_PRODUCTS_FOR_CHIP,
 }
 
 /**
