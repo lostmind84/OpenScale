@@ -81,10 +81,53 @@ en toutes lettres, à côté de `GridColumns`, et pour la même raison qui y est
 ce profil se lit comme la documentation de ce que fait un poste d'usine, et le zéro d'un
 champ non renseigné n'y dit rien.
 
-Un fichier écrit avant ce réglage n'a pas la clé. Le décodage part de `NeutralProfile()`
-et `Config.UnmarshalJSON` garde ce que le document ne nomme pas (§11.5) : la valeur
-retombe sur 5, donc **le comportement livré ne bouge pas**. Aucune migration n'est
-nécessaire, aucune clé n'est retirée, `scanRetired` n'a rien à dire.
+### 4 bis. La clé absente, et le piège du 28/07/2026
+
+Un fichier écrit avant ce réglage n'a pas la clé — **le fichier livré non plus**, et il
+ne doit pas l'avoir : `TestTheDeliveredFileNeedNotCarryTheGridColumns`
+(`internal/domain/config_test.go:285`) énonce la règle et nomme le défaut qu'elle
+prévient, celui du 28/07/2026, « où une clé neuve a fait refuser à un poste sa propre
+configuration livrée ».
+
+`ui.grid_columns` y échappe parce que **son défaut sûr EST le zéro**, délibérément :
+`GridColumnsAutomatic = 0` est « un COMPORTEMENT et pas un nombre ». Le seuil de puce n'a
+pas cette chance — son défaut est 5, son zéro n'a aucun sens, et son plancher est 1. Sans
+précaution, un `Config` décodé depuis le fichier livré porterait `0`, le contrôle 50
+produirait une faute sur le fichier livré, et les bancs de `internal/web` et
+`internal/station` — qui décodent tous les trois dans un `Config` **zéro**
+(`fixture_test.go:34`, `internal/web/harness_test.go:274`,
+`internal/station/doubles_test.go:31`) — serviraient un seuil de 0, donc une puce à toute
+catégorie, y compris vide.
+
+Le remède existe déjà dans la méthode qui décode, et pour exactement ce problème :
+
+```go
+// A file that names no repository -- one written before this block existed,
+// or one that carries it empty -- runs on the default. Refusing here would put
+// a station out of service over a field nobody meant to set.
+if c.Update.Repository == "" {
+    c.Update.Repository = DefaultUpdateRepository
+}
+```
+
+`Config.UnmarshalJSON` reçoit la même normalisation, juste en dessous :
+
+```go
+if c.UI.MinProductsForChip == 0 {
+    c.UI.MinProductsForChip = DefaultMinProductsForChip
+}
+```
+
+`DefaultMinProductsForChip = 5` est déclarée à côté de `MinGridColumns`, et
+`NeutralProfile()` l'écrit en toutes lettres. Tous les chemins de décodage —
+`DecodeConfigBlockByBlock`, les trois aides de test, un `json.Unmarshal` nu — atterrissent
+donc sur 5 quand la clé manque. **Le comportement livré ne bouge pas.** Aucune migration,
+aucune clé retirée, `scanRetired` n'a rien à dire.
+
+Conséquence assumée : un `0` écrit à la main se relit 5, comme un dépôt vide se relit le
+dépôt par défaut. Le zéro n'a pas de lecture légitime ici — il donnerait une puce à une
+catégorie sans tuile — et le refuser plutôt que le corriger obligerait à distinguer
+« absent » de « zéro », donc un `*int` ou un décodeur maison pour `UIConfig`.
 
 ## 5. Le contrôle 50
 
@@ -174,13 +217,17 @@ l'écran à expliquer deux natures pour un champ.
 | §14.3 (ligne 4128) | « aucun rayon ne passe sous le seuil de la puce » reste vrai et nomme le défaut |
 | ADR-024 (ligne 5145) | reçoit le renvoi « le seuil devient réglable, ADR-059 » sans être réécrit |
 | ADR-059 (nouveau) | la décision, sa raison, ses conséquences, sur le modèle d'ADR-057 |
-| `testdata/config-lacagette.json` | la clé, à 5, dans le bloc `ui` |
+| `testdata/config-lacagette.json` | **rien.** Le fichier livré ne porte pas non plus `grid_columns` : il se tait sur ce qu'il ne règle pas, et §4 bis est ce qui rend ce silence sûr |
 | `handbook/` | **rien**. Vérifié : aucun de ses fichiers ne nomme un réglage du bloc `ui` — ni `grid_columns`, ni `show_by_unit_products`, ni « colonnes de la grille ». Le `handbook/` ne reprend que ce qui met en route (ODR-0002) |
 
 ## 10. Tests
 
-**Domaine.** Le contrôle 50 refuse 0 et accepte 1 ; l'ordre des fautes va jusqu'à 50 ; le
-profil neutre porte 5 ; un document sans la clé décode à 5.
+**Domaine.** Le contrôle 50 refuse une valeur négative et accepte 1 ; l'ordre des fautes va
+jusqu'à 50 ; le profil neutre porte 5 ; un document sans la clé décode à 5, et un `0`
+écrit à la main aussi. Et surtout, le symétrique de
+`TestTheDeliveredFileNeedNotCarryTheGridColumns` : **le fichier livré se tait sur ce
+réglage et le contrôle 50 n'a rien à en dire** — c'est le test qui empêche le défaut du
+28/07/2026 de revenir par cette clé-ci.
 
 **Serveur.** `TestEveryFieldOfThePresentationEntersItsDigest`
 (`internal/web/catalog_test.go:293`) parcourt le DTO par réflexion : **il couvre le
