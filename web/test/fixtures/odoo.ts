@@ -2,7 +2,12 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { MIN_PRODUCTS_FOR_CHIP, type Catalog, type Category, type Product } from '../../src/lib/catalog'
+import {
+  MIN_PRODUCTS_FOR_CHIP,
+  type Catalog,
+  type Category,
+  type Product,
+} from '../../src/lib/catalog'
 import { normalize } from '../../src/lib/normalize'
 
 /**
