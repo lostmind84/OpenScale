@@ -124,6 +124,11 @@ type catalogPresentationDTO struct {
 	// setting and not its absence, and a front end reading `undefined` would have to
 	// invent which of the two it meant.
 	GridColumns int `json:"grid_columns"`
+	// MinProductsForChip is how many tiles a category needs before the grid gives it a
+	// filter chip (ADR-059). Stated here and applied by the grid, like the settings
+	// above: which categories end up with a chip depends on what the grid actually shows,
+	// and the grid is the only side that knows it.
+	MinProductsForChip int `json:"min_products_for_chip"`
 }
 
 // presentationOf carries the screen settings of one configuration.
@@ -139,6 +144,7 @@ func presentationOf(ui domain.UIConfig) catalogPresentationDTO {
 		Sound:                ui.Sound,
 		ShowByUnitProducts:   ui.ShowByUnitProducts,
 		GridColumns:          ui.GridColumns,
+		MinProductsForChip:   ui.MinProductsForChip,
 	}
 }
 

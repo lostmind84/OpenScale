@@ -244,6 +244,7 @@ func TestThePresentationDigestFollowsThePresentationAndNothingElse(t *testing.T)
 
 	for name, tweak := range map[string]func(*domain.Config){
 		"le nombre de colonnes": func(c *domain.Config) { c.UI.GridColumns = 7 },
+		"le seuil de puce":      func(c *domain.Config) { c.UI.MinProductsForChip = 12 },
 		"les prix sur les tuiles": func(c *domain.Config) {
 			c.UI.ShowGridPrices = !c.UI.ShowGridPrices
 		},
@@ -416,6 +417,25 @@ func TestTheCategoryLabelsFollowTheConfigurationAndNotTheLastImport(t *testing.T
 	if shelf.ProductCount != 1 {
 		t.Errorf("%d tuile(s) comptée(s) pour la catégorie, attendu 1 : l'effectif se "+
 			"compte toujours sur le catalogue en service", shelf.ProductCount)
+	}
+}
+
+// TestTheChipThresholdTravelsWithTheCatalog: the grid decides which categories get a
+// chip, and it decides it on a number this station sets (ADR-059).
+//
+// It rides in `presentation` with the other screen settings and for the same reason: the
+// station states the setting, the grid applies it. Which categories end up with a chip is
+// never computed here -- the payload stays the inventory of what this station shows.
+func TestTheChipThresholdTravelsWithTheCatalog(t *testing.T) {
+	b := newBench(t, func(o *benchOptions) {
+		o.config = func(c *domain.Config) { c.UI.MinProductsForChip = 12 }
+	})
+
+	page := decodeStatus[catalogDTO](t, b.get("/api/v1/catalog"), http.StatusOK)
+
+	if page.Options.MinProductsForChip != 12 {
+		t.Fatalf("presentation.min_products_for_chip = %d, attendu 12",
+			page.Options.MinProductsForChip)
 	}
 }
 
