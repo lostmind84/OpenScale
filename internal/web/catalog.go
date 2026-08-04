@@ -314,14 +314,21 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 
 	// From the CONFIGURATION, and not from the snapshot. The exchange file carries a
 	// letter; the label, the rank, the colour and « montrer cette catégorie sur ce
-	// poste » are shop decisions that live in config.json and reload hot (§10.2 bis,
-	// §11.4). The snapshot carries them too — the store hands back the `categories`
-	// table, which exists as the parent of the foreign key products.category_code and
-	// which only an IMPORT ever upserts. Reading the wording of the grid from there tied
-	// a configuration change to the next catalog a producer happens to publish: a shelf
+	// poste » are shop decisions that live in config.json and reach THIS endpoint
+	// immediately (§10.2 bis, §11.4) — no restart, no waiting for the next import.
+	// The snapshot carries them too — the store hands back the `categories` table,
+	// which exists as the parent of the foreign key products.category_code and which
+	// only an IMPORT ever upserts. Reading the wording of the grid from there tied a
+	// configuration change to the next catalog a producer happens to publish: a shelf
 	// renamed on Monday kept its old name until the Friday export, with nothing on any
 	// screen to say why. The effectif below still comes from the catalog in service,
 	// because that is the one number a customer can check against the tiles.
+	//
+	// What is still open: this endpoint answers with the new wording the moment it is
+	// asked, but nothing tells a browser already holding a loaded grid to ask again —
+	// catalog_count and presentation_digest are what trigger that (web/src/lib/
+	// session.svelte.ts), and a rename moves neither. A kiosk left running keeps the
+	// old label until its next catalog load.
 	for _, c := range cfg.Catalog.Categories {
 		out.Categories = append(out.Categories, categoryDTO{
 			Code: c.Code, Label: c.Label, Rank: c.Rank, Color: c.Color,

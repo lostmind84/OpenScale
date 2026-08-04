@@ -362,16 +362,19 @@ func TestTheStationServesEveryWeighableTileWhateverTheGridShows(t *testing.T) {
 // exchange file carries a LETTER, and the configuration carries the label, the rank,
 // the colour and « montrer cette catégorie sur ce poste ».
 //
-// Those four reload hot (§11.4), so a volunteer who renames a shelf sees it on the grid
-// without waiting for a producer to publish a file. Reading them from the snapshot
-// instead made them wait: `categories` is a table an IMPORT upserts — it exists as the
-// parent of the foreign key products.category_code — so a rename applied on the next
-// catalog and on nothing else, and a station whose producer publishes weekly showed the
-// old wording for a week with no way to tell why.
+// Those four reach this endpoint hot (§11.4), with no restart and no waiting for a
+// producer to publish a file. Reading them from the snapshot instead made them wait:
+// `categories` is a table an IMPORT upserts — it exists as the parent of the foreign
+// key products.category_code — so a rename applied on the next catalog and on nothing
+// else, and a station whose producer publishes weekly showed the old wording for a
+// week with no way to tell why.
 //
 // The snapshot below therefore carries what the last import wrote, and the
-// configuration carries what somebody has just typed. What the screen gets is the
-// second one.
+// configuration carries what somebody has just typed. What THIS endpoint gets is the
+// second one. What is still open: a browser that already loaded the grid has no
+// signal telling it to ask again — a rename moves neither catalog_count nor
+// presentation_digest (web/src/lib/session.svelte.ts) — so a kiosk left running keeps
+// showing the old label until its next catalog load.
 func TestTheCategoryLabelsFollowTheConfigurationAndNotTheLastImport(t *testing.T) {
 	imported := domain.NewCatalog([]domain.Product{
 		{ID: "1", Name: "AIL", Reference: "0493021000003", Mode: domain.ByWeight,
