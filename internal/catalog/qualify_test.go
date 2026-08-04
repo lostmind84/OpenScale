@@ -356,6 +356,39 @@ func TestTheReservedZoneMessageNamesTheDigitsAndTheValue(t *testing.T) {
 	}
 }
 
+// TestASpreadsheetNumberIsNamedForWhatItIs covers the one invalid barcode nobody can
+// fix in Odoo, because Odoo is not where it broke.
+//
+// « 3,70015E+12 » is what a spreadsheet leaves of 3700147202196 after opening the
+// export and saving it back: thirteen digits read as a number, kept to six significant
+// figures. Counting its eleven characters is TRUE and worth nothing — the digits are
+// gone, they cannot be typed back from the report, and every other code of the file is
+// in the same state. The only usable instruction is to export again.
+func TestASpreadsheetNumberIsNamedForWhatItIs(t *testing.T) {
+	for _, mangled := range []string{"3,70015E+12", "3.70015E+12", "3,70015e+12", "4,93E+11"} {
+		_, findings, _ := catalog.Qualify(row(func(r *catalog.Row) { r.Barcode = mangled }))
+		if len(findings) != 1 || findings[0].Code != domain.FindingInvalidBarcode {
+			t.Fatalf("%s : signalements %v, attendu INVALID_BARCODE", mangled, codes(findings))
+		}
+		message := findings[0].Message
+		if strings.Contains(message, "caractères au lieu de 13") {
+			t.Errorf("%s : le message compte les caractères d'un nombre : %s", mangled, message)
+		}
+		for _, expected := range []string{mangled, "Réexporter", "tableur"} {
+			if !strings.Contains(message, expected) {
+				t.Errorf("le message ne contient pas %q : %s", expected, message)
+			}
+		}
+	}
+
+	// A code that really is a short string of digits keeps the count: there, the number
+	// of characters IS the fault, and someone retypes it in Odoo.
+	_, findings, _ := catalog.Qualify(row(func(r *catalog.Row) { r.Barcode = "049302100000" }))
+	if !strings.Contains(findings[0].Message, "12 caractères au lieu de 13") {
+		t.Errorf("un code court a perdu son décompte : %s", findings[0].Message)
+	}
+}
+
 // codes lists the codes of a slice of findings, for a failure message.
 func codes(findings []domain.Finding) []string {
 	out := make([]string, 0, len(findings))

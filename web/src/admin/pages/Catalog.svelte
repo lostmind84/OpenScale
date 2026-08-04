@@ -879,7 +879,7 @@
     </p>
 
     <p class="columns-label">
-      <label for="chip-threshold">Tuiles minimum pour donner sa puce à une catégorie</label>
+      <label for="chip-threshold">Articles minimum pour afficher une catégorie</label>
       {#if preferences.showTechnicalNames}<code>{CHIP_THRESHOLD_PATH}</code>{/if}
     </p>
     <input

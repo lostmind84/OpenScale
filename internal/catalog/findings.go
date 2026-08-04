@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"openscale/internal/domain"
@@ -86,13 +87,16 @@ func noBarcode(r Row) domain.Finding {
 	}
 }
 
-// invalidBarcode reports thirteen characters that are not a readable EAN-13.
+// invalidBarcode reports a code the till could not read as an EAN-13.
 //
 // It NAMES the check digit that was expected, because that is the difference between
 // « code-barres invalide » and a correction somebody can type: six of the seven
 // offending codes of flv_1.csv are one digit away from being right.
+//
+// A code a spreadsheet turned into a number gets its OWN sentence, and that is not
+// cosmetic: the work it asks for is not in Odoo at all (see spreadsheetNumber).
 func invalidBarcode(r Row) domain.Finding {
-	return domain.Finding{
+	f := domain.Finding{
 		CSVLine:     r.Line,
 		ProductID:   r.ID,
 		ProductName: r.Name,
@@ -102,7 +106,27 @@ func invalidBarcode(r Row) domain.Finding {
 		Message: fmt.Sprintf("Corriger le code-barres « %s » : %s. "+
 			"Un scanner de caisse le refusera.", r.Barcode, whyNotEAN13(r.Barcode)),
 	}
+	if spreadsheetNumber.MatchString(r.Barcode) {
+		f.Message = fmt.Sprintf("Réexporter le catalogue depuis Odoo sans ouvrir le "+
+			"fichier dans un tableur : « %s » n'est pas un code-barres mais un nombre en "+
+			"notation scientifique, ce qu'un tableur fait d'une colonne de treize "+
+			"chiffres dès qu'il l'enregistre. Les chiffres perdus ne se devinent pas, et "+
+			"les autres codes du fichier sont sans doute dans le même état.", r.Barcode)
+	}
+	return f
 }
+
+// spreadsheetNumber recognises a code that went through a spreadsheet on its way here.
+//
+// Opening the export in Excel or LibreOffice and saving it back reads a column of
+// thirteen digits as a NUMBER: 3700147202196 comes out « 3,70015E+12 », six significant
+// figures and seven digits gone for good. Saying it counts eleven characters instead of
+// thirteen is true and useless — nobody can retype what the file no longer carries, the
+// record in Odoo is very probably intact, and the fix is to produce the file again.
+//
+// No genuine barcode can match: a barcode is digits and nothing else, and this pattern
+// requires an exponent.
+var spreadsheetNumber = regexp.MustCompile(`^[0-9]+([.,][0-9]+)?[eE][+-]?[0-9]+$`)
 
 // whyNotEAN13 says, in French, which of the two faults a code carries.
 //
