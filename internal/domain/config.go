@@ -11,7 +11,7 @@ import "time"
 // copy it onto a USB stick, and the process must start and show an administration
 // screen even when the database is corrupt.
 //
-// Nothing here reads a clock, opens a file or a socket: the 48 controls that judge
+// Nothing here reads a clock, opens a file or a socket: the controls that judge
 // these types are pure (validate.go), and the two questions a pure function cannot
 // answer -- "does this path exist?", "is this print queue really enumerated?" --
 // arrive through Registries (options.go).

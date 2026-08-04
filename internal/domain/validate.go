@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// This file holds the ENTRY POINT of the 48 controls a configuration has to pass,
+// This file holds the ENTRY POINT of the controls a configuration has to pass,
 // and the ones that judge THE HARDWARE OF THE STATION AND THE LABEL IT PRINTS: the
 // number it answers to, the address it listens on, the three drivers it names, the
 // options they declare, the numbering plan, and the template with its offsets.

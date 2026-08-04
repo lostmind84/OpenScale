@@ -503,7 +503,8 @@ func TestControl50AcceptsOneAndAnythingAbove(t *testing.T) {
 	}
 }
 
-// TestControl50HasNothingToSayAboutTheDeliveredFile, which does not carry the key.
+// TestControl50HasNothingToSayAboutTheDeliveredFile: the delivered file never sets
+// this key, and its silence must not be mistaken for a fault.
 func TestControl50HasNothingToSayAboutTheDeliveredFile(t *testing.T) {
 	config := loadDelivered(t)
 	if fault := findFault(config.Validate(testRegistries()), "ui.min_products_for_chip"); fault != nil {
