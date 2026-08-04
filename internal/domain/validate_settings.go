@@ -429,8 +429,8 @@ func (c *Config) validateGrid() []Fault {
 // A floor and no ceiling. What a ceiling would guard against -- a threshold above the
 // biggest shelf, which leaves the category bar with « Tout » alone -- is undone by coming
 // back to the field, and no pair of bounds is true of every catalogue: the same number is
-// generous on the 355-product export of 2026 and severe on the 107-product one of 2022,
-// and those are the same cooperative.
+// generous on the 331-weighable-tile export of 2026 and severe on the 107-tile one of
+// 2022, and those are the same cooperative.
 //
 // The floor is the half that has no legitimate reading: under 1, a category with no tile
 // at all would get a chip, and pressing it would open an empty grid. Zero never reaches

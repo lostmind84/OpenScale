@@ -470,11 +470,11 @@ func TestControl49SaysWhatZeroMeans(t *testing.T) {
 // TestControl50RefusesAThresholdUnderOne guards the value that has no reading.
 //
 // A floor and NO ceiling, deliberately: no pair of bounds is true of every catalogue --
-// the same number is generous on a 355-product export and severe on a 107-product one,
-// and those two are the SAME cooperative four years apart. A threshold above the biggest
-// shelf leaves the bar with « Tout » alone and is undone by coming back to the field;
-// a threshold under 1 would give a chip to a category with no tile, whose press opens an
-// empty grid.
+// the same number is generous on a 331-weighable-tile export and severe on a 107-tile
+// one, and those two are the SAME cooperative four years apart. A threshold above the
+// biggest shelf leaves the bar with « Tout » alone and is undone by coming back to the
+// field; a threshold under 1 would give a chip to a category with no tile, whose press
+// opens an empty grid.
 //
 // 0 is in the list even though no delivered file can carry it: Config.UnmarshalJSON
 // corrects a decoded zero to DefaultMinProductsForChip before Validate ever sees it

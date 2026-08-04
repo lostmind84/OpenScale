@@ -138,8 +138,8 @@ catégorie sans tuile — et le refuser plutôt que le corriger obligerait à di
 // validateChipThreshold is control 50: ui.min_products_for_chip is at least 1.
 //
 // A floor and no ceiling, on purpose. No pair of bounds is true of every catalogue --
-// the same number is generous on a 355-product export and severe on a 107-product one,
-// and the two are the SAME cooperative four years apart. What a ceiling would protect
+// the same number is generous on a 331-weighable-tile export and severe on a 107-tile
+// one, and the two are the SAME cooperative four years apart. What a ceiling would protect
 // against, a value above the biggest shelf, leaves the bar with « Tout » alone and is
 // undone by coming back to the field.
 //
