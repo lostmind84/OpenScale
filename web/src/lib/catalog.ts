@@ -75,6 +75,15 @@ export interface Presentation {
    * ce nombre de colonnes partout — le fichier décrit une grille, pas une préférence.
    */
   grid_columns: number
+  /**
+   * Le nombre de tuiles qu'une catégorie doit avoir sur ce poste pour obtenir sa puce
+   * de filtre. Défaut {@link MIN_PRODUCTS_FOR_CHIP}.
+   *
+   * En deçà, la catégorie perd sa PUCE et jamais ses tuiles : ses produits restent dans
+   * « Tout » et à la recherche. Ce qui retire vraiment des produits de l'écran est
+   * `categories[].visible`, et les deux ne sont pas la même décision (ADR-059).
+   */
+  min_products_for_chip: number
 }
 
 /** Le corps de `GET /api/v1/catalog`. */
@@ -94,12 +103,14 @@ export interface Catalog {
 }
 
 /**
- * Combien de produits pesables une catégorie doit atteindre pour mériter sa puce.
+ * Le seuil qu'applique un poste dont la configuration ne dit rien.
  *
- * CONSTANTE DU CODE, pas un réglage : aucun exploitant n'a de choix légitime à
- * faire là-dessus (ADR-025). En deçà, la catégorie reste dans « Tout » et ses
- * produits restent atteignables par la recherche — jamais masqués. En 2022,
- * « Autres » comptait UN produit : un quart de barre de navigation pour une tuile.
+ * C'ÉTAIT une constante du code (ADR-024, ADR-025). Ce qu'ADR-024 a mesuré est qu'un
+ * seuil doit EXISTER — en 2022, « Autres » menait à UN produit, un quart de barre de
+ * navigation pour une tuile —, et aucune mesure ne dit cinq plutôt que trois ou huit.
+ * C'est ce qui en fait le réglage `ui.min_products_for_chip` (ADR-059), dont ce nombre
+ * n'est plus que le défaut : il ne sert qu'aux postes dont le binaire est plus ancien
+ * que la clé.
  */
 export const MIN_PRODUCTS_FOR_CHIP = 5
 
@@ -146,7 +157,8 @@ export function visibleProducts(catalog: Catalog): Product[] {
 
 /**
  * Construit la barre de filtres : « Tout » d'abord, puis une puce par catégorie
- * PEUPLÉE.
+ * qui atteint le seuil que CE POSTE sert (`presentation.min_products_for_chip`,
+ * ADR-059).
  *
  * L'effectif est recompté sur les produits RÉELLEMENT SERVIS plutôt que repris de
  * `Category.product_count`. Le serveur envoie bien les deux, et un test vérifie
@@ -164,8 +176,12 @@ export function chips(catalog: Catalog): Chip[] {
   const counts = new Map<string, number>()
   for (const p of shown) counts.set(p.category_code, (counts.get(p.category_code) ?? 0) + 1)
 
+  // Le seuil vient du POSTE, et la constante n'est plus qu'un filet pour un service qui
+  // ne sert pas encore la clé (ADR-059).
+  const threshold = catalog.presentation.min_products_for_chip ?? MIN_PRODUCTS_FOR_CHIP
+
   const populated = catalog.categories
-    .filter((c) => c.visible && (counts.get(c.code) ?? 0) >= MIN_PRODUCTS_FOR_CHIP)
+    .filter((c) => c.visible && (counts.get(c.code) ?? 0) >= threshold)
     .slice()
     .sort((a, b) => a.rank - b.rank || a.code.localeCompare(b.code))
     .map((c) => ({

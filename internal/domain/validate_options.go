@@ -11,7 +11,7 @@ import (
 // the schema THE CHOSEN DRIVER declares, rather than against anything this package
 // knows.
 //
-// It is separate from validate.go for that reason: the 48 controls know what a
+// It is separate from validate.go for that reason: the numbered controls know what a
 // configuration means, these know only what a driver said about itself.
 
 // validateOptions reports every fault the options of one driver break against the

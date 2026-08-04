@@ -2,7 +2,12 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Catalog, Category, Product } from '../../src/lib/catalog'
+import {
+  MIN_PRODUCTS_FOR_CHIP,
+  type Catalog,
+  type Category,
+  type Product,
+} from '../../src/lib/catalog'
 import { normalize } from '../../src/lib/normalize'
 
 /**
@@ -170,6 +175,9 @@ export function catalogOf(rows: QualifiedRow[], revision = '"fixture"'): Catalog
       // Automatique, le défaut : les bancs qui portent sur le catalogue ne décrivent
       // pas un poste qui a réglé sa grille. `grid.test.ts` est celui qui le fait.
       grid_columns: 0,
+      // Le défaut livré : les bancs qui portent sur le catalogue ne décrivent pas un
+      // poste qui a réglé son seuil. `chips.test.ts` est celui qui le fait varier.
+      min_products_for_chip: MIN_PRODUCTS_FOR_CHIP,
     },
   }
 }

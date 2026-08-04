@@ -111,6 +111,9 @@
    */
   const GRID_COLUMNS_CHOICES = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
+  /** The key that decides from how many tiles a category gets its filter chip. */
+  const CHIP_THRESHOLD_PATH = 'ui.min_products_for_chip'
+
   let imports = $state<ImportDTO[]>([])
   let findings = $state<FindingDTO[]>([])
   /**
@@ -179,6 +182,9 @@
 
   /** The column setting AS DRAFTED, `0` for as long as nobody has pinned one. */
   const gridColumns = $derived(draft.number(GRID_COLUMNS_PATH))
+
+  /** The chip threshold AS DRAFTED. */
+  const chipThreshold = $derived(draft.number(CHIP_THRESHOLD_PATH))
 
   /**
    * The tiles the grid would draw at the DRAFT, switch above included.
@@ -870,6 +876,25 @@
     <p class="fact muted">
       Se tromper ne coûte rien d’autre que de revenir ici : le réglage ne change ni le
       fichier reçu, ni les étiquettes déjà imprimées.
+    </p>
+
+    <p class="columns-label">
+      <label for="chip-threshold">Tuiles minimum pour donner sa puce à une catégorie</label>
+      {#if preferences.showTechnicalNames}<code>{CHIP_THRESHOLD_PATH}</code>{/if}
+    </p>
+    <input
+      id="chip-threshold"
+      type="number"
+      min="1"
+      step="1"
+      value={chipThreshold}
+      oninput={(event) => draft.set(CHIP_THRESHOLD_PATH, Number(event.currentTarget.value))}
+    />
+    <p class="fact muted">
+      En dessous de ce nombre, la catégorie n’a pas de puce dans la barre du bas. Ses
+      produits restent dans « Tout » et à la recherche : ce réglage ne retire aucune
+      tuile. Pour ne plus montrer une catégorie du tout, c’est sa case « visible » qu’il
+      faut décocher.
     </p>
 
     <!--

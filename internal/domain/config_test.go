@@ -292,3 +292,47 @@ func TestTheDeliveredFileNeedNotCarryTheGridColumns(t *testing.T) {
 		t.Fatalf("le silence du fichier livré est traité comme une faute : %s", fault.Message)
 	}
 }
+
+// TestTheDeliveredFileNeedNotCarryTheChipThreshold is the symmetric of the test above,
+// for the one setting whose safe default is NOT its zero value.
+//
+// grid_columns escapes this because GridColumnsAutomatic is zero on purpose -- « a
+// BEHAVIOUR and not a number ». The chip threshold has no such luck: its default is 5,
+// its floor is 1, and its zero means nothing at all. The three test helpers of this
+// repository decode the delivered file into a ZERO Config, so without the normalisation
+// in Config.UnmarshalJSON a station would refuse its own delivered configuration --
+// which is the defect of 28/07/2026, word for word.
+func TestTheDeliveredFileNeedNotCarryTheChipThreshold(t *testing.T) {
+	config := loadDelivered(t)
+	if config.UI.MinProductsForChip != DefaultMinProductsForChip {
+		t.Fatalf("seuil relu à %d sur un fichier qui ne dit rien, attendu le défaut %d",
+			config.UI.MinProductsForChip, DefaultMinProductsForChip)
+	}
+}
+
+// TestAHandWrittenZeroReadsBackAsTheDefault: zero has no legitimate reading here -- it
+// would give a chip to a category with no tile, whose press opens an empty grid. It is
+// CORRECTED rather than refused, exactly as an empty update.repository is, because
+// telling « absent » from « zero » would cost a *int or a codec of its own for UIConfig.
+func TestAHandWrittenZeroReadsBackAsTheDefault(t *testing.T) {
+	var config Config
+	if err := json.Unmarshal([]byte(`{"version":1,"ui":{"min_products_for_chip":0}}`), &config); err != nil {
+		t.Fatalf("décodage : %v", err)
+	}
+	if config.UI.MinProductsForChip != DefaultMinProductsForChip {
+		t.Fatalf("seuil relu à %d, attendu le défaut %d",
+			config.UI.MinProductsForChip, DefaultMinProductsForChip)
+	}
+}
+
+// TestAThresholdTheFileNamesIsKept, so the normalisation above corrects the zero and
+// nothing else.
+func TestAThresholdTheFileNamesIsKept(t *testing.T) {
+	var config Config
+	if err := json.Unmarshal([]byte(`{"version":1,"ui":{"min_products_for_chip":12}}`), &config); err != nil {
+		t.Fatalf("décodage : %v", err)
+	}
+	if config.UI.MinProductsForChip != 12 {
+		t.Fatalf("seuil relu à %d, attendu 12", config.UI.MinProductsForChip)
+	}
+}

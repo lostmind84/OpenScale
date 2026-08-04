@@ -29,6 +29,7 @@ export const FIELD_LABELS: Readonly<Record<string, string>> = {
   'ui.show_grid_prices': 'Afficher les prix sur les tuiles',
   'ui.show_by_unit_products': 'Afficher les produits vendus à l’unité',
   'ui.grid_columns': 'Colonnes de la grille',
+  'ui.min_products_for_chip': 'Tuiles minimum pour donner sa puce à une catégorie',
 
   'scale.type': 'Protocole de la balance',
   'scale.present': 'Ce poste a une balance',

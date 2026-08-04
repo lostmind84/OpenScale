@@ -6,6 +6,7 @@ import {
   filterProducts,
   visibleProducts,
   type Catalog,
+  type Presentation,
 } from '../src/lib/catalog'
 import { catalogFromExport, qualifyExport, readExport } from './fixtures/odoo'
 
@@ -65,7 +66,7 @@ describe('flv_1.csv, 2022 — « Autres » ne compte qu’un seul produit', () =
   const products = visibleProducts(catalog)
   const bar = chips(catalog)
 
-  it('mesure bien une catégorie sous le seuil de 5', () => {
+  it('mesure bien une catégorie sous le seuil que sert ce poste', () => {
     const others = filterProducts(products, 'other', '')
     expect(others).toHaveLength(1)
     expect(others.length).toBeLessThan(MIN_PRODUCTS_FOR_CHIP)
@@ -104,7 +105,7 @@ describe('flv_1.csv, 2022 — « Autres » ne compte qu’un seul produit', () =
 describe('le seuil et le masquage sont deux mécanismes distincts', () => {
   const catalog = catalogFromExport('flv.csv')
 
-  it('à 4 produits pas de puce, à 5 une puce : le seuil est bien MIN_PRODUCTS_FOR_CHIP', () => {
+  it('un produit sous le seuil servi pas de puce, un produit au seuil une puce', () => {
     const bulk = filterProducts(visibleProducts(catalog), 'bulk', '')
     const justUnder: Catalog = { ...catalog, products: bulk.slice(0, MIN_PRODUCTS_FOR_CHIP - 1) }
     const justAt: Catalog = { ...catalog, products: bulk.slice(0, MIN_PRODUCTS_FOR_CHIP) }
@@ -129,5 +130,56 @@ describe('le seuil et le masquage sont deux mécanismes distincts', () => {
       'other',
     ])
     expect(chips(hidden)[0]?.count).toBe(221)
+  })
+})
+
+describe('le seuil vient de la configuration du poste', () => {
+  const catalog = catalogFromExport('flv.csv')
+
+  it('à 5 — le défaut livré — les quatre rayons ont leur puce', () => {
+    const served: Catalog = {
+      ...catalog,
+      presentation: { ...catalog.presentation, min_products_for_chip: 5 },
+    }
+    expect(chips(served).map((c) => c.code)).toEqual([
+      ALL_CATEGORIES,
+      'fruits',
+      'vegetables',
+      'bulk',
+      'other',
+    ])
+  })
+
+  it('à 70, Fruits (28) et Légumes (67) perdent la leur, Vrac (110) et Autres (126) la gardent', () => {
+    const served: Catalog = {
+      ...catalog,
+      presentation: { ...catalog.presentation, min_products_for_chip: 70 },
+    }
+    expect(chips(served).map((c) => c.code)).toEqual([ALL_CATEGORIES, 'bulk', 'other'])
+  })
+
+  it('ne retire aucun produit de « Tout » en retirant une puce', () => {
+    const served: Catalog = {
+      ...catalog,
+      presentation: { ...catalog.presentation, min_products_for_chip: 70 },
+    }
+    // 331 pesables, et le poste de référence ne masque rien : le compte de « Tout » ne
+    // bouge pas d'un produit quand deux puces disparaissent.
+    expect(chips(served)[0]?.count).toBe(331)
+    expect(visibleProducts(served)).toHaveLength(331)
+  })
+
+  it('retombe sur le défaut quand le poste ne sert pas la clé', () => {
+    // Un binaire plus ancien que ce réglage : la barre reste celle d'aujourd'hui.
+    const older: Partial<Presentation> = { ...catalog.presentation }
+    delete older.min_products_for_chip
+    const served = { ...catalog, presentation: older } as Catalog
+    expect(chips(served).map((c) => c.code)).toEqual([
+      ALL_CATEGORIES,
+      'fruits',
+      'vegetables',
+      'bulk',
+      'other',
+    ])
   })
 })

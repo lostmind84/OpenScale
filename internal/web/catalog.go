@@ -124,6 +124,11 @@ type catalogPresentationDTO struct {
 	// setting and not its absence, and a front end reading `undefined` would have to
 	// invent which of the two it meant.
 	GridColumns int `json:"grid_columns"`
+	// MinProductsForChip is how many tiles a category needs before the grid gives it a
+	// filter chip (ADR-059). Stated here and applied by the grid, like the settings
+	// above: which categories end up with a chip depends on what the grid actually shows,
+	// and the grid is the only side that knows it.
+	MinProductsForChip int `json:"min_products_for_chip"`
 }
 
 // presentationOf carries the screen settings of one configuration.
@@ -139,6 +144,7 @@ func presentationOf(ui domain.UIConfig) catalogPresentationDTO {
 		Sound:                ui.Sound,
 		ShowByUnitProducts:   ui.ShowByUnitProducts,
 		GridColumns:          ui.GridColumns,
+		MinProductsForChip:   ui.MinProductsForChip,
 	}
 }
 
@@ -306,7 +312,24 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 	}
 	out.ProductCount = len(out.Products)
 
-	for _, c := range catalog.Categories() {
+	// From the CONFIGURATION, and not from the snapshot. The exchange file carries a
+	// letter; the label, the rank, the colour and « montrer cette catégorie sur ce
+	// poste » are shop decisions that live in config.json and reach THIS endpoint
+	// immediately (§10.2 bis, §11.4) — no restart, no waiting for the next import.
+	// The snapshot carries them too — the store hands back the `categories` table,
+	// which exists as the parent of the foreign key products.category_code and which
+	// only an IMPORT ever upserts. Reading the wording of the grid from there tied a
+	// configuration change to the next catalog a producer happens to publish: a shelf
+	// renamed on Monday kept its old name until the Friday export, with nothing on any
+	// screen to say why. The effectif below still comes from the catalog in service,
+	// because that is the one number a customer can check against the tiles.
+	//
+	// What is still open: this endpoint answers with the new wording the moment it is
+	// asked, but nothing tells a browser already holding a loaded grid to ask again —
+	// catalog_count and presentation_digest are what trigger that (web/src/lib/
+	// session.svelte.ts), and a rename moves neither. A kiosk left running keeps the
+	// old label until its next catalog load.
+	for _, c := range cfg.Catalog.Categories {
 		out.Categories = append(out.Categories, categoryDTO{
 			Code: c.Code, Label: c.Label, Rank: c.Rank, Color: c.Color,
 			Visible: c.Visible, ProductCount: counts[c.Code],

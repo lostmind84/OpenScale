@@ -33,10 +33,11 @@ import "testing"
 //     station and a document that disagree about which control is 46 cost more than
 //     the tidiness gained.
 //
-// The two cases below are deliberately different in nature. The first breaks thirty
-// fields at once and walks the whole numbering from control 1 to control 49. The
-// second is the one a lookup by field could never hold: printer.options.transport is
-// reported THREE times, by controls 7, 8 and 42, and only its POSITION says which.
+// The two cases below are deliberately different in nature. The first walks the whole
+// numbering from control 1 to control 50, one broken field at a time -- the `want`
+// slice is what is authoritative on how many, not this comment. The second is the one
+// a lookup by field could never hold: printer.options.transport is reported THREE
+// times, by controls 7, 8 and 42, and only its POSITION says which.
 func TestValidateReportsItsFaultsInTheOrderTheControlsAreNumbered(t *testing.T) {
 	for _, testCase := range []struct {
 		name   string
@@ -44,7 +45,7 @@ func TestValidateReportsItsFaultsInTheOrderTheControlsAreNumbered(t *testing.T) 
 		want   []string
 	}{
 		{
-			name: "trente champs cassés, du contrôle 1 au contrôle 49",
+			name: "du contrôle 1 au contrôle 50",
 			break_: func(c *Config, _ *Registries) {
 				c.Station.Number = 0                                      // 1
 				c.Network.Listen = "pas une adresse"                      // 2
@@ -74,6 +75,7 @@ func TestValidateReportsItsFaultsInTheOrderTheControlsAreNumbered(t *testing.T) 
 				c.Catalog.Images.Source = "jpeg"                            // 44
 				c.Update.Repository = "https://exemple.test/depot"          // 48
 				c.UI.GridColumns = 1                                        // 49
+				c.UI.MinProductsForChip = -1                                // 50
 			},
 			want: []string{
 				"station.number",              // 1
@@ -103,6 +105,7 @@ func TestValidateReportsItsFaultsInTheOrderTheControlsAreNumbered(t *testing.T) 
 				"catalog.images.source",       // 44
 				"update.repository",           // 48
 				"ui.grid_columns",             // 49
+				"ui.min_products_for_chip",    // 50
 			},
 		},
 		{

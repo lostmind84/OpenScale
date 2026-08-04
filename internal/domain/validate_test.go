@@ -1,7 +1,7 @@
-// This file holds what the 48 controls answer BEYOND the corpus: everything at
-// once, the admissible values a fault carries, what an EMPTY registry may and may
-// not say, and the controls whose behaviour needs a station of its own to show --
-// 3, 29, 43, 44, 46, 48 and 49.
+// This file holds what the numbered controls answer BEYOND the corpus: everything at
+// once, the admissible values a fault carries, what an EMPTY registry may and may not
+// say, and the controls whose behaviour a single mutated field cannot show -- the ones
+// that need a whole delivered configuration and a station of its own.
 
 package domain
 
@@ -464,5 +464,56 @@ func TestControl49SaysWhatZeroMeans(t *testing.T) {
 		if !strings.Contains(spelled, strconv.Itoa(bound)) {
 			t.Errorf("valeurs = %q, elles doivent porter la borne %d", spelled, bound)
 		}
+	}
+}
+
+// TestControl50RefusesAThresholdUnderOne guards the value that has no reading.
+//
+// A floor and NO ceiling, deliberately: no pair of bounds is true of every catalogue --
+// the same number is generous on a 331-weighable-tile export and severe on a 107-tile
+// one, and those two are the SAME cooperative four years apart. A threshold above the
+// biggest shelf leaves the bar with « Tout » alone and is undone by coming back to the
+// field; a threshold under 1 would give a chip to a category with no tile, whose press
+// opens an empty grid.
+//
+// 0 is in the list even though no delivered file can carry it: Config.UnmarshalJSON
+// corrects a decoded zero to DefaultMinProductsForChip before Validate ever sees it
+// (§11.2). But this test builds the Config in memory, past that correction, and that is
+// the point -- it pins the floor ITSELF at exactly 1, not merely at "somewhere below the
+// negatives this slice happens to try".
+func TestControl50RefusesAThresholdUnderOne(t *testing.T) {
+	for _, refused := range []int{-1, -5, 0} {
+		t.Run(strconv.Itoa(refused), func(t *testing.T) {
+			config := loadDelivered(t)
+			config.UI.MinProductsForChip = refused
+			faults := config.Validate(testRegistries())
+			if findFault(faults, "ui.min_products_for_chip") == nil {
+				t.Fatalf("%d est accepté par le contrôle 50 ; obtenu :\n%s",
+					refused, strings.Join(fieldsOf(faults), "\n"))
+			}
+		})
+	}
+}
+
+// TestControl50AcceptsOneAndAnythingAbove: 1 is « toute catégorie non vide a sa puce »,
+// and there is no upper bound to refuse.
+func TestControl50AcceptsOneAndAnythingAbove(t *testing.T) {
+	for _, accepted := range []int{1, DefaultMinProductsForChip, 70, 999} {
+		t.Run(strconv.Itoa(accepted), func(t *testing.T) {
+			config := loadDelivered(t)
+			config.UI.MinProductsForChip = accepted
+			if fault := findFault(config.Validate(testRegistries()), "ui.min_products_for_chip"); fault != nil {
+				t.Fatalf("%d est refusé par le contrôle 50 : %s", accepted, fault.Message)
+			}
+		})
+	}
+}
+
+// TestControl50HasNothingToSayAboutTheDeliveredFile: the delivered file never sets
+// this key, and its silence must not be mistaken for a fault.
+func TestControl50HasNothingToSayAboutTheDeliveredFile(t *testing.T) {
+	config := loadDelivered(t)
+	if fault := findFault(config.Validate(testRegistries()), "ui.min_products_for_chip"); fault != nil {
+		t.Fatalf("le silence du fichier livré est traité comme une faute : %s", fault.Message)
 	}
 }
