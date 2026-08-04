@@ -59,16 +59,16 @@ func TestFingerprintIgnoresWhatDiffersFromStationToStation(t *testing.T) {
 func TestFingerprintChangesWhenASharedValueChanges(t *testing.T) {
 	reference := loadDelivered(t)
 	for name, mutate := range map[string]func(*Config){
-		"une remise de tarif":     func(c *Config) { c.Pricing.Tiers[0].Discount = 200 },
-		"un seuil de panier":      func(c *Config) { c.Limits.BasketMin = -300 },
-		"le gabarit":              func(c *Config) { c.Printer.Template = "weighing_neutral_single" },
-		"une catégorie":           func(c *Config) { c.Catalog.Categories[0].Visible = false },
+		"une remise de tarif": func(c *Config) { c.Pricing.Tiers[0].Discount = 200 },
+		"un seuil de panier":  func(c *Config) { c.Limits.BasketMin = -300 },
+		"le gabarit":          func(c *Config) { c.Printer.Template = "weighing_neutral_single" },
+		"une catégorie":       func(c *Config) { c.Catalog.Categories[0].Visible = false },
 		// The WORDING and not only the visibility: internal/web keys its serialized
 		// catalog on this digest, and the labels of the grid are read from the
 		// configuration (§10.2 bis). A renamed shelf that left the eight characters
 		// alone would be served from the cache with its old name until the next import.
 		"le libellé d'une catégorie": func(c *Config) { c.Catalog.Categories[0].Label = "Fruits d'ici" },
-		"la rétention du journal": func(c *Config) { c.Journal.MaxDays = 30 },
+		"la rétention du journal":    func(c *Config) { c.Journal.MaxDays = 30 },
 		// Two stations that disagree here do not show the same grid: one offers fifteen
 		// tiles the other does not have, and the eight characters have to say so.
 		"les produits à l'unité montrés": func(c *Config) { c.UI.ShowByUnitProducts = true },
