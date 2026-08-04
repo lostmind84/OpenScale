@@ -424,6 +424,30 @@ func (c *Config) validateGrid() []Fault {
 	return faults
 }
 
+// validateChipThreshold is control 50: ui.min_products_for_chip is at least 1.
+//
+// A floor and no ceiling. What a ceiling would guard against -- a threshold above the
+// biggest shelf, which leaves the category bar with « Tout » alone -- is undone by coming
+// back to the field, and no pair of bounds is true of every catalogue: the same number is
+// generous on the 355-product export of 2026 and severe on the 107-product one of 2022,
+// and those are the same cooperative.
+//
+// The floor is the half that has no legitimate reading: under 1, a category with no tile
+// at all would get a chip, and pressing it would open an empty grid. Zero never reaches
+// here -- Config.UnmarshalJSON corrects it to DefaultMinProductsForChip, because a file
+// that says nothing must not be refused (§11.2) -- so what this control catches is a
+// negative somebody typed.
+func (c *Config) validateChipThreshold() []Fault {
+	var faults faultList
+	if c.UI.MinProductsForChip < 1 {
+		faults.add("ui.min_products_for_chip",
+			"%d n'est pas un nombre de produits : à partir de 1, une catégorie obtient sa "+
+				"puce dès qu'elle a ce nombre de tuiles sur ce poste",
+			c.UI.MinProductsForChip)
+	}
+	return faults
+}
+
 // stabilityModes reports the two admissible values of stability.mode.
 func stabilityModes() []string { return []string{ModeAdvisory, ModeBlocking} }
 

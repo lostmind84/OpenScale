@@ -101,6 +101,7 @@ func (c *Config) Validate(reg Registries) []Fault {
 	faults = append(faults, c.validateDropDirectory(reg)...)                              // 46
 	faults = append(faults, c.validateUpdate()...)                                        // 48
 	faults = append(faults, c.validateGrid()...)                                          // 49
+	faults = append(faults, c.validateChipThreshold()...)                                 // 50
 	return faults
 }
 

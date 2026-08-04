@@ -466,3 +466,47 @@ func TestControl49SaysWhatZeroMeans(t *testing.T) {
 		}
 	}
 }
+
+// TestControl50RefusesAThresholdUnderOne guards the value that has no reading.
+//
+// A floor and NO ceiling, deliberately: no pair of bounds is true of every catalogue --
+// the same number is generous on a 355-product export and severe on a 107-product one,
+// and those two are the SAME cooperative four years apart. A threshold above the biggest
+// shelf leaves the bar with « Tout » alone and is undone by coming back to the field;
+// a threshold under 1 would give a chip to a category with no tile, whose press opens an
+// empty grid.
+func TestControl50RefusesAThresholdUnderOne(t *testing.T) {
+	for _, refused := range []int{-1, -5} {
+		t.Run(strconv.Itoa(refused), func(t *testing.T) {
+			config := loadDelivered(t)
+			config.UI.MinProductsForChip = refused
+			faults := config.Validate(testRegistries())
+			if findFault(faults, "ui.min_products_for_chip") == nil {
+				t.Fatalf("%d est accepté par le contrôle 50 ; obtenu :\n%s",
+					refused, strings.Join(fieldsOf(faults), "\n"))
+			}
+		})
+	}
+}
+
+// TestControl50AcceptsOneAndAnythingAbove: 1 is « toute catégorie non vide a sa puce »,
+// and there is no upper bound to refuse.
+func TestControl50AcceptsOneAndAnythingAbove(t *testing.T) {
+	for _, accepted := range []int{1, DefaultMinProductsForChip, 70, 999} {
+		t.Run(strconv.Itoa(accepted), func(t *testing.T) {
+			config := loadDelivered(t)
+			config.UI.MinProductsForChip = accepted
+			if fault := findFault(config.Validate(testRegistries()), "ui.min_products_for_chip"); fault != nil {
+				t.Fatalf("%d est refusé par le contrôle 50 : %s", accepted, fault.Message)
+			}
+		})
+	}
+}
+
+// TestControl50HasNothingToSayAboutTheDeliveredFile, which does not carry the key.
+func TestControl50HasNothingToSayAboutTheDeliveredFile(t *testing.T) {
+	config := loadDelivered(t)
+	if fault := findFault(config.Validate(testRegistries()), "ui.min_products_for_chip"); fault != nil {
+		t.Fatalf("le silence du fichier livré est traité comme une faute : %s", fault.Message)
+	}
+}
