@@ -234,7 +234,7 @@ balance/
 │   │   ├── machine.go           State, Event, Effect, Transition (PURE)
 │   │   ├── prepare.go           Prepare : le SEUL chemin produit+mesure → Label
 │   │   ├── template.go          Template, Element, Validate (9 règles dures)
-│   │   ├── config.go            Config, Validate (47 contrôles), Fingerprint, Export
+│   │   ├── config.go            Config, Validate (liste des contrôles en §11.3), Fingerprint, Export
 │   │   ├── profiles.go          NeutralProfile SEUL (§11.5) — les valeurs d'un site
 │   │   │                        sont un fichier livré, jamais du code compilé
 │   │   └── frame/               Parse, Accumulator — grammaire des trames balance (fuzzé)
