@@ -41,8 +41,8 @@ func TestTheCatalogIsServedWholeWithAValidator(t *testing.T) {
 	}
 	// The FOUR shelves the configuration declares, and not the one the snapshot of this
 	// bench happens to carry: the shelves belong to config.json (§10.2 bis). A shelf with
-	// no tile costs the screen nothing — the grid gives a chip only from
-	// MIN_PRODUCTS_FOR_CHIP products up — and the payload stays the inventory of what
+	// no tile costs the screen nothing — the grid gives a chip only once a shelf reaches
+	// the threshold this station serves — and the payload stays the inventory of what
 	// this station is configured to show. What is asserted here is the effectif, which is
 	// counted on the catalog in service.
 	byCategory := map[string]int{}
