@@ -475,8 +475,14 @@ func TestControl49SaysWhatZeroMeans(t *testing.T) {
 // shelf leaves the bar with « Tout » alone and is undone by coming back to the field;
 // a threshold under 1 would give a chip to a category with no tile, whose press opens an
 // empty grid.
+//
+// 0 is in the list even though no delivered file can carry it: Config.UnmarshalJSON
+// corrects a decoded zero to DefaultMinProductsForChip before Validate ever sees it
+// (§11.2). But this test builds the Config in memory, past that correction, and that is
+// the point -- it pins the floor ITSELF at exactly 1, not merely at "somewhere below the
+// negatives this slice happens to try".
 func TestControl50RefusesAThresholdUnderOne(t *testing.T) {
-	for _, refused := range []int{-1, -5} {
+	for _, refused := range []int{-1, -5, 0} {
 		t.Run(strconv.Itoa(refused), func(t *testing.T) {
 			config := loadDelivered(t)
 			config.UI.MinProductsForChip = refused
