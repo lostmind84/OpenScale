@@ -1334,6 +1334,44 @@ describe('les colonnes de la grille, réglables sans cesser d’être automatiqu
 })
 
 /**
+ * Le seuil de puce (ADR-059), réglé juste à côté des colonnes de la grille.
+ *
+ * Un champ nombre et non des boutons radio : contrairement aux colonnes, ce seuil n'a
+ * pas de plafond, donc rien à énumérer. Ce qui se vérifie ici est le même geste que pour
+ * les colonnes — le brouillon, et lui seul, change — et non une mesure de mise en page.
+ */
+describe('le seuil de puce, réglable à côté des colonnes de la grille', () => {
+  /** Monte la page sur un brouillon donné, et rend ce brouillon. */
+  function openWith(ui: Record<string, unknown>): Draft {
+    const admin = new Admin()
+    const draft = new Draft(admin)
+    draft.config = { ...localDropConfig(), ui }
+    component = mount(Catalog, { target: host, props: { admin, draft, health: nominalHealth() } })
+    flushSync()
+    return draft
+  }
+
+  it('écrit le seuil tapé dans le brouillon, sans toucher au bloc catalogue', async () => {
+    const draft = openWith({})
+    await settle()
+
+    type('#chip-threshold', '3')
+
+    expect(draft.number('ui.min_products_for_chip')).toBe(3)
+    // Un changement dans le bloc `catalog` relance la sonde disque et redémarre la
+    // source : un prix à payer sans rapport avec un seuil d'affichage.
+    expect(draft.config?.catalog).toEqual(localDropConfig().catalog)
+  })
+
+  it('relit le seuil en vigueur plutôt que d’afficher zéro', async () => {
+    openWith({ min_products_for_chip: 7 })
+    await settle()
+
+    expect(host.querySelector<HTMLInputElement>('#chip-threshold')?.value).toBe('7')
+  })
+})
+
+/**
  * La phrase chiffrée, sur une mise en page FEINTE.
  *
  * Ce banc ne mesure rien et ne prétend rien mesurer : jsdom ne fait aucune mise en page,
