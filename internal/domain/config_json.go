@@ -149,6 +149,13 @@ func (c *Config) UnmarshalJSON(raw []byte) error {
 	if c.Update.Repository == "" {
 		c.Update.Repository = DefaultUpdateRepository
 	}
+	// Zero is not a threshold, it is a file that says nothing -- and the delivered file
+	// is one of them, on purpose (§11.2). Refusing it here would make a station refuse
+	// its own delivered configuration, which is the defect of 28/07/2026; correcting it
+	// is what the block above already does for a repository nobody named.
+	if c.UI.MinProductsForChip == 0 {
+		c.UI.MinProductsForChip = DefaultMinProductsForChip
+	}
 	c.retired = nil
 	scanRetired("", document, &c.retired)
 	return nil

@@ -162,6 +162,18 @@ const (
 	// because the typographic floor came down to 16 px: at 18, twelve columns on a 15"
 	// cropped 38 prices and this ceiling would have had to be 11 (ADR-057).
 	MaxGridColumns = 12
+	// DefaultMinProductsForChip is how many weighable tiles a category needs, by
+	// default, before the grid gives it a filter chip.
+	//
+	// Five is what ADR-024 shipped, and it is kept as the default for that reason
+	// alone: what that ADR MEASURED is that a threshold has to exist -- in 2022
+	// « Autres » led to a single product, a quarter of the navigation bar for one tile
+	// -- and no measurement says five rather than three or eight. That is what makes
+	// the number an operator's to set (ADR-059).
+	//
+	// It is NOT the zero value, and that is the whole difficulty this constant exists
+	// to answer: see Config.UnmarshalJSON.
+	DefaultMinProductsForChip = 5
 )
 
 // UIConfig holds the screen settings an operator has a legitimate choice about.
@@ -225,6 +237,19 @@ type UIConfig struct {
 	// which no measurement of a screen can answer. It is an OVERRIDE and never a
 	// replacement (ADR-057).
 	GridColumns int `json:"grid_columns"`
+	// MinProductsForChip is how many weighable tiles a category needs before the grid
+	// gives it a filter chip. Its default is DefaultMinProductsForChip, its floor is 1.
+	//
+	// It is a SETTING because what it settles -- « à partir de quand un rayon mérite son
+	// filtre » -- depends on the SHAPE of a cooperative's catalogue, which no measurement
+	// answers and which inverts from one export to the next: flv.csv gives A = 140,
+	// V = 118, L = 68, F = 29 where flv_1.csv gave L = 84, V = 58, F = 10, A = 1
+	// (ADR-059, which amends ADR-024 without reversing it).
+	//
+	// Under the threshold a category loses its CHIP and never its tiles: its products
+	// stay in « Tout » and stay searchable. What really takes products off a screen is
+	// categories[].visible, and the two are not the same decision.
+	MinProductsForChip int `json:"min_products_for_chip"`
 }
 
 // ScaleConfig is the weighing device of this station.

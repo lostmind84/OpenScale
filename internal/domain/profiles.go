@@ -70,6 +70,10 @@ func NeutralProfile() Config {
 			// on the 24" of the parc, ten on a 4K. A profile that froze a count here would
 			// hand every station of every cooperative the density measured on one of them.
 			GridColumns: GridColumnsAutomatic,
+			// Written out although UnmarshalJSON would correct a zero anyway: this
+			// profile is read as the documentation of what a factory station does, and
+			// a field left to its zero value documents nothing.
+			MinProductsForChip: DefaultMinProductsForChip,
 		},
 
 		Scale: ScaleConfig{
