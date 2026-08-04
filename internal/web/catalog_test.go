@@ -39,7 +39,17 @@ func TestTheCatalogIsServedWholeWithAValidator(t *testing.T) {
 	if len(tile.Prices) != 2 || byCode["MEMBER"] != "4,79" || byCode["SOLIDARITY"] != "5,32" {
 		t.Fatalf("tarifs de la tuile = %+v, attendu MEMBER=4,79 SOLIDARITY=5,32", tile.Prices)
 	}
-	if len(page.Categories) != 1 || page.Categories[0].ProductCount != 1 {
+	// The FOUR shelves the configuration declares, and not the one the snapshot of this
+	// bench happens to carry: the shelves belong to config.json (§10.2 bis). A shelf with
+	// no tile costs the screen nothing — the grid gives a chip only from
+	// MIN_PRODUCTS_FOR_CHIP products up — and the payload stays the inventory of what
+	// this station is configured to show. What is asserted here is the effectif, which is
+	// counted on the catalog in service.
+	byCategory := map[string]int{}
+	for _, shelf := range page.Categories {
+		byCategory[shelf.Code] = shelf.ProductCount
+	}
+	if len(page.Categories) != 4 || byCategory["vegetables"] != 1 {
 		t.Fatalf("catégories = %+v", page.Categories)
 	}
 
@@ -344,6 +354,68 @@ func TestTheStationServesEveryWeighableTileWhateverTheGridShows(t *testing.T) {
 	if got := b.state().CatalogCount; got != page.ProductCount {
 		t.Fatalf("catalog_count du flux = %d, product_count du catalogue = %d : "+
 			"le navigateur redemanderait le catalogue à chaque événement", got, page.ProductCount)
+	}
+}
+
+// TestTheCategoryLabelsFollowTheConfigurationAndNotTheLastImport pins §10.2 bis: the
+// exchange file carries a LETTER, and the configuration carries the label, the rank,
+// the colour and « montrer cette catégorie sur ce poste ».
+//
+// Those four reload hot (§11.4), so a volunteer who renames a shelf sees it on the grid
+// without waiting for a producer to publish a file. Reading them from the snapshot
+// instead made them wait: `categories` is a table an IMPORT upserts — it exists as the
+// parent of the foreign key products.category_code — so a rename applied on the next
+// catalog and on nothing else, and a station whose producer publishes weekly showed the
+// old wording for a week with no way to tell why.
+//
+// The snapshot below therefore carries what the last import wrote, and the
+// configuration carries what somebody has just typed. What the screen gets is the
+// second one.
+func TestTheCategoryLabelsFollowTheConfigurationAndNotTheLastImport(t *testing.T) {
+	imported := domain.NewCatalog([]domain.Product{
+		{ID: "1", Name: "AIL", Reference: "0493021000003", Mode: domain.ByWeight,
+			UnitPrice: 532, CategoryCode: "vegetables", Qualification: domain.Weighable},
+	}, []domain.Category{
+		{Code: "vegetables", Label: "Légumes", Rank: 2, Color: "#27AE60", Visible: true},
+	})
+
+	b := newBench(t, func(o *benchOptions) {
+		o.catalog = imported
+		o.config = func(c *domain.Config) {
+			for i := range c.Catalog.Categories {
+				if c.Catalog.Categories[i].Code != "vegetables" {
+					continue
+				}
+				c.Catalog.Categories[i].Label = "Légumes du jardin"
+				c.Catalog.Categories[i].Rank = 1
+				c.Catalog.Categories[i].Color = "#1E8449"
+			}
+		}
+	})
+
+	page := decodeStatus[catalogDTO](t, b.get("/api/v1/catalog"), http.StatusOK)
+
+	var shelf categoryDTO
+	for _, c := range page.Categories {
+		if c.Code == "vegetables" {
+			shelf = c
+		}
+	}
+	switch {
+	case shelf.Code == "":
+		t.Fatalf("la catégorie « vegetables » n'est pas servie : %+v", page.Categories)
+	case shelf.Label != "Légumes du jardin":
+		t.Errorf("libellé servi = %q : c'est celui du dernier import, pas celui du "+
+			"fichier de configuration", shelf.Label)
+	case shelf.Rank != 1:
+		t.Errorf("rang servi = %d, attendu 1 : l'ordre de la barre vient de la "+
+			"configuration", shelf.Rank)
+	case shelf.Color != "#1E8449":
+		t.Errorf("couleur servie = %q, attendu « #1E8449 »", shelf.Color)
+	}
+	if shelf.ProductCount != 1 {
+		t.Errorf("%d tuile(s) comptée(s) pour la catégorie, attendu 1 : l'effectif se "+
+			"compte toujours sur le catalogue en service", shelf.ProductCount)
 	}
 }
 

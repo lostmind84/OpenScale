@@ -306,7 +306,17 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 	}
 	out.ProductCount = len(out.Products)
 
-	for _, c := range catalog.Categories() {
+	// From the CONFIGURATION, and not from the snapshot. The exchange file carries a
+	// letter; the label, the rank, the colour and « montrer cette catégorie sur ce
+	// poste » are shop decisions that live in config.json and reload hot (§10.2 bis,
+	// §11.4). The snapshot carries them too — the store hands back the `categories`
+	// table, which exists as the parent of the foreign key products.category_code and
+	// which only an IMPORT ever upserts. Reading the wording of the grid from there tied
+	// a configuration change to the next catalog a producer happens to publish: a shelf
+	// renamed on Monday kept its old name until the Friday export, with nothing on any
+	// screen to say why. The effectif below still comes from the catalog in service,
+	// because that is the one number a customer can check against the tiles.
+	for _, c := range cfg.Catalog.Categories {
 		out.Categories = append(out.Categories, categoryDTO{
 			Code: c.Code, Label: c.Label, Rank: c.Rank, Color: c.Color,
 			Visible: c.Visible, ProductCount: counts[c.Code],
