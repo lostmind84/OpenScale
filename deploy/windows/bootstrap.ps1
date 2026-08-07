@@ -223,15 +223,23 @@ if (-not (Test-Elevated)) {
     'Executer en tant qu''administrateur.'
   }
 
-  $relaunched = Join-Path $env:TEMP 'openscale-bootstrap.ps1'
-  if ($PSCommandPath) { Copy-Item -LiteralPath $PSCommandPath -Destination $relaunched -Force }
+  # ★ CE NOM N'EST PAS « $relaunched », ET C'EST LA PANNE DU 07/08/2026. Les noms de
+  # variables PowerShell sont insensibles à la casse : $relaunched ÉTAIT le paramètre
+  # -Relaunched declaré en haut de ce fichier, dont la variable est TYPÉE [switch]. Y ranger
+  # un chemin levait « Impossible de convertir la valeur "System.String" en type
+  # "…SwitchParameter" », que $ErrorActionPreference = 'Stop' faisait ressortir sur « iex »,
+  # au caractère 96 du one-liner, sans nommer ni ce fichier ni cette ligne. Et comme tout ce
+  # bloc ne s'exécute QUE dans une console non élevée — le cas de neuf postes sur dix —, une
+  # installation lancée depuis une fenêtre administrateur ne le voyait jamais.
+  $relaunchedScript = Join-Path $env:TEMP 'openscale-bootstrap.ps1'
+  if ($PSCommandPath) { Copy-Item -LiteralPath $PSCommandPath -Destination $relaunchedScript -Force }
   else {
     # Lancé par « irm | iex » : ce script n'existe nulle part sur le disque, et la seule
     # façon d'en obtenir une copie fidèle est de le redemander à l'adresse d'où il vient.
-    Invoke-WebRequest -Uri $script:RawUrl -OutFile $relaunched -UseBasicParsing
+    Invoke-WebRequest -Uri $script:RawUrl -OutFile $relaunchedScript -UseBasicParsing
   }
 
-  $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $relaunched, '-Relaunched')
+  $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $relaunchedScript, '-Relaunched')
   if ($Pilot) { $arguments += '-Pilot' }
   if ($SkipAutoLogon) { $arguments += '-SkipAutoLogon' }
   if ($Yes) { $arguments += '-Yes' }
