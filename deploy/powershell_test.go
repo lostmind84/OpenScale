@@ -130,6 +130,175 @@ func TestNoScriptConstantIsSilentlyReassigned(t *testing.T) {
 	}
 }
 
+// TestNoLocalVariableCollidesWithAParameterByCaseAlone is the third fault of the same
+// family, and the one that reached a station.
+//
+// bootstrap.ps1 declared `[switch]$Relaunched` and, forty lines into the elevation branch,
+// wrote `$relaunched = Join-Path $env:TEMP 'openscale-bootstrap.ps1'`. Those are the SAME
+// variable — PowerShell compares names without case — and a parameter variable is TYPED, so
+// the path went into a switch and the assignment threw: « Impossible de convertir la valeur
+// "System.String" en type "System.Management.Automation.SwitchParameter" ». With
+// $ErrorActionPreference = 'Stop' the message came back out attributed to `iex`, at
+// character 96 of the one-liner, naming neither the file nor the line — the installation
+// looked broken from the first command.
+//
+// It only fired on a NON-elevated console, which is the branch that copies the script into
+// %TEMP% to relaunch it. Anyone testing from an administrator window skipped it entirely,
+// which is how it shipped.
+//
+// The rule is about CASE and not about assigning to a parameter, because assigning to one is
+// legitimate and this repository does it on purpose: bootstrap.ps1 fills `$AccountPassword`
+// with what was typed, and turns `$Pilot` on from an answer. Those write the name they
+// declared. A name that differs only in case is somebody believing they opened a new local
+// variable — the intent is visible in the spelling, and that is what is forbidden.
+//
+// SCOPE is what makes this test mean something rather than merely fire. common.ps1 has a
+// `-Directory` in one function and a `$directory` in three others; those are four separate
+// scopes and not one collision — an assignment inside a function opens a LOCAL, which
+// shadows the parameter of a sibling without ever touching it. The rule therefore compares
+// an assignment against the parameters of the scope that governs it, and against no other.
+// Measured before it did: fifteen findings, fourteen of them in another function.
+func TestNoLocalVariableCollidesWithAParameterByCaseAlone(t *testing.T) {
+	assignment := regexp.MustCompile(`^\$(\w+)\s*=[^=]`)
+
+	checked := 0
+	for _, script := range powerShellScripts(t) {
+		lines := strings.Split(codeOnly(readFile(t, script)), "\n")
+		owner := owningScopes(lines)
+		declared, where := parametersByScope(lines, owner)
+		if len(declared) == 0 {
+			continue
+		}
+		checked++
+
+		for number, line := range lines {
+			match := assignment.FindStringSubmatch(strings.TrimSpace(line))
+			if match == nil {
+				continue
+			}
+			name := match[1]
+			parameter, isParameter := declared[owner[number]][strings.ToLower(name)]
+			if !isParameter || parameter == name {
+				continue
+			}
+			t.Errorf("%s, ligne %d : $%s et le paramètre -%s déclaré ligne %d sont la MÊME "+
+				"variable — PowerShell compare les noms sans la casse — et celle d'un "+
+				"paramètre est typée : cette affectation lèvera « Impossible de convertir la "+
+				"valeur … » à l'exécution.\n      %s",
+				script, number+1, name, parameter,
+				where[owner[number]][strings.ToLower(name)], strings.TrimSpace(line))
+		}
+	}
+
+	if checked == 0 {
+		t.Fatal("aucun script PowerShell ne déclare de paramètre : ce test ne prouve plus rien")
+	}
+}
+
+// owningScopes names, for each line, the function whose body holds it — empty for the body
+// of the script itself.
+//
+// Only `function` opens a scope. `if`, `foreach` and `try` also open braces and DO NOT: a
+// variable assigned inside them belongs to the enclosing scope, which is precisely how
+// bootstrap.ps1 wrote a path into a switch from inside its elevation branch.
+func owningScopes(lines []string) []string {
+	declaration := regexp.MustCompile(`(?i)^function\s+([\w-]+)`)
+	type frame struct {
+		name  string
+		below int
+	}
+	var stack []frame
+	current := func() string {
+		if len(stack) == 0 {
+			return ""
+		}
+		return stack[len(stack)-1].name
+	}
+
+	owner := make([]string, len(lines))
+	depth := 0
+	for number, line := range lines {
+		code := withoutStringLiterals(line)
+		owner[number] = current()
+		opening := declaration.FindStringSubmatch(strings.TrimSpace(code))
+		before := depth
+		depth += strings.Count(code, "{") - strings.Count(code, "}")
+		if opening != nil {
+			// The declaration line itself belongs to the enclosing scope, and the brace may
+			// sit on it or on the next one — the frame closes when the depth comes back
+			// under what it was before the function was named, either way.
+			stack = append(stack, frame{name: opening[1], below: before})
+			continue
+		}
+		for len(stack) > 0 && depth <= stack[len(stack)-1].below {
+			stack = stack[:len(stack)-1]
+		}
+	}
+	return owner
+}
+
+// parametersByScope collects the parameters each scope declares, keyed by lowercase name so
+// a lookup answers the question PowerShell itself asks, and holding the spelling so the
+// failure can show both.
+func parametersByScope(lines []string, owner []string) (map[string]map[string]string, map[string]map[string]int) {
+	// A parameter name is followed by a comma, the closing parenthesis, or its default
+	// value. `$script:DataRoot` in a default is not one: what follows its name is a colon.
+	name := regexp.MustCompile(`\$(\w+)\s*(?:[,)=]|$)`)
+	opener := regexp.MustCompile(`(?i)^param\s*\(`)
+
+	declared := map[string]map[string]string{}
+	where := map[string]map[string]int{}
+	for number, line := range lines {
+		code := withoutStringLiterals(line)
+		if !opener.MatchString(strings.TrimSpace(code)) {
+			continue
+		}
+		scope := owner[number]
+		if declared[scope] == nil {
+			declared[scope] = map[string]string{}
+			where[scope] = map[string]int{}
+		}
+		depth := 0
+		for cursor := number; cursor < len(lines); cursor++ {
+			inside := withoutStringLiterals(lines[cursor])
+			for _, match := range name.FindAllStringSubmatch(inside, -1) {
+				declared[scope][strings.ToLower(match[1])] = match[1]
+				where[scope][strings.ToLower(match[1])] = cursor + 1
+			}
+			depth += strings.Count(inside, "(") - strings.Count(inside, ")")
+			if depth <= 0 {
+				break
+			}
+		}
+	}
+	return declared, where
+}
+
+// withoutStringLiterals blanks out what is inside quotes, so a brace or a parenthesis in a
+// message never moves the depth counters above.
+//
+// « '{0}-{1}{2}' » is a real format string of common.ps1, and « ) » closes a sentence in
+// half the messages of these scripts.
+func withoutStringLiterals(line string) string {
+	var out strings.Builder
+	var quote rune
+	for _, letter := range line {
+		switch {
+		case quote == 0 && (letter == '\'' || letter == '"'):
+			quote = letter
+			out.WriteRune(letter)
+		case quote != 0 && letter == quote:
+			quote = 0
+			out.WriteRune(letter)
+		case quote != 0:
+			out.WriteRune(' ')
+		default:
+			out.WriteRune(letter)
+		}
+	}
+	return out.String()
+}
+
 // TestEveryPowerShellScriptCarriesTheMarkWindowsPowerShellNeeds is the encoding contract,
 // and it exists because v0.1 shipped without it.
 //

@@ -73,10 +73,14 @@ function Or-Else($value, $fallback) {
   return $value
 }
 
-$version = Or-Else $Version (Or-Else (git describe --tags --always --dirty 2>$null) 'dev')
+# « $resolvedVersion » et non « $version » : ce dernier EST le paramètre -Version, les noms
+# de variables PowerShell étant insensibles à la casse. L'écrire ici marchait — une chaîne
+# dans une [string] —, mais effaçait ce que l'opérateur avait demandé, et c'est la même
+# mécanique qui a cassé l'installation d'un poste le 07/08/2026.
+$resolvedVersion = Or-Else $Version (Or-Else (git describe --tags --always --dirty 2>$null) 'dev')
 $commit = Or-Else (git rev-parse --short HEAD 2>$null) 'unknown'
 $date = Or-Else (git log -1 --format=%cI 2>$null) 'unknown'
-$ldflags = "-s -w -X main.version=$version -X main.commit=$commit -X main.date=$date"
+$ldflags = "-s -w -X main.version=$resolvedVersion -X main.commit=$commit -X main.date=$date"
 
 # Write-Utf8NoBom écrit un fichier texte SANS marque d'ordre des octets.
 #
@@ -252,7 +256,7 @@ function Invoke-Build {
   $env:CGO_ENABLED = '0'
   go build -trimpath -ldflags $ldflags -o bin/openscale.exe ./cmd/openscale
   Assert-Success 'go build'
-  Write-Host "build : bin/openscale.exe ($version)"
+  Write-Host "build : bin/openscale.exe ($resolvedVersion)"
 }
 
 function Invoke-Front {
@@ -313,7 +317,7 @@ function Invoke-Release {
     $os, $arch = $target -split '/'
     $ext = if ($os -eq 'windows') { '.exe' } else { '' }
     $deployDir = if ($os -eq 'windows') { 'deploy/windows' } else { 'deploy/linux' }
-    $name = "openscale-$version-$os-$arch"
+    $name = "openscale-$resolvedVersion-$os-$arch"
     $stage = Join-Path $staging $name
     New-Item -ItemType Directory -Force $stage | Out-Null
 
