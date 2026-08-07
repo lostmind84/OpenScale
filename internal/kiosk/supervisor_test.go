@@ -84,6 +84,33 @@ func (f *fakeBrowser) die() { f.once.Do(func() { close(f.exit) }) }
 // newBench starts a supervisor whose browser and clock the test drives.
 func newBench(t *testing.T) *bench {
 	t.Helper()
+	return startBench(t, stationAnswers)
+}
+
+// newBenchOnAStationThatDoesNotAnswerYet is the cold boot: the service has not finished
+// starting when the supervisor does, which is the case StartGrace exists for.
+//
+// It is a CONSTRUCTOR and not a field a test writes afterwards, and that distinction is the
+// fix of 07/08/2026. The supervisor probes the station on its first instruction, so a test
+// that started it and only then wrote the station down was racing that first probe — and
+// lost whenever the runner was loaded enough to schedule the supervisor first. It reported
+// « poste muet : ouvert sur "http://127.0.0.1:8085" », which accuses the supervisor of
+// opening the client screen on a silent station when the station had simply still been
+// answering at the instant it looked. Three CI runs between 30/07 and 07/08/2026.
+func newBenchOnAStationThatDoesNotAnswerYet(t *testing.T) *bench {
+	t.Helper()
+	return startBench(t, stationIsSilent)
+}
+
+// The two states a station can be in when the supervisor starts, named rather than spelled
+// `true` and `false` at the call site — the two constructors above are what tests read.
+const (
+	stationAnswers  = true
+	stationIsSilent = false
+)
+
+func startBench(t *testing.T, answering bool) *bench {
+	t.Helper()
 	b := &bench{
 		clock:     fake.NewClock(start),
 		profile:   filepath.Join(t.TempDir(), "profile"),
@@ -92,7 +119,7 @@ func newBench(t *testing.T) *bench {
 		returned:  make(chan error, 1),
 		stationOK: "http://127.0.0.1:8085",
 	}
-	b.alive.Store(true)
+	b.alive.Store(answering)
 
 	supervisor, err := New(Options{
 		URL:        b.stationOK,
@@ -146,6 +173,25 @@ func (b *bench) advance(d time.Duration) {
 	}
 }
 
+// waitUntilParked blocks until the supervisor is waiting ON THE FAKE CLOCK.
+//
+// This is the synchronisation the whole file rests on. A fake clock only means something
+// while somebody is registered to receive what it hands out; moving it at any other instant
+// charges the scheduling of the machine to the timeline of the station.
+func (b *bench) waitUntilParked(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if waiters, _ := b.clock.Pending(); waiters > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("le superviseur ne s'est jamais mis en attente de l'horloge")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // nothingLaunched reports whether the browser has stayed closed.
 func (b *bench) nothingLaunched() bool {
 	select {
@@ -193,7 +239,18 @@ func (b *bench) nextLaunch(t *testing.T) (*fakeBrowser, string) {
 		if time.Now().After(deadline) {
 			t.Fatal("aucun lancement de navigateur dans le budget du test")
 		}
-		b.clock.Advance(50 * time.Millisecond)
+		// ★ L'HORLOGE NE BOUGE QUE SI QUELQU'UN L'ATTEND, et c'est le correctif du
+		// 07/08/2026. Cette boucle avançait de 50 ms à chaque tour, y compris les tours
+		// passés à attendre que l'ordonnanceur Go veuille bien exécuter le superviseur :
+		// l'horloge fausse comptait donc la CHARGE DE LA MACHINE. Affamé sur un seul
+		// processeur, le même test a mesuré « page d'attente revenue après 1h50m » là où le
+		// superviseur avait mis quelques centaines de millisecondes — et sur la CI il a
+		// franchi deux fois en une semaine l'assertion des deux secondes de §15.2, en
+		// accusant le délai de grâce d'avoir été resservi alors qu'awaitStation ne tourne
+		// qu'une fois.
+		if waiters, _ := b.clock.Pending(); waiters > 0 {
+			b.clock.Advance(50 * time.Millisecond)
+		}
 		time.Sleep(time.Millisecond)
 	}
 }
@@ -224,8 +281,8 @@ func TestTheClientScreenComesBackInUnderTwoSeconds(t *testing.T) {
 // the service is taking longer than StartGrace, and a customer must read a sentence
 // instead of a browser error page.
 func TestAStationThatDoesNotAnswerYetShowsTheWaitingPage(t *testing.T) {
-	b := newBench(t)
-	b.alive.Store(false)
+	b := newBenchOnAStationThatDoesNotAnswerYet(t)
+	b.waitUntilParked(t)
 	b.advance(StartGrace)
 
 	first, target := b.nextLaunch(t)
@@ -258,9 +315,9 @@ func TestAStationThatDoesNotAnswerYetShowsTheWaitingPage(t *testing.T) {
 // itself. Showing nothing at all is both truer and less alarming — the machine has just
 // booted, a black screen is what one expects.
 func TestNothingIsShownWhileTheServiceIsStillStarting(t *testing.T) {
-	b := newBench(t)
-	b.alive.Store(false)
+	b := newBenchOnAStationThatDoesNotAnswerYet(t)
 
+	b.waitUntilParked(t)
 	b.advance(StartGrace / 2)
 	if !b.nothingLaunched() {
 		t.Fatal("un navigateur a été lancé pendant le délai de grâce")
@@ -285,8 +342,8 @@ func TestNothingIsShownWhileTheServiceIsStillStarting(t *testing.T) {
 // A service that never comes up — a database that will not open, a port already taken —
 // must end on a sentence, not on the desktop of the station account.
 func TestTheGraceIsBoundedAndEndsOnTheStartingPage(t *testing.T) {
-	b := newBench(t)
-	b.alive.Store(false)
+	b := newBenchOnAStationThatDoesNotAnswerYet(t)
+	b.waitUntilParked(t)
 	b.advance(StartGrace)
 
 	_, target := b.nextLaunch(t)
