@@ -270,14 +270,34 @@ func TestARecoveryStillOpensASessionWhenTheFileCannotBeSaved(t *testing.T) {
 
 // TestARecoveryTooShortIsRefused: resetting without setting would leave the station
 // unprotected for as long as nobody came back to it.
+//
+// The length is DERIVED from MinPasswordLength and never spelled: the literal this bench
+// used to post went red the day the owner moved the floor, on a route that was doing what
+// it had been asked. And the floor EXACTLY is posted too — a bench that only knew what is
+// refused would stay green on a route that refused every password, which on this form
+// means a volunteer holding the installation sheet and no way in.
 func TestARecoveryTooShortIsRefused(t *testing.T) {
 	b := newBench(t, func(o *benchOptions) { o.configStore = &savedConfig{} })
 	b.setPassword("oublie", "ABCD2345")
 
-	response := b.post("/admin/api/session/recovery", `{"code":"ABCD2345","password":"court"}`)
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusUnprocessableEntity {
-		t.Fatalf("mot de passe trop court = %d, attendu 422", response.StatusCode)
+	tooShort := strings.Repeat("a", MinPasswordLength-1)
+	refused := b.post("/admin/api/session/recovery",
+		`{"code":"ABCD2345","password":`+quote(tooShort)+`}`)
+	refused.Body.Close()
+	if refused.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("%q, un caractère sous le plancher = %d, attendu 422", tooShort, refused.StatusCode)
+	}
+
+	exact := strings.Repeat("a", MinPasswordLength)
+	accepted := b.post("/admin/api/session/recovery",
+		`{"code":"ABCD2345","password":`+quote(exact)+`}`)
+	if accepted.StatusCode != http.StatusOK {
+		t.Fatalf("%q, le plancher exactement = %d : %s",
+			exact, accepted.StatusCode, body(t, accepted))
+	}
+	accepted.Body.Close()
+	if !VerifySecret(b.hub.Config().Admin.PasswordHash, exact) {
+		t.Fatalf("le mot de passe %q, au plancher exact, n'est pas en service", exact)
 	}
 }
 

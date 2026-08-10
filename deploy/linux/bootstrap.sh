@@ -30,22 +30,53 @@
 #      de mise à jour, et TROUBLESHOOTING.md enverrait un bénévole chercher un fichier
 #      disparu.
 #
-# CE SCRIPT NE POSE AUCUNE QUESTION, et ce n'est pas une simplification : les trois
-# questions de la version Windows n'ont pas d'équivalent ici. Le compte openscale n'a ni mot
-# de passe ni shell, il n'y a pas de mode pilote — l'application Access ne tourne pas sous
-# Linux — et le kiosque est une unité systemd qu'install.sh active toujours. Rien à
-# demander, donc rien à lire : sous « curl … | sh », l'entrée standard EST le script, et un
-# « read » y avalerait la suite du fichier au lieu d'attendre un humain.
+# CE SCRIPT NE POSE AUCUNE QUESTION LUI-MÊME, et la raison est technique : sous
+# « curl … | sh », l'entrée standard EST le script, et un « read » y avalerait la suite du
+# fichier au lieu d'attendre un humain.
+#
+# Les six questions de la version Windows se partagent alors en deux, et le partage n'est
+# plus celui qui était écrit ici :
+#
+#   CE QUI N'A TOUJOURS RIEN À DEMANDER — le mot de passe du compte, qui n'existe pas (le
+#   compte openscale n'a ni mot de passe ni interpréteur de commandes), le mode pilote, qui
+#   n'a pas d'objet (l'application Access ne tourne pas sous Linux), et l'ouverture de
+#   session automatique, que le kiosque n'attend pas (c'est une unité systemd qu'install.sh
+#   active toujours).
+#
+#   CE QUI EN A, ET QUE CE SCRIPT NE FAIT QUE RELAYER — le numéro de ce poste, son nom et
+#   son mot de passe d'administration. install.sh les demande LUI-MÊME quand son entrée
+#   standard est un terminal, ce qui est le cas d'une installation lancée depuis une clé
+#   USB et jamais celui d'un « curl … | sh ». Ce script ne lui coupe donc pas la parole : il
+#   lui passe ses options et le laisse décider.
+#
+# COMMENT ON DONNE CES TROIS VALEURS À UN BOOTSTRAP :
+#
+#   curl -fsSL <url> | sudo sh -s -- --station-number 2 --station-name 'Poste 2 - fruits'
+#
+#   Et pour le mot de passe d'administration, par l'ENVIRONNEMENT plutôt que par une
+#   option : /proc/<pid>/cmdline est lisible par tous les comptes de la machine,
+#   /proc/<pid>/environ par le seul propriétaire du processus.
+#
+#   curl -fsSL <url> | sudo OPENSCALE_ADMIN_PASSWORD='...' sh -s -- --yes --station-number 2
+#
+#   ★ ET C'EST PAR L'ENVIRONNEMENT QUE LE SECRET DESCEND VERS install.sh, même quand il est
+#   arrivé ici par --admin-password : le relayer en argument le publierait une seconde fois,
+#   dans la ligne de commande d'un processus lancé en root. C'est la règle de bootstrap.ps1,
+#   qui appelle install.ps1 DANS LE MÊME PROCESSUS pour la même raison.
 #
 # POUR UN POSTE SANS INTERNET, rien de tout cela ne sert : l'archive se copie sur une clé
 # USB et install.sh se lance seul, comme avant. Voir INSTALLATION.md.
 #
-# Options :
+# Options de ce script :
 #   --version vX      installe ce tag au lieu de la dernière release (aligner un poste sur
 #                     les autres, ou revenir en arrière)
 #   --force           met à jour même si le poste porte déjà cette version
 #   --force-install   relance install.sh sur un poste installé, au lieu d'update.sh — le
 #                     geste de réparation de TROUBLESHOOTING.md
+#
+# Options relayées telles quelles à install.sh, et à lui seul (une mise à jour ne
+# reconfigure rien) : --station-number, --station-name, --admin-password, --yes,
+# --install-dir, --data-dir.
 #
 # /bin/sh et non bash : Debian minimale a dash, et un script d'installation n'est pas
 # l'endroit où découvrir qu'un shell manque.
@@ -66,6 +97,23 @@ FORCE=0
 FORCE_INSTALL=0
 WANTED_VERSION=''
 
+# CE QUI DESCEND VERS install.sh, une variable par option plutôt qu'une liste accumulée à
+# la volée. sh POSIX n'a qu'un seul tableau — les paramètres positionnels —, et le remplir
+# pendant qu'on le parcourt fait relire à la boucle ce qu'elle vient d'y ajouter. Les
+# reconstruire au moment de l'appel, comme install.sh reconstruit les siens, coûte six noms
+# recopiés et se relit sans réfléchir.
+#
+# ADMIN_PASSWORD accepte aussi l'environnement, et la variable est RETIRÉE de
+# l'environnement tout de suite : sans cela, curl, unzip et sha256sum en hériteraient tous
+# dans leur propre /proc/<pid>/environ.
+ADMIN_PASSWORD=${OPENSCALE_ADMIN_PASSWORD:-}
+unset OPENSCALE_ADMIN_PASSWORD
+STATION_NUMBER=''
+STATION_NAME=''
+INSTALL_DIR=''
+DATA_DIR=''
+ASSUME_YES=0
+
 log() { printf '  %s\n' "$1"; }
 fail() { printf 'bootstrap.sh : %s\n' "$1" >&2; exit 1; }
 
@@ -77,6 +125,15 @@ usage() {
   printf '  --version vX      installe ce tag au lieu de la dernière release\n'
   printf '  --force           met à jour même si le poste porte déjà cette version\n'
   printf '  --force-install   relance install.sh au lieu de update.sh, pour réparer un poste\n'
+  printf '\n  Relayées à install.sh, sur une installation seulement :\n'
+  printf '  --station-number <n>       le numéro de ce poste dans la coopérative\n'
+  printf '  --station-name <texte>     le nom que lisent les bénévoles\n'
+  printf '  --admin-password <secret>  le mot de passe d'"'"'administration. Préférez la variable\n'
+  printf '                             OPENSCALE_ADMIN_PASSWORD : une ligne de commande est\n'
+  printf '                             lisible par tout utilisateur de la machine\n'
+  printf '  --yes                      ne pose aucune question et n'"'"'attend personne\n'
+  printf '  --install-dir <chemin>     le répertoire du binaire\n'
+  printf '  --data-dir <chemin>        le répertoire des données du poste\n'
 }
 
 # fetch rend le corps de la réponse sur la sortie standard ; download l'écrit dans un
@@ -111,6 +168,37 @@ while [ $# -gt 0 ]; do
       WANTED_VERSION="$1"
       ;;
     --version=*) WANTED_VERSION="${1#--version=}" ;;
+    --station-number)
+      shift
+      [ $# -gt 0 ] || fail 'option --station-number : le numéro manque'
+      STATION_NUMBER="$1"
+      ;;
+    --station-number=*) STATION_NUMBER="${1#--station-number=}" ;;
+    --station-name)
+      shift
+      [ $# -gt 0 ] || fail 'option --station-name : le nom manque'
+      STATION_NAME="$1"
+      ;;
+    --station-name=*) STATION_NAME="${1#--station-name=}" ;;
+    --admin-password)
+      shift
+      [ $# -gt 0 ] || fail 'option --admin-password : le mot de passe manque'
+      ADMIN_PASSWORD="$1"
+      ;;
+    --admin-password=*) ADMIN_PASSWORD="${1#--admin-password=}" ;;
+    --install-dir)
+      shift
+      [ $# -gt 0 ] || fail 'option --install-dir : le répertoire manque'
+      INSTALL_DIR="$1"
+      ;;
+    --install-dir=*) INSTALL_DIR="${1#--install-dir=}" ;;
+    --data-dir)
+      shift
+      [ $# -gt 0 ] || fail 'option --data-dir : le répertoire manque'
+      DATA_DIR="$1"
+      ;;
+    --data-dir=*) DATA_DIR="${1#--data-dir=}" ;;
+    --yes) ASSUME_YES=1 ;;
     -h|--help)
       usage
       exit 0
@@ -247,9 +335,87 @@ log "décompressé dans $EXTRACTED"
 printf '\n'
 if [ -x "$BINARY" ] && [ -f "$UNIT" ] && [ "$FORCE_INSTALL" -eq 0 ]; then
   log "poste déjà installé en ${INSTALLED_VERSION:-version inconnue} : mise à jour vers $TAG"
+  # Les options d'identité ne descendent PAS ici, et ce n'est pas un oubli : une mise à jour
+  # ne reconfigure rien. Un poste qui reçoit une version nouvelle garde son numéro, son nom
+  # et son mot de passe — les redemander à chaque mise à jour serait la meilleure façon
+  # d'en changer un par accident, un mardi, sur un poste qui marchait.
   sh "$EXTRACTED/update.sh"
 else
-  sh "$EXTRACTED/install.sh"
+  # ★ CE SCRIPT VIT SUR main, LES ARCHIVES SONT FIGÉES À LEUR TAG. --version installe une
+  # release antérieure, dont l'install.sh ne connaît pas forcément les options
+  # d'aujourd'hui, et une option inconnue y est un refus net — APRÈS le téléchargement,
+  # l'empreinte et la décompression, c'est-à-dire au pire moment pour perdre un bénévole.
+  # On la retire, et on dit ce que sa perte coûte : « elle est ignorée » laisserait
+  # quelqu'un devant un poste qui ne se comporte pas comme la notice.
+  set --
+  if [ -n "$STATION_NUMBER" ]; then
+    set -- "$@" --station-number "$STATION_NUMBER"
+  fi
+  if [ -n "$STATION_NAME" ]; then
+    set -- "$@" --station-name "$STATION_NAME"
+  fi
+  if [ -n "$INSTALL_DIR" ]; then
+    set -- "$@" --install-dir "$INSTALL_DIR"
+  fi
+  if [ -n "$DATA_DIR" ]; then
+    set -- "$@" --data-dir "$DATA_DIR"
+  fi
+  if [ "$ASSUME_YES" -eq 1 ]; then
+    set -- "$@" --yes
+  fi
+  # La liste tourne sur elle-même : chaque option est retirée en tête et remise en queue si
+  # elle survit. Le compteur est ce qui borne le tour — sans lui, la boucle relirait sans
+  # fin ce qu'elle vient de remettre.
+  INSTALLER="$EXTRACTED/install.sh"
+  ROUNDS=$#
+  while [ "$ROUNDS" -gt 0 ]; do
+    OPTION="$1"
+    shift
+    ROUNDS=$((ROUNDS - 1))
+    VALUE=''
+    HAS_VALUE=0
+    case "$OPTION" in
+      --yes) ;;
+      *)
+        VALUE="$1"
+        shift
+        ROUNDS=$((ROUNDS - 1))
+        HAS_VALUE=1
+        ;;
+    esac
+    # L'étiquette du « case » de install.sh, et non le nom seul : « --station-number » se
+    # lit aussi dans sa prose, qui survit à une version qui n'aurait plus l'option.
+    if grep -q -F -- "$OPTION)" "$INSTALLER"; then
+      if [ "$HAS_VALUE" -eq 1 ]; then
+        set -- "$@" "$OPTION" "$VALUE"
+      else
+        set -- "$@" "$OPTION"
+      fi
+      continue
+    fi
+    log "la version $TAG ne connaît pas l'option $OPTION : elle est ignorée."
+    case "$OPTION" in
+      --station-number) log "le numéro du poste se posera sur l'écran d'administration." ;;
+      --station-name) log "le nom du poste se posera sur l'écran d'administration." ;;
+      --install-dir|--data-dir) log "les emplacements par défaut seront employés." ;;
+      --yes) log "l'installeur posera ses questions s'il a quelqu'un devant lui." ;;
+    esac
+  done
+
+  # ★ LE SECRET NE PASSE PAS PAR LA LIGNE DE COMMANDE. Il descend par l'ENVIRONNEMENT du
+  # seul processus qui en a besoin : /proc/<pid>/cmdline est lisible par tous les comptes de
+  # la machine, /proc/<pid>/environ par le seul propriétaire du processus. C'est l'équivalent
+  # de l'appel « dans le même processus » de bootstrap.ps1, qui refuse pour cette raison
+  # exacte de s'élever quand on lui a donné un mot de passe.
+  if [ -n "$ADMIN_PASSWORD" ] && ! grep -q -F 'OPENSCALE_ADMIN_PASSWORD' "$INSTALLER"; then
+    ADMIN_PASSWORD=''
+    log "la version $TAG ne lit pas OPENSCALE_ADMIN_PASSWORD : le mot de passe d'administration se posera à l'écran, avec le code de secours de la fiche."
+  fi
+  if [ -n "$ADMIN_PASSWORD" ]; then
+    OPENSCALE_ADMIN_PASSWORD="$ADMIN_PASSWORD" sh "$EXTRACTED/install.sh" "$@"
+  else
+    sh "$EXTRACTED/install.sh" "$@"
+  fi
 fi
 
 # --- 7. Les scripts survivent à l'installation ----------------------------------------

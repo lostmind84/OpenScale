@@ -2,6 +2,10 @@
 // PHC string, how one is read back, and the eight-character code printed on the
 // installation sheet.
 //
+// The two lengths a secret is held to are declared here as well, next to one another,
+// and the password floor is deliberately NOT a cryptographic quantity: it is here
+// because every door that sets a password has to compare against the same one.
+//
 // The cost parameters are read FROM THE STORED HASH and never assumed, which is
 // what lets a cooperative raise them without locking itself out of the stations
 // that were installed before.
@@ -70,6 +74,20 @@ func hashWithCost(secret string, memory, iterations uint32, threads uint8) (stri
 
 // RecoveryCodeLength is the eight characters §14.4 prints on the installation sheet.
 const RecoveryCodeLength = 8
+
+// MinPasswordLength is the floor an administration password is held to, counted in CODE
+// POINTS and not in bytes.
+//
+// It is an arbitrage of USE, made by the product owner, and not a cryptographic one: the
+// password is typed on the station's touch screen, on its on-screen keyboard, by a
+// volunteer standing in a shop on a Saturday with a queue behind them. A floor that makes
+// that gesture long enough to give up on is a floor that gets written on a sticker beside
+// the screen.
+//
+// It is EXPORTED and it is the only place the figure exists, because two doors set a
+// password — `openscale config password` and the recovery form of §14.4 — and a value
+// spelled out twice is how one of them ends up refusing what the other has just accepted.
+const MinPasswordLength = 4
 
 // recoveryAlphabet is what those eight characters are drawn from.
 //

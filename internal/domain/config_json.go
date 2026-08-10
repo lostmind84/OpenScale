@@ -156,6 +156,16 @@ func (c *Config) UnmarshalJSON(raw []byte) error {
 	if c.UI.MinProductsForChip == 0 {
 		c.UI.MinProductsForChip = DefaultMinProductsForChip
 	}
+	// An empty address is that same silence, and the file DELIVERED on a new station is
+	// one of them by construction: it is produced by `openscale config export`, which
+	// clears the whole network block so that a clone cannot inherit the address of the
+	// station it came from. Refusing it here refused nothing an operator could repair --
+	// no screen carries this key -- and writeConfig validates the whole document on every
+	// save, so the one fault nobody could clear locked the administration of a brand-new
+	// station on all of its pages at once.
+	if c.Network.Listen == "" {
+		c.Network.Listen = NeutralProfile().Network.Listen
+	}
 	c.retired = nil
 	scanRetired("", document, &c.retired)
 	return nil

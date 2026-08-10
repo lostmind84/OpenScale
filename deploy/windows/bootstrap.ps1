@@ -64,6 +64,23 @@
   utilisateur de la machine lit dans la liste des processus. En mode scripté, la console
   doit donc être déjà élevée.
 
+.PARAMETER AdminPassword
+  Le mot de passe d'ADMINISTRATION du poste, celui qui donne le droit d'en changer les
+  réglages. Il est simplement relayé à install.ps1, qui le demande lui-même en saisie
+  masquée quand il ne l'a pas.
+
+  ★ IL INTERDIT L'AUTO-ÉLÉVATION POUR LA MÊME RAISON QUE -AccountPassword, et la règle est
+  celle-là plutôt que la liste : tout paramètre de ce script dont le nom finit par
+  « Password » porte un secret, et aucun secret ne part sur une ligne de commande.
+
+.PARAMETER StationNumber
+  Le numéro de ce poste dans la coopérative. Relayé à install.ps1, qui le demande quand il
+  ne l'a pas. Ce n'est pas un secret : il est imprimé sur la fiche d'installation, et il
+  voyage donc sans réserve par l'auto-élévation.
+
+.PARAMETER StationName
+  Le nom que lisent les bénévoles. Mêmes règles que -StationNumber.
+
 .PARAMETER Pilot
   Service en démarrage manuel : l'application Access reste relançable en deux minutes.
 
@@ -92,6 +109,9 @@
 [CmdletBinding()]
 param(
   [string]$AccountPassword,
+  [string]$AdminPassword,
+  [int]$StationNumber,
+  [string]$StationName,
   [switch]$Pilot,
   [switch]$SkipAutoLogon,
   [switch]$Yes,
@@ -215,12 +235,14 @@ Write-Host '====================================================================
 if (-not (Test-Elevated)) {
   # ★ LE REFUS, ET SA RAISON. Relancer une fenêtre élevée fait passer les paramètres par
   # une ligne de commande, visible dans la liste des processus par n'importe quel
-  # utilisateur de la machine. Un mot de passe n'y va pas.
-  if ($AccountPassword) {
-    throw 'avec -AccountPassword, la console doit DEJA etre ouverte en administrateur : ' +
-    'l''auto-elevation ferait passer le mot de passe par une ligne de commande, ou il ' +
-    'est lisible par tout le monde. Menu Demarrer, tapez powershell, clic droit, ' +
-    'Executer en tant qu''administrateur.'
+  # utilisateur de la machine. Un mot de passe n'y va pas — aucun des deux, et la règle est
+  # « tout paramètre dont le nom finit par Password » plutôt qu'une liste de deux noms
+  # qu'un troisième secret n'aurait aucune raison de rejoindre.
+  if ($AccountPassword -or $AdminPassword) {
+    throw 'avec un mot de passe en parametre, la console doit DEJA etre ouverte en ' +
+    'administrateur : l''auto-elevation ferait passer ce secret par une ligne de ' +
+    'commande, ou il est lisible par tout le monde. Menu Demarrer, tapez powershell, ' +
+    'clic droit, Executer en tant qu''administrateur.'
   }
 
   # ★ CE NOM N'EST PAS « $relaunched », ET C'EST LA PANNE DU 07/08/2026. Les noms de
@@ -243,6 +265,10 @@ if (-not (Test-Elevated)) {
   if ($Pilot) { $arguments += '-Pilot' }
   if ($SkipAutoLogon) { $arguments += '-SkipAutoLogon' }
   if ($Yes) { $arguments += '-Yes' }
+  # Le numero et le nom du poste ne sont pas des secrets : ils sont imprimes sur la fiche
+  # d'installation et lus a l'ecran d'administration. Ils passent donc par la relance.
+  if ($StationNumber) { $arguments += @('-StationNumber', "$StationNumber") }
+  if ($StationName) { $arguments += @('-StationName', $StationName) }
   if ($Version) { $arguments += @('-Version', $Version) }
   if ($InstallDir) { $arguments += @('-InstallDir', $InstallDir) }
   if ($DataRoot) { $arguments += @('-DataRoot', $DataRoot) }
@@ -367,7 +393,16 @@ elseif ($requestedInstallDir) { Get-OpenScalePaths -InstallDir $requestedInstall
 elseif ($requestedDataRoot) { Get-OpenScalePaths -DataRoot $requestedDataRoot }
 else { Get-OpenScalePaths }
 
-# --- 6. Les trois questions ---------------------------------------------------------
+# --- 6. Les questions qui appartiennent à ce script -----------------------------------
+# TROIS ICI, TROIS DANS install.ps1, et le partage n'est pas arbitraire : celles-ci portent
+# sur la MACHINE — le compte Windows, le mode de démarrage, l'ouverture de session — et se
+# posent avant que rien ne soit installé. Celles de l'installeur portent sur le POSTE — son
+# numéro, son nom, son mot de passe d'administration — et s'appliquent à un config.json qui
+# n'existe pas encore à ce stade. Une réponse recueillie ici pour un fichier qui n'existe
+# pas serait une réponse gardée en mémoire en espérant que la suite se passe bien.
+#
+# -Yes traverse : sans lui, l'installeur poserait les siennes et une installation scriptée
+# attendrait indéfiniment quelqu'un.
 if (-not $Yes -and -not [Environment]::UserInteractive) {
   throw 'aucune console interactive : ce script ne peut pas poser ses questions. ' +
   'Relancez-le avec -Yes, ou donnez ses reponses en parametres.'
@@ -375,7 +410,7 @@ if (-not $Yes -and -not [Environment]::UserInteractive) {
 
 if (-not $Yes) {
   Write-Host ''
-  Write-Host ' Trois questions, puis l''installation se deroule seule.'
+  Write-Host ' Trois questions sur cette machine. L''installeur en posera trois sur le poste.'
   Write-Host ''
 }
 
@@ -436,6 +471,10 @@ if (-not $Yes -and -not $SkipAutoLogon) {
 # un script appelé par l'opérateur d'appel, dans le processus où elle vient d'être saisie.
 $installerArguments = @{
   AccountPassword = $AccountPassword
+  AdminPassword   = $AdminPassword
+  StationNumber   = $StationNumber
+  StationName     = $StationName
+  Yes             = $Yes
   Pilot           = $Pilot
   SkipAutoLogon   = $SkipAutoLogon
   InstallDir      = $requestedInstallDir
@@ -450,14 +489,21 @@ foreach ($key in @($installerArguments.Keys)) {
 # et un paramètre qu'il ne déclare pas ferait échouer l'appel sur « Impossible de trouver un
 # paramètre correspondant au nom … » APRÈS le téléchargement, l'extraction et les trois
 # questions — le pire moment pour perdre un bénévole. On le retire, et on le dit.
+#
+# Ce que l'option perdue coute est dit a chaque fois qu'il y a quelque chose a dire : « elle
+# est ignoree » laisse un benevole devant un poste qui ne se comporte pas comme la notice.
+$consequences = @{
+  AccountPassword = 'le mot de passe du compte sera tire au sort et imprime sur la fiche.'
+  AdminPassword   = 'le mot de passe d''administration se posera a l''ecran, avec le code de secours de la fiche.'
+  StationNumber   = 'le numero du poste se posera a l''ecran d''administration.'
+  StationName     = 'le nom du poste se posera a l''ecran d''administration.'
+}
 $installerText = Get-Content -LiteralPath $installer -Raw
 foreach ($key in @($installerArguments.Keys)) {
   if ($installerText -notmatch "\`$$key\b") {
     $installerArguments.Remove($key)
     Write-Progression "la version $($release.tag_name) ne connait pas l'option -$key : elle est ignoree."
-    if ($key -eq 'AccountPassword') {
-      Write-Progression 'le mot de passe du compte sera tire au sort et imprime sur la fiche.'
-    }
+    if ($consequences.ContainsKey($key)) { Write-Progression $consequences[$key] }
   }
 }
 

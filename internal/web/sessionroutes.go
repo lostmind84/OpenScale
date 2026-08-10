@@ -132,9 +132,13 @@ func (s *Server) recoverSession(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusUnauthorized, "", "Code de secours incorrect.")
 		return
 	}
-	if len(body.Password) < 8 {
-		writeProblem(w, http.StatusUnprocessableEntity, "",
-			"Le nouveau mot de passe doit faire au moins 8 caractères.")
+	// Code points, and NOT bytes: « é » is one character on the on-screen keyboard and two
+	// bytes on the wire, so counting bytes here let a password through that `openscale
+	// config password` — which has always counted characters — refuses. Same station, same
+	// password, two answers depending on which door it came through.
+	if len([]rune(body.Password)) < MinPasswordLength {
+		writeProblem(w, http.StatusUnprocessableEntity, "", fmt.Sprintf(
+			"Le nouveau mot de passe doit faire au moins %d caractères.", MinPasswordLength))
 		return
 	}
 	if s.configStore == nil || s.controller == nil {

@@ -16,7 +16,12 @@
        l'étape 2, qui le nomme : dans l'ordre inverse, icacls échoue sur un principal
        inexistant, l'échec passe inaperçu — c'est un exécutable natif — et l'ACL décrite
        comme obligatoire n'est jamais posée.
-    2. Arborescence + ACL.
+    2. Arborescence + ACL, puis le binaire, la configuration livrée — et LES TROIS
+       CHOSES QUE SEULE L'INSTALLATION PEUT DEMANDER : le numéro de ce poste, son nom
+       et le mot de passe d'administration. Sans elles, le poste sortait de l'installeur
+       avec trois fautes, en configuration d'usine, et sans autre porte vers ses réglages
+       que le code de secours de la fiche. La balance d'un poste NEUF est déclarée
+       absente au passage : elle n'est encore ni branchée ni détectée.
     3. OUVERTURE DE SESSION AUTOMATIQUE — écrite ici, pas déléguée à un humain
        (bloquant-7). C'est ce qui fait revenir le poste sur l'écran client après une
        coupure de courant.
@@ -52,18 +57,57 @@
 
   Il finit dans l'historique du shell : à taper sur un poste, pas dans un script partagé.
 
+.PARAMETER AdminPassword
+  Le mot de passe d'ADMINISTRATION du poste — celui qui donne le droit de changer les
+  prix, l'étiquette et le catalogue. Rien à voir avec -AccountPassword, qui n'ouvre
+  qu'une session Windows sans droits.
+
+  Absent, il est DEMANDÉ en saisie masquée, tapé deux fois. Il n'est imprimé nulle part,
+  pas même sur la fiche d'installation : le poste n'en garde qu'une empreinte argon2id, et
+  ce qui reste sur le papier est le code de secours, qui rouvre la porte d'un poste qui
+  n'en a aucun.
+
+  Il ne part JAMAIS sur une ligne de commande vers le binaire : il lui est poussé par
+  l'ENTRÉE STANDARD, parce qu'un argument est lisible dans la liste des processus par
+  n'importe quel utilisateur de la machine.
+
+  MAIS L'ARGUMENT QUI ARRIVE ICI L'EST AUSSI, et c'est le sens de l'avertissement imprimé
+  au moment où ce paramètre est reçu : ce script ne peut pas réécrire son propre argv.
+  Pour une installation scriptée, préférez la variable d'environnement
+  OPENSCALE_ADMIN_PASSWORD, que ce script lit puis EFFACE aussitôt — l'équivalent exact de
+  ce que fait deploy/linux/install.sh, et la parité des deux installeurs est tenue par
+  deploy/parity_test.go.
+
+.PARAMETER StationNumber
+  Le numéro de ce poste dans la coopérative. C'est de lui que dérive le nom du fichier de
+  catalogue surveillé, flv_<n>.csv. Absent, il est demandé — sauf sur un poste qui en a
+  déjà un, qu'une réinstallation ne touche pas.
+
+.PARAMETER StationName
+  Le nom que lisent les bénévoles, « Poste 2 — fruits ». Mêmes règles que -StationNumber.
+
+.PARAMETER Yes
+  Ne pose AUCUNE question et n'attend personne. C'est ce que passe une installation
+  scriptée ; sans ce commutateur, une console sans clavier est reconnue toute seule et les
+  questions sont sautées de la même façon. Ce qui n'a pas été demandé est écrit sur la
+  fiche d'installation comme restant à faire.
+
 .EXAMPLE
   .\install.ps1
 .EXAMPLE
   .\install.ps1 -Pilot
 .EXAMPLE
-  .\install.ps1 -AccountPassword 'poire-balance-samedi'
+  .\install.ps1 -AccountPassword 'poire-balance-samedi' -StationNumber 2 -StationName 'Poste 2 - fruits'
 #>
 [CmdletBinding()]
 param(
   [switch]$Pilot,
   [switch]$SkipAutoLogon,
   [string]$AccountPassword,
+  [string]$AdminPassword,
+  [int]$StationNumber,
+  [string]$StationName,
+  [switch]$Yes,
   [string]$InstallDir,
   [string]$DataRoot)
 
@@ -93,6 +137,42 @@ if (-not (Test-Path $source)) {
   # côté du script. Le dire est plus utile que de chercher : un chemin devine, un
   # message explique.
   throw "openscale.exe est introuvable à côté de install.ps1 ($source). Décompressez l'archive complète."
+}
+
+# La voie SANS argv, et elle est lue avant tout le reste : une variable d'environnement ne
+# figure pas dans la liste des processus, là où un argument de ligne de commande y est
+# lisible par n'importe quel compte de la machine. C'est la même voie que celle de
+# deploy/linux/install.sh, et deploy/parity_test.go tient les deux ensemble.
+#
+# EFFACÉE TOUT DE SUITE, avant le premier processus fils : sans cela, chaque enfant de ce
+# script — le binaire, icacls, schtasks, powercfg — en hériterait dans son propre
+# environnement, et le secret vivrait aussi longtemps que le plus lent d'entre eux.
+if (-not $AdminPassword -and $env:OPENSCALE_ADMIN_PASSWORD) {
+  $AdminPassword = $env:OPENSCALE_ADMIN_PASSWORD
+  $env:OPENSCALE_ADMIN_PASSWORD = $null
+}
+elseif ($AdminPassword) {
+  # Dit AU MOMENT où c'est encore réparable, et pas seulement dans l'en-tête que personne
+  # ne relit : rien n'est installé, le mot de passe peut encore être changé sans reprendre
+  # le poste. Un shell ne peut pas réécrire son propre argv — le dire est tout ce qui est
+  # en notre pouvoir.
+  Write-Host " AVERTISSEMENT : -AdminPassword place le secret sur la ligne de commande, que"
+  Write-Host " tout utilisateur de la machine lit dans la liste des processus et que"
+  Write-Host " l'historique de PowerShell garde. La variable d'environnement"
+  Write-Host " OPENSCALE_ADMIN_PASSWORD évite le premier ; ne rien donner du tout, et"
+  Write-Host " répondre à la question, évite les deux."
+}
+
+# Un -AdminPassword trop court est refusé ICI, avant la première écriture. Le binaire le
+# refuserait de toute façon — c'est lui l'autorité, et common.ps1 dit d'où vient ce
+# chiffre —, mais dix étapes plus loin, sur un poste dont le compte, l'ACL et le binaire
+# sont déjà posés. Une installation qui échoue doit échouer avant d'avoir commencé.
+#
+# Et il compte ce que le binaire compte : des points de code, jamais des unités UTF-16.
+# Le raisonnement entier est sur Measure-CodePoint, dans common.ps1.
+if ($AdminPassword -and (Measure-CodePoint -Text $AdminPassword) -lt $script:MinimumAdminPasswordLength) {
+  throw "-AdminPassword doit faire au moins $script:MinimumAdminPasswordLength caractères : " +
+  "c'est le plancher qu'applique le poste lui-même, et rien n'a été installé."
 }
 
 Write-Step "installation d'$script:ProductName sur $env:COMPUTERNAME" $paths.LogFile
@@ -197,37 +277,155 @@ Assert-Success 'openscale --version'
 Write-Step "binaire installé : $version" $paths.LogFile
 
 $delivered = Join-Path $PSScriptRoot 'config-lacagette.json'
+$configIsNew = $false
 if ((Test-Path $delivered) -and -not (Test-Path $paths.Config)) {
   # La configuration livrée est celle de §11.5 : les valeurs du site, SANS le bloc
-  # matériel. Elle est donc incomplète exprès — le numéro de poste, le port série et la
-  # file d'impression se règlent sur l'écran, à l'étape suivante de §15.5 — et le poste
-  # démarre en attendant sur le profil neutre en servant la liste de ses fautes (§11.3).
+  # matériel. Elle est donc incomplète exprès — le port série et la file d'impression se
+  # règlent sur l'écran, à l'étape suivante de §15.5 — et le poste démarre en attendant sur
+  # le profil neutre en servant la liste de ses fautes (§11.3). Ce que l'étape 2 ter
+  # ci-dessous lui ajoute est ce que l'écran ne peut PAS deviner : qui est ce poste.
   Copy-Item -Path $delivered -Destination $paths.Config -Force
+  $configIsNew = $true
   Write-Step "configuration livrée copiée dans $($paths.Config)" $paths.LogFile
 }
 elseif (Test-Path $paths.Config) {
   Write-Step "configuration existante conservée : $($paths.Config)" $paths.LogFile
 }
 
-# --- 2 ter. Code de secours d'administration (§14.4, important-10) -----------------
+# Le fichier tel qu'il est AVANT que les trois étapes suivantes n'y touchent. Elles y
+# lisent toutes les trois la même chose — ce qui est déjà posé, et qu'une réinstallation
+# ne doit pas redemander — et le relire trois fois, c'est trois façons de répondre
+# différemment à la même question.
+$existingConfig = $null
+if (Test-Path $paths.Config) {
+  try { $existingConfig = Get-Content -Path $paths.Config -Raw -Encoding UTF8 | ConvertFrom-Json }
+  catch { $existingConfig = $null }
+}
+$existingStation = Get-SnapshotValue $existingConfig 'station'
+$existingAdmin = Get-SnapshotValue $existingConfig 'admin'
+
+# QUI PEUT ENCORE RÉPONDRE. Une installation scriptée — bootstrap.ps1 -Yes, un déploiement
+# à distance, une tâche planifiée — n'a personne devant elle, et une invite y attend
+# jusqu'à ce que quelqu'un s'aperçoive que le poste n'est toujours pas installé. Les deux
+# cas restent distincts parce qu'ils n'ont pas la même cause : -Yes est un choix, une
+# console sans personne est un fait, et Test-Interactive porte les trois façons de le
+# constater — dont celle qui a bloqué un banc pendant deux minutes le 10/08/2026.
+$askable = (-not $Yes) -and (Test-Interactive)
+
+# --- 2 ter. Qui est ce poste, et sa balance (§11.2, §15.5) -------------------------
+# CE QUE SEULE L'INSTALLATION PEUT DEMANDER. La configuration livrée est l'export de
+# §11.5 : numéro 0, aucun nom, et une balance qui nomme son protocole sans nommer de port.
+# Ces trois fautes faisaient démarrer le poste en configuration d'usine, et leur réparation
+# était renvoyée à un écran qu'on n'atteint qu'avec le code de secours — celui de la fiche
+# qu'on vient justement de ranger au classeur.
+#
+# LA BALANCE N'EST DÉSACTIVÉE QUE SUR UN POSTE NEUF, et le critère est « ce fichier vient
+# d'être copié », rien d'autre. « scale.present = false » est la déclaration explicite de
+# §11.2 : ce poste n'a pas de balance. C'est vrai d'un poste qui sort de l'archive, où rien
+# n'a encore été branché ni détecté ; c'est faux d'un poste en service, dont relancer
+# l'installeur ne doit surtout pas éteindre la balance.
+#
+# LES BORNES DU NUMÉRO NE SONT PAS ICI. C'est le contrôle 1 de §11.3, le binaire les
+# applique, il refuse en français et il n'écrit rien : on redemande. Les réécrire dans ce
+# script en ferait un second endroit à corriger, et le premier à mentir.
+#
+# ★ CE QUI DÉCIDE EST QU'UNE RÉPONSE A ÉTÉ DONNÉE, JAMAIS QUE L'ENTIER SOIT VRAI. « 0 » est
+# une réponse — mauvaise, et c'est au binaire de le dire. PowerShell tient 0 pour FAUX :
+# décider sur la valeur avalait le zéro en silence, --number ne partait pas, les bornes ne
+# voyaient jamais rien, et le poste repartait en configuration d'usine sous un journal qui
+# annonçait « identité posée ». Les deux réponses vivent donc dans des variables de TEXTE,
+# où « vide » veut dire « personne n'a répondu » et où « 0 » est une réponse comme une autre.
+# Le binaire fait le même partage côté Go, et le dit dans cmd/openscale/config.go : « --number
+# 0 et pas de --number du tout sont le même entier ».
+$numberIsMissing = -not (Get-SnapshotValue $existingStation 'number')
+$nameIsMissing = [string]::IsNullOrWhiteSpace((Get-SnapshotValue $existingStation 'name'))
+$numberAnswer = ''
+if ($PSBoundParameters.ContainsKey('StationNumber')) {
+  $numberAnswer = "$StationNumber"
+}
+$nameAnswer = "$StationName".Trim()
+if ($askable -and (($numberIsMissing -and $numberAnswer -eq '') -or ($nameIsMissing -and $nameAnswer -eq ''))) {
+  Write-Host ''
+  Write-Host ' CE POSTE — répondez, puis l''installation reprend seule.'
+}
+while ($true) {
+  if ($askable -and $numberIsMissing -and $numberAnswer -eq '') {
+    Write-Host ''
+    Write-Host ' Numéro de ce poste dans la coopérative'
+    Write-Host '   C''est de lui que dérive le nom du fichier de catalogue surveillé, flv_<n>.csv.'
+    while ($true) {
+      $typed = (Read-Host ' Numéro').Trim()
+      if ($typed -match '^\d+$') { $numberAnswer = $typed; break }
+      Write-Host '   un nombre, et rien d''autre.'
+    }
+  }
+  if ($askable -and $nameIsMissing -and $nameAnswer -eq '') {
+    Write-Host ''
+    Write-Host ' Nom de ce poste'
+    Write-Host '   Ce que les bénévoles lisent sur l''écran d''administration : « Poste 2 - fruits ».'
+    while ($true) {
+      $nameAnswer = (Read-Host ' Nom').Trim()
+      if ($nameAnswer -ne '') { break }
+      Write-Host '   il en faut un : c''est ce qui distingue ce poste de ses voisins.'
+    }
+  }
+
+  $identity = @()
+  if ($numberAnswer -ne '') { $identity += @('--number', $numberAnswer) }
+  if ($nameAnswer -ne '') { $identity += @('--name', $nameAnswer) }
+  if ($configIsNew) { $identity += '--no-scale' }
+
+  if ($identity.Count -gt 0) {
+    & $paths.Binary config station $paths.Config @identity
+    if ($LASTEXITCODE -ne 0) {
+      # Sans personne pour retaper, un refus est un échec d'installation comme un autre : le
+      # poste ne doit pas s'annoncer installé avec un numéro que ses contrôles rejettent.
+      if (-not $askable) { Assert-Success 'openscale config station' }
+      Write-Step 'la réponse a été refusée — rien n''a été écrit, on recommence' $paths.LogFile
+      $numberAnswer = ''
+      $nameAnswer = ''
+      continue
+    }
+  }
+
+  # ★ CE QUE LE JOURNAL DIT SE COMPOSE DE CE QUI A ÉTÉ TRANSMIS. Le compte des arguments ne
+  # le dit pas : sur un poste NEUF il porte toujours « --no-scale », si bien qu'une liste
+  # vide n'existait pas et que l'avertissement écrit pour le seul cas qui en a besoin — une
+  # installation scriptée où personne n'a répondu — ne pouvait pas s'afficher. Le journal
+  # annonçait alors une identité posée sur un poste qui n'avait ni numéro ni nom, et le
+  # découvrir un samedi coûte plus cher que le lire à l'installation.
+  $posed = @()
+  $unanswered = @()
+  if ($numberAnswer -ne '') { $posed += "numéro $numberAnswer" }
+  elseif ($numberIsMissing) { $unanswered += 'le numéro' }
+  if ($nameAnswer -ne '') { $posed += "nom « $nameAnswer »" }
+  elseif ($nameIsMissing) { $unanswered += 'le nom' }
+
+  $said = if ($posed.Count -gt 0) { "identité du poste posée dans $($paths.Config) : $($posed -join ', ')" }
+  elseif ($unanswered.Count -gt 0) { "identité du poste NON posée : rien n'a été demandé ni transmis" }
+  else { "identité du poste inchangée : numéro et nom déjà posés dans $($paths.Config)" }
+  if ($unanswered.Count -gt 0) {
+    $said += " — il reste à régler sur l'écran d'administration : $($unanswered -join ' et ')"
+  }
+  Write-Step $said $paths.LogFile
+  break
+}
+$scaleWasDisabled = $configIsNew
+
+# --- 2 quater. Code de secours d'administration (§14.4, important-10) --------------
 # « Un code de secours de 8 caractères est généré à l'installation, imprimé sur la fiche
 # d'installation et consigné dans le classeur du magasin. » C'est ici, et pas sur l'écran :
-# un poste sort de l'installeur SANS mot de passe d'administration — la configuration
-# livrée est l'export de §11.5, qui ne porte aucun secret — donc sans ce code il n'existe
-# aucune porte d'entrée, ni écran ni ligne de commande, vers les pages qui écrivent la
-# configuration. PowerShell ne sait pas produire une empreinte argon2id : le binaire le
-# fait, et il est le seul à afficher le code en clair, une fois.
+# le code est ce qui rouvre un poste QUI N'A AUCUN MOT DE PASSE, et c'est l'état d'un poste
+# dont l'étape suivante n'a pas pu poser le sien — une installation scriptée, une console
+# sans clavier. C'est aussi la seule reprise en main quand le mot de passe posé se perd.
+# PowerShell ne sait pas produire une empreinte argon2id : le binaire le fait, et il est le
+# seul à afficher le code en clair, une fois.
 #
 # Le code n'est JAMAIS écrit dans install.log : ce journal reste sur le poste, la fiche
 # part au classeur.
 $recoveryCode = ''
 if (Test-Path $paths.Config) {
-  $existing = ''
-  try {
-    $existing = (Get-Content -Path $paths.Config -Raw -Encoding UTF8 |
-      ConvertFrom-Json).admin.recovery_code_hash
-  }
-  catch { $existing = '' }
+  $existing = Get-SnapshotValue $existingAdmin 'recovery_code_hash'
 
   if ([string]::IsNullOrWhiteSpace($existing)) {
     $printed = & $paths.Binary config recovery-code $paths.Config
@@ -247,6 +445,49 @@ if (Test-Path $paths.Config) {
     # qu'en empreinte.
     Write-Step "code de secours existant conservé : la fiche déjà classée reste valable" $paths.LogFile
   }
+}
+
+# --- 2 quinquies. Mot de passe d'administration (§14.4) ---------------------------
+# LE POSER ICI EST TOUT L'OBJET DE CETTE ÉTAPE. Jusqu'ici le poste sortait de l'installeur
+# sans aucun mot de passe : le premier réglage ouvrait le panneau « Ce poste n'a pas encore
+# de mot de passe », qui réclame le code de secours — donc la fiche, donc le classeur, donc
+# quelqu'un qui sait où il est. Le code de secours ne disparaît pas pour autant : il reste
+# le recours d'un poste dont le mot de passe est perdu, et la seule porte d'une
+# installation scriptée, où personne n'était là pour répondre.
+#
+# ★ SUR L'ENTRÉE STANDARD, JAMAIS SUR LA LIGNE DE COMMANDE. Un argument se lit dans la
+# liste des processus par n'importe quel utilisateur de la machine, et c'est la raison pour
+# laquelle bootstrap.ps1 refuse de s'élever tout seul quand on lui a donné un secret.
+#
+# L'ENCODAGE EST FAIT, ET IL A DEUX MOITIÉS — Set-NativeOutputEncoding, appelée en tête de
+# ce script : sans elle, $OutputEncoding vaut us-ascii sous Windows PowerShell 5.1 et tout
+# accent poussé dans ce tube devient « ? », tandis qu'une console en chcp 65001 y colle une
+# marque d'ordre des octets. Un mot de passe haché avec l'un ou l'autre mure le poste, et
+# rien des deux côtés ne dit pourquoi.
+#
+# Le mot de passe n'est écrit NULLE PART : ni dans install.log, ni sur la fiche.
+$adminPasswordPosed = -not [string]::IsNullOrWhiteSpace((Get-SnapshotValue $existingAdmin 'password_hash'))
+if ($askable -and -not $AdminPassword -and -not $adminPasswordPosed) {
+  Write-Host ''
+  Write-Host ' Mot de passe d''administration de ce poste'
+  Write-Host '   Il protège le droit de CHANGER le poste : les prix, l''étiquette, le catalogue.'
+  Write-Host '   Rien à voir avec le mot de passe de la session Windows.'
+  Write-Host "   $script:MinimumAdminPasswordLength caractères au minimum, tapé deux fois, et il ne s'affiche pas."
+  Write-Host '   Il n''est imprimé NULLE PART, pas même sur la fiche : prenez-en un que l''équipe'
+  Write-Host '   connaît. Oublié, il se repose avec le code de secours de la fiche.'
+  $AdminPassword = Read-ConfirmedSecret -Prompt ' Mot de passe' `
+    -MinimumLength $script:MinimumAdminPasswordLength
+}
+if ($AdminPassword) {
+  $AdminPassword |
+  & $paths.Binary config password $paths.Config
+  Assert-Success 'openscale config password'
+  $AdminPassword = ''
+  $adminPasswordPosed = $true
+  Write-Step "mot de passe d'administration posé (il n'est écrit ni dans ce journal ni sur la fiche)" $paths.LogFile
+}
+elseif (-not $adminPasswordPosed) {
+  Write-Step "mot de passe d'administration NON posé : le premier réglage le demandera, avec le code de secours de la fiche" $paths.LogFile
 }
 
 # --- 3. Ouverture de session automatique (bloquant-7) ------------------------------
@@ -376,10 +617,25 @@ if (Test-Path $paths.Config) {
   $read = & $paths.Binary config fingerprint $paths.Config
   if ($LASTEXITCODE -eq 0 -and $read) { $fingerprint = $read.Trim() }
 }
-$stationNumber = '(à choisir dans l''assistant de premier démarrage)'
+# CE QUE LE FICHIER DIT, et non ce que ce script croit y avoir écrit. La fiche part au
+# classeur et elle y reste des années : elle doit porter l'identité que le poste applique,
+# y compris quand une réinstallation n'a rien redemandé parce que tout était déjà posé.
+$posedConfig = $null
+if (Test-Path $paths.Config) {
+  try { $posedConfig = Get-Content -Path $paths.Config -Raw -Encoding UTF8 | ConvertFrom-Json }
+  catch { $posedConfig = $null }
+}
+$posedStation = Get-SnapshotValue $posedConfig 'station'
+$sheetNumber = "$(Get-SnapshotValue $posedStation 'number')"
+$sheetName = "$(Get-SnapshotValue $posedStation 'name')"
+if (-not $sheetNumber -or $sheetNumber -eq '0') { $sheetNumber = '(pas encore posé)' }
+if (-not $sheetName) { $sheetName = '(pas encore posé)' }
+
 Write-InstallSheet -Path $paths.InstallSheet -Account $script:AccountName -Password $password `
-  -Fingerprint $fingerprint -StationNumber $stationNumber -Version "$version" -Address $address `
-  -RecoveryCode $recoveryCode -PasswordChanged $decision.Change | Out-Null
+  -Fingerprint $fingerprint -StationNumber $sheetNumber -StationName $sheetName `
+  -Version "$version" -Address $address `
+  -RecoveryCode $recoveryCode -PasswordChanged $decision.Change `
+  -AdminPasswordPosed $adminPasswordPosed -ScaleDisabled $scaleWasDisabled | Out-Null
 Write-Step "fiche d'installation écrite dans $($paths.InstallSheet)" $paths.LogFile
 
 Write-Host ''
@@ -414,10 +670,26 @@ else {
   Write-Host "    que le poste se relèvera d'une coupure de courant."
 }
 Write-Host " 3. Bouton « Réglages » sur l'écran client — l'engrenage, tout à droite de la"
-Write-Host "    barre du bas —, page « Matériel », « Détecter automatiquement » : le poste"
-Write-Host "    demande alors le code de secours de la fiche et le mot de passe"
-Write-Host "    d'administration à poser. Réglez ensuite la balance, l'imprimante et le"
-Write-Host '    catalogue. Voir INSTALLATION.md.'
+Write-Host "    barre du bas —, page « Matériel », « Détecter automatiquement ». Le port où"
+Write-Host "    la balance répond porte alors un bouton « Utiliser cette balance » : c'est"
+Write-Host "    LUI qui la remet en service, avec son protocole et son port. Réglez ensuite"
+Write-Host "    l'imprimante et le catalogue. Voir INSTALLATION.md."
+if ($adminPasswordPosed) {
+  Write-Host "    Le mot de passe d'administration est POSÉ : le poste le demandera au premier"
+  Write-Host '    réglage. Il n''est écrit nulle part, pas même sur la fiche.'
+}
+else {
+  Write-Host "    Ce poste n'a AUCUN mot de passe d'administration : le premier réglage ouvrira"
+  Write-Host '    le panneau qui réclame le CODE DE SECOURS de la fiche, puis le mot de passe.'
+}
+if ($scaleWasDisabled) {
+  # §15.5 fait comparer les empreintes des quatre postes À L'ŒIL. Un écart annoncé est une
+  # étape restante ; un écart qu'on découvre est une panne qu'on croit réparer en touchant
+  # à la configuration.
+  Write-Host "    La balance de ce poste NEUF est déclarée absente tant qu'elle n'est pas"
+  Write-Host "    détectée : son empreinte de configuration diffère donc de celle de ses"
+  Write-Host '    voisins, et les rejoint dès que la balance est remise en service.'
+}
 if ($decision.Warning) {
   Write-Host ''
   Write-Host ' ATTENTION'

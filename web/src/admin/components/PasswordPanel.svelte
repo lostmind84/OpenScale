@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../../components/Icon.svelte'
+  import { MIN_PASSWORD_LENGTH } from '../lib/api'
   import type { Admin } from '../lib/session.svelte'
   import Act from './Act.svelte'
 
@@ -26,11 +27,13 @@
   let password = $state('')
   let code = $state('')
 
-  /** Assez court pour ne pas ralentir, assez long pour ne pas être deviné (§14.4). */
-  const MIN_PASSWORD = 8
-
+  // Des POINTS DE CODE, et non `password.length`, qui compte des unités UTF-16 : c'est le
+  // service qui refuse, en caractères, et un bouton armé sur une autre unité que la sienne
+  // est un bouton dont la réponse peut être un refus certain.
   const ready = $derived(
-    first ? code.trim().length > 0 && password.length >= MIN_PASSWORD : password.length > 0,
+    first
+      ? code.trim().length > 0 && [...password].length >= MIN_PASSWORD_LENGTH
+      : password.length > 0,
   )
 
   /** Répond au panneau, par l'un ou l'autre des deux chemins. */
@@ -73,7 +76,7 @@
         />
       </label>
       <label class="field">
-        <span>Nouveau mot de passe — {MIN_PASSWORD} caractères au moins</span>
+        <span>Nouveau mot de passe — {MIN_PASSWORD_LENGTH} caractères au moins</span>
         <input
           type="password"
           autocomplete="new-password"

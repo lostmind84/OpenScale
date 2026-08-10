@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -114,25 +115,108 @@ func TestTheInstallerDeclaresEveryParameterTheBootstrapPasses(t *testing.T) {
 	}
 }
 
-// TestTheAccountPasswordNeverReachesALogOrACommandLine.
+// secretParametersOfTheBootstrap names every parameter that carries a SECRET, by reading
+// the script rather than by listing them here.
+//
+// The criterion is « a parameter whose name ends in Password », and it is a criterion
+// rather than a list because the two benches below were written for -AccountPassword alone
+// and stayed green the day -AdminPassword arrived: a second secret, named differently, went
+// past a guard that spelled the first one's name. A rule that reads the param block covers
+// the third one nobody has written yet.
+func secretParametersOfTheBootstrap(t *testing.T) []string {
+	t.Helper()
+	lines := strings.Split(codeOnly(readFile(t, filepath.Join("windows", bootstrapPath))), "\n")
+	// The reader of powershell_test.go, and not a regular expression of this file: it already
+	// knows what a param block is, attributes and default values included, and one place that
+	// knows is one place to correct.
+	declared, _ := parametersByScope(lines, owningScopes(lines))
+	var secrets []string
+	for _, spelling := range declared[""] {
+		if strings.HasSuffix(spelling, "Password") {
+			secrets = append(secrets, spelling)
+		}
+	}
+	if len(secrets) == 0 {
+		t.Fatalf("aucun paramètre de %s ne finit par « Password » : la règle ne couvre plus "+
+			"rien, alors que l'installation en pose deux", bootstrapPath)
+	}
+	sort.Strings(secrets)
+	return secrets
+}
+
+// TestNoSecretParameterReachesALogOrACommandLine.
 //
 // install.log stays on the station; the installation sheet goes to the binder. And an
 // argument on a command line is readable in the process list by ANY user of the machine —
 // which is why the bootstrap refuses to elevate itself when a password was given.
-func TestTheAccountPasswordNeverReachesALogOrACommandLine(t *testing.T) {
+//
+// It holds for BOTH secrets the installation now handles: the one of the Windows session,
+// and the one of the administration, which install.ps1 pipes into `openscale config
+// password` on the standard input for exactly this reason.
+func TestNoSecretParameterReachesALogOrACommandLine(t *testing.T) {
+	secrets := secretParametersOfTheBootstrap(t)
+	// The VARIABLE and not the word: « $script:MinimumAdminPasswordLength » carries the
+	// FLOOR of the administration password, it is printed on purpose, and a rule matching
+	// the bare word forbade the question from saying how long the answer has to be. Case
+	// blind, because PowerShell is — that is the trap powershell_test.go is full of.
+	holders := make([]*regexp.Regexp, 0, len(secrets))
+	for _, secret := range secrets {
+		holders = append(holders, regexp.MustCompile(`(?i)\$`+regexp.QuoteMeta(secret)+`\b`))
+	}
 	for _, name := range []string{bootstrapPath, "install.ps1"} {
 		script := codeOnly(readFile(t, filepath.Join("windows", name)))
 		for _, line := range strings.Split(script, "\n") {
-			if !strings.Contains(line, "AccountPassword") {
-				continue
-			}
-			for _, forbidden := range []string{"Write-Host", "Write-Step", "Start-Process"} {
-				if strings.Contains(line, forbidden) {
-					t.Errorf("%s fait passer le mot de passe du compte par %s :\n  %s",
-						name, forbidden, strings.TrimSpace(line))
+			for index, secret := range secrets {
+				if !holders[index].MatchString(line) {
+					continue
+				}
+				for _, forbidden := range []string{
+					"Write-Host", "Write-Step", "Write-Progression", "Start-Process",
+				} {
+					if strings.Contains(line, forbidden) {
+						t.Errorf("%s fait passer -%s par %s :\n  %s",
+							name, secret, forbidden, strings.TrimSpace(line))
+					}
 				}
 			}
 		}
+	}
+}
+
+// TestTheInstallerFeedsTheAdministrationPasswordOnTheStandardInput is the other half of the
+// same rule, and the one no search for a forbidden word can express.
+//
+// « openscale config password » reads its secret off the standard input BECAUSE an argument
+// would be readable in the process list. An installer that passed it as an option would
+// break that promise from the one place the two scripts hand over to the binary — and every
+// bench above would stay green, because no forbidden word would appear on the line.
+func TestTheInstallerFeedsTheAdministrationPasswordOnTheStandardInput(t *testing.T) {
+	installer := codeOnly(readFile(t, filepath.Join("windows", "install.ps1")))
+	call := strings.Index(installer, "config password")
+	if call < 0 {
+		t.Fatal("install.ps1 n'appelle plus « openscale config password » : le poste sort de " +
+			"l'installation sans mot de passe d'administration")
+	}
+	line := strings.LastIndex(installer[:call], "\n")
+	// The pipe is on the line BEFORE the call: the guarded form of §15.2 demands that the
+	// native call open its own line, so the value being piped opens the previous one.
+	previous := installer[strings.LastIndex(installer[:line], "\n")+1 : line]
+	if !strings.Contains(previous, "|") {
+		t.Errorf("le mot de passe d'administration n'est pas poussé par un tube dans "+
+			"« config password » :\n  %s", strings.TrimSpace(previous))
+	}
+	for _, secret := range secretParametersOfTheBootstrap(t) {
+		argument := regexp.MustCompile(`config password[^\n]*\$` + regexp.QuoteMeta(secret))
+		if argument.MatchString(installer) {
+			t.Errorf("install.ps1 passe -%s en ARGUMENT à « config password » : la liste des "+
+				"processus le donnerait à tout le monde", secret)
+		}
+	}
+	// And the encoding of that pipe is settled before it is used. Without it, $OutputEncoding
+	// is us-ascii under Windows PowerShell 5.1 and an accented password is hashed as « ? ».
+	if !strings.Contains(installer, "Set-NativeOutputEncoding") {
+		t.Error("install.ps1 ne règle pas l'encodage des tubes natifs : un mot de passe " +
+			"accentué partirait en « ? » vers le binaire")
 	}
 }
 
@@ -169,6 +253,10 @@ func TestTheBootstrapAsksTheFloorInsteadOfSpellingIt(t *testing.T) {
 // interactive path elevates itself and asks AFTERWARDS, in the elevated window; the
 // scripted path demands an already-elevated console. This is not a limitation to lift
 // later: it is the choice of never writing a secret into an argv.
+//
+// EVERY secret, and the list comes from the param block rather than from this file: the
+// version of this bench that spelled « AccountPassword » stayed green when a second
+// password parameter arrived, which is precisely the day it had a job to do.
 func TestTheBootstrapRefusesToElevateWithASecretOnTheCommandLine(t *testing.T) {
 	script := codeOnly(readFile(t, filepath.Join("windows", bootstrapPath)))
 	elevation := strings.Index(script, "Start-Process")
@@ -176,9 +264,25 @@ func TestTheBootstrapRefusesToElevateWithASecretOnTheCommandLine(t *testing.T) {
 		t.Fatalf("%s ne se relève jamais en administrateur", bootstrapPath)
 	}
 	// The guard is BEFORE the relaunch, or it guards nothing.
-	if !strings.Contains(script[:elevation], "AccountPassword") {
-		t.Errorf("%s se relève en administrateur sans avoir vérifié qu'aucun mot de passe "+
-			"ne lui a été passé : le secret partirait sur la ligne de commande", bootstrapPath)
+	for _, secret := range secretParametersOfTheBootstrap(t) {
+		if !strings.Contains(script[:elevation], secret) {
+			t.Errorf("%s se relève en administrateur sans avoir vérifié qu'aucun -%s ne lui a "+
+				"été passé : le secret partirait sur la ligne de commande", bootstrapPath, secret)
+		}
+	}
+	// And the argument list of that relaunch carries none of them, whatever the guard above
+	// says: an option appended to $arguments by reflex — the way -StationNumber legitimately
+	// was — is exactly how a guard gets outlived by the file it guards.
+	built := strings.Index(script, "$arguments = @(")
+	if built < 0 || built > elevation {
+		t.Fatalf("%s ne construit plus la ligne de commande de sa relance avant de l'exécuter",
+			bootstrapPath)
+	}
+	for _, secret := range secretParametersOfTheBootstrap(t) {
+		if strings.Contains(script[built:elevation], "-"+secret) {
+			t.Errorf("%s ajoute -%s aux arguments de la relance élevée : le secret serait "+
+				"lisible dans la liste des processus", bootstrapPath, secret)
+		}
 	}
 }
 

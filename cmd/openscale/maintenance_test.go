@@ -11,9 +11,12 @@ import (
 
 // TestARestartAskedStopsTheStationWithANonZeroCode.
 //
-// THE CODE IS THE MECHANISM. A zero would be recorded by the SCM as a clean stop, and
-// the recovery actions of §15.2 would never fire: the station would sit there, stopped,
-// while a volunteer waits for the screen that told them it was coming back.
+// THE CODE IS HALF THE MECHANISM, and the half this file can prove. A zero would be
+// recorded as a clean stop by both supervisors and nothing would fire: the station would
+// sit there, stopped, while a volunteer waits for the screen that told them it was coming
+// back. The other half belongs to the supervisor — systemd acts on this code by itself,
+// the Windows SCM only once InstallService has set the failure-actions flag, which is what
+// service_windows.go poses beside the delays of §15.2.
 func TestARestartAskedStopsTheStationWithANonZeroCode(t *testing.T) {
 	bench := newServeBench(t)
 	asked := make(chan func() error, 1)
@@ -59,6 +62,26 @@ func TestARestartAskedGoesThroughTheOrderedShutdown(t *testing.T) {
 
 	if got := bench.output(); !strings.Contains(got, "arrêt terminé en") {
 		t.Fatalf("l'arrêt ordonné de §13.4 n'a pas eu lieu :\n%s", got)
+	}
+}
+
+// TestAStopAskedByTheServiceManagerReturnsZero pins the OTHER side of the failure-actions
+// flag, which nothing else in this repository would notice breaking.
+//
+// With the flag set, the SCM queues a restart for EVERY stop reporting a non-zero code —
+// that is what makes the button work, and it has no idea who asked. The way out of a
+// `sc stop` is the ctx.Done() branch of serve, which leaves `fatal` nil, so the service
+// handler answers 0 and nothing is queued. That is what lets update.ps1 stop the station
+// and copy a binary over it. The day that road returned an error instead, « service stop »
+// followed by Copy-Item -Force would become a race against a restart five seconds later,
+// on a station where nothing looks wrong.
+func TestAStopAskedByTheServiceManagerReturnsZero(t *testing.T) {
+	bench := newServeBench(t)
+	bench.start()
+
+	if err := bench.stop(); err != nil {
+		t.Fatalf("un arrêt demandé rend %v : le SCM y lirait un code non nul, mettrait une "+
+			"reprise en file, et la mise à jour copierait le binaire sous un poste qui redémarre", err)
 	}
 }
 

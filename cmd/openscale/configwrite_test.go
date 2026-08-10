@@ -51,14 +51,93 @@ func TestTheCommandLineOpensAStationNobodyCanLogInTo(t *testing.T) {
 
 // TestAPasswordTooShortIsRefusedByBOTHDoors: the floor is the same on the terminal and on
 // the recovery form, or the rule would depend on which door somebody came through.
+//
+// The length is DERIVED from web.MinPasswordLength and never spelled here. This bench used
+// to feed a five-character literal and to call it « cinq caractères » in its own failure
+// message: the day the owner moved the floor, it went red on a command that was doing
+// exactly what it had been asked to do. What has to hold is not a figure — it is that a
+// floor exists, that it is the one both doors read, and that it lets the floor itself
+// through.
 func TestAPasswordTooShortIsRefusedByBOTHDoors(t *testing.T) {
 	path := copyDelivered(t)
-	err := runConfig([]string{"password", path}, strings.NewReader("court\n"), &strings.Builder{})
+	tooShort := strings.Repeat("a", web.MinPasswordLength-1)
+	err := runConfig([]string{"password", path}, strings.NewReader(tooShort+"\n"), &strings.Builder{})
 	if err == nil {
-		t.Fatal("un mot de passe de cinq caractères a été accepté")
+		t.Fatalf("%q, un caractère sous le plancher, a été accepté", tooShort)
 	}
 	if hash := readJSONConfig(t, path).Admin.PasswordHash; hash != "" {
 		t.Fatal("un mot de passe refusé a tout de même été écrit")
+	}
+
+	// And the floor EXACTLY goes through: a bench that only knew what is refused would stay
+	// green on a command that refuses everything.
+	exact := strings.Repeat("a", web.MinPasswordLength)
+	if err := runConfig([]string{"password", path}, strings.NewReader(exact+"\n"),
+		&strings.Builder{}); err != nil {
+		t.Fatalf("%q, le plancher exactement : %v", exact, err)
+	}
+	if !web.VerifySecret(readJSONConfig(t, path).Admin.PasswordHash, exact) {
+		t.Fatalf("le mot de passe %q, au plancher exact, n'a pas été écrit", exact)
+	}
+}
+
+// TestTheTerminalCountsCHARACTERSAndNotBYTES is the terminal half of the counting unit.
+//
+// The screen's half is TestTheRecoveryFormCountsCODEPOINTSAndNotBYTES, in internal/web,
+// where the door that used to count bytes lives. Neither door can drive the other from its
+// own package, so what makes « la même valeur aux deux endroits » true is those two benches
+// plus TestTheTwoDoorsNAMETheFloorInsteadOfSpellingIt, which holds that both compare
+// against the one constant.
+func TestTheTerminalCountsCHARACTERSAndNotBYTES(t *testing.T) {
+	// « é » is ONE character and TWO bytes in UTF-8, so a password one character short of
+	// the floor is already longer than the floor in bytes. A door counting bytes lets it in;
+	// a door counting characters does not; and the same password then opens one and not the
+	// other.
+	tooShort := strings.Repeat("é", web.MinPasswordLength-1)
+	if len(tooShort) < web.MinPasswordLength {
+		t.Fatalf("prémisse fausse : %q fait %d octets, il n'atteint pas le plancher et ne "+
+			"prouve donc rien de l'unité comptée", tooShort, len(tooShort))
+	}
+
+	path := copyDelivered(t)
+	if err := runConfig([]string{"password", path}, strings.NewReader(tooShort+"\n"),
+		&strings.Builder{}); err == nil {
+		t.Fatalf("%q, sous le plancher en caractères, a été accepté : les octets ont été comptés",
+			tooShort)
+	}
+
+	exact := strings.Repeat("é", web.MinPasswordLength)
+	if err := runConfig([]string{"password", path}, strings.NewReader(exact+"\n"),
+		&strings.Builder{}); err != nil {
+		t.Fatalf("%q, le plancher exactement en caractères accentués : %v", exact, err)
+	}
+	if !web.VerifySecret(readJSONConfig(t, path).Admin.PasswordHash, exact) {
+		t.Fatalf("le mot de passe accentué %q n'a pas été écrit", exact)
+	}
+}
+
+// TestAByteOrderMarkIsNotPartOfThePassword.
+//
+// A pipe into a native process, from a PowerShell console in chcp 65001, puts EF BB BF in
+// front of the standard input — which is how this command is fed when a responsible person
+// scripts an installation. Hashing that mark walls the station off: the password typed back
+// afterwards, at the screen or at this same console, does not carry it and never verifies,
+// and neither end shows a reason.
+func TestAByteOrderMarkIsNotPartOfThePassword(t *testing.T) {
+	path := copyDelivered(t)
+	password := strings.Repeat("a", web.MinPasswordLength)
+	if err := runConfig([]string{"password", path},
+		strings.NewReader("\ufeff"+password+"\r\n"), &strings.Builder{}); err != nil {
+		t.Fatalf("config password : %v", err)
+	}
+
+	hash := readJSONConfig(t, path).Admin.PasswordHash
+	if !web.VerifySecret(hash, password) {
+		t.Fatalf("l'empreinte écrite ne vérifie pas %q : la marque d'ordre des octets a été "+
+			"hachée avec le mot de passe", password)
+	}
+	if web.VerifySecret(hash, "\ufeff"+password) {
+		t.Fatal("la marque d'ordre des octets fait partie du mot de passe écrit")
 	}
 }
 

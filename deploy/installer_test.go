@@ -3,10 +3,12 @@ package deploy
 import (
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"openscale/internal/platform"
+	"openscale/internal/web"
 )
 
 // The installers read as PROCEDURES: the subcommands they call and the binary must carry,
@@ -337,15 +339,360 @@ func TestAReinstallLeavesTheSheetInTheBinderTrue(t *testing.T) {
 				"donc toute fiche déjà classée devient fausse\n    %s", number+1, strings.TrimSpace(line))
 		}
 	}
-	// Le plancher du mot de passe choisi est DÉCLARÉ, et il est délibérément plus bas que
-	// celui du mot de passe d'administration : le premier ouvre une session sans droits sur
-	// un poste en libre-service, le second donne le droit de changer le poste. Le banc
-	// PowerShell lit la constante et vérifie qu'elle tient ; ce qui est gardé ici, c'est
-	// qu'elle existe — sans elle, ce banc ne mesurerait rien.
+	// Le plancher du mot de passe CHOISI est DÉCLARÉ. Ce qu'il garde n'est pas le poste :
+	// c'est une session Windows SANS AUCUN DROIT, sur une machine en libre-service dont
+	// l'accès physique vaut déjà l'accès administrateur — le rendre difficile ne protège
+	// rien et rend le poste inaccessible le samedi. Le banc PowerShell lit la constante et
+	// vérifie qu'elle tient ; ce qui est gardé ici, c'est qu'elle existe — sans elle, ce
+	// banc ne mesurerait rien.
+	//
+	// Ce commentaire disait « délibérément plus bas que celui du mot de passe
+	// d'administration ». Les deux valent quatre depuis que web.MinPasswordLength est
+	// descendu, et l'écart avait disparu sans que rien ne devienne rouge : le banc défendait
+	// une comparaison morte, alors que ce qui justifie ce chiffre-là est ce que ce compte
+	// protège, et rien d'autre.
 	common := readFile(t, filepath.Join("windows", "common.ps1"))
 	if !regexp.MustCompile(`\$script:MinimumPasswordLength = \d+`).MatchString(common) {
 		t.Fatal("common.ps1 ne déclare plus $script:MinimumPasswordLength : -AccountPassword " +
 			"n'aurait plus de plancher, et le banc PowerShell n'aurait plus rien à lire")
+	}
+}
+
+// TestTheInstallerAppliesTheAdministrationFloorTheBinaryHolds ties one number written in
+// PowerShell to the one Go compiles.
+//
+// install.ps1 refuses a too-short administration password BEFORE asking for the
+// confirmation, which means it has to know the floor — and PowerShell cannot read a Go
+// constant. The number is therefore recopied into common.ps1, ONCE, and this bench is what
+// keeps the copy honest: the day the owner moves web.MinPasswordLength, the failure lands
+// here rather than on a station, where the installer's question would have promised one
+// length and the binary refused another, three lines later, mid-installation.
+func TestTheInstallerAppliesTheAdministrationFloorTheBinaryHolds(t *testing.T) {
+	common := readFile(t, filepath.Join("windows", "common.ps1"))
+	declared := regexp.MustCompile(`\$script:MinimumAdminPasswordLength = (\d+)`).
+		FindStringSubmatch(common)
+	if declared == nil {
+		t.Fatal("common.ps1 ne déclare plus $script:MinimumAdminPasswordLength : la question " +
+			"de l'installeur n'aurait plus de plancher à annoncer")
+	}
+	if declared[1] != strconv.Itoa(web.MinPasswordLength) {
+		t.Errorf("common.ps1 tient le plancher d'administration pour %s, web.MinPasswordLength "+
+			"vaut %d : l'installeur accepterait ce que le binaire refuse, ou l'inverse",
+			declared[1], web.MinPasswordLength)
+	}
+
+	// Et il est LU là où la question se pose, plutôt que réécrit une seconde fois.
+	installer := codeOnly(readFile(t, filepath.Join("windows", "install.ps1")))
+	if !strings.Contains(installer, "$script:MinimumAdminPasswordLength") {
+		t.Error("install.ps1 ne lit pas $script:MinimumAdminPasswordLength : il refuse donc " +
+			"selon un chiffre qui lui est propre")
+	}
+	if regexp.MustCompile(`MinimumAdminPasswordLength\s*=\s*\d`).MatchString(installer) {
+		t.Error("install.ps1 redéclare le plancher d'administration : common.ps1 le porte déjà")
+	}
+}
+
+// TestTheInstallerAsksForWhatOnlyItCanKnow is CHANTIER D, read as a procedure.
+//
+// A station used to come out of install.ps1 with three faults — no number, no name, a scale
+// naming a protocol without a port — and the way to repair them went through a screen that
+// asks for the recovery code of a sheet just filed away in the shop's binder. The three
+// questions are asked here, and what they answer is written through the binary, which is
+// the only thing able to hash a password and to judge a station number.
+func TestTheInstallerAsksForWhatOnlyItCanKnow(t *testing.T) {
+	installer := codeOnly(readFile(t, filepath.Join("windows", "install.ps1")))
+	for what, needle := range map[string]string{
+		"la pose de l'identité du poste":       "config station",
+		"le numéro":                            "--number",
+		"le nom":                               "--name",
+		"la balance d'un poste neuf":           "--no-scale",
+		"la pose du mot de passe":              "config password",
+		"la saisie masquée et confirmée":       "Read-ConfirmedSecret",
+		"la remise du numéro à la fiche":       "-StationNumber $sheetNumber",
+		"la remise de l'état de la balance":    "-ScaleDisabled $scaleWasDisabled",
+		"la remise du mot de passe à la fiche": "-AdminPasswordPosed $adminPasswordPosed",
+	} {
+		if !strings.Contains(installer, needle) {
+			t.Errorf("install.ps1 ne fait pas %s (« %s » absent)", what, needle)
+		}
+	}
+
+	// LA BALANCE N'EST ÉTEINTE QUE SUR UN POSTE NEUF. Relancer l'installeur est ce que
+	// TROUBLESHOOTING.md recommande sur un poste qui marche : un --no-scale inconditionnel
+	// y couperait la balance d'un poste en service, et le poste passerait en saisie manuelle
+	// un samedi matin sans que personne comprenne pourquoi.
+	lines := strings.Split(installer, "\n")
+	for number, line := range lines {
+		if !strings.Contains(line, "--no-scale") {
+			continue
+		}
+		if !strings.Contains(line, "$configIsNew") {
+			t.Errorf("install.ps1 ligne %d : --no-scale n'est pas conditionné à un poste neuf — "+
+				"une réinstallation éteindrait la balance d'un poste en service\n    %s",
+				number+1, strings.TrimSpace(line))
+		}
+	}
+}
+
+// TestAStationNumberOfZeroReachesTheBinaryInsteadOfBeingSwallowed.
+//
+// « 0 » IS AN ANSWER, and a wrong one: the binary is the one that says so, in French, at
+// control 1 of §11.3 — it refuses, it writes nothing, and install.ps1 asks again. PowerShell
+// holds the integer 0 for FALSE, so deciding to pass --number on the VALUE dropped the option
+// altogether: the bounds never saw the answer, the station kept station.number 0 — factory
+// configuration — and the log announced « identité du poste posée » over the top of it.
+//
+// cmd/openscale/config.go carries the same trap on the Go side and names it: « --number 0
+// and no --number at all are the same integer ». It reads which options were TYPED. This is
+// the PowerShell half of that sentence.
+func TestAStationNumberOfZeroReachesTheBinaryInsteadOfBeingSwallowed(t *testing.T) {
+	installer := codeOnly(readFile(t, filepath.Join("windows", "install.ps1")))
+	lines := strings.Split(installer, "\n")
+
+	// L'entier ne sert JAMAIS de condition : c'est la forme exacte du défaut, et la seule
+	// que la relecture d'un diff laisse passer, parce qu'elle se lit comme du français.
+	asACondition := regexp.MustCompile(`(?:-not|-and|-or|if\s*\(|while\s*\()\s*\$StationNumber\b`)
+	for number, line := range lines {
+		if asACondition.MatchString(line) {
+			t.Errorf("install.ps1 ligne %d : $StationNumber décide d'une branche, et PowerShell "+
+				"tient 0 pour faux — le numéro 0 saisi à l'invite serait avalé en silence, et le "+
+				"poste repartirait en configuration d'usine\n    %s",
+				number+1, strings.TrimSpace(line))
+		}
+	}
+
+	// Ce qui part au binaire est la RÉPONSE, reconnue à n'être pas vide — « 0 » en est une.
+	number, name := theAnswersTheInstallerCarries(t, installer)
+	added := -1
+	for index, line := range lines {
+		if strings.Contains(line, "'--number'") {
+			added = index
+		}
+	}
+	if added < 0 {
+		t.Fatal("install.ps1 ne passe plus « --number » : ce banc ne mesure plus rien")
+	}
+	decided := false
+	for lookback := added; lookback >= 0 && lookback >= added-3; lookback-- {
+		if strings.Contains(lines[lookback], number+" -ne ''") {
+			decided = true
+			break
+		}
+	}
+	if !decided {
+		t.Errorf("install.ps1 ligne %d : --number n'est pas décidé sur une réponse DONNÉE "+
+			"(« %s -ne '' » absent) — la véracité de l'entier appartient au binaire, qui la "+
+			"refuse en français\n    %s", added+1, number, strings.TrimSpace(lines[added]))
+	}
+
+	// Et c'est bien cette variable-là que l'invite remplit : sans ce lien, la règle
+	// ci-dessus tiendrait sur une variable qui ne porte pas ce qui a été tapé.
+	prompt := -1
+	for index, line := range lines {
+		if strings.Contains(line, "Read-Host ' Numéro'") {
+			prompt = index
+		}
+	}
+	if prompt < 0 {
+		t.Fatal("install.ps1 ne demande plus le numéro du poste : ce banc ne mesure plus rien")
+	}
+	filled := false
+	for lookahead := prompt; lookahead < len(lines) && lookahead <= prompt+4; lookahead++ {
+		if strings.Contains(lines[lookahead], number+" = ") {
+			filled = true
+			break
+		}
+	}
+	if !filled {
+		t.Errorf("install.ps1 ligne %d : l'invite ne remplit pas %s, la variable que le binaire "+
+			"reçoit", prompt+1, number)
+	}
+	if name == "" {
+		t.Error("install.ps1 ne passe plus « --name » : ce banc ne mesure plus rien")
+	}
+}
+
+// TestTheInstallerLogsWhatItReallyPosed.
+//
+// The warning « identité du poste NON posée » was written for ONE situation — a SCRIPTED
+// installation of a NEW station, where nobody was there to answer — and that is precisely
+// the situation it could not reach: on a new station the argument list always carries
+// `--no-scale`, so a list of zero arguments never existed. The log then wrote « identité du
+// poste posée » on a station that had neither number nor name.
+//
+// What the journal says is therefore composed of what was TRANSMITTED. The size of the
+// argument list is not that: it also counts a declaration about the scale.
+func TestTheInstallerLogsWhatItReallyPosed(t *testing.T) {
+	installer := codeOnly(readFile(t, filepath.Join("windows", "install.ps1")))
+	lines := strings.Split(installer, "\n")
+
+	emptiness := regexp.MustCompile(`\$identity(?:\.Count)?\s*-(?:eq\s+0|lt\s+1)\b|-not\s+\$identity\b`)
+	for number, line := range lines {
+		if emptiness.MatchString(line) {
+			t.Errorf("install.ps1 ligne %d : une branche se décide sur une liste d'arguments VIDE, "+
+				"qui n'existe pas sur un poste neuf — « --no-scale » y est toujours\n    %s",
+				number+1, strings.TrimSpace(line))
+		}
+	}
+
+	posed := -1
+	for index, line := range lines {
+		if strings.Contains(line, "Write-Step") && strings.Contains(line, "identité du poste posée") {
+			posed = index
+		}
+	}
+	if posed < 0 {
+		posed = -1
+		for index, line := range lines {
+			if strings.Contains(line, "identité du poste posée") {
+				posed = index
+			}
+		}
+	}
+	if posed < 0 {
+		t.Fatal("install.ps1 n'annonce plus l'identité posée : ce banc ne mesure plus rien")
+	}
+
+	// Les DEUX réponses sont sous les yeux de la phrase qui les annonce. Un message composé
+	// plus loin que ça se compose d'autre chose — et c'est ce qu'il faisait.
+	number, name := theAnswersTheInstallerCarries(t, installer)
+	region := strings.Join(lines[max(0, posed-12):posed+1], "\n")
+	for what, needle := range map[string]string{
+		"la réponse du numéro": number,
+		"la réponse du nom":    name,
+	} {
+		if needle == "" {
+			continue
+		}
+		if !strings.Contains(region, needle) {
+			t.Errorf("install.ps1 ligne %d : ce que le journal annonce ne se lit pas sur %s (%s) — "+
+				"il annonce donc une identité posée que personne n'a donnée", posed+1, what, needle)
+		}
+	}
+}
+
+// theAnswersTheInstallerCarries names the two variables install.ps1 hands to the binary.
+//
+// They are READ OUT of the script rather than spelled here: what the two benches above hold
+// is where the decision is taken, not what somebody called the variable.
+func theAnswersTheInstallerCarries(t *testing.T, installer string) (number, name string) {
+	t.Helper()
+	for option, into := range map[string]*string{"--number": &number, "--name": &name} {
+		if found := regexp.MustCompile(`'` + option + `',\s*"?(\$\w+)"?`).
+			FindStringSubmatch(installer); found != nil {
+			*into = found[1]
+		}
+	}
+	return number, name
+}
+
+// TestTheFourthDoorCountsCodePointsLikeTheOtherThree.
+//
+// Three doors set an administration password — the recovery form, `openscale config
+// password`, and the installer's own question — and this lot made the UNIT COUNTED its
+// subject: web.MinPasswordLength is « counted in CODE POINTS and not in bytes », with a
+// bench on each Go side. PowerShell's `.Length` counts UTF-16 units, which is a third unit
+// again: « 𝄞 » is one code point, two of those units.
+//
+// The gap only shows outside the basic multilingual plane, so the cost is low and the point
+// is the coherence: a station must not accept at its installation what it refuses at its
+// screen, on a floor whose whole justification is what a volunteer types with a queue behind
+// them.
+func TestTheFourthDoorCountsCodePointsLikeTheOtherThree(t *testing.T) {
+	floorInUTF16 := regexp.MustCompile(`\.Length\s*-lt\s*\$(?:script:)?Minimum`)
+	for _, name := range []string{"install.ps1", "common.ps1"} {
+		script := codeOnly(readFile(t, filepath.Join("windows", name)))
+		for number, line := range strings.Split(script, "\n") {
+			if floorInUTF16.MatchString(line) {
+				t.Errorf("%s ligne %d : le plancher est comparé à un .Length, qui compte des "+
+					"unités UTF-16 là où le binaire compte des points de code\n    %s",
+					name, number+1, strings.TrimSpace(line))
+			}
+		}
+		if !strings.Contains(script, "Measure-CodePoint") {
+			t.Errorf("%s ne compte pas avec Measure-CodePoint : les deux endroits qui appliquent "+
+				"le plancher en PowerShell compteraient chacun le leur", name)
+		}
+	}
+
+	// Et la fonction est MESURÉE plutôt que relue : ce qu'elle compte ne se voit pas dans son
+	// texte, il se voit sur un caractère hors du plan multilingue de base.
+	common, err := filepath.Abs(filepath.Join("windows", "common.ps1"))
+	if err != nil {
+		t.Fatalf("chemin de common.ps1 : %v", err)
+	}
+	for _, shell := range powershellPaths(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			harness := filepath.Join(t.TempDir(), "codepoints.ps1")
+			// U+1D11E, la clé de sol : deux unités UTF-16, UN point de code. Elle est
+			// construite plutôt qu'écrite, pour que ce banc mesure le comptage et non
+			// l'encodage du fichier qui le porte.
+			writeScript(t, harness, `$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+. `+quoteForPowerShell([]string{common})+`
+$typed = [char]::ConvertFromUtf32(0x1D11E) + 'ab'
+Write-Output "UTF16=$($typed.Length)"
+Write-Output "POINTS=$(Measure-CodePoint -Text $typed)"
+`)
+			output, err := runPowerShell(t, shell, harness)
+			if err != nil {
+				t.Fatalf("le banc du comptage n'a pas tourné sous %s :\n%s", shell, output)
+			}
+			measured := measurementsOf(output)
+			if measured["UTF16"] != "4" {
+				t.Fatalf("prémisse fausse : « 𝄞ab » fait %q unités UTF-16 sous %s, ce banc ne "+
+					"mesure donc pas l'écart qu'il cherche\n%s",
+					measured["UTF16"], filepath.Base(shell), output)
+			}
+			if measured["POINTS"] != "3" {
+				t.Errorf("Measure-CodePoint compte %q sur « 𝄞ab » : le binaire en compte 3, et "+
+					"l'installeur accepterait ce que le poste refuse\n%s", measured["POINTS"], output)
+			}
+		})
+	}
+}
+
+// TestAScriptedInstallationNeverWaitsForAnybody.
+//
+// bootstrap.ps1 -Yes, un déploiement à distance, une tâche planifiée : aucun de ces trois
+// chemins n'a d'humain devant lui, et une invite y attend jusqu'à ce que quelqu'un
+// s'aperçoive que le poste n'est toujours pas installé. C'est une régression grave et
+// silencieuse — l'installation ne rate pas, elle ne finit pas.
+func TestAScriptedInstallationNeverWaitsForAnybody(t *testing.T) {
+	installer := codeOnly(readFile(t, filepath.Join("windows", "install.ps1")))
+	if !strings.Contains(installer, "Test-Interactive") {
+		t.Error("install.ps1 ne regarde pas s'il a quelqu'un devant lui : une installation " +
+			"scriptée resterait bloquée sur une invite")
+	}
+	if !strings.Contains(installer, "$askable") {
+		t.Fatal("install.ps1 ne décide plus s'il peut poser une question : ce banc ne sait " +
+			"plus quoi vérifier")
+	}
+	// Toute invite passe par ce verrou. Read-Host et Read-ConfirmedSecret sont les deux
+	// seules façons d'attendre quelqu'un dans ce script.
+	lines := strings.Split(installer, "\n")
+	owner := owningScopes(lines)
+	for number, line := range lines {
+		if !strings.Contains(line, "Read-Host") && !strings.Contains(line, "Read-ConfirmedSecret") {
+			continue
+		}
+		// Une invite écrite dans une fonction n'est pas exécutée par le corps du script : ce
+		// qui est jugé ici, c'est le déroulé de l'installation.
+		if owner[number] != "" {
+			continue
+		}
+		guarded := false
+		for lookback := number; lookback >= 0 && lookback >= number-12; lookback-- {
+			if strings.Contains(lines[lookback], "$askable") {
+				guarded = true
+				break
+			}
+		}
+		if !guarded {
+			t.Errorf("install.ps1 ligne %d : une invite qu'aucun $askable ne garde — une "+
+				"installation scriptée s'y arrêterait pour toujours\n    %s",
+				number+1, strings.TrimSpace(line))
+		}
 	}
 }
 

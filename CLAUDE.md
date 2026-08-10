@@ -6,9 +6,9 @@ code-barres EAN-13 s'imprime, il la colle sur son sac, la caisse la scanne.
 
 Réécriture complète d'une application Microsoft Access/VBA analysée en détail. La conception
 est **terminée et validée** — `docs/02-architecture.md` en est le dossier — et
-**l'implémentation est livrée** : binaire tagué, installé et éprouvé sur un poste réel
-(balance GRAM sur port série, SATO WS408 en RAW, redémarrage de recette passé), dépôt public
-sous AGPL-3.0.
+**l'application est EN PRODUCTION** : recette passée en magasin et **deux semaines
+d'exploitation réelle** tenues au 10/08/2026 (balance GRAM sur port série, SATO WS408 en
+RAW, redémarrage de recette passé), dépôt public sous AGPL-3.0.
 
 **Ce n'est donc pas un projet vierge : c'est du code livré qu'on modifie.** Trois
 conséquences, et elles priment sur tout réflexe de démarrage :
@@ -93,6 +93,15 @@ triviale vers Windows, Linux et linux-arm64. SQLite via `modernc.org/sqlite`, ja
 
 Ces points ont été tranchés après analyse ; les rouvrir demande une décision explicite.
 
+- **Les deux installeurs marchent en couple. Une modification validée sur l'un se reporte
+  sur l'autre, dans les deux sens** (décision du propriétaire du produit, 10/08/2026).
+  `deploy/windows/install.ps1` et `deploy/linux/install.sh` doivent offrir les **mêmes
+  fonctionnalités d'installation** ; idem pour les deux bootstraps. Un écart est permis
+  quand la plateforme l'impose — le compte `openscale` n'a ni mot de passe ni shell, le
+  mode pilote n'existe que pour laisser Access relançable — mais **il se déclare avec sa
+  raison**, jamais en silence. La parité ne se surveille pas à l'œil : elle est tenue par
+  `deploy/parity_test.go`, dont la table de correspondance est **le seul endroit du dépôt
+  où la parité est déclarée**. Ajouter une option d'un côté sans l'autre doit rougir.
 - **Ce qui est tenu sur l'étiquette est le contrat de caisse, pas le dessin** (ADR-051,
   30/07/2026, remplace ADR-003). Un EAN-13 au plan d'ADR-028, zones de silence intactes,
   HRI imprimée. La mise en page, la hauteur des barres, l'interligne et la bande HRI

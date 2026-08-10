@@ -53,6 +53,13 @@ La configuration (§11.5) :
   config export [fichier] [--hardware]     la configuration à cloner vers les autres
                 [--output f.json]          postes — sans le bloc matériel par défaut
   config fingerprint [fichier]             l'empreinte de 8 caractères à comparer
+  config station [fichier] --number <n>    pose l'identité du poste et l'état de sa
+                 --name <texte>            balance, sans passer par l'écran : c'est ce
+                 [--no-scale]              que fait l'installeur sur un poste neuf
+  config password [fichier]                pose le mot de passe d'administration, lu sur
+                                           l'entrée standard et jamais en argument
+  config recovery-code [fichier]           tire le code de secours de la fiche
+  config migrate [fichier]                 remet le fichier à la forme que ce binaire lit
 
 Diagnostic du poste (lot L8) :
   doctor [--zip] [--output f.zip]          les contrôles de §15.4 : ce qui a été

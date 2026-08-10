@@ -24,10 +24,12 @@ const (
 	exitFatal = 3
 	// exitRestart is a stop somebody ASKED FOR, from the administration screen.
 	//
-	// It is non-zero ON PURPOSE, and that is the whole mechanism: a non-zero code is
-	// what makes the SCM apply the recovery actions of §15.2 and systemd its
-	// Restart=always. A clean 0 would be recorded as a stop nobody undoes, and the
-	// station would wait for a human who thinks it is coming back.
+	// It is non-zero ON PURPOSE, and that is HALF the mechanism: a clean 0 would be
+	// recorded as a stop nobody undoes, and the station would wait for a human who
+	// thinks it is coming back. The other half is on the supervisor's side — systemd
+	// reads this code and applies its Restart=always, whereas the Windows SCM ignores it
+	// unless InstallService also set the failure-actions flag, Windows reserving the
+	// recovery actions of §15.2 for a service that died without saying so.
 	exitRestart = 4
 )
 
