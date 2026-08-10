@@ -2,7 +2,6 @@ package deploy
 
 import (
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -24,15 +23,9 @@ import (
 // snapshot: ConvertTo-Json's default depth of 2, which writes
 // « System.Collections.Hashtable » in place of a nested object.
 func TestTheBackupAndTheRestoreWorkOnAThrowawayDirectory(t *testing.T) {
-	// WINDOWS ONLY, and not out of laziness: common.ps1 derives every path it touches
-	// from $env:ProgramFiles and $env:ProgramData, which are EMPTY on Linux. PowerShell
-	// is installed on the CI runner, so the harness starts and then fails on a
-	// Join-Path with a null argument — a failure that says nothing about the backup and
-	// everything about the machine it ran on.
-	if runtime.GOOS != "windows" {
-		t.Skip("common.ps1 dérive ses chemins de %ProgramFiles% et %ProgramData% : " +
-			"ce banc n'a de sens que sur Windows")
-	}
+	// Le raisonnement entier vit sur requireWindowsToRunCommonPs1 : il portait ici seul,
+	// et trois bancs du 10/08/2026 sont passés à côté sans le voir.
+	requireWindowsToRunCommonPs1(t)
 	common, err := filepath.Abs(filepath.Join("windows", "common.ps1"))
 	if err != nil {
 		t.Fatalf("chemin de common.ps1 : %v", err)

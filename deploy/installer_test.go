@@ -623,6 +623,9 @@ func TestTheFourthDoorCountsCodePointsLikeTheOtherThree(t *testing.T) {
 	}
 	for _, shell := range powershellPaths(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
+			// La moitié STATIQUE ci-dessus vaut partout ; celle-ci dot-source common.ps1
+			// et ne vaut que là où ses chemins existent.
+			requireWindowsToRunCommonPs1(t)
 			harness := filepath.Join(t.TempDir(), "codepoints.ps1")
 			// U+1D11E, la clé de sol : deux unités UTF-16, UN point de code. Elle est
 			// construite plutôt qu'écrite, pour que ce banc mesure le comptage et non

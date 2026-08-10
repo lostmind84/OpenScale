@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -129,7 +130,6 @@ func directive(unit, name string) (string, bool) {
 	return value, found
 }
 
-// powershellPath finds a PowerShell able to dot-source common.ps1.
 // powershellPaths returns EVERY PowerShell installed on this machine, and not the first one.
 //
 // The plural is the whole point, and it is what v0.1 cost. The singular version tried
@@ -149,6 +149,34 @@ func powershellPaths(t *testing.T) []string {
 		t.Skip("ni pwsh ni powershell : les scripts ne peuvent pas être analysés sur cette machine")
 	}
 	return found
+}
+
+// requireWindowsToRunCommonPs1 skips a bench that DOT-SOURCES common.ps1 anywhere but on
+// Windows, and it is not a convenience: it is the difference between reading a script and
+// running one.
+//
+// Parsing common.ps1 is worth doing everywhere — that is what powershellPaths exists for.
+// Executing it is not. Its very first lines derive every path it owns from
+// %ProgramFiles% and %ProgramData%, which are EMPTY on Linux, so a dot-source there dies
+// on « Join-Path: Cannot bind argument to parameter 'Path' because it is null » — a
+// failure that says nothing about what the bench meant to prove and everything about the
+// machine it ran on.
+//
+// The trap is not hypothetical and the guard is not new: pwsh IS installed on the ubuntu
+// runner, so the harness starts and only then falls over. TestTheBackupAndTheRestoreWork…
+// carried this reasoning alone, in a comment, and three benches written on 10/08/2026
+// walked straight past it into a red CI. It lives here now so that the next one has to
+// walk past a NAME rather than past somebody else's comment — and
+// TestEveryBenchThatRunsCommonPs1SaysSoOutLoud refuses a bench that forgets it.
+//
+// Skipping is only honest because the work is done elsewhere: the « scripts » job of
+// ci.yml runs these benches on windows-latest, and it is the ONLY place they run.
+func requireWindowsToRunCommonPs1(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("common.ps1 dérive ses chemins de %ProgramFiles% et %ProgramData% : " +
+			"ce banc n'a de sens que sur Windows")
+	}
 }
 
 // runPowerShell runs a script and returns its output.

@@ -417,6 +417,8 @@ func decodeCP1252(raw []byte) (string, bool) {
 // native process exactly like openscale.exe from the parent's point of view — and unlike
 // openscale.exe, it is here without a build.
 func TestTheSecretPipeCarriesTheBytesTheBinaryWillRead(t *testing.T) {
+	requireWindowsToRunCommonPs1(t)
+
 	// Accentué ET hors ASCII, comme « clé » ou « poirée » qu'une coopérative française
 	// écrira sans y penser.
 	const secret = "clé-à-péser"
@@ -516,6 +518,8 @@ Write-Output "ATTENDU=$([BitConverter]::ToString([Text.Encoding]::UTF8.GetBytes(
 // answer « personne ». A guard that answered « quelqu'un » there would not fail this
 // bench — it would hang it, which is exactly what it does to an installation.
 func TestNobodyIsAskedWhenNobodyIsThere(t *testing.T) {
+	requireWindowsToRunCommonPs1(t)
+
 	common, err := filepath.Abs(filepath.Join("windows", "common.ps1"))
 	if err != nil {
 		t.Fatalf("chemin de common.ps1 : %v", err)
