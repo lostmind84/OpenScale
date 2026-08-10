@@ -37,10 +37,20 @@ const NOT_COMPARED = new Set(['modified_at', 'catalog.options.password'])
  *
  * `Config.Export(false)` clears seven things — the station number and name, the whole
  * network block, the station-specific keys of the three option maps, and the image path of
- * the catalog — and the import puts back only the number and the two secrets. Everything
- * else comes back EMPTY, so those rows of the diff hold nothing, and « Recopier » copies
+ * the catalog — and the import puts back the number and the network block. Everything else
+ * comes back EMPTY, so those rows of the diff hold nothing, and « Recopier » copies
  * emptiness as faithfully as it copies a value: the WebDAV account of the catalog is in
  * that list. This is what the screen has to name before anybody presses the button.
+ *
+ * WHAT THE STATION PUTS BACK HAS NO ROW HERE, and the network block is the one that
+ * changed sides. It used to be listed, and rightly: the file came back with an empty
+ * address, and the emptiness was on its way into the draft. Two things happened since.
+ * The decoder reads an empty address as the neutral loopback — it has to, or a station
+ * installed from an export could not be administered at all — and `importConfig` therefore
+ * decides the block explicitly and keeps the receiving station's own, exactly as it keeps
+ * its number. Nothing empty reaches the draft any more, so a row here would warn about a
+ * loss that cannot happen, at the very moment the Station page finally offers a field for
+ * that address. `station.number` has never been listed, for this same reason.
  *
  * The rows watch the exact KEYS the export clears, and no longer the whole option maps.
  * Watching a map stopped working the day the export kept its shared keys: the map comes
@@ -51,7 +61,6 @@ const NOT_COMPARED = new Set(['modified_at', 'catalog.options.password'])
  */
 const CLONE_STRIPS: { path: string; name: string }[] = [
   { path: 'station.name', name: 'le nom du poste' },
-  { path: 'network.listen', name: 'l’adresse d’écoute' },
   { path: 'scale.options.port', name: 'le port de la balance' },
   // Les TROIS clés d'appareil de l'imprimante, parce que l'export sans matériel efface
   // les trois (§8.4, `Config.Export`). La ligne n'en nommait qu'une : sur un poste réglé
@@ -104,7 +113,8 @@ export function strippedBlocks(
  * True when a document carries nothing at that path: absent, null, empty text, empty map.
  *
  * The four forms all come out of one export: `Config.Export(false)` writes `""` on the
- * station name, `null` on the three option maps, and the zero value of the network block.
+ * station name and on the image path, `null` on an option map it emptied whole, and drops
+ * the station-specific key of one it kept — which reads as absent.
  *
  * @param document - the document to read.
  * @param path - the dotted path of the key.
@@ -116,7 +126,7 @@ function isBlank(document: Record<string, unknown>, path: string): boolean {
   return Object.keys(value).length === 0
 }
 
-/** « le nom du poste, l’adresse d’écoute et les réglages de la balance ». */
+/** « le nom du poste, le port de la balance et le chemin des images ». */
 export function frenchList(names: string[]): string {
   if (names.length < 2) return names.join('')
   return `${names.slice(0, -1).join(', ')} et ${names[names.length - 1] ?? ''}`

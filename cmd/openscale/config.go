@@ -15,10 +15,10 @@ import (
 // sentences their refusals share. The two actions that only READ the file are in
 // configread.go, the three that REWRITE it in configwrite.go.
 
-// runConfig is `openscale config validate|export|fingerprint|password|recovery-code`
+// runConfig is `openscale config validate|export|fingerprint|station|password|recovery-code`
 // (§15.1, §14.4).
 //
-// # Why `import` is still not here, and why `password` now is
+// # Why `import` is still not here, and why `password` and `station` now are
 //
 // `import` is a gesture of the ADMINISTRATION SCREEN, and giving it a second home would
 // give the station two ways of being reconfigured — one of them with no diff preview, no
@@ -36,13 +36,22 @@ import (
 // `recovery-code` is the other half of that line: §14.4 has the eight characters
 // « générés à l'installation, imprimés sur la fiche », and install.ps1 has no way to
 // produce an argon2id hash on its own.
+//
+// `station` is the same argument applied to the three fields the installer is the only
+// one in a position to know: a number, a name, and whether there is a scale at all. They
+// carry NO secret, so unlike the password they may travel as options — and nothing else
+// here may, which is why no action of `config` declares an option that would take one.
 func runConfig(args []string, in io.Reader, out io.Writer) error {
 	fs := flag.NewFlagSet("config", flag.ContinueOnError)
 	fs.SetOutput(out)
 	var (
 		hardware = fs.Bool("hardware", false,
 			"conserver le bloc matériel dans l'export (par défaut il est retiré)")
-		output = fs.String("output", "", "fichier de sortie de l'export ; sinon la sortie standard")
+		output  = fs.String("output", "", "fichier de sortie de l'export ; sinon la sortie standard")
+		number  = fs.Int("number", 0, "numéro de ce poste dans la coopérative")
+		name    = fs.String("name", "", "nom de ce poste, celui que lisent les bénévoles")
+		noScale = fs.Bool("no-scale", false,
+			"déclarer que ce poste n'a pas encore de balance")
 	)
 	fs.Usage = func() { fmt.Fprint(out, configUsage) }
 
@@ -50,10 +59,16 @@ func runConfig(args []string, in io.Reader, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// WHICH options were typed, and not which ones carry a value: --number 0 and no
+	// --number at all are the same integer, and one of them is an order to write a station
+	// number the controls refuse while the other is an order to leave the field alone.
+	given := make(map[string]bool, 3)
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+
 	if len(positional) == 0 {
 		fs.Usage()
 		return errors.New("config prend une action : validate, export, fingerprint, migrate, " +
-			"password ou recovery-code")
+			"station, password ou recovery-code")
 	}
 
 	action := positional[0]
@@ -90,14 +105,23 @@ func runConfig(args []string, in io.Reader, out io.Writer) error {
 		return nil
 	case "migrate":
 		return migrateConfig(out, path)
+	case "station":
+		edit := stationEdit{DisableScale: *noScale}
+		if given["number"] {
+			edit.Number = number
+		}
+		if given["name"] {
+			edit.Name = name
+		}
+		return setStationIdentity(out, path, edit)
 	case "password":
 		return setAdminPassword(in, out, path)
 	case "recovery-code":
 		return mintRecoveryCode(out, path)
 	}
 	fs.Usage()
-	return fmt.Errorf("action inconnue %q : validate, export, fingerprint, migrate, password "+
-		"ou recovery-code", action)
+	return fmt.Errorf("action inconnue %q : validate, export, fingerprint, migrate, station, "+
+		"password ou recovery-code", action)
 }
 
 const configUsage = `Usage : openscale config <action> [fichier] [options]
@@ -109,6 +133,7 @@ Actions :
   export          écrit la configuration à cloner vers les autres postes
   fingerprint     affiche l'empreinte de 8 caractères des réglages partagés
   migrate         remet le fichier à la forme que ce binaire lit, et dit ce qu'il change
+  station         pose l'identité du poste et l'état de la balance
   password        pose le mot de passe d'administration, lu sur l'entrée standard
   recovery-code   tire le code de secours de 8 caractères et l'affiche UNE fois
 
@@ -118,13 +143,28 @@ Options d'export :
                         c'est ce qu'un poste cloné ne doit pas hériter
   --output <fichier>    écrire dans un fichier plutôt que sur la sortie standard
 
-Le mot de passe d'administration ne sort JAMAIS, avec ou sans --hardware.
+Options de station (au moins une, sinon la commande ne change rien) :
+  --number <n>          le numéro de ce poste dans la coopérative. C'est de lui que
+                        dérive le nom du fichier de catalogue surveillé, flv_<n>.csv
+  --name <texte>        le nom que lisent les bénévoles, « Poste 2 — fruits »
+  --no-scale            déclarer que ce poste n'a PAS de balance : c'est l'état d'un
+                        poste neuf, dont la balance n'est pas encore branchée ni
+                        détectée. Elle se remet en service depuis l'écran
+                        d'administration, page « Matériel » : « Détecter
+                        automatiquement », puis « Utiliser cette balance » sur le
+                        port qui a répondu
+
+AUCUNE option ne prend de secret, ici ni ailleurs : un argument de ligne de commande se
+lit dans la liste des processus, par n'importe quel utilisateur de la machine. Le mot de
+passe d'administration se pose donc par « password », qui le lit sur l'entrée standard.
+Il ne sort JAMAIS d'un export, avec ou sans --hardware.
+
 Importer une configuration se fait depuis l'écran d'administration : l'aperçu du diff
 champ par champ et la confirmation de 60 secondes en font partie.
 
-migrate, password et recovery-code écrivent le FICHIER, que le poste ne relit qu'au
-démarrage : arrêtez le service, lancez la commande, redémarrez-le. Le terminal affiche ce
-qui est tapé — c'est une console de poste, pas un poste de travail partagé.
+migrate, station, password et recovery-code écrivent le FICHIER, que le poste ne relit
+qu'au démarrage : arrêtez le service, lancez la commande, redémarrez-le. Le terminal
+affiche ce qui est tapé — c'est une console de poste, pas un poste de travail partagé.
 `
 
 // refuseWhatWasNotRead stops an action that would ANSWER ABOUT a file this binary did not

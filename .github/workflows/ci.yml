@@ -250,7 +250,7 @@ jobs:
           CGO_ENABLED: "0"
         run: >
           go test ./deploy/ -count=1 -v
-          -run 'TestEveryPowerShellScript|TestTheBackupAndTheRestoreWorkOnAThrowawayDirectory'
+          -run 'TestEveryPowerShellScript|TestTheBackupAndTheRestoreWorkOnAThrowawayDirectory|TestTheFourthDoorCountsCodePointsLikeTheOtherThree|TestTheSecretPipeCarriesTheBytesTheBinaryWillRead|TestNobodyIsAskedWhenNobodyIsThere'
 
   build:
     name: Compilation croisée, zéro cgo

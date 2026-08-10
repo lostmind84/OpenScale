@@ -21,6 +21,10 @@ import { nominalHealth, nominalState } from './fixtures/health'
  *    port où il y avait quelque chose à trouver ;
  *  - « Détecter automatiquement » annonce où il en est et ne se laisse pas relancer ;
  *  - un port qui REFUSE laisse une ligne, au lieu d'être avalé en silence ;
+ *  - un port RECONNU offre le geste qui met cette balance en service, et un port muet
+ *    n'offre rien : la détection sait quel protocole a répondu, et le faire retaper de
+ *    mémoire laissait en configuration d'usine un poste dont la balance venait d'être
+ *    trouvée ;
  *  - les actes PROTÉGÉS — détection, recherche d'imprimante, auto-tests — demandent le mot
  *    de passe et sont rejoués, au lieu de laisser un bandeau sans porte ;
  *  - `printer.health` n'atteint jamais l'écran en anglais ;
@@ -74,8 +78,25 @@ let capturedPorts: string[] = []
 /** Combien de captures sont en vol, et combien l'étaient quand une détection est partie. */
 let capturesInFlight = 0
 let capturesDuringDetect = 0
+/**
+ * Ce qu'un port répond à la détection : le rapport du service, ou le refus qu'il oppose.
+ *
+ * `driver` et `frames` ne sont là QUE lorsque les parseurs ont reconnu quelque chose —
+ * c'est ce que `cmd/openscale/detect.go` met dans le rapport, et un port qui a parlé sans
+ * être compris n'en porte aucun des deux. Un banc qui nommerait un driver sur tous les
+ * ports ne verrait plus la seule différence qui compte à l'écran.
+ */
+interface Answer {
+  status: number
+  message: string
+  /** Le driver qui a reconnu ce qui sortait du câble, tel que `scale.type` l'attend. */
+  driver?: string
+  /** Combien de trames valides la fenêtre de détection a comptées. */
+  frames?: number
+}
+
 /** Ce que chaque port répond à la détection, ou le refus qu'il oppose. */
-let answers = new Map<string, { status: number; message: string }>()
+let answers = new Map<string, Answer>()
 /** Vrai quand le service exige une session : tout acte protégé prend un 401. */
 let guarded = false
 /** Les appels mis en attente, quand un test veut regarder pendant qu'ils sont en vol. */
@@ -170,13 +191,14 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     capturesDuringDetect = Math.max(capturesDuringDetect, capturesInFlight)
     if (guarded) return refusal(401, 'Cette adresse demande une session ouverte.')
     if (holding) await new Promise<void>((resolve) => held.push(resolve))
-    const answer = answers.get(body.port ?? '') ?? { status: 200, message: 'aucune trame.' }
+    const answer: Answer = answers.get(body.port ?? '') ?? { status: 200, message: 'aucune trame.' }
     if (answer.status !== 200) return refusal(answer.status, answer.message)
+    const valid = answer.frames ?? 0
     return json({
       port: body.port ?? '',
-      driver: 'gram_xfoc',
-      valid_frames_count: 12,
-      frames: [FRAME],
+      driver: answer.driver ?? '',
+      valid_frames_count: valid,
+      frames: valid > 0 ? [FRAME] : [],
       message: answer.message,
     })
   }
@@ -501,6 +523,123 @@ describe('« Détecter automatiquement »', () => {
     await admin.answerPassword('openscale')
     await waitFor(() => host.querySelectorAll('[data-verdict]').length === 1)
     expect(text()).toContain('COM8 : 12 trame(s) valide(s)')
+  })
+})
+
+/**
+ * Ce que « Détecter automatiquement » laissait faire À LA MAIN.
+ *
+ * Sur un poste neuf, l'installation écrit `scale.present = false` et `scale.type = ""` —
+ * la seule forme qui n'oppose pas « scale.options.port : option exigée par le driver » à
+ * un poste qui n'a encore rien de branché. Remettre la balance en service demandait alors
+ * trois gestes dont deux sont cachés : décocher la case, déplier les réglages série et
+ * retaper le protocole DE MÉMOIRE. Or le rapport de détection NOMME ce protocole.
+ */
+describe('remettre en service une balance que la détection vient de reconnaître', () => {
+  /** Ce qu'un port sur lequel une balance parle rend au balayage. */
+  const RECOGNISED: Answer = {
+    status: 200,
+    message: 'COM8 : 12 trame(s) valide(s) en 3s — GRAM XFOC +, GRAM XFOC RS.',
+    driver: 'gram-xfoc-plus',
+    frames: 12,
+  }
+  /** Ce que rend un port où rien ne répond : une phrase, et aucun protocole. */
+  const MUTE: Answer = {
+    status: 200,
+    message: 'COM1 : aucun octet reçu en 3s. La balance est-elle allumée ?',
+  }
+
+  /**
+   * Joue un banc sur un poste tel que l'installation le laisse, puis rend la configuration
+   * du fichier : les autres bancs de ce fichier partent d'un poste dont la balance est
+   * déjà déclarée.
+   *
+   * @param banc - ce qu'il y a à observer, la page montée et le balayage passé.
+   */
+  async function fromFactory(banc: () => Promise<void> | void): Promise<void> {
+    const declared = CONFIG.scale
+    CONFIG.scale = { type: '', present: false, options: { port: '', baud_rate: 9600 } }
+    try {
+      ports = [
+        { name: 'COM1', description: '', vid: '', pid: '' },
+        { name: 'COM8', description: 'USB-Serial CH340', vid: '1A86', pid: '7523' },
+      ]
+      answers.set('COM1', MUTE)
+      answers.set('COM8', RECOGNISED)
+      await open()
+      button('Détecter automatiquement').click()
+      await waitFor(() => host.querySelectorAll('[data-verdict]').length === 2)
+      await banc()
+    } finally {
+      CONFIG.scale = declared
+    }
+  }
+
+  /** Le geste que la ligne de ce port porte, ou null quand elle n'en porte aucun. */
+  function gestureOn(port: string): HTMLButtonElement | null {
+    const row = [...host.querySelectorAll('[data-verdict]')].find(
+      (candidate) => (candidate.querySelector('.what')?.textContent ?? '').trim() === port,
+    )
+    if (row === undefined) throw new Error(`aucun verdict pour ${port} à l'écran`)
+    return row.querySelector('button')
+  }
+
+  /** La case « Ce poste n’a pas de balance », telle qu'elle est cochée à l'instant. */
+  function declaredWithoutScale(): boolean {
+    return host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked ?? false
+  }
+
+  it('offre le geste sur le port RECONNU, et sur aucun autre', async () => {
+    await fromFactory(() => {
+      const offered = gestureOn('COM8')
+      expect(offered, 'le port où la balance a répondu n’offre aucun geste').not.toBeNull()
+      expect((offered?.textContent ?? '').replace(/\s+/gu, ' ')).toContain('Utiliser cette balance')
+
+      // Un bouton inerte sur un port muet est pire que pas de bouton : il fait chercher
+      // ce qui s'est cassé, là où l'absence dit que ce port n'a pas de balance.
+      expect(gestureOn('COM1'), 'un port muet propose un geste qui ne peut rien régler').toBeNull()
+    })
+  })
+
+  it('écrit les TROIS champs dans le brouillon, et rien ne part vers le poste', async () => {
+    await fromFactory(async () => {
+      gestureOn('COM8')?.click()
+      await settle()
+
+      expect(draft.flag('scale.present'), 'le poste se déclare toujours sans balance').toBe(true)
+      // Le protocole que les TRAMES ont nommé, jamais la première entrée d'un registre.
+      expect(draft.text('scale.type')).toBe('gram-xfoc-plus')
+      expect(draft.text('scale.options.port')).toBe('COM8')
+      // « Enregistrer » reste le seul geste de cette page qui parte vers le poste.
+      expect(calls.filter((line) => line.startsWith('PUT'))).toEqual([])
+    })
+  })
+
+  it('décoche « Ce poste n’a pas de balance »', async () => {
+    await fromFactory(async () => {
+      expect(declaredWithoutScale(), 'le poste d’usine ne se déclarait pas sans balance').toBe(true)
+
+      gestureOn('COM8')?.click()
+      await settle()
+
+      expect(
+        declaredWithoutScale(),
+        'la case reste cochée sur un poste dont la balance vient d’être mise en service',
+      ).toBe(false)
+    })
+  })
+
+  it('reste désarmé tant que la configuration n’est pas lue', async () => {
+    // `draft.set` jette EN SILENCE ce qu'on écrit dans un document qui n'est pas encore
+    // là : le geste laisserait croire qu'il a réglé le poste, et il n'aurait rien réglé.
+    ports = [{ name: 'COM8', description: 'USB-Serial CH340', vid: '1A86', pid: '7523' }]
+    answers.set('COM8', RECOGNISED)
+    await open(nominalHealth(), false)
+
+    button('Détecter automatiquement').click()
+    await waitFor(() => host.querySelectorAll('[data-verdict]').length === 1)
+
+    expect(gestureOn('COM8')?.disabled).toBe(true)
   })
 })
 

@@ -5,6 +5,7 @@
   import ImportFaults from '../components/ImportFaults.svelte'
   import Maintenance from '../components/Maintenance.svelte'
   import Panel from '../components/Panel.svelte'
+  import Toggle from '../components/Toggle.svelte'
   import * as api from '../lib/api'
   import { comparisonOf, frenchList, strippedBlocks } from '../lib/clone'
   import { handToBrowser, readExport, submitCandidate } from '../lib/config-file'
@@ -352,7 +353,7 @@
 <div class="pages">
   <Panel title="Identité du poste">
     <!--
-      The three fields carry their own refusal: the 47 controls of §11.3 name a KEY, and a
+      The five fields carry their own refusal: the 47 controls of §11.3 name a KEY, and a
       page that shows only the global banner leaves somebody hunting for which one.
     -->
     <Field
@@ -381,6 +382,32 @@
       fault={faultOf(draft, 'station.coop')}
       allowed={allowedFor(draft, 'station.coop')}
       onchange={(value) => draft.set('station.coop', value)}
+    />
+    <!--
+      The two network keys, and they sit TOGETHER on purpose: an address open to the whole
+      network behind an administration still shut onto the loopback is the half-block the
+      station's own fallback profile refuses to borrow, because it is harder to diagnose
+      than either key being wrong on its own.
+
+      They belong to identity rather than to a network panel of their own: what a station
+      answers on designates THAT machine, exactly like its number and its name — which is
+      also why an imported file never carries them over.
+    -->
+    <Field
+      label="Adresse d’écoute"
+      path="network.listen"
+      value={draft.text('network.listen')}
+      fault={faultOf(draft, 'network.listen')}
+      allowed={allowedFor(draft, 'network.listen')}
+      hint="Un hôte et un port, par exemple 127.0.0.1:8085. Enregistrer déplace l’écoute sur-le-champ et laisse 60 secondes pour confirmer : sans confirmation, le poste revient tout seul à l’adresse précédente."
+      onchange={(value) => draft.set('network.listen', value)}
+    />
+    <Toggle
+      path="network.admin_on_lan"
+      label="Administration accessible depuis le réseau"
+      hint="Décoché, ces pages ne répondent que depuis ce poste-ci. Une adresse ouverte au réseau sans cet interrupteur laisse l’administration injoignable d’ailleurs."
+      on={draft.flag('network.admin_on_lan')}
+      onchange={(on) => draft.set('network.admin_on_lan', on)}
     />
     <dl class="identity">
       <dt>Empreinte de la configuration en service</dt>
@@ -448,7 +475,8 @@
     <p class="fact muted">
       L’export emporte encore l’empreinte du mot de passe : c’est la seule lecture que le
       poste garde derrière la clé. L’import, lui, est lu PAR LE POSTE, qui écarte les deux
-      secrets et le numéro de poste avant de dire ce qui changerait.
+      secrets, le numéro de poste et le réseau avant de dire ce qui changerait : un fichier
+      apporté ne déplace jamais l’adresse d’écoute de ce poste-ci.
     </p>
 
     {#if servedError !== ''}
@@ -490,7 +518,7 @@
           <p class="fact warned" data-stripped>
             Ce fichier ne porte pas {frenchList(stripped.map((block) => block.name))} :
             l’export sans le matériel les retire, et l’import ne remet que le numéro du
-            poste. Les lignes correspondantes sont VIDES ci-dessus, et
+            poste et le réseau. Les lignes correspondantes sont VIDES ci-dessus, et
             « Recopier » recopie ce vide dans le brouillon.
           </p>
         {/if}

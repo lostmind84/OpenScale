@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Station from '../src/admin/pages/Station.svelte'
+import { strippedBlocks } from '../src/admin/lib/clone'
 import type { ConfigVersionDTO, FaultDTO } from '../src/admin/lib/dto'
 import { Draft } from '../src/admin/lib/draft.svelte'
 import { Admin } from '../src/admin/lib/session.svelte'
@@ -183,9 +184,13 @@ function exportWithoutTheSecret(): Record<string, unknown> {
 /**
  * Un export « sans le matériel », tel que le poste le REND après l'avoir relu.
  *
- * `Config.Export(false)` vide sept choses et `importConfig` n'en rétablit qu'une, le
- * numéro : le nom du poste revient à vide, le réseau à vide, le chemin des images à vide,
- * et les trois cartes d'options perdent ce qui désigne CE poste — compte WebDAV compris.
+ * `Config.Export(false)` vide sept choses et `importConfig` en rétablit DEUX, le numéro
+ * et le réseau : le nom du poste revient à vide, le chemin des images à vide, et les trois
+ * cartes d'options perdent ce qui désigne CE poste — compte WebDAV compris.
+ *
+ * Le bloc réseau porte donc ici l'adresse DU POSTE QUI LIT, et non le vide du fichier :
+ * c'est ce que le poste répond, et un banc qui garderait le vide éprouverait un écran que
+ * personne ne verra jamais.
  *
  * La fiction ci-dessous met les trois cartes à `null`, ce qui est le cas EXTRÊME et non
  * le cas courant : c'est le seul qui déclenche l'avertissement « ce fichier ne porte pas
@@ -195,7 +200,7 @@ function hardwareFreeExport(): Record<string, unknown> {
   return {
     modified_at: FILE_STAMP,
     station: { number: 2, name: '', coop: 'La Cagette' },
-    network: { listen: '', admin_on_lan: false },
+    network: { listen: '127.0.0.1:8080', admin_on_lan: false },
     // Les cartes d'options ne sont PLUS nulles : l'export garde ce que les quatre postes
     // partagent — le débit, le décalage, le séparateur — et ne retire que les clés qui
     // désignent un poste ou un site. C'est ce qui a fait taire l'avertissement le jour
@@ -600,7 +605,6 @@ describe('ce que l’export sans le matériel ne porte pas', () => {
     expect(warning).not.toBeNull()
     const said = collapse(warning?.textContent ?? '')
     expect(said).toContain('le nom du poste')
-    expect(said).toContain("l'adresse d'écoute")
     expect(said).toContain('le port de la balance')
     expect(said).toContain("la file d'impression")
     expect(said).toContain('le chemin des images')
@@ -610,6 +614,10 @@ describe('ce que l’export sans le matériel ne porte pas', () => {
     // le poste dont l'adresse de partage venait de disparaître.
     expect(said).toContain("l'adresse du partage")
     expect(said).toContain('le compte du partage')
+    // Et PAS l'adresse d'écoute, qui a cessé d'être un vide à recopier : le poste remet
+    // la sienne, comme il remet son numéro. La nommer ici enverrait un bénévole chercher
+    // un champ à remplir alors que rien n'a été perdu.
+    expect(said).not.toContain("l'adresse d'écoute")
   })
 
   it('promet exactement ce que §11.5 retire, et nomme ce qui voyage', async () => {
@@ -641,6 +649,26 @@ describe('ce que l’export sans le matériel ne porte pas', () => {
     ]) {
       expect(promise, `la note ne dit pas que « ${carried} » voyage`).toContain(carried)
     }
+  })
+})
+
+describe('l’adresse d’écoute n’est plus un vide que « Recopier » peut recopier', () => {
+  it('ne l’annonce pas manquante, même sur un document qui ne la porte pas', () => {
+    // Le cas le plus défavorable : un document dont le bloc réseau est réellement vide,
+    // tel que `Config.Export(false)` l'écrit sur le disque.
+    const stripped = strippedBlocks(configWithPort('COM8'), {
+      station: { number: 2, name: '', coop: 'La Cagette' },
+      network: { listen: '', admin_on_lan: false },
+    })
+
+    // L'avertissement existe pour dire ce que « Recopier » recopierait de VIDE. Le poste
+    // reprend désormais son propre bloc réseau à l'import, exactement comme son numéro :
+    // ce vide-là n'atteint jamais le brouillon, et l'annoncer serait une inquiétude sans
+    // objet — juste au moment où l'écran gagne enfin un champ pour cette adresse.
+    expect(stripped.map((block) => block.name)).not.toContain('l’adresse d’écoute')
+    // Les autres vides, eux, restent nommés : ce banc ne doit pas passer au vert en
+    // éteignant l'avertissement entier.
+    expect(stripped.map((block) => block.name)).toContain('le nom du poste')
   })
 })
 
@@ -706,6 +734,86 @@ describe('un export remis au navigateur n’est pas un export enregistré', () =
     expect(revokedAtHandover).toEqual([0])
     // Et elle finit par être libérée : ce n'est pas une fuite non plus.
     expect(revoked).toHaveLength(1)
+  })
+})
+
+describe('l’adresse d’écoute a enfin un domicile', () => {
+  /** Le panneau qui porte le numéro du poste : c'est là que le réseau doit se régler. */
+  function identityPanel(): HTMLElement {
+    const found = [...host.querySelectorAll<HTMLElement>('section')].find(
+      (section) => section.querySelector('#field-station-number') !== null,
+    )
+    if (found === undefined) throw new Error('aucun panneau d’identité sur cette page')
+    return found
+  }
+
+  it('offre les deux champs du bloc réseau, à côté du numéro du poste', async () => {
+    await open()
+
+    // Sans ces deux champs, une configuration livrée — qui ne porte pas d'adresse — ne
+    // pouvait plus être enregistrée du tout : le poste valide le document ENTIER à chaque
+    // enregistrement, et une faute sans champ verrouille les neuf pages à la fois.
+    const panel = identityPanel()
+    const listen = panel.querySelector<HTMLInputElement>('#field-network-listen')
+    expect(listen, 'aucun champ pour l’adresse d’écoute').not.toBeNull()
+    expect(listen?.value).toBe('127.0.0.1:8080')
+
+    // Les DEUX ensemble : une adresse ouverte au réseau derrière une administration qui
+    // ne l'est pas est le demi-bloc que le repli du poste refuse d'emprunter.
+    const onLan = panel.querySelector<HTMLInputElement>(
+      '[data-flag="network.admin_on_lan"] input',
+    )
+    expect(onLan, 'aucun interrupteur pour l’administration depuis le réseau').not.toBeNull()
+    expect(onLan?.checked).toBe(false)
+  })
+
+  it('écrit dans le brouillon, et n’applique rien', async () => {
+    const { draft } = await open()
+
+    const listen = identityPanel().querySelector<HTMLInputElement>('#field-network-listen')
+    if (listen === null) throw new Error('aucun champ pour l’adresse d’écoute')
+    listen.value = '0.0.0.0:8085'
+    listen.dispatchEvent(new Event('input', { bubbles: true }))
+    flushSync()
+
+    const onLan = identityPanel().querySelector<HTMLInputElement>(
+      '[data-flag="network.admin_on_lan"] input',
+    )
+    if (onLan === null) throw new Error('aucun interrupteur')
+    onLan.click()
+    flushSync()
+
+    expect(draft.value('network.listen')).toBe('0.0.0.0:8085')
+    expect(draft.value('network.admin_on_lan')).toBe(true)
+    // Rien n'est parti : c'est la barre d'enregistrement, ailleurs, qui applique.
+    expect(calls.some((call) => call.method === 'PUT')).toBe(false)
+  })
+
+  it('dit ce qu’« Enregistrer » fera de cette adresse, avant qu’on y touche', async () => {
+    await open()
+
+    // La mécanique de déplacement à chaud est livrée et le champ était seul à manquer :
+    // ce que l'écran doit encore dire, c'est qu'un enregistrement déplace l'écoute
+    // sur-le-champ, et ce qui se passe si personne ne confirme.
+    const said = pageText()
+    expect(said).toContain('60 secondes')
+    expect(said).toContain("revient tout seul à l'adresse précédente")
+  })
+
+  it('allume la faute qui nomme l’adresse d’écoute', async () => {
+    const { draft } = await open()
+
+    draft.faults = [
+      {
+        field: 'network.listen',
+        message: 'Cette adresse ne peut pas être écoutée.',
+        allowed: ['127.0.0.1:8085', '0.0.0.0:8085'],
+      },
+    ]
+    flushSync()
+
+    expect(pageText()).toContain('Cette adresse ne peut pas être écoutée.')
+    expect(pageText()).toContain('Valeurs acceptées : 127.0.0.1:8085, 0.0.0.0:8085.')
   })
 })
 

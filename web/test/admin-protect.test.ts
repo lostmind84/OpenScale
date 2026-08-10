@@ -1,6 +1,11 @@
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AdminError, CODE_NO_PASSWORD } from '../src/admin/lib/api'
+import { AdminError, CODE_NO_PASSWORD, MIN_PASSWORD_LENGTH } from '../src/admin/lib/api'
 import { Admin } from '../src/admin/lib/session.svelte'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
 
 /**
  * Le mot de passe est-il demandé à l'ACTE, et l'acte se rejoue-t-il ?
@@ -156,5 +161,21 @@ describe('un acte protégé demande le mot de passe, puis se rejoue', () => {
     expect(done).toBeNull()
     expect(admin.pending).toBeNull()
     expect(admin.actionError).toBe('Cette configuration ne peut pas être appliquée.')
+  })
+
+  it('annonce le plancher du mot de passe que le poste applique, sans le recopier de tête', () => {
+    // Le plancher vit dans `internal/web/argon2id.go` — c'est le 422 de la route de secours
+    // qui refuse, et « openscale config password » qui refuse pareil. L'écran n'en est qu'un
+    // miroir : il n'a pas de route à interroger, puisqu'il s'ouvre sur un poste sans mot de
+    // passe, donc il porte une COPIE — et une copie sans rien qui la relie à l'original est
+    // ce qui arme un bouton dont la seule réponse possible est un refus.
+    //
+    // Lire le Go depuis un banc du front est le geste qu'emploie déjà `admin-catalog` pour
+    // les bornes de la grille.
+    const argon2idGo = readFileSync(resolve(HERE, '../../internal/web/argon2id.go'), 'utf8')
+    const declared = /\bMinPasswordLength\s*=\s*(\d+)/u.exec(argon2idGo)
+    if (declared === null) throw new Error('MinPasswordLength introuvable dans argon2id.go')
+
+    expect(MIN_PASSWORD_LENGTH).toBe(Number(declared[1]))
   })
 })

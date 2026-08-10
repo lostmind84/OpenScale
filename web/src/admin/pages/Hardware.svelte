@@ -91,10 +91,21 @@
    */
   type ActName = '' | 'ports' | 'printers' | 'discover' | 'detect' | 'listen' | SelfTest
 
-  /** Ce qu'un port a répondu au balayage — y compris quand il a REFUSÉ de s'ouvrir. */
+  /**
+   * Ce qu'un port a répondu au balayage — y compris quand il a REFUSÉ de s'ouvrir.
+   *
+   * Le rapport est gardé au-delà de sa phrase. Ce qu'il porte d'autre est ce qui permet
+   * d'AGIR : le protocole que les trames ont nommé est exactement la valeur que
+   * `scale.type` attend, et n'en garder que le message ne laissait à l'écran qu'une bonne
+   * nouvelle sur laquelle on ne pouvait rien faire.
+   */
   interface Verdict {
     port: string
     message: string
+    /** Le driver qui a reconnu ce qui sortait du câble, ou une chaîne vide. */
+    driver: string
+    /** Combien de trames valides la fenêtre de détection a comptées. */
+    validFrames: number
     refused: boolean
   }
 
@@ -473,15 +484,65 @@
       scanned = index + 1
       try {
         const report: DetectionDTO = await api.detectScale(candidate.name)
-        verdicts = [...verdicts, { port: candidate.name, message: report.message, refused: false }]
+        verdicts = [
+          ...verdicts,
+          {
+            port: candidate.name,
+            message: report.message,
+            driver: report.driver,
+            validFrames: report.valid_frames_count,
+            refused: false,
+          },
+        ]
       } catch (failure) {
         if (isCredentialRefusal(failure)) throw failure
         verdicts = [
           ...verdicts,
-          { port: candidate.name, message: sentenceOf(failure), refused: true },
+          {
+            port: candidate.name,
+            message: sentenceOf(failure),
+            driver: '',
+            validFrames: 0,
+            refused: true,
+          },
         ]
       }
     }
+  }
+
+  /**
+   * Ce port a-t-il fait reconnaître une balance ?
+   *
+   * Les deux témoins, et pas un seul : le rapport ne nomme un driver que lorsque des
+   * trames l'ont désigné (`cmd/openscale/detect.go`), et un port qui a refusé de s'ouvrir
+   * n'en porte aucun des deux. Mettre en service un protocole que rien sur le câble n'a
+   * confirmé est exactement ce qu'un balayage sert à éviter.
+   *
+   * @param verdict - le verdict d'un port.
+   */
+  function recognised(verdict: Verdict): boolean {
+    return verdict.driver !== '' && verdict.validFrames > 0
+  }
+
+  /**
+   * Met en service la balance qu'un port vient de faire reconnaître.
+   *
+   * La détection SAIT quel protocole a répondu — le driver retenu est celui qui a reconnu
+   * ce qui sortait du câble, jamais la première entrée d'un registre — et la page n'en
+   * gardait que la phrase. Il restait alors trois gestes à faire de tête, dont deux sont
+   * cachés : décocher « ce poste n'a pas de balance », déplier les réglages série et y
+   * retaper ce protocole DE MÉMOIRE. C'était la seule raison pour laquelle un poste dont
+   * la balance venait d'être détectée restait en configuration d'usine.
+   *
+   * Elle écrit dans le BROUILLON et n'applique rien : « Enregistrer » reste le seul geste
+   * de cette page qui parte vers le poste.
+   *
+   * @param verdict - le verdict du port reconnu.
+   */
+  function useScale(verdict: Verdict): void {
+    draft.set('scale.present', true)
+    draft.set('scale.type', verdict.driver)
+    draft.set('scale.options.port', verdict.port)
   }
 
   /**
@@ -632,6 +693,22 @@
           <li data-verdict class:refused={verdict.refused}>
             <span class="what">{verdict.port}</span>
             <span class="detail">{verdict.message}</span>
+            <!--
+              Offert au SEUL port reconnu. Un geste inerte sous un port muet ferait
+              chercher ce qui s'est cassé, là où son absence dit que ce port-là n'a pas de
+              balance. Désarmé tant que la configuration n'est pas arrivée, comme les
+              champs des volets : `draft.set` jette en silence dans un document absent.
+            -->
+            {#if recognised(verdict)}
+              <button
+                type="button"
+                class="pick use"
+                disabled={!configRead}
+                onclick={() => useScale(verdict)}
+              >
+                Utiliser cette balance
+              </button>
+            {/if}
           </li>
         {/each}
       </ul>
@@ -928,7 +1005,9 @@
 
   /* Ce qu'une souris attend, et qu'un doigt n'a jamais demandé (app.css). */
   @media (hover: hover) {
-    .pick:hover,
+    /* `:not(:disabled)` comme dans `app.css` : une commande désarmée qui s'éclaire sous la
+       souris se lit comme une commande qu'un clic ferait marcher. */
+    .pick:hover:not(:disabled),
     summary:hover {
       background: var(--bg);
     }
@@ -966,6 +1045,23 @@
     text-decoration: underline;
     border-radius: var(--radius-sm);
     transition: background-color var(--tap) var(--ease);
+  }
+
+  /*
+   * Le geste qui met une balance reconnue en service : il écrit dans le brouillon comme
+   * les noms de port juste au-dessus, mais il porte une PHRASE et non une valeur — le
+   * soulignement qui fait lire « COM8 » comme une chose à choisir ferait lire celle-ci
+   * comme un lien.
+   */
+  .use {
+    text-decoration: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+
+  .use:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .what {

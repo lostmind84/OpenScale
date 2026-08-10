@@ -73,18 +73,66 @@ func InstallService(spec ServiceSpec) error {
 	return setRecovery(created, spec)
 }
 
+// recoveryTarget is what setRecovery writes to: the two SCM settings that make up the
+// automatic restarts, and nothing else of a service.
+//
+// *mgr.Service satisfies it. It is an interface because the two settings only work as a
+// pair — the second is what makes the first cover the button of the administration screen
+// — and a bench that could not see BOTH leave together would not be guarding anything.
+type recoveryTarget interface {
+	SetRecoveryActions(actions []mgr.RecoveryAction, resetSeconds uint32) error
+	SetRecoveryActionsOnNonCrashFailures(flag bool) error
+}
+
+// recoveryPlan is everything the SCM is told about a station that fell over.
+type recoveryPlan struct {
+	// Actions are the successive restarts, in the order they are attempted.
+	Actions []mgr.RecoveryAction
+	// ResetSeconds is how long the station has to stay up for the count to start over,
+	// in the seconds SetRecoveryActions takes.
+	ResetSeconds uint32
+	// OnNonCrashFailures extends the actions to a stop the station SIGNALLED with a
+	// non-zero code. setRecovery says what hangs on it.
+	OnNonCrashFailures bool
+}
+
+// recoveryPlanFor turns a specification into what will be said to the SCM.
+//
+// It is pure, and separate, because *mgr.Service wraps a Windows handle nobody can hold
+// without registering a service on the machine running the suite: the decisions are taken
+// here, where a bench reads them, and the syscalls stay downstream.
+func recoveryPlanFor(spec ServiceSpec) recoveryPlan {
+	plan := recoveryPlan{
+		ResetSeconds:       uint32(spec.RecoveryReset / time.Second),
+		OnNonCrashFailures: true,
+	}
+	for _, delay := range spec.RecoveryDelays {
+		plan.Actions = append(plan.Actions, mgr.RecoveryAction{Type: mgr.ServiceRestart, Delay: delay})
+	}
+	return plan
+}
+
 // setRecovery applies the automatic restarts of §15.2 — what `sc failure` writes.
-func setRecovery(service *mgr.Service, spec ServiceSpec) error {
-	if len(spec.RecoveryDelays) == 0 {
+//
+// IT SAYS TWO THINGS, AND THE SECOND IS WHAT MAKES THE FIRST COVER THE BUTTON « Redémarrer
+// le poste ». Windows defaults the failure-actions flag to FALSE, and false means the SCM
+// performs the recovery actions only for a service that terminated WITHOUT reporting
+// SERVICE_STOPPED — a crash, a process killed. A restart asked for from the administration
+// screen is not that: the station takes the ordered shutdown of §13.4, the handler reports
+// SERVICE_STOPPED with a non-zero exit code, and the SCM files that as a stop nobody
+// undoes. Without the flag, the three delays cover crashes and nothing else: the station
+// stays down, and the screen probes an address that will never answer again.
+func setRecovery(target recoveryTarget, spec ServiceSpec) error {
+	plan := recoveryPlanFor(spec)
+	if len(plan.Actions) == 0 {
 		return nil
 	}
-	actions := make([]mgr.RecoveryAction, 0, len(spec.RecoveryDelays))
-	for _, delay := range spec.RecoveryDelays {
-		actions = append(actions, mgr.RecoveryAction{Type: mgr.ServiceRestart, Delay: delay})
-	}
-	reset := uint32(spec.RecoveryReset / time.Second)
-	if err := service.SetRecoveryActions(actions, reset); err != nil {
+	if err := target.SetRecoveryActions(plan.Actions, plan.ResetSeconds); err != nil {
 		return fmt.Errorf("les actions de reprise du service %s n'ont pas pu être posées : %w", spec.Name, err)
+	}
+	if err := target.SetRecoveryActionsOnNonCrashFailures(plan.OnNonCrashFailures); err != nil {
+		return fmt.Errorf("les actions de reprise du service %s n'ont pas pu être étendues aux arrêts "+
+			"demandés : %w", spec.Name, err)
 	}
 	return nil
 }

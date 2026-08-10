@@ -59,14 +59,29 @@ $script:AutoStartDelaySeconds = 20
 
 # Le plancher d'un mot de passe posé à la main sur le compte Windows du poste.
 #
-# QUATRE, et DÉLIBÉRÉMENT plus bas que les 8 caractères qu'« openscale config password »
-# tient pour le mot de passe d'administration (§14.4). Les deux protègent des choses
-# différentes : celui-là garde le droit de CHANGER le poste, celui-ci ouvre une session
-# Windows SANS AUCUN DROIT, sur une machine en libre-service dans un magasin, dont l'accès
-# physique vaut déjà l'accès administrateur (§15.2, et l'écart assumé de install.ps1
-# étape 3). Le rendre difficile ne protège rien et rend le poste inaccessible le samedi.
+# QUATRE, parce que ce mot de passe n'ouvre qu'une SESSION WINDOWS SANS AUCUN DROIT, sur
+# une machine en libre-service dans un magasin, dont l'accès physique vaut déjà l'accès
+# administrateur (§15.2, et l'écart assumé de install.ps1 étape 3). Il ne garde rien
+# d'autre : ce compte ne peut ni installer, ni lire la base, ni ouvrir l'administration.
+# Le rendre difficile ne protège donc rien, et rend le poste inaccessible le samedi où
+# quelqu'un a fermé la session et où la fiche est restée au classeur.
+#
 # C'est le plancher d'un mot de passe CHOISI ; le tirage automatique en fait toujours 20.
 $script:MinimumPasswordLength = 4
+
+# Le plancher du mot de passe d'ADMINISTRATION, celui qui donne le droit de changer le
+# poste (§14.4).
+#
+# CE CHIFFRE N'EST PAS D'ICI : l'autorité est web.MinPasswordLength, dans
+# internal/web/argon2id.go, que l'écran de secours et « openscale config password »
+# appliquent tous les deux. Il est recopié parce que PowerShell ne sait pas lire une
+# constante Go, et le banc TestTheInstallerAppliesTheAdministrationFloorTheBinaryHolds
+# tient les deux ensemble : le jour où le propriétaire du produit déplace le plancher, le
+# banc devient rouge ici plutôt que la question de l'installeur ne devienne fausse.
+#
+# Il sert à refuser AVANT la confirmation plutôt qu'après : le binaire refuse la même
+# chose, mais trois lignes plus loin, une fois le mot de passe tapé deux fois.
+$script:MinimumAdminPasswordLength = 4
 
 # La suspension USB sélective : le GUID du sous-groupe « Paramètres USB » et celui du
 # réglage lui-même. Ils sont RECOPIÉS de docs/02-architecture.md §15.2 — on ne devine pas
@@ -120,26 +135,52 @@ function Assert-Success {
 function Set-NativeOutputEncoding {
   <#
   .SYNOPSIS
-    Fait lire à PowerShell la sortie des exécutables natifs en UTF-8.
+    Met les DEUX SENS du tube avec un exécutable natif en UTF-8 sans marque.
   .DESCRIPTION
-    PowerShell 5.1 décode ce qu'écrit un exécutable natif avec la page de codes de la
-    CONSOLE — 850 sur un Windows français — alors qu'openscale.exe écrit de l'UTF-8. Sans
-    cet appel, « compilé » revient « compil├® » : les octets C3 A9 lus en CP850.
+    Deux réglages, deux sens, et deux pannes différentes. Ils sont ensemble parce qu'ils
+    répondent à la même question — « en quels octets openscale.exe et PowerShell se
+    parlent-ils ? » — et qu'en séparer un le ferait oublier.
 
-    Ce serait sans importance si ce texte restait à l'écran. Mais $version part dans le
-    journal d'installation ET sur la FICHE qu'on imprime et qu'on range dans le classeur du
-    magasin, à la ligne « Version installée ».
+    CE QU'ON LIT — [Console]::OutputEncoding. PowerShell 5.1 décode ce qu'écrit un
+    exécutable natif avec la page de codes de la CONSOLE — 850 sur un Windows français —
+    alors qu'openscale.exe écrit de l'UTF-8. Sans ce réglage, « compilé » revient
+    « compil├® » : les octets C3 A9 lus en CP850. Ce serait sans importance si ce texte
+    restait à l'écran, mais $version part dans le journal d'installation ET sur la FICHE
+    qu'on imprime et qu'on range dans le classeur, à la ligne « Version installée ».
 
-    UTF8Encoding($false) et non [Text.Encoding]::UTF8 : la seconde porte une marque d'ordre
-    des octets en préambule, que PowerShell écrirait en tête de sa propre sortie.
+    CE QU'ON ÉCRIT — $OutputEncoding, qui gouverne ce que PowerShell pousse dans l'ENTRÉE
+    STANDARD d'un processus natif. Sous Windows PowerShell 5.1 il vaut us-ascii : tout
+    accent envoyé par un tube devient « ? ». C'est par ce tube que le mot de passe
+    d'administration part vers « openscale config password », et un mot de passe accentué
+    haché avec des « ? » mure le poste — ce que le bénévole retape ensuite à l'écran ne
+    vérifiera jamais, et rien des deux côtés ne dira pourquoi.
 
-    L'affectation échoue quand le script tourne sans console attachée. Ce n'est pas une
-    raison d'interrompre une installation : sans console, personne ne lit le charabia.
+    UTF8Encoding($false) DANS LES DEUX CAS, et le $false n'est pas décoratif :
+    [Text.Encoding]::UTF8 porte une marque d'ordre des octets en préambule. En lecture,
+    PowerShell l'écrirait en tête de sa propre sortie ; en écriture, elle arrive en tête de
+    l'entrée standard du binaire — EF BB BF collés devant le mot de passe. C'est ce que
+    fait une console en chcp 65001 quand $OutputEncoding suit [Console]::OutputEncoding.
+    Le binaire retire une marque de tête de son côté, ET C'EST LUI QUI TIENT LA GARANTIE.
+    Mesuré sur windows-latest le 10/08/2026 : sous powershell.exe 5.1, la marque arrive
+    quand même — elle est présente jusque dans la mesure de référence en us-ascii, donc
+    elle ne vient d'aucun des deux réglages ci-dessus, qui demandent bien tous les deux
+    UTF8Encoding($false). pwsh 7 ne le fait pas. Ce réglage-ci sert donc à l'ACCENT, qui
+    serait autrement remplacé par « ? » et murerait le poste ; la marque, elle, est mangée
+    par « readSecretLine » côté binaire, et son banc y veille.
+
+    $global: et non une affectation nue : un point-source exécute chez son appelant, mais
+    une affectation faite DANS une fonction ouvre une variable locale à cette fonction, qui
+    meurt avec elle.
+
+    Les affectations échouent quand le script tourne sans console attachée. Ce n'est pas
+    une raison d'interrompre une installation : sans console, personne ne lit le charabia.
   #>
   [CmdletBinding()]
   param()
 
   try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) }
+  catch { }
+  try { $global:OutputEncoding = New-Object System.Text.UTF8Encoding($false) }
   catch { }
 }
 
@@ -194,6 +235,149 @@ function New-RandomPassword {
   $bytes = New-Object byte[] $Length
   [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
   -join ($bytes | ForEach-Object { $alphabet[$_ % $alphabet.Length] })
+}
+
+function ConvertTo-PlainText {
+  <#
+  .SYNOPSIS
+    Le contenu d'une saisie masquée, en clair.
+  .DESCRIPTION
+    Ce que « -AsSecureString » achète n'est pas un secret gardé : le mot de passe du
+    compte finit de toute façon dans Winlogon\DefaultPassword et sur la fiche, et celui de
+    l'administration part dans l'entrée standard du binaire. C'est un mot de passe qui ne
+    s'affiche pas devant les clients pendant qu'on le tape.
+
+    Le passage par Marshal est ce qui rend cette lecture possible sous WINDOWS POWERSHELL
+    5.1 : « ConvertFrom-SecureString -AsPlainText » n'existe qu'à partir de PowerShell 7,
+    et un script d'installation qui ne tourne pas sur le PowerShell livré avec Windows ne
+    sert à rien. La mémoire non gérée est remise à zéro dans un finally.
+
+    bootstrap.ps1 en porte un JUMEAU, et ce n'est pas un oubli : c'est le seul fichier du
+    projet qui vit hors de l'archive, il s'installe aussi contre une release antérieure
+    (-Version), et une fonction qu'il attendrait de common.ps1 manquerait à ce common.ps1
+    là. Son en-tête tient le même raisonnement pour Test-Elevated.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][securestring]$Secure)
+
+  $pointer = [IntPtr]::Zero
+  try {
+    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
+    [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+  }
+  finally {
+    if ($pointer -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
+  }
+}
+
+function Measure-CodePoint {
+  <#
+  .SYNOPSIS
+    Le nombre de points de code d'un texte, celui que le binaire compte.
+  .DESCRIPTION
+    TROIS UNITÉS SE DISPUTENT LE MOT « CARACTÈRE », et le plancher d'un mot de passe doit
+    être le même des deux côtés du tube. « .Length » compte des unités UTF-16 : « 𝄞 » en
+    fait DEUX. Le binaire compte des points de code — web.MinPasswordLength le dit dans sa
+    propre phrase — et l'écran en compte autant. Une quatrième porte qui compterait la
+    sienne accepterait à l'installation ce que le poste refuse ensuite, sans que rien nulle
+    part ne dise pourquoi.
+
+    L'UTF-32 est ce qui rend le compte lisible : il code CHAQUE point de code sur quatre
+    octets, exactement, et il est le seul encodage de .NET dont ce soit vrai. Compter les
+    octets et diviser par quatre, c'est donc compter les points de code sans écrire soi-même
+    la reconnaissance des paires de substitution.
+
+    L'écart ne se voit qu'au-delà du plan multilingue de base — émoji, écritures anciennes,
+    symboles musicaux —, donc il ne se verra pas sur un poste. Ce n'est pas une raison pour
+    en faire une quatrième règle : c'est ce qui fait qu'on ne le retrouverait jamais.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+  [int]([Text.Encoding]::UTF32.GetByteCount($Text) / 4)
+}
+
+function Test-Interactive {
+  <#
+  .SYNOPSIS
+    Dit s'il y a quelqu'un devant ce script, à qui poser une question.
+  .DESCRIPTION
+    UNE INVITE QUI BLOQUE UNE INSTALLATION AUTOMATIQUE EST UNE PANNE SILENCIEUSE : rien
+    n'échoue, rien ne se termine, et personne ne s'en aperçoit avant de venir voir pourquoi
+    le poste n'est toujours pas installé. Trois façons de n'avoir personne, et il faut les
+    trois — la première seule laissait passer la pire.
+
+    [Environment]::UserInteractive est faux dans une station de fenêtres sans bureau : un
+    service, une tâche planifiée « qu'un utilisateur soit connecté ou non ».
+
+    [Console]::IsInputRedirected est LA MOITIÉ QUI MANQUAIT, et elle est MESURÉE. Dans la
+    session d'un technicien qui redirige l'entrée standard — « install.ps1 < reponses.txt »,
+    un appel depuis un autre script, un tube —, UserInteractive reste VRAI. Et
+    « Read-Host -AsSecureString » ne lit PAS ce tube : il lit la console, qui n'a rien à
+    donner. Vérifié sur cette machine le 10/08/2026 : le script s'est arrêté sur la
+    première invite et n'en est jamais ressorti.
+
+    « powershell -NonInteractive » n'expose aucune propriété : il se lit sur la ligne de
+    commande du processus. Sans ce troisième contrôle, Read-Host y lève « Read and Prompt
+    functionality is not available », que $ErrorActionPreference = 'Stop' transforme en
+    installation interrompue — moins grave qu'un blocage, mais c'est quand même une
+    installation automatique qui échoue sur une question.
+  #>
+  [CmdletBinding()]
+  param()
+
+  if (-not [Environment]::UserInteractive) { return $false }
+  if ([Console]::IsInputRedirected) { return $false }
+  foreach ($argument in [Environment]::GetCommandLineArgs()) {
+    if ($argument -match '^-+non?i(nteractive)?$') { return $false }
+  }
+  $true
+}
+
+function Read-ConfirmedSecret {
+  <#
+  .SYNOPSIS
+    Un secret tapé deux fois, jamais affiché, rendu en clair.
+  .DESCRIPTION
+    LA CONFIRMATION EST LA MOITIÉ QUI COMPTE. Un mot de passe tapé de travers en saisie
+    masquée est un mot de passe que personne ne pourra plus jamais deviner : ni le
+    bénévole qui l'a tapé, ni la fiche, qui ne le porte pas. Le retaper est la seule façon
+    de savoir ce qu'on a tapé.
+
+    La boucle ne rend la main que sur une réponse acceptable, et elle n'accepte pas le
+    vide : cette fonction sert les questions auxquelles l'installation a besoin d'une
+    réponse, et laisser passer une réponse vide est exactement ce qui laissait un poste à
+    moitié configuré.
+
+    Le plancher arrive en paramètre plutôt qu'écrit ici : les deux mots de passe que ce
+    dépôt pose n'ont pas le même, pour des raisons écrites chacune à côté de sa constante,
+    en tête de ce fichier.
+  #>
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string]$Prompt,
+    [Parameter(Mandatory)][int]$MinimumLength)
+
+  while ($true) {
+    $typed = ConvertTo-PlainText (Read-Host $Prompt -AsSecureString)
+    if ($typed -eq '') {
+      Write-Host '   il en faut un : cette question n''a pas de réponse par défaut.'
+      continue
+    }
+    if ($typed -ne $typed.Trim()) {
+      Write-Host '   il commence ou finit par une espace : personne ne le retapera juste depuis la fiche.'
+      continue
+    }
+    if ((Measure-CodePoint -Text $typed) -lt $MinimumLength) {
+      Write-Host "   trop court : $MinimumLength caractères au minimum."
+      continue
+    }
+    if ($typed -cne (ConvertTo-PlainText (Read-Host '   Confirmation' -AsSecureString))) {
+      Write-Host '   les deux saisies ne sont pas les mêmes.'
+      continue
+    }
+    return $typed
+  }
 }
 
 function Test-LocalCredential {
@@ -267,7 +451,7 @@ function Resolve-AccountPassword {
       throw '-AccountPassword commence ou finit par une espace : c''est un mot de passe que ' +
       'personne ne retapera juste depuis la fiche'
     }
-    if ($Requested.Length -lt $script:MinimumPasswordLength) {
+    if ((Measure-CodePoint -Text $Requested) -lt $script:MinimumPasswordLength) {
       throw "-AccountPassword doit faire au moins $($script:MinimumPasswordLength) caractères"
     }
     return [pscustomobject]@{ Password = $Requested; Change = $true; Warning = ''
@@ -534,13 +718,19 @@ function Get-RegistryValue {
 function Get-SnapshotValue {
   <#
   .SYNOPSIS
-    Lit une valeur d'instantané, ou $null quand la section ou la valeur manque.
+    Lit une valeur d'un document JSON relu, ou $null quand la section ou la valeur manque.
   .DESCRIPTION
     « Set-StrictMode -Version Latest » fait ÉCHOUER l'accès à une propriété absente d'un
     PSCustomObject. Un restore.json écrit par une version antérieure de l'installeur n'a
     pas les sections que la version d'aujourd'hui y met : sans cette fonction, désinstaller
     un poste installé il y a six mois s'arrête sur « The property cannot be found », et
     c'est la désinstallation — le geste qui doit toujours marcher — qui casse.
+
+    install.ps1 s'en sert aussi pour lire config.json, et c'est le même piège : un fichier
+    de configuration écrit par une version antérieure du binaire, ou simplement abîmé, n'a
+    pas forcément la section qu'on vient y chercher. Le nom parle d'instantané parce que
+    c'est de là qu'elle vient ; ce qu'elle fait est vrai de tout document relu par
+    ConvertFrom-Json.
   #>
   [CmdletBinding()]
   param($Section, [Parameter(Mandatory)][string]$Name)
@@ -938,8 +1128,15 @@ function Write-InstallSheet {
   .DESCRIPTION
     « C'est le livrable qui manque le plus souvent et qui coûte le plus cher quand il
     manque » (§15.2, étape 7). Elle porte le compte Windows et son mot de passe, le
-    numéro de poste, l'empreinte de configuration, la date — et le code de secours
-    d'administration, que §14.4 fait générer À L'INSTALLATION et imprimer ici.
+    numéro et le nom du poste, l'empreinte de configuration, la date — et le code de
+    secours d'administration, que §14.4 fait générer À L'INSTALLATION et imprimer ici.
+
+    ELLE N'IMPRIME PAS LE MOT DE PASSE D'ADMINISTRATION, qui est pourtant posé à
+    l'installation depuis que l'installeur le demande. Ce n'est pas un oubli : cette
+    feuille part au classeur du magasin, et le mot de passe d'administration donne le
+    droit de CHANGER le poste — les prix, le gabarit d'étiquette, le dépôt suivi. Ce que
+    la fiche porte à sa place est ce dont on a besoin quand il est perdu : qui l'a posé, et
+    le code de secours.
 
     -RecoveryCode vide laisse la ligne à remplir à la main, ce qui reste vrai d'un poste
     dont le fichier portait déjà un code : c'est celui de la fiche précédente, et
@@ -951,11 +1148,14 @@ function Write-InstallSheet {
     [Parameter(Mandatory)][string]$Account,
     [Parameter(Mandatory)][string]$Password,
     [string]$Fingerprint = '(à relever sur l''écran d''administration)',
-    [string]$StationNumber = '(à choisir dans l''assistant de premier démarrage)',
+    [string]$StationNumber = '(pas encore posé)',
+    [string]$StationName = '(pas encore posé)',
     [string]$Version = '(inconnue)',
     [string]$Address = 'http://127.0.0.1:8085',
     [string]$RecoveryCode = '',
-    [bool]$PasswordChanged = $true)
+    [bool]$PasswordChanged = $true,
+    [bool]$AdminPasswordPosed = $false,
+    [bool]$ScaleDisabled = $false)
 
   # Deux fiches côte à côte dans le classeur, et une seule ouvre la session : c'est la
   # fiche qui doit dire laquelle, pas le journal d'installation, qui reste sur le poste.
@@ -965,6 +1165,36 @@ function Write-InstallSheet {
   else {
     "  INCHANGÉ par cette réinstallation : la fiche déjà classée reste valable."
   }
+
+  # Le mot de passe d'administration est POSÉ à l'installation, et il n'est écrit nulle
+  # part — pas même ici. La fiche dit donc à qui le redemander, ce qui est la seule chose
+  # dont on ait besoin d'une feuille de papier pour se souvenir.
+  $adminLine = if ($AdminPasswordPosed) {
+    "  POSÉ À L'INSTALLATION, par la personne qui a lancé l'installeur.`n" +
+    "  Il n'est écrit NULLE PART : ni sur cette fiche, ni dans le journal`n" +
+    "  d'installation, ni dans la configuration, qui n'en garde qu'une empreinte.`n" +
+    "  Redemandez-le à cette personne. Perdu pour tout le monde, il se repose avec`n" +
+    "  le code de secours ci-dessous, ou en ligne de commande (plus bas)."
+  }
+  else {
+    "  PAS ENCORE POSÉ : l'installation n'a pas eu de quoi poser la question`n" +
+    "  (installation scriptée, ou console sans clavier). Le premier geste qui`n" +
+    "  change le poste le demandera, et c'est le CODE DE SECOURS ci-dessous qui`n" +
+    "  ouvre cette porte-là."
+  }
+
+  # L'écart d'empreinte d'un poste dont la balance n'est pas encore réglée. §15.5 fait
+  # comparer les quatre postes À L'ŒIL : un écart que la fiche n'annonce pas est un écart
+  # qu'on prend pour une panne, et qu'on « répare » en touchant à la configuration.
+  $fingerprintNote = if ($ScaleDisabled) {
+    "`n  ATTENTION, LA BALANCE DE CE POSTE EST DÉCLARÉE ABSENTE. L'installation la`n" +
+    "  désactive sur un poste neuf, où elle n'est encore ni branchée ni détectée.`n" +
+    "  Tant qu'elle n'est pas remise en service — page « Matériel », « Détecter`n" +
+    "  automatiquement », puis « Utiliser cette balance » sur le port qui répond —,`n" +
+    "  CE POSTE N'AFFICHE PAS LA MÊME EMPREINTE QUE SES VOISINS, et ce n'est pas`n" +
+    "  une panne. Elle rejoint celle du parc dès que la balance est déclarée."
+  }
+  else { '' }
 
   # Le code n'existe en clair QU'ICI : le poste n'en garde que l'empreinte argon2id.
   $recoveryLine = if ([string]::IsNullOrWhiteSpace($RecoveryCode)) {
@@ -1002,31 +1232,39 @@ $passwordLine
 
 CONFIGURATION
   Numéro de poste .......... $StationNumber
+  Nom du poste ............. $StationName
   Empreinte du fichier ..... $Fingerprint
   Les quatre postes doivent afficher la MÊME empreinte de 8 caractères.
   Elle se lit en bas de l'écran d'administration, ou avec :
       "$(Join-Path $script:InstallDir $script:BinaryName)" config fingerprint
 
-  ATTENTION, c'est normal : tant que le numéro de poste, la balance et
-  l'imprimante ne sont pas réglés, la configuration est incomplète, le poste
-  tourne en CONFIGURATION D'USINE et l'écran affiche une AUTRE empreinte que
-  celle ci-dessus. Les deux se rejoignent dès que l'assistant est terminé.
+  ATTENTION, c'est normal : tant que la balance, l'imprimante et le catalogue
+  ne sont pas réglés, la configuration est incomplète, le poste tourne en
+  CONFIGURATION D'USINE et l'écran affiche une AUTRE empreinte que celle
+  ci-dessus. Les deux se rejoignent dès que les réglages sont terminés.
   C'est à ce moment-là qu'on compare les quatre postes.
+$fingerprintNote
+
+MOT DE PASSE D'ADMINISTRATION
+$adminLine
+  Il protège le droit de CHANGER le poste — les prix, le gabarit d'étiquette,
+  le dépôt suivi. Le poste ne demande rien pour être REGARDÉ : toutes les
+  pages se lisent, et la question arrive au moment où l'on change quelque
+  chose. $script:MinimumAdminPasswordLength caractères au minimum.
 
 CODE DE SECOURS D'ADMINISTRATION
 $recoveryLine
-  C'est lui qui POSE le mot de passe d'administration la première fois, depuis
-  l'écran et sans ligne de commande. Le poste ne demande rien pour être
-  regardé : il demande au moment où l'on change quelque chose.
+  IL SERT À UN POSTE QUI N'A AUCUN MOT DE PASSE, et à lui seul : c'est là que
+  l'écran le demande, et nulle part ailleurs.
   1. Bouton « Réglages » sur l'écran client : l'engrenage, tout à droite de la
      barre du bas. L'administration s'ouvre sur le Tableau de bord.
   2. Colonne de gauche, page « Matériel », puis « Détecter automatiquement ».
      Ce premier geste qui change le poste est celui qui pose la question.
   3. Le panneau « Ce poste n'a pas encore de mot de passe » demande ce code,
-     puis le mot de passe à poser. 8 caractères au minimum.
-  Si le mot de passe est perdu PLUS TARD, ce code ne se saisit plus à l'écran —
-  il n'y est demandé qu'à un poste qui n'a aucun mot de passe. La reprise en
-  main passe alors par la ligne de commande, sur le poste, en administrateur :
+     puis le mot de passe à poser. $script:MinimumAdminPasswordLength caractères au minimum.
+  Si le poste a DÉJÀ un mot de passe — c'est le cas dès que l'installation a
+  posé le sien — ce code ne se saisit plus à l'écran. La reprise en main passe
+  alors par la ligne de commande, sur le poste, en administrateur :
       Stop-Service $script:ServiceName
       "$(Join-Path $script:InstallDir $script:BinaryName)" config password
       Start-Service $script:ServiceName

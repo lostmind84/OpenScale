@@ -63,6 +63,15 @@ func (s *Server) importConfig(w http.ResponseWriter, r *http.Request) {
 	// inherit the password of the station it was cloned from, nor its number (§11.5).
 	candidate.Admin = current.Admin
 	candidate.Station.Number = current.Station.Number
+	// Nor the network block, which designates THE MACHINE just as the number does. An
+	// export carries it empty and the decoder reads that emptiness as the neutral
+	// loopback — it has to, or a station installed from such a file could not be
+	// administered at all — so without this line a file carried from the reference
+	// station would move the socket of the station reading it onto 127.0.0.1 and shut
+	// the administration screen on the volunteer holding it open from the shop's
+	// network. The two keys travel together for the reason fallbackProfile gives: half
+	// a network block is harder to diagnose than a whole one that is wrong.
+	candidate.Network = current.Network
 
 	body := struct {
 		configDTO

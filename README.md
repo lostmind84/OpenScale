@@ -10,9 +10,13 @@ OpenScale remplace une application Microsoft Access de 2015 encore en service, d
 reprend les fonctionnalités et les contrats externes — le format du code-barres lu par
 la caisse, la géométrie de l'étiquette — mais aucune ligne de code.
 
-**Développement terminé, éprouvé sur banc réel — SATO WS408 et GRAM XFOC —, pas encore
-en service.** Il reste la recette sur un poste pilote. Ce qui est prouvé, ce qui ne
-l'est pas et ce qui reste ouvert : [SUIVI.md](SUIVI.md).
+**En service en magasin.** La recette a été passée sur site, et le poste a tenu **deux
+semaines d'exploitation réelle** — clients, bénévoles, étiquettes scannées en caisse —
+avant que ce statut ne soit écrit ici. Ce n'est plus un banc : c'est un poste qui pèse.
+
+Le matériel éprouvé est une **SATO WS408** en RAW et une **GRAM XFOC** sur port série.
+Ce qui est prouvé, ce qui ne l'est pas et ce qui reste ouvert : [SUIVI.md](SUIVI.md) —
+le fichier se tient à jour au fil de l'eau, et il nomme aussi ce qui a cassé.
 
 ## Installer un poste
 
@@ -33,10 +37,13 @@ curl -fsSL https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/wi
 </details>
 
 La commande prend la dernière version publiée, **vérifie son empreinte avant de la
-décompresser**, pose trois questions — mot de passe de la session du poste, production ou
-pilote, ouverture de session automatique — puis installe tout : compte Windows dédié,
-service, tâche du kiosque, réglages d'alimentation, fiche d'installation à ranger dans le
-classeur du magasin. Comptez **15 minutes** jusqu'à la première étiquette, matériel branché.
+décompresser**, puis pose **six questions** : trois sur la machine — mot de passe de la
+session du poste, production ou pilote, ouverture de session automatique — et trois sur le
+poste lui-même — **numéro, nom et mot de passe d'administration**. Elle installe ensuite
+tout : compte Windows dédié, service, tâche du kiosque, réglages d'alimentation, fiche
+d'installation à ranger dans le classeur du magasin. **Le poste sort utilisable** : il ne
+reste qu'à lui désigner sa balance, son imprimante et son catalogue. Comptez
+**15 minutes** jusqu'à la première étiquette, matériel branché.
 
 Sur une **Debian 12 minimale**, une commande également — et **la même met à jour** un poste
 déjà installé :
@@ -45,9 +52,15 @@ déjà installé :
 curl -fsSL https://raw.githubusercontent.com/lostmind84/OpenScale/main/deploy/linux/bootstrap.sh | sudo sh
 ```
 
-Elle choisit l'archive de la bonne architecture — `amd64` ou `arm64` —, vérifie son
-empreinte avant de décompresser, et ne pose aucune question : sous Linux, il n'y en a
-aucune à poser.
+Elle choisit l'archive de la bonne architecture — `amd64` ou `arm64` — et vérifie son
+empreinte avant de décompresser. **Les deux installeurs offrent les mêmes fonctionnalités**
+et un test du dépôt refuse qu'ils divergent : `install.sh` demande lui aussi le numéro, le
+nom et le mot de passe d'administration, et déclare la balance absente sur un poste neuf.
+Trois questions de moins qu'à l'installation Windows, et c'est la plateforme qui le veut :
+le compte `openscale` n'a ni mot de passe ni interpréteur, l'écran client démarre à
+l'allumage sans session à ouvrir, et il n'y a pas d'application Access à laisser
+relançable. Le one-liner ci-dessus, lui, **ne pose jamais de question** — sous
+`curl … | sh`, l'entrée standard *est* le script — et reçoit les réponses en options.
 
 Le parcours complet du bénévole — redémarrage de recette, balance, imprimante, catalogue,
 et **l'installation par clé USB d'un poste sans Internet** — est dans

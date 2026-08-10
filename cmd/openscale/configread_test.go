@@ -49,10 +49,19 @@ func TestCloningAStationShowsTheSAMEEightCharacters(t *testing.T) {
 		t.Fatalf("export : %v", err)
 	}
 
+	// The address is checked ON THE FILE, and it has to be: what a clone must not inherit
+	// is what the file SAYS. Reading it back through domain.Config no longer shows it —
+	// `Config.UnmarshalJSON` poses the neutral loopback on an empty address, so that a
+	// station installed from this very file can still be administered — and an assertion
+	// on the decoded structure would from then on be asserting the decoder's repair
+	// instead of the export's discretion, which is the opposite guarantee.
+	if listen := listenSpelledIn(t, export); listen != "" {
+		t.Fatalf("le fichier exporté porte l'adresse %q : c'est l'une des choses qu'un "+
+			"clone ne doit pas hériter", listen)
+	}
 	exported := readJSONConfig(t, export)
-	if exported.Station.Number != 0 || exported.Network.Listen != "" {
-		t.Fatalf("l'export porte encore le poste n° %d et l'adresse %q : ce sont les deux "+
-			"choses qu'un clone ne doit pas hériter", exported.Station.Number, exported.Network.Listen)
+	if exported.Station.Number != 0 {
+		t.Fatalf("l'export porte encore le poste n° %d", exported.Station.Number)
 	}
 	if exported.Admin.PasswordHash != "" || exported.Admin.RecoveryCodeHash != "" {
 		t.Fatal("l'export porte un secret d'administration")
@@ -86,6 +95,29 @@ func TestCloningAStationShowsTheSAMEEightCharacters(t *testing.T) {
 				"l'identique doivent afficher la même empreinte", station.number, got, reference)
 		}
 	}
+}
+
+// listenSpelledIn reports what network.listen SAYS in a configuration file, before any
+// decoder has had the chance to fill it in.
+//
+// A shape of its own and not domain.Config, so that nothing this reads can be repaired on
+// the way: the guarantee is about the bytes a volunteer carries from one station to
+// another on a USB stick.
+func listenSpelledIn(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("lecture de %s : %v", path, err)
+	}
+	var document struct {
+		Network struct {
+			Listen string `json:"listen"`
+		} `json:"network"`
+	}
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatalf("%s illisible : %v", path, err)
+	}
+	return document.Network.Listen
 }
 
 // TestOneBusinessSettingApartAndTheFingerprintDiverges is the other half of the check:

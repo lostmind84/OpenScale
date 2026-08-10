@@ -131,8 +131,9 @@ recommencez.
 > de passe avec `openscale config password` avant de relire.
 
 **2. Redémarrer le poste.** L'application s'arrête et son service la relance. Comptez
-quelques secondes, l'écran client revient tout seul. Le journal Windows enregistrera un
-« arrêt inattendu » : **c'est normal**, c'est ainsi que le redémarrage est déclenché.
+quelques secondes, l'écran client revient tout seul. Le bouton dit depuis combien de temps
+il attend. Le journal Windows enregistrera un « arrêt inattendu » : **c'est normal**, c'est
+ainsi que le redémarrage est déclenché.
 
 - Si le bouton répond **« ce poste n'est pas lancé par un service »** (`ERR-SYS-10`),
   personne ne le relancerait : installez-le en service avec
@@ -140,6 +141,34 @@ quelques secondes, l'écran client revient tout seul. Le journal Windows enregis
 - En ligne de commande, le même geste s'écrit
   `& "C:\Program Files\OpenScale\openscale.exe" service restart`, ou
   `sudo systemctl restart openscale` sur Linux.
+
+### Le bouton reste sur « En cours… » et le poste ne revient pas
+
+C'est le symptôme d'un poste **installé avant le 10/08/2026**, sur Windows. L'écran client
+est noir pendant ce temps, et au bout de cinq minutes le bouton annonce que le poste n'a
+pas répondu.
+
+Ce qui se passe : le poste s'est bien arrêté, mais le gestionnaire de services Windows ne
+l'a pas relancé. Ses actions de reprise étaient posées — vous pouvez le vérifier avec
+`sc qfailure OpenScale` — mais elles ne s'appliquaient qu'à un **plantage**, jamais à un
+arrêt propre comme celui-ci. Il y manquait un second réglage, que `sc qfailureflag
+OpenScale` affiche à `FALSE`.
+
+**Le geste immédiat**, pour rallumer le poste tout de suite, depuis une invite en
+administrateur :
+
+```
+& "C:\Program Files\OpenScale\openscale.exe" service start
+```
+
+**La réparation durable** : relancez `install.ps1` **en administrateur**. Il repose
+l'enregistrement du service avec le réglage manquant, et le bouton fonctionne ensuite.
+
+> **Une simple mise à jour ne répare PAS ce poste** : elle remplace le binaire, alors que
+> le réglage fautif est enregistré dans Windows, pas dans le programme. Il faut passer par
+> l'installeur.
+
+Les postes installés à partir du 10/08/2026 n'ont pas ce défaut.
 
 **3. Redémarrer l'ordinateur.** Le bouton rouge, en dernier recours. Il demande une
 confirmation, puis affiche un décompte de trente secondes que **« Annuler » arrête**.

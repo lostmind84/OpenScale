@@ -6,6 +6,50 @@
   const PROBE_BUDGET_MS = 5 * 60 * 1000
 
   /**
+   * Au bout de combien de temps l'attente cesse d'être ordinaire, en millisecondes.
+   *
+   * En dessous, il n'y a rien à faire qu'attendre : le service s'arrête, son gestionnaire
+   * le relance, l'écran client revient derrière. Au-dessus, ce n'est plus « c'est en train
+   * de se faire » mais « quelque chose ne se fait pas », et la phrase doit le dire — un
+   * bouton qui répète « En cours… » pendant cinq minutes ne répond pas à la seule question
+   * que se pose le bénévole : est-ce que j'attends, ou est-ce que je vais voir ?
+   */
+  const UNUSUAL_AFTER_MS = 30_000
+
+  /**
+   * Ce que l'écran dit PENDANT que le poste redémarre.
+   *
+   * @param elapsedMs depuis combien de temps le redémarrage a été demandé.
+   * @returns la phrase à afficher, qui change de nature passé {@link UNUSUAL_AFTER_MS}.
+   */
+  function restartWaitSentence(elapsedMs: number): string {
+    const seconds = Math.round(elapsedMs / 1000)
+    const since = `Le poste redémarre depuis ${seconds} seconde${seconds > 1 ? 's' : ''}`
+    if (elapsedMs < UNUSUAL_AFTER_MS) {
+      const usual = UNUSUAL_AFTER_MS / 1000
+      return `${since}. Il revient d’habitude en moins de ${usual} secondes, écran client compris.`
+    }
+    return (
+      `${since}, c’est plus long que d’habitude. ` +
+      'Allez voir la machine : l’écran client devrait être revenu tout seul.'
+    )
+  }
+
+  /**
+   * Ce que l'écran dit quand le poste n'est jamais revenu, et qui NOMME LE GESTE.
+   *
+   * « Allez le voir » ne disait pas quoi y faire. Un poste qui reste arrêté après ce
+   * bouton est un poste dont le gestionnaire de services ne relance rien : il faut le
+   * relancer à la main, PUIS reposer son enregistrement, sans quoi le bouton se conduira
+   * exactement pareil la fois suivante.
+   */
+  const RESTART_GIVEN_UP =
+    `Le poste n’a pas répondu dans les ${PROBE_BUDGET_MS / 60_000} minutes. Allez voir la ` +
+    'machine : relancez le service avec « openscale service start », puis update.ps1 ou ' +
+    'install.ps1 en administrateur — c’est ce qui repose les reprises automatiques sans ' +
+    'lesquelles ce bouton restera sans effet.'
+
+  /**
    * Sonde le poste jusqu'à ce qu'il réponde de nouveau.
    *
    * UNE ERREUR RÉSEAU EST LE CAS NOMINAL ici, et c'est l'inverse du reste de l'écran : le
@@ -64,8 +108,14 @@
   /** Les fautes d'un 422, TOUTES : une seule à la fois est un écran qu'on abandonne. */
   let faults = $state<{ field: string; message: string }[]>([])
 
+  /** Quand le redémarrage du poste a été demandé, ou 0 quand aucun n'est en cours. */
+  let restartingSince = $state(0)
+
+  /** Depuis combien de temps il dure, en millisecondes, redessiné chaque seconde. */
+  let restartingFor = $state(0)
+
   /** Vrai pendant le redémarrage du poste : il meurt et revient. */
-  let restarting = $state(false)
+  const restarting = $derived(restartingSince > 0)
 
   /** L'échéance du redémarrage de l'ordinateur, ou 0 quand rien n'est armé. */
   let rebootAt = $state(0)
@@ -82,6 +132,14 @@
     if (!rebootArmed) return
     const tick = setInterval(() => {
       secondsLeft = Math.max(0, Math.round((rebootAt - Date.now()) / 1000))
+    }, 1000)
+    return () => clearInterval(tick)
+  })
+
+  $effect(() => {
+    if (!restarting) return
+    const tick = setInterval(() => {
+      restartingFor = Date.now() - restartingSince
     }, 1000)
     return () => clearInterval(tick)
   })
@@ -115,7 +173,13 @@
     }
   }
 
-  /** Demande au poste de redémarrer, puis attend qu'il réponde de nouveau. */
+  /**
+   * Demande au poste de redémarrer, puis attend qu'il réponde de nouveau.
+   *
+   * La phrase du service n'est PAS reprise dans `said` pendant l'attente : elle dit « le
+   * poste redémarre », et la ligne d'attente le dit déjà en donnant en plus depuis combien
+   * de temps. Deux exemplaires de la même nouvelle se lisent comme deux nouvelles.
+   */
   async function restartStation(): Promise<void> {
     working = 'restart'
     said = ''
@@ -123,14 +187,12 @@
     try {
       const started = await admin.protect(() => api.restartStation())
       if (started === null) return
-      said = started.message
-      restarting = true
-      said = (await waitForTheStationToComeBack())
-        ? 'Le poste est revenu.'
-        : 'Le poste n’a pas répondu dans les cinq minutes. Allez le voir.'
+      restartingFor = 0
+      restartingSince = Date.now()
+      said = (await waitForTheStationToComeBack()) ? 'Le poste est revenu.' : RESTART_GIVEN_UP
     } finally {
       working = ''
-      restarting = false
+      restartingSince = 0
     }
   }
 
@@ -200,6 +262,12 @@
         busy={working === 'restart' || restarting}
         onrun={restartStation}
       />
+      <!-- L'attente se raconte, elle ne se subit pas : sans cette ligne, le bouton disait
+           « En cours… » pendant cinq minutes devant un écran client noir, et rien ne
+           distinguait un poste qui revient d'un poste qui ne reviendra pas. -->
+      {#if restarting}
+        <p class="fact" data-restarting>{restartWaitSentence(restartingFor)}</p>
+      {/if}
     </dd>
 
     <dt>Redémarrer l’ordinateur</dt>

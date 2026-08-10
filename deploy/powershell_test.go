@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -393,6 +394,224 @@ func decodeCP1252(raw []byte) (string, bool) {
 		}
 	}
 	return text.String(), differs
+}
+
+// TestTheSecretPipeCarriesTheBytesTheBinaryWillRead is the one thing about install.ps1 that
+// no reading of its text can settle: what actually comes out of a pipe into a native
+// process.
+//
+// install.ps1 pushes the administration password into `openscale config password` on the
+// STANDARD INPUT, because an argument would be readable in the process list. Two measured
+// faults live on that pipe, and neither shows on the screen:
+//
+//   - $OutputEncoding is us-ascii under Windows PowerShell 5.1, so every accent becomes
+//     « ? » — 3F. A password hashed as « ? » walls the station off: what the volunteer
+//     types back afterwards never verifies, at the screen or at that same console.
+//   - a console in chcp 65001 lets $OutputEncoding follow [Console]::OutputEncoding, which
+//     carries a preamble — EF BB BF lands in front of the password. readSecretLine strips a
+//     leading mark on the Go side; this bench is about the PowerShell side doing its half.
+//
+// So the script is SOURCED and its own function called, rather than the gesture reproduced:
+// what is measured is the shipped Set-NativeOutputEncoding, on the PowerShell of the
+// station. The child process is a PowerShell reading its raw standard input, which is a
+// native process exactly like openscale.exe from the parent's point of view — and unlike
+// openscale.exe, it is here without a build.
+func TestTheSecretPipeCarriesTheBytesTheBinaryWillRead(t *testing.T) {
+	requireWindowsToRunCommonPs1(t)
+
+	// Accentué ET hors ASCII, comme « clé » ou « poirée » qu'une coopérative française
+	// écrira sans y penser.
+	const secret = "clé-à-péser"
+
+	common, err := filepath.Abs(filepath.Join("windows", "common.ps1"))
+	if err != nil {
+		t.Fatalf("chemin de common.ps1 : %v", err)
+	}
+
+	for _, shell := range powershellPaths(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			directory := t.TempDir()
+			child := filepath.Join(directory, "read-stdin.ps1")
+			writeScript(t, child, `$ErrorActionPreference = 'Stop'
+$received = New-Object System.IO.MemoryStream
+[Console]::OpenStandardInput().CopyTo($received)
+[BitConverter]::ToString($received.ToArray()).Replace('-', '')
+`)
+
+			harness := filepath.Join(directory, "pipe.ps1")
+			writeScript(t, harness, `$ErrorActionPreference = 'Stop'
+. `+quoteForPowerShell([]string{common})+`
+$secret = '`+secret+`'
+$child = `+quoteForPowerShell([]string{child})+`
+$shell = `+quoteForPowerShell([]string{shell})+`
+function Invoke-Pipe {
+  ($secret | & $shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $child) -join ''
+}
+
+$global:OutputEncoding = New-Object System.Text.ASCIIEncoding
+Write-Output "ASCII=$(Invoke-Pipe)"
+
+$global:OutputEncoding = New-Object System.Text.UTF8Encoding($true)
+Write-Output "MARQUE=$(Invoke-Pipe)"
+
+Set-NativeOutputEncoding
+Write-Output "POSE=$(Invoke-Pipe)"
+
+Write-Output "ATTENDU=$([BitConverter]::ToString([Text.Encoding]::UTF8.GetBytes($secret)).Replace('-', ''))"
+`)
+
+			output, err := runPowerShell(t, shell, harness)
+			if err != nil {
+				t.Fatalf("le banc du tube n'a pas tourné sous %s :\n%s", shell, output)
+			}
+			measured := measurementsOf(output)
+			for _, key := range []string{"ASCII", "MARQUE", "POSE", "ATTENDU"} {
+				if measured[key] == "" {
+					t.Fatalf("le banc n'a pas mesuré « %s » :\n%s", key, output)
+				}
+			}
+			t.Logf("us-ascii  : %s\nchcp 65001: %s\nposé      : %s\nattendu   : %s",
+				measured["ASCII"], measured["MARQUE"], measured["POSE"], measured["ATTENDU"])
+
+			// The line separator PowerShell adds after the object it pipes is not part of the
+			// password: `readSecretLine` reads up to it and trims it.
+			posed := strings.TrimSuffix(strings.TrimSuffix(measured["POSE"], "0A"), "0D")
+
+			// AND NEITHER IS A LEADING BYTE ORDER MARK, for the same reason: readSecretLine
+			// strips one, and TestAByteOrderMarkIsNotPartOfThePassword holds that it does.
+			//
+			// This allowance was NOT here on 10/08/2026, and CI is what earned it. On
+			// windows-latest, powershell.exe 5.1 hands the pipe EF BB BF whatever
+			// $OutputEncoding says — the mark is already there in the us-ascii baseline this
+			// bench logs, so it comes from neither of the two settings Set-NativeOutputEncoding
+			// makes, both of which correctly ask for UTF8Encoding($false). pwsh 7 does not do
+			// it, and no developer machine reproduced it.
+			//
+			// What matters is the CONTRACT, and the contract is what the binary hashes: the
+			// password that was typed. Demanding a spotless pipe demanded MORE than that, on a
+			// shell whose behaviour we do not govern — and the station that would have paid for
+			// it is the real one, which has only 5.1. The guarantee that must not move is the
+			// one below: no accent turned into « ? ».
+			//
+			// So the mark stops being a defect here and becomes what it always was on the Go
+			// side: a thing the reader eats. It also stops readSecretLine's BOM handling from
+			// being a « bonus » — it is load-bearing, on the only shell that ships.
+			posed = strings.TrimPrefix(posed, "EFBBBF")
+
+			if posed != measured["ATTENDU"] {
+				t.Errorf("le tube a livré %s, attendu %s : le mot de passe haché ne serait pas "+
+					"celui qui a été tapé", posed, measured["ATTENDU"])
+			}
+			if strings.Contains(posed, "3F") {
+				t.Errorf("le tube a livré un « ? » (3F) : un accent a été perdu — %s", posed)
+			}
+
+			// La preuve que le geste sert : sans lui, ces deux consoles-là livrent autre chose.
+			// Elles sont journalisées plutôt qu'exigées, parce que le défaut dépend de la
+			// version de PowerShell — et un banc qui EXIGERAIT le défaut deviendrait rouge le
+			// jour où Microsoft le corrige, sur un script qui, lui, marche.
+			for what, key := range map[string]string{
+				"us-ascii ($OutputEncoding par défaut de 5.1)": "ASCII",
+				"UTF-8 avec préambule (chcp 65001)":            "MARQUE",
+			} {
+				if measured[key] == measured["POSE"] {
+					t.Logf("%s livre déjà les mêmes octets sous %s : cette console n'a pas ce "+
+						"défaut-là, le réglage n'y coûte rien", what, filepath.Base(shell))
+				}
+			}
+		})
+	}
+}
+
+// TestNobodyIsAskedWhenNobodyIsThere is the regression of a bench that hung for two
+// minutes, and it is the shape the defect would take on a station.
+//
+// install.ps1 asks three questions, and `Read-Host -AsSecureString` does NOT read a
+// redirected standard input: it reads the console, which has nothing to give. Measured on
+// this machine on 10/08/2026 — a harness fed from a file printed its first line and never
+// came back. [Environment]::UserInteractive was TRUE the whole time, because the session
+// of a technician who pipes something into a script is still an interactive session.
+//
+// So the guard is exercised rather than read: the harness below runs Test-Interactive in
+// the two conditions an automated installation actually arrives in, and both have to
+// answer « personne ». A guard that answered « quelqu'un » there would not fail this
+// bench — it would hang it, which is exactly what it does to an installation.
+func TestNobodyIsAskedWhenNobodyIsThere(t *testing.T) {
+	requireWindowsToRunCommonPs1(t)
+
+	common, err := filepath.Abs(filepath.Join("windows", "common.ps1"))
+	if err != nil {
+		t.Fatalf("chemin de common.ps1 : %v", err)
+	}
+
+	for _, shell := range powershellPaths(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			directory := t.TempDir()
+			harness := filepath.Join(directory, "interactive.ps1")
+			writeScript(t, harness, `$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+. `+quoteForPowerShell([]string{common})+`
+Write-Output "SESSION=$([Environment]::UserInteractive)"
+Write-Output "ENTREE_REDIRIGEE=$([Console]::IsInputRedirected)"
+Write-Output "REPONSE=$(Test-Interactive)"
+`)
+
+			// L'ENTRÉE REDIRIGÉE, SANS -NonInteractive : c'est le cas mesuré, et le seul
+			// contrôle qui peut le voir est [Console]::IsInputRedirected. Le banc vérifie
+			// d'abord qu'il REPRODUIT la condition — sans quoi il ne mesurerait rien.
+			answers := filepath.Join(directory, "reponses.txt")
+			if err := os.WriteFile(answers, []byte("2\nPoste 2\n"), 0o644); err != nil {
+				t.Fatalf("écriture des réponses : %v", err)
+			}
+			piped := exec.Command(shell, "-NoProfile", "-ExecutionPolicy", "Bypass",
+				"-File", harness)
+			input, err := os.Open(answers)
+			if err != nil {
+				t.Fatalf("ouverture de %s : %v", answers, err)
+			}
+			defer input.Close()
+			piped.Stdin = input
+			raw, err := piped.CombinedOutput()
+			if err != nil {
+				t.Fatalf("le banc de Test-Interactive n'a pas tourné :\n%s", raw)
+			}
+			measured := measurementsOf(string(raw))
+			if measured["ENTREE_REDIRIGEE"] != "True" {
+				t.Fatalf("ce banc ne redirige pas l'entrée standard du script : il ne mesure "+
+					"donc pas la condition qui a bloqué install.ps1\n%s", raw)
+			}
+			t.Logf("entrée redirigée : session interactive = %s, entrée redirigée = %s",
+				measured["SESSION"], measured["ENTREE_REDIRIGEE"])
+			if measured["REPONSE"] != "False" {
+				t.Errorf("Test-Interactive répond %q alors que l'entrée standard est un "+
+					"fichier : « Read-Host -AsSecureString » n'y lit rien et attend pour "+
+					"toujours\n%s", measured["REPONSE"], raw)
+			}
+
+			// Et « powershell -NonInteractive », que runPowerShell passe déjà : Read-Host y
+			// lève au lieu d'attendre, ce qui arrête une installation automatique sur une
+			// question plutôt que de la bloquer — moins grave, tout aussi inutile.
+			output, err := runPowerShell(t, shell, harness)
+			if err != nil {
+				t.Fatalf("le banc de Test-Interactive n'a pas tourné :\n%s", output)
+			}
+			if answer := measurementsOf(output)["REPONSE"]; answer != "False" {
+				t.Errorf("Test-Interactive répond %q sous -NonInteractive\n%s", answer, output)
+			}
+		})
+	}
+}
+
+// measurementsOf reads the « CLÉ=valeur » lines a bench harness printed.
+func measurementsOf(output string) map[string]string {
+	measured := map[string]string{}
+	for _, line := range strings.Split(output, "\n") {
+		key, value, found := strings.Cut(strings.TrimSpace(line), "=")
+		if found {
+			measured[key] = value
+		}
+	}
+	return measured
 }
 
 // TestEveryPowerShellScriptParses is the syntactic check: a script with a typo in it is a

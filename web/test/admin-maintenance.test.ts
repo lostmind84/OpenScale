@@ -6,7 +6,7 @@ import * as api from '../src/admin/lib/api'
 import { AdminError } from '../src/admin/lib/api'
 
 /**
- * La rubrique Maintenance, et les cinq choses qu'elle doit tenir.
+ * La rubrique Maintenance, et ce qu'elle doit tenir.
  *
  *  1. les trois gestes sont rangés par brutalité croissante, et seul le dernier est
  *     ROUGE : rien ne défait un ordinateur qui redémarre ;
@@ -14,8 +14,10 @@ import { AdminError } from '../src/admin/lib/api'
  *     qui rend l'acte offrable ;
  *  3. un poste que personne ne relancerait répond 501, et l'écran montre sa phrase au
  *     lieu d'un bouton mort ;
- *  4. un 422 sur la relecture affiche TOUTES les fautes, pas la première ;
- *  5. aucun renvoi §X.Y ni ADR-0XX n'est visible.
+ *  4. le redémarrage du poste RACONTE son attente — ce qui se passe, depuis quand, et
+ *     quoi faire quand ça dure — au lieu de laisser « En cours… » cinq minutes ;
+ *  5. un 422 sur la relecture affiche TOUTES les fautes, pas la première ;
+ *  6. aucun renvoi §X.Y ni ADR-0XX n'est visible.
  */
 
 let host: HTMLElement
@@ -28,6 +30,9 @@ beforeEach(() => {
 afterEach(() => {
   host.remove()
   vi.restoreAllMocks()
+  // restoreAllMocks ne défait PAS un stubGlobal : sans cette ligne, le `fetch` d'un banc
+  // resterait posé sur les suivants.
+  vi.unstubAllGlobals()
 })
 
 /** Monte la rubrique et rend de quoi la démonter. */
@@ -114,6 +119,38 @@ describe('la rubrique Maintenance', () => {
     close()
   })
 
+  it('laisse le bouton de redémarrage armé tant que l’état du poste est inconnu', () => {
+    // `admin.health` vaut null tant que GET /admin/api/health n'a pas répondu, et c'est
+    // l'état d'un écran qui vient de s'ouvrir. Désarmer là-dessus rendrait le bouton mort
+    // exactement sur le poste qui en a besoin : celui qui ne répond plus.
+    const { admin, close } = show()
+    expect(admin.health).toBeNull()
+    expect(act('restart')?.disabled).toBe(false)
+    close()
+  })
+
+  it('raconte l’attente pendant que le poste redémarre, puis dit qu’il est revenu', async () => {
+    vi.spyOn(api, 'restartStation').mockResolvedValue({
+      done: true,
+      message: 'Le poste redémarre. L’écran revient tout seul.',
+    })
+    vi.stubGlobal('fetch', async () => new Response('', { status: 200 }))
+    const { close } = show()
+
+    act('restart')?.click()
+    // Tout de suite, et pas au bout de la première sonde : entre le clic et la réponse,
+    // l'écran client est noir et c'est là que le bénévole se demande quoi faire.
+    await vi.waitFor(() => expect(host.querySelector('[data-restarting]')).not.toBeNull())
+    expect(host.textContent).toContain('Le poste redémarre depuis')
+
+    await vi.waitFor(() => expect(host.textContent).toContain('Le poste est revenu.'), {
+      timeout: 5000,
+      interval: 50,
+    })
+    expect(host.querySelector('[data-restarting]')).toBeNull()
+    close()
+  })
+
   it('affiche TOUTES les fautes d’un fichier refusé', async () => {
     vi.spyOn(api, 'reloadConfigFromDisk').mockRejectedValue(
       new AdminError(422, 'Cette configuration ne peut pas être appliquée.', 'ERR-CFG-01', [
@@ -151,4 +188,61 @@ describe('la rubrique Maintenance', () => {
     expect(host.textContent).not.toMatch(/ADR-\d/)
     close()
   })
+})
+
+describe('l’attente d’un poste qui ne revient pas', () => {
+  /**
+   * Rend l'horloge du navigateur pilotable, et renvoie de quoi l'avancer.
+   *
+   * C'est la seule façon d'atteindre en une seconde de banc ce qu'un bénévole vit en cinq
+   * minutes : le composant lit `Date.now()` pour dire depuis quand le poste redémarre, et
+   * la boucle de sondage y lit son budget. Les intervalles, eux, restent RÉELS — c'est le
+   * rendu qu'on regarde, et il doit se refaire tout seul.
+   */
+  function drivableClock(): { advance: (ms: number) => void } {
+    let now = Date.now()
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    return { advance: (ms: number) => (now += ms) }
+  }
+
+  it('invite à aller voir la machine, puis nomme le geste de réparation', async () => {
+    const clock = drivableClock()
+    vi.spyOn(api, 'restartStation').mockResolvedValue({
+      done: true,
+      message: 'Le poste redémarre. L’écran revient tout seul.',
+    })
+    // Le poste ne répond plus, et il ne répondra plus : c'est exactement la panne du
+    // 10/08/2026 — le service s'arrête et son gestionnaire ne relance rien.
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('le poste ne répond pas')
+    })
+    const { close } = show()
+
+    act('restart')?.click()
+    await vi.waitFor(() => expect(host.querySelector('[data-restarting]')).not.toBeNull())
+    expect(host.textContent).not.toContain('Allez voir')
+
+    clock.advance(90_000)
+    await vi.waitFor(() => expect(host.textContent).toContain('Allez voir la machine'), {
+      timeout: 5000,
+      interval: 50,
+    })
+    expect(host.textContent).toContain('90 secondes')
+
+    // Le budget d'attente est épuisé. « Allez le voir » ne disait pas quoi y faire : un
+    // poste que rien ne relance se relance à la main, et son enregistrement doit être
+    // reposé, sans quoi le bouton se conduira pareil la fois suivante.
+    clock.advance(10 * 60 * 1000)
+    await vi.waitFor(() => expect(host.textContent).toContain('service start'), {
+      timeout: 5000,
+      interval: 50,
+    })
+    expect(host.textContent).toContain('install.ps1')
+    expect(host.querySelector('[data-restarting]')).toBeNull()
+    close()
+    // Le budget de CE banc, et non celui par défaut : il traverse deux attentes réelles —
+    // le battement d'une seconde qui redessine la durée, puis la période de sondage — et
+    // sous les cinq secondes par défaut, un échec sortirait « test timed out » à la place
+    // de la phrase qui manque.
+  }, 20_000)
 })

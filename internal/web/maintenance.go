@@ -125,8 +125,13 @@ func (s *Server) reloadConfigFromDisk(w http.ResponseWriter, r *http.Request) {
 // route is not that one: it is the way out of a station under kiosk, where a volunteer
 // facing something frozen has no console to reach and no other move than the power
 // switch. It stops nothing by itself either. The station goes through the ordered
-// shutdown of §13.4 and returns a non-zero code; the SCM and systemd do the restarting,
-// which is precisely the one restart ADR-027 calls legitimate.
+// shutdown of §13.4 and returns a non-zero code, and the supervisor does the restarting
+// — which is precisely the one restart ADR-027 calls legitimate.
+//
+// That code is HALF the mechanism, and only half. systemd acts on it alone; the Windows
+// SCM ignores it unless the service also carries the non-crash failure flag, which
+// InstallService now sets alongside the recovery delays of §15.2. A station registered
+// before that flag existed answers this route, stops, and never comes back.
 func (s *Server) restart(w http.ResponseWriter, _ *http.Request) {
 	if s.restarter == nil {
 		writeProblem(w, http.StatusNotImplemented, codeRestartUnsupervised,

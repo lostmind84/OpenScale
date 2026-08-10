@@ -19,13 +19,6 @@ import (
 // versions and lands atomically like any other (§11.4), and the station does not see
 // it before it restarts.
 
-// minPasswordLength is the floor POST /admin/api/session/recovery already holds (§14.4).
-//
-// The same figure in the two places that set a password, because a station where the
-// terminal accepted four characters and the screen refused them would be a station whose
-// rule depends on which door somebody came through.
-const minPasswordLength = 8
-
 // editConfigFile reads the station's configuration, hands it to change, and writes it
 // back.
 //
@@ -66,14 +59,17 @@ func setAdminPassword(in io.Reader, out io.Writer, path string) error {
 	// station with no recovery code has one gesture left to make.
 	var withoutRecoveryCode bool
 	err := editConfigFile(path, func(cfg *domain.Config) error {
+		// web.MinPasswordLength is the AUTHORITY, here as on the recovery form of §14.4:
+		// this command holds no floor of its own, it applies the station's.
 		fmt.Fprintf(out, "Nouveau mot de passe d'administration pour %s\n"+
-			"(au moins %d caractères, il s'affiche à l'écran) : ", path, minPasswordLength)
+			"(au moins %d caractères, il s'affiche à l'écran) : ", path, web.MinPasswordLength)
 		typed, err := readSecretLine(in)
 		if err != nil {
 			return err
 		}
-		if len([]rune(typed)) < minPasswordLength {
-			return fmt.Errorf("le mot de passe doit faire au moins %d caractères", minPasswordLength)
+		if len([]rune(typed)) < web.MinPasswordLength {
+			return fmt.Errorf("le mot de passe doit faire au moins %d caractères",
+				web.MinPasswordLength)
 		}
 
 		hash, err := web.HashSecret(typed)
@@ -158,7 +154,19 @@ func readSecretLine(in io.Reader) (string, error) {
 	// Typed on a Windows console the line ends with \r\n, piped from a file it may end
 	// with nothing at all. Only those two characters go: a password is allowed to end
 	// with a space, and trimming it would refuse tomorrow what it accepted today.
-	return strings.TrimRight(line, "\r\n"), nil
+	//
+	// The byte order mark at the HEAD goes too, and it is the one character nobody typed:
+	// piping into a native process from a PowerShell console in chcp 65001 puts EF BB BF in
+	// front of the standard input. Hashing it walls the station off — what the volunteer
+	// types back, on the screen or on this same console, is the password WITHOUT the mark
+	// and would never verify — and nothing on either end would show why.
+	//
+	// THIS LINE IS LOAD-BEARING AND NOT A PRECAUTION, measured on windows-latest the
+	// 10/08/2026: powershell.exe 5.1 hands the mark over whatever the caller sets
+	// $OutputEncoding to, and 5.1 is the only shell the real station has. pwsh 7 does not.
+	// Deleting this TrimPrefix walls off every station installed from a 5.1 console with an
+	// accented password.
+	return strings.TrimPrefix(strings.TrimRight(line, "\r\n"), "\ufeff"), nil
 }
 
 // migrateConfig is `openscale config migrate`.

@@ -38,6 +38,20 @@ import type {
  */
 export const CODE_NO_PASSWORD = 'ERR-CFG-02'
 
+/**
+ * Le plancher du mot de passe d'administration, tel que cet écran l'annonce.
+ *
+ * L'autorité est le 422 de `POST /admin/api/session/recovery` — `web.MinPasswordLength`
+ * en Go, la même valeur qu'applique « openscale config password ». Cet écran n'en est
+ * qu'un MIROIR : il arme son bouton et écrit sa phrase avec, et n'en décide rien.
+ *
+ * Il est recopié ici plutôt que lu du poste parce que le panneau s'ouvre précisément sur
+ * un poste SANS mot de passe : le demander au service exigerait une route ouverte à qui
+ * n'est pas authentifié, pour un entier. Ce qui relie les deux exemplaires est un banc
+ * qui lit le Go, dans `web/test/admin-protect.test.ts`.
+ */
+export const MIN_PASSWORD_LENGTH = 4
+
 /** Le refus d'une route, avec la phrase française que le service a écrite. */
 export class AdminError extends Error {
   constructor(
