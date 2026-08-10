@@ -476,12 +476,31 @@ Write-Output "ATTENDU=$([BitConverter]::ToString([Text.Encoding]::UTF8.GetBytes(
 			// The line separator PowerShell adds after the object it pipes is not part of the
 			// password: `readSecretLine` reads up to it and trims it.
 			posed := strings.TrimSuffix(strings.TrimSuffix(measured["POSE"], "0A"), "0D")
+
+			// AND NEITHER IS A LEADING BYTE ORDER MARK, for the same reason: readSecretLine
+			// strips one, and TestAByteOrderMarkIsNotPartOfThePassword holds that it does.
+			//
+			// This allowance was NOT here on 10/08/2026, and CI is what earned it. On
+			// windows-latest, powershell.exe 5.1 hands the pipe EF BB BF whatever
+			// $OutputEncoding says — the mark is already there in the us-ascii baseline this
+			// bench logs, so it comes from neither of the two settings Set-NativeOutputEncoding
+			// makes, both of which correctly ask for UTF8Encoding($false). pwsh 7 does not do
+			// it, and no developer machine reproduced it.
+			//
+			// What matters is the CONTRACT, and the contract is what the binary hashes: the
+			// password that was typed. Demanding a spotless pipe demanded MORE than that, on a
+			// shell whose behaviour we do not govern — and the station that would have paid for
+			// it is the real one, which has only 5.1. The guarantee that must not move is the
+			// one below: no accent turned into « ? ».
+			//
+			// So the mark stops being a defect here and becomes what it always was on the Go
+			// side: a thing the reader eats. It also stops readSecretLine's BOM handling from
+			// being a « bonus » — it is load-bearing, on the only shell that ships.
+			posed = strings.TrimPrefix(posed, "EFBBBF")
+
 			if posed != measured["ATTENDU"] {
 				t.Errorf("le tube a livré %s, attendu %s : le mot de passe haché ne serait pas "+
 					"celui qui a été tapé", posed, measured["ATTENDU"])
-			}
-			if strings.HasPrefix(posed, "EFBBBF") {
-				t.Errorf("le tube a livré une marque d'ordre des octets en tête (%s)", posed)
 			}
 			if strings.Contains(posed, "3F") {
 				t.Errorf("le tube a livré un « ? » (3F) : un accent a été perdu — %s", posed)

@@ -160,8 +160,13 @@ function Set-NativeOutputEncoding {
     PowerShell l'écrirait en tête de sa propre sortie ; en écriture, elle arrive en tête de
     l'entrée standard du binaire — EF BB BF collés devant le mot de passe. C'est ce que
     fait une console en chcp 65001 quand $OutputEncoding suit [Console]::OutputEncoding.
-    Le binaire retire une marque de tête de son côté ; ce réglage-ci fait que la question
-    ne se pose pas.
+    Le binaire retire une marque de tête de son côté, ET C'EST LUI QUI TIENT LA GARANTIE.
+    Mesuré sur windows-latest le 10/08/2026 : sous powershell.exe 5.1, la marque arrive
+    quand même — elle est présente jusque dans la mesure de référence en us-ascii, donc
+    elle ne vient d'aucun des deux réglages ci-dessus, qui demandent bien tous les deux
+    UTF8Encoding($false). pwsh 7 ne le fait pas. Ce réglage-ci sert donc à l'ACCENT, qui
+    serait autrement remplacé par « ? » et murerait le poste ; la marque, elle, est mangée
+    par « readSecretLine » côté binaire, et son banc y veille.
 
     $global: et non une affectation nue : un point-source exécute chez son appelant, mais
     une affectation faite DANS une fonction ouvre une variable locale à cette fonction, qui

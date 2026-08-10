@@ -160,6 +160,12 @@ func readSecretLine(in io.Reader) (string, error) {
 	// front of the standard input. Hashing it walls the station off — what the volunteer
 	// types back, on the screen or on this same console, is the password WITHOUT the mark
 	// and would never verify — and nothing on either end would show why.
+	//
+	// THIS LINE IS LOAD-BEARING AND NOT A PRECAUTION, measured on windows-latest the
+	// 10/08/2026: powershell.exe 5.1 hands the mark over whatever the caller sets
+	// $OutputEncoding to, and 5.1 is the only shell the real station has. pwsh 7 does not.
+	// Deleting this TrimPrefix walls off every station installed from a 5.1 console with an
+	// accented password.
 	return strings.TrimPrefix(strings.TrimRight(line, "\r\n"), "\ufeff"), nil
 }
 
