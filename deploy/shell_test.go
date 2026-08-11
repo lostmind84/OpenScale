@@ -91,6 +91,10 @@ func TestNoLinuxArtifactCarriesAWindowsLineEnding(t *testing.T) {
 }
 
 // TestTheShellScriptsAreValidAccordingToTheShell runs `sh -n` when a shell is available.
+//
+// .devcontainer/post-create.sh joins the list: it is not under linux/, but a syntax error in
+// it is otherwise discovered only after an eight-minute container build, while `sh -n` costs
+// nothing and runs on the same Linux CI that already builds this list.
 func TestTheShellScriptsAreValidAccordingToTheShell(t *testing.T) {
 	shell, err := exec.LookPath("sh")
 	if err != nil {
@@ -100,6 +104,7 @@ func TestTheShellScriptsAreValidAccordingToTheShell(t *testing.T) {
 	if err != nil || len(scripts) == 0 {
 		t.Fatalf("aucun script shell trouvé : %v", err)
 	}
+	scripts = append(scripts, filepath.Join("..", ".devcontainer", "post-create.sh"))
 	for _, script := range scripts {
 		output, err := exec.Command(shell, "-n", script).CombinedOutput()
 		if err != nil {

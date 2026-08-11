@@ -1,0 +1,73 @@
+// OpenScale — le poste de développement en conteneur.
+//
+// CE FICHIER EST UNE SECONDE PORTE. Le chemin sans conteneur — `make`, `make.ps1` — reste
+// la référence, et c'est lui que la CI exécute. Rien ici ne doit devenir un passage obligé.
+//
+// AUCUN NUMÉRO DE VERSION N'EST DÉCIDÉ ICI. Go vient de `go.mod` et de `ci.yml`, Node de
+// `ci.yml`, Python de `docs.yml` — et `deploy/devcontainer_test.go` compare les trois
+// premières dans les deux sens. golangci-lint n'est pas comparée : elle est INTERDITE
+// D'ÉCRITURE ici et lue dans le `Makefile`, une garantie plus forte qu'une comparaison.
+// Une version modifiée ici sans l'être là-bas rougit.
+//
+// Ce que ce conteneur NE JUGE PAS : les scripts d'installation sous Windows PowerShell 5.1.
+// Un conteneur Linux n'a que pwsh 7, qui n'est pas le shell d'un poste de balance. Le job
+// « scripts » de ci.yml est le seul endroit où ils sont exécutés pour de bon.
+{
+  "name": "OpenScale",
+  "build": { "dockerfile": "Dockerfile" },
+
+  "features": {
+    "ghcr.io/devcontainers/features/go:1": { "version": "1.26.5" },
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" },
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.13" },
+    // pwsh 7 ANALYSE les .ps1 — `powershellPaths` les lit sous tout shell présent, et une
+    // faute de syntaxe grossière rougit donc ici plutôt qu'en CI. Il ne les EXÉCUTE pas :
+    // `requireWindowsToRunCommonPs1` s'y oppose, et il a raison.
+    "ghcr.io/devcontainers/features/powershell:1": {}
+  },
+
+  // "vscode" est ici le nom d'un COMPTE UNIX — uid 1000, sans mot de passe — livré par
+  // l'image de base mcr.microsoft.com/devcontainers/base. Rien à voir avec l'éditeur : ce
+  // conteneur tourne identiquement sous VS Code, un fork, ou la CLI seule.
+  //
+  // Non root, et ce n'est pas de l'hygiène : TestADirectoryTheServiceCanReadButNotWriteIsRefused
+  // se saute sous root — et se saute aussi sous Windows. Un conteneur root laisserait cette
+  // branche couverte par rien, en restant vert.
+  "remoteUser": "vscode",
+
+  // Les caches sont dans des volumes et non dans le dossier monté : sous Windows, le bind
+  // coûte ×29 sur les métadonnées (143 ms contre 5 ms pour parcourir 577 fichiers). Sortis
+  // du bind, ils ne paient plus cette taxe, et la lenteur ne porte que sur les sources.
+  "containerEnv": {
+    "GOPATH": "/home/vscode/go",
+    "GOMODCACHE": "/home/vscode/go/pkg/mod",
+    "GOCACHE": "/home/vscode/.cache/go-build"
+  },
+  "remoteEnv": { "PATH": "${containerEnv:PATH}:/home/vscode/go/bin" },
+  // GOMODCACHE et GOCACHE restent partagés entre deux conteneurs OpenScale ouverts en même
+  // temps : leur contenu est adressé par version, l'outil Go verrouille ce qu'il lit, et le
+  // partage n'est qu'un gain. web/node_modules ne peut pas suivre la même règle — un dépôt
+  // principal et un arbre de revue ouverts ensemble peuvent avoir des package-lock.json
+  // différents, et le `npm ci` de l'un viderait et reconstruirait le dossier de l'autre, en
+  // silence. ${devcontainerId} isole ce volume par conteneur.
+  "mounts": [
+    "source=openscale-gomodcache,target=/home/vscode/go/pkg/mod,type=volume",
+    "source=openscale-gocache,target=/home/vscode/.cache/go-build,type=volume",
+    "source=openscale-node-modules-${devcontainerId},target=${containerWorkspaceFolder}/web/node_modules,type=volume"
+  ],
+
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  // La clé customizations.vscode est IGNORÉE par tout ce qui n'est pas VS Code ou l'un de
+  // ses forks (Cursor, Windsurf...) : sa présence n'oblige à rien qui ouvre ce conteneur
+  // autrement, CLI comprise.
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "svelte.svelte-vscode",
+        "ms-vscode.powershell"
+      ]
+    }
+  }
+}
