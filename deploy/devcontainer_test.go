@@ -276,6 +276,23 @@ func TestTheContainerNeverWritesTheGolangciVersionItself(t *testing.T) {
 	}
 }
 
+// TestThePostCreateScriptDeclaresTheWorkspaceASafeDirectory guards a fix that does not
+// look like what it fixes: a Windows host bind-mounts the workspace owned by root while
+// the container runs as vscode, git then refuses the repository for "dubious ownership",
+// and the failure a contributor actually sees is "boundary: 1 violation(s) — voir
+// docs/02-architecture.md §5.2" — `go list` losing its VCS stamp on that same refusal,
+// with nothing in the message naming git or file ownership. Losing this line silently
+// turns every `make test` red at `make boundary` for anyone on the default clone path.
+func TestThePostCreateScriptDeclaresTheWorkspaceASafeDirectory(t *testing.T) {
+	script := readFile(t, postCreateScript)
+	if !strings.Contains(script, "git config --global --replace-all safe.directory") {
+		t.Error("post-create.sh ne déclare plus le dépôt comme safe.directory : sur un " +
+			"poste Windows, git refusera le dépôt monté pour « dubious ownership », et " +
+			"`make test` mourra dans `make boundary` sur un message qui ne parle ni de " +
+			"git ni de droits d'accès")
+	}
+}
+
 // TestThePostCreateCommandRunsTheScriptThisBenchReads: the bench above is worth nothing if
 // devcontainer.json stops calling the file it inspects.
 func TestThePostCreateCommandRunsTheScriptThisBenchReads(t *testing.T) {

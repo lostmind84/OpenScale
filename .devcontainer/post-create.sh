@@ -8,6 +8,14 @@
 # found` de bash, pas en « Syntax error: word unexpected » de dash.
 set -eu
 
+# Le poste Windows monte le dépôt tel quel, et tout y appartient à root alors que ce
+# script tourne sous vscode : git refuse alors le dépôt pour « dubious ownership », et
+# la panne ne se présente jamais sous ce nom. Le premier symptôme vu est « boundary: 1
+# violation(s) — voir docs/02-architecture.md §5.2 », parce que `go list` perd son
+# horodatage VCS sur ce même refus de git — rien n'y mentionne git ni les droits. Le
+# --replace-all évite d'empiler des doublons si ce script est rejoué.
+git config --global --replace-all safe.directory "$PWD"
+
 # Docker crée sous root les PARENTS manquants d'une cible de montage, pas seulement la
 # cible elle-même. $HOME/.cache est un tel parent — go-build en est la seule cible montée
 # — et golangci-lint écrit dans $HOME/.cache/golangci-lint : sans ce chown récursif sur
