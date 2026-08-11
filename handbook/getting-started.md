@@ -8,13 +8,44 @@ la première fois — les suivantes sont immédiates.
 
 | Chemin | Ce qu'il faut sur votre poste | Pour qui |
 |---|---|---|
-| **Conteneur** | Docker, et Node si vous passez par la CLI (Docker seul suffit avec un éditeur qui la porte) | Découverte, contribution ponctuelle, poste qu'on ne veut pas encombrer |
+| **Conteneur** | Docker ; le script `dev.sh` / `dev.ps1` dit le reste s'il manque quelque chose (Node, pour la CLI devcontainer) | Découverte, contribution ponctuelle, poste qu'on ne veut pas encombrer |
 | **Local** | Go, et le reste selon ce que vous touchez | Développement quotidien, mise en route d'une balance ou d'une imprimante réelle |
 
 ### Le chemin conteneur
 
 La commande `devcontainer`, indépendante de tout éditeur, construit une image qui porte Go,
-Node, Python, gcc et golangci-lint aux versions **exactes** de l'intégration continue :
+Node, Python, gcc et golangci-lint aux versions **exactes** de l'intégration continue. Une
+seule commande, une fois le dépôt cloné, suffit pour l'obtenir : elle contrôle ce qu'il faut
+sur votre poste et lance le conteneur, en disant quoi faire si quelque chose manque — Docker
+non démarré, groupe `docker` sous Linux, CLI `devcontainer` introuvable.
+
+=== "Linux · macOS"
+
+    ```bash
+    git clone https://github.com/lostmind84/OpenScale.git
+    cd OpenScale
+    sh dev.sh
+    ```
+
+    `sh dev.sh`, pas `./dev.sh` : le fichier est commité en mode `100644`, sans le bit
+    d'exécution, et `./dev.sh` répondrait « Permission denied ».
+
+=== "Windows"
+
+    ```powershell
+    git clone https://github.com/lostmind84/OpenScale.git
+    cd OpenScale
+    .\dev.ps1
+    ```
+
+`dev.sh` et `dev.ps1` **n'installent rien** — ni Docker, ni Node —, délibérément : un
+script qui tenterait ça sur la machine de quelqu'un d'autre échouerait en silence. Ils
+font trois contrôles dans l'ordre — Docker répond, la CLI `devcontainer` fonctionne, le
+conteneur se lance — et s'arrêtent au premier qui échoue en nommant la cause **pour votre
+plateforme** (Debian, Arch, Fedora, macOS, Windows), groupe `docker` sous Linux compris,
+dont la correction exige une déconnexion/reconnexion.
+
+Ce que ces scripts font, en détail, pour qui préfère le savoir plutôt que le croire :
 
 ```bash
 npm i -g @devcontainers/cli
@@ -25,10 +56,11 @@ devcontainer exec --workspace-folder . make test
 C'est le chemin réellement vérifié : cette fonctionnalité a été construite, lancée et
 testée par cette commande et par `docker exec`, sans jamais ouvrir VS Code.
 
-Un éditeur qui porte les conteneurs de développement — VS Code, Cursor, Windsurf, une
-JetBrains récente — arrive au même résultat depuis « Reopen in Container » et n'a besoin
-que de Docker : l'implémentation du devcontainer est intégrée à l'éditeur. La CLI, elle,
-demande en plus Node sur votre poste. Le compromis est réel : à vous de choisir.
+Un éditeur qui implémente la spécification devcontainer arrive au même résultat depuis
+« Reopen in Container » et n'a besoin que de Docker. VS Code et ses forks — Cursor,
+Windsurf — le font avec certitude ; d'autres éditeurs le revendiquent aussi, sans que ce
+dépôt l'ait vérifié. La CLI, elle, demande en plus Node sur votre poste. Le compromis est
+réel : à vous de choisir.
 
 Vous pouvez alors rejouer, avant de pousser, tout ce que la CI vérifie **sauf un point** :
 les scripts d'installation sous Windows PowerShell 5.1, qu'aucun conteneur Linux ne peut
