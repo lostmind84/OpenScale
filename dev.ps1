@@ -4,11 +4,12 @@
 
 .DESCRIPTION
   Une seule commande entre un clone et un conteneur de développement lancé, pour qui n'a
-  que Docker : quatre commandes documentées suffisent à rejouer six des sept contrôles
-  de la CI (voir .devcontainer/), mais leurs pannes de premier lancement ne se racontent
-  pas d'elles-mêmes -- Docker installé mais pas démarré, ou la CLI devcontainer absente.
-  Ce script fait trois contrôles DANS CET ORDRE et s'arrête sur le premier qui échoue,
-  en disant quoi faire.
+  que Docker : le chemin conteneur du guide de démarrage (handbook/getting-started.md)
+  rejoue déjà, à la main, tout ce que la CI vérifie sauf les scripts d'installation sous
+  PowerShell 5.1, qu'aucun conteneur Linux ne peut exécuter. Mais ses pannes de premier
+  lancement ne se racontent pas d'elles-mêmes -- Docker installé mais pas démarré, ou la
+  CLI devcontainer trouvable sans être exécutable. Ce script fait trois contrôles DANS
+  CET ORDRE et s'arrête sur le premier qui échoue, en disant quoi faire.
 
   CE SCRIPT N'INSTALLE RIEN -- ni Docker, ni Node. Les installer demande des droits
   administrateur, un installeur graphique, et pour Docker Desktop un redémarrage ; un
@@ -30,19 +31,47 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Test-CommandRuns renvoie si l'appel réussit (code de sortie 0), sans jamais laisser une
+# ÉCRITURE SUR STDERR transformer un succès en échec.
+#
+# Sous Windows PowerShell 5.1 -- pas sous pwsh 7 -- $ErrorActionPreference = 'Stop' rend
+# TERMINANTE toute écriture sur le flux d'erreur d'une commande NATIVE dont la sortie est
+# redirigée (« *> $null » ci-dessous), même quand cette commande réussit et n'écrit là
+# qu'un avertissement. Mesuré sur ce poste, sous les deux PowerShell : un
+# « cmd /c "echo err 1>&2 && exit 0" » réussi devient une exception attrapée par le
+# catch sous 5.1, jamais sous 7. « docker info » sur un moteur WSL2 émet un « WARNING: »
+# sur stderr, et « devcontainer --version » hérite de tout avertissement expérimental que
+# Node écrit là -- les deux auraient donc été déclarés en panne sous 5.1 alors qu'ils
+# répondent.
+#
+# La préférence est desserrée le temps de CET appel seulement, et remise aussitôt après :
+# une commande ABSENTE lève toujours une exception, quelle que soit la préférence, donc la
+# branche « non installé » des deux contrôles continue de fonctionner sans elle.
+#
+# NE PAS « SIMPLIFIER » CE DÉTOUR : il tient la seule différence mesurée entre 5.1 et 7 sur
+# ce script, et aucun banc du dépôt ne peut l'exécuter pour le revérifier -- le parseur de
+# deploy/powershell_test.go ANALYSE ces scripts, il ne les fait pas tourner.
+function Test-CommandRuns([scriptblock]$Command) {
+  $previous = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    & $Command *> $null
+    return ($LASTEXITCODE -eq 0)
+  }
+  catch {
+    return $false
+  }
+  finally {
+    $ErrorActionPreference = $previous
+  }
+}
+
 Write-Host '1. Docker'
 
 # « docker info » et non « Get-Command docker » : un Docker installé mais pas démarré est
 # le cas ordinaire, et seul « docker info » distingue les deux. Get-Command ne sert
 # ci-dessous qu'à CHOISIR le bon message une fois ce contrôle-là en échec.
-$dockerReady = $false
-try {
-  docker info *> $null
-  $dockerReady = ($LASTEXITCODE -eq 0)
-}
-catch {
-  $dockerReady = $false
-}
+$dockerReady = Test-CommandRuns { docker info }
 
 if (-not $dockerReady) {
   if (Get-Command docker -ErrorAction SilentlyContinue) {
@@ -70,14 +99,7 @@ Write-Host '2. La CLI devcontainer'
 # le contrôle 1 : une commande présente dans le PATH n'est pas forcément exécutable telle
 # quelle -- voir le commentaire équivalent de dev.sh, où c'est mesuré sous WSL avec un
 # devcontainer installé côté Windows mais injoignable depuis Linux.
-$devcontainerReady = $false
-try {
-  devcontainer --version *> $null
-  $devcontainerReady = ($LASTEXITCODE -eq 0)
-}
-catch {
-  $devcontainerReady = $false
-}
+$devcontainerReady = Test-CommandRuns { devcontainer --version }
 
 if (-not $devcontainerReady) {
   Write-Host "   La commande devcontainer est introuvable ou ne fonctionne pas. Installez-la :"
