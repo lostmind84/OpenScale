@@ -49,7 +49,36 @@ pip install --no-cache-dir -r handbook/requirements.txt
 # `npm ci` et non `npm install` : les versions sont gelées dans package-lock.json (§14.1),
 # et `ci` est DÉTERMINISTE — il ÉCHOUE sur un lock désynchronisé au lieu de le réparer
 # en silence, là où `install` l'aurait accepté et modifié sans le dire.
-npm --prefix web ci
+#
+# La seconde tentative ne couvre PAS « npm a échoué », elle couvre UNE panne nommée, mesurée
+# sur le premier lancement de ce conteneur : « spawnSync .../esbuild/bin/esbuild ETXTBSY »
+# dans le postinstall d'esbuild. npm pose un lien dur vers le binaire de plateforme qu'il
+# vient d'extraire puis l'exécute, pendant que sa propre phase reify peut encore tenir cet
+# inode ouvert en écriture — et Linux refuse d'exécuter un fichier ouvert en écriture. C'est
+# une course entre deux morceaux de npm, elle ne dit rien du lock, et elle frappe un volume
+# web/node_modules NEUF : le premier lancement d'un contributeur, précisément.
+#
+# Ce que coûte de ne pas la rattraper dépasse la minute perdue : la CLI n'exécute
+# postCreateCommand qu'à la CRÉATION du conteneur. Le conteneur à moitié préparé reste, le
+# `devcontainer up` suivant répond « success » sans rien préparer, et dev.sh annonce « Poste
+# prêt » sur un web/node_modules vide (voir la sortie de secours qu'il nomme désormais).
+#
+# Le filtre sur ETXTBSY est ce qui garde `ci` déterministe : tout autre échec — un lock
+# désynchronisé au premier chef — sort ici, à la première tentative, sans être répété.
+if ! npm_failure=$(npm --prefix web ci 2>&1); then
+  printf '%s\n' "$npm_failure"
+  case "$npm_failure" in
+    *ETXTBSY*)
+      echo ''
+      echo 'ETXTBSY : course connue entre les écritures de npm et son propre postinstall.'
+      echo 'Seconde et dernière tentative, sur un cache déjà chaud.'
+      npm --prefix web ci
+      ;;
+    *)
+      exit 1
+      ;;
+  esac
+fi
 
 echo ''
 echo 'Poste prêt. Ce que vous pouvez rejouer ici :'

@@ -66,6 +66,19 @@ Vous pouvez alors rejouer, avant de pousser, tout ce que la CI vérifie **sauf u
 les scripts d'installation sous Windows PowerShell 5.1, qu'aucun conteneur Linux ne peut
 exécuter. C'est le job `scripts` de la CI qui les juge, à chaque pull request.
 
+!!! warning "Si le lancement échoue APRÈS la construction de l'image"
+
+    La CLI n'exécute la préparation du conteneur — `postCreateCommand` : golangci-lint,
+    mkdocs, `npm ci` — qu'à la **création** de celui-ci. Une préparation qui meurt en route
+    laisse donc le conteneur en place, et un second `dev.sh` répondrait « Poste prêt » sans
+    rien préparer, sur un `web/node_modules` vide. Repartez d'un conteneur neuf :
+
+    ```bash
+    devcontainer up --workspace-folder . --remove-existing-container
+    ```
+
+    Les deux scripts le disent aussi au moment où ils échouent.
+
 !!! note "Sous Windows, si les compilations traînent"
 
     Le dépôt reste sur votre disque Windows et le conteneur le lit à travers un montage :

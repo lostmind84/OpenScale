@@ -521,6 +521,30 @@ func TestDevScriptsCheckTheSameThings(t *testing.T) {
 	checkTheReasonIsWritten(t, devGroupReasonException)
 }
 
+// TestBothDevScriptsSayHowToRedoAFailedPreparation holds a trap neither script could show
+// on its own, and that a first launch actually fell into.
+//
+// `devcontainer up` runs postCreateCommand ONLY when it CREATES the container. A preparation
+// that dies half-way — `npm ci` on the ETXTBSY race of
+// TestThePostCreateScriptRetriesNpmCiOnTheETXTBSYRace, a network cut during `pip install` —
+// leaves the container in place, and the next plain `devcontainer up` answers
+// {"outcome":"success"} without preparing anything. Both scripts would then print « Poste
+// prêt » over an empty web/node_modules, and the contributor's first `make front-check`
+// would fail on something that names neither the container nor its preparation.
+//
+// Naming --remove-existing-container is the whole repair: it is the only way back to a
+// container the CLI will prepare again.
+func TestBothDevScriptsSayHowToRedoAFailedPreparation(t *testing.T) {
+	const wayOut = "--remove-existing-container"
+	for _, script := range []string{devScriptPath, devPowerShellScriptPath} {
+		if !strings.Contains(readFile(t, script), wayOut) {
+			t.Errorf("%s ne nomme pas %q : après une préparation échouée, relancer le script "+
+				"tel quel répondrait « Poste prêt » sur un conteneur à moitié préparé — la CLI "+
+				"ne rejoue postCreateCommand qu'à la CRÉATION du conteneur", script, wayOut)
+		}
+	}
+}
+
 // --- Les lecteurs ---------------------------------------------------------------------
 
 // dashedSpelling renders a PowerShell parameter the way a sh script spells it.
