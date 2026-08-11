@@ -136,7 +136,21 @@ echo '   devcontainer est disponible.'
 
 echo ''
 echo '3. Tout est présent -- lancement du conteneur de développement'
-devcontainer up --workspace-folder .
+# L'échec n'est pas laissé à « set -e », parce que le message qui manque ici est celui d'un
+# piège qu'on ne devine pas : la CLI n'exécute postCreateCommand qu'à la CRÉATION du
+# conteneur. Une préparation qui meurt en route -- npm, pip, une coupure réseau -- laisse le
+# conteneur EN PLACE, et le « devcontainer up » suivant répond {"outcome":"success"} sans
+# rien préparer ; ce script annoncerait alors « Poste prêt » sur un web/node_modules vide, et
+# le premier « make front-check » du contributeur échouerait sur un message qui ne parle ni
+# du conteneur ni de sa préparation. Repartir d'un conteneur neuf est la seule sortie.
+if ! devcontainer up --workspace-folder .; then
+  echo ''
+  echo "   Le lancement a échoué. Si la construction de l'image est passée et que c'est la"
+  echo '   PRÉPARATION qui a lâché, ne relancez pas cette commande telle quelle : la CLI ne'
+  echo '   rejoue la préparation que sur un conteneur NEUF. Repartez de :'
+  echo '     devcontainer up --workspace-folder . --remove-existing-container'
+  exit 1
+fi
 
 echo ''
 echo 'Poste prêt. Ce que vous pouvez rejouer depuis ce conteneur :'

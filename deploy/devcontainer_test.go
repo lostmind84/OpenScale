@@ -296,6 +296,38 @@ func TestThePostCreateScriptDeclaresTheWorkspaceASafeDirectory(t *testing.T) {
 	}
 }
 
+// TestThePostCreateScriptRetriesNpmCiOnTheETXTBSYRace guards the repair of the only first
+// launch this container has ever failed, and the failure did not look like what it was.
+//
+// `npm ci` died in esbuild's postinstall on « spawnSync .../esbuild/bin/esbuild ETXTBSY »:
+// npm hard-links the platform binary it has just extracted, then executes it while its own
+// reify phase may still hold that inode open for writing — and Linux refuses to execute a
+// file open for writing. It is a race between two parts of npm, not a broken package-lock,
+// and it strikes a FRESH web/node_modules volume, i.e. exactly a contributor's first run.
+//
+// What it costs is worse than the lost minute: the CLI runs postCreateCommand ONLY when it
+// CREATES the container. The half-prepared container stays, a second `devcontainer up`
+// reports success without preparing anything, and dev.sh announces « Poste prêt » over an
+// empty web/node_modules — see TestBothDevScriptsSayHowToRedoAFailedPreparation, which
+// holds the other half of this repair.
+//
+// The retry is deliberately NARROW: only an output naming ETXTBSY is retried, so a genuinely
+// desynchronised lock file keeps failing on the first attempt, loudly, the way §14.1 wants.
+func TestThePostCreateScriptRetriesNpmCiOnTheETXTBSYRace(t *testing.T) {
+	script := readFile(t, postCreateScript)
+	if !strings.Contains(script, "ETXTBSY") {
+		t.Error("post-create.sh ne nomme plus ETXTBSY : la seconde tentative de `npm ci` " +
+			"ne vise plus la panne mesurée, et un premier lancement sur un volume " +
+			"web/node_modules neuf peut de nouveau mourir sur une course interne à npm")
+	}
+	if attempts := strings.Count(codeOnly(script), "npm --prefix web ci"); attempts < 2 {
+		t.Errorf("post-create.sh appelle `npm --prefix web ci` %d fois : sans seconde "+
+			"tentative, la course ETXTBSY laisse un conteneur à moitié préparé que la CLI "+
+			"ne repréparera jamais — elle ne rejoue postCreateCommand qu'à la création",
+			attempts)
+	}
+}
+
 // TestThePostCreateCommandRunsTheScriptThisBenchReads: the bench above is worth nothing if
 // devcontainer.json stops calling the file it inspects.
 func TestThePostCreateCommandRunsTheScriptThisBenchReads(t *testing.T) {

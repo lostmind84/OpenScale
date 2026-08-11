@@ -120,8 +120,19 @@ Write-Host '   devcontainer est disponible.'
 Write-Host ''
 Write-Host '3. Tout est présent -- lancement du conteneur de développement'
 
+# Le message d'échec dit un piège qu'on ne devine pas, et c'est le même des deux côtés (voir
+# le commentaire équivalent de dev.sh) : la CLI n'exécute postCreateCommand qu'à la CRÉATION
+# du conteneur. Une préparation qui meurt en route laisse le conteneur EN PLACE, et le
+# « devcontainer up » suivant répond {"outcome":"success"} sans rien préparer -- ce script
+# annoncerait « Poste prêt » sur un web/node_modules vide.
 devcontainer up --workspace-folder .
 if ($LASTEXITCODE -ne 0) {
+  Write-Host ''
+  Write-Host "   Le lancement a échoué. Si la construction de l'image est passée et que"
+  Write-Host "   c'est la PRÉPARATION qui a lâché, ne relancez pas cette commande telle"
+  Write-Host '   quelle : la CLI ne rejoue la préparation que sur un conteneur NEUF.'
+  Write-Host '   Repartez de :'
+  Write-Host '     devcontainer up --workspace-folder . --remove-existing-container'
   exit $LASTEXITCODE
 }
 
