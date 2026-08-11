@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -38,8 +39,15 @@ func TestTheUnitIsValidAccordingToSystemdItself(t *testing.T) {
 	if err != nil {
 		t.Skip("systemd-analyze absent : les directives sont vérifiées par le test suivant")
 	}
-	output, err := exec.Command(analyze, "verify",
-		unitPath("openscale.service"), unitPath("openscale-kiosk.service")).CombinedOutput()
+	// systemd-analyze verify also inspects the MODE of the file it is handed, and refuses
+	// one that is executable or world-writable — sound on a real filesystem, but this
+	// repository can be checked out through a bind mount (the project's devcontainer mounts
+	// it from a Windows host), where NTFS reports every file as 0777 to Linux regardless of
+	// what install.sh or the unit itself asks for. Verifying COPIES written with an explicit
+	// 0644 makes the bench judge the unit's CONTENT, independent of whatever filesystem
+	// happens to host the checkout.
+	units := copyUnitsForVerification(t, "openscale.service", "openscale-kiosk.service")
+	output, err := exec.Command(analyze, append([]string{"verify"}, units...)...).CombinedOutput()
 	// systemd-analyze checks that ExecStart points at something EXECUTABLE, which on a
 	// CI runner it never is: nothing is installed there. That complaint is about the
 	// MACHINE, not about the unit, and failing on it would mean this test can only run
@@ -56,6 +64,31 @@ func TestTheUnitIsValidAccordingToSystemdItself(t *testing.T) {
 	if len(output) > 0 {
 		t.Logf("systemd-analyze verify a des remarques :\n%s", output)
 	}
+}
+
+// copyUnitsForVerification copies the named shipped units into a throwaway directory with
+// mode 0644, and returns their new paths in the same order.
+//
+// systemd-analyze verify judges the file it is given, mode included, and this repository's
+// checkout does not always control that mode (see the comment above its one caller). A copy
+// with a mode this test chooses itself is what keeps the bench about the unit and not about
+// the checkout.
+func copyUnitsForVerification(t *testing.T, names ...string) []string {
+	t.Helper()
+	directory := t.TempDir()
+	copies := make([]string, 0, len(names))
+	for _, name := range names {
+		content, err := os.ReadFile(unitPath(name))
+		if err != nil {
+			t.Fatalf("lecture de %s : %v", name, err)
+		}
+		copyPath := filepath.Join(directory, name)
+		if err := os.WriteFile(copyPath, content, 0o644); err != nil {
+			t.Fatalf("copie de %s : %v", name, err)
+		}
+		copies = append(copies, copyPath)
+	}
+	return copies
 }
 
 // TestTheStopTimeoutFollowsTheMeasuredShutdownBudget is the §13.4 fix, guarded where it
