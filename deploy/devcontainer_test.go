@@ -143,6 +143,9 @@ const postCreateScript = "../.devcontainer/post-create.sh"
 // devcontainerDeclaration is the part of devcontainer.json this package has an opinion
 // about. Everything else — extensions, port forwarding, editor settings — is free.
 type devcontainerDeclaration struct {
+	Build struct {
+		Dockerfile string `json:"dockerfile"`
+	} `json:"build"`
 	Features map[string]struct {
 		Version string `json:"version"`
 	} `json:"features"`
@@ -303,10 +306,81 @@ func TestThePostCreateCommandRunsTheScriptThisBenchReads(t *testing.T) {
 	}
 }
 
+// TestTheBuildDeclarationBuildsFromTheFileTheseBenchesRead: TestTheImageCarriesWhatTheBenchesNeed
+// is worth nothing if devcontainer.json stops building the image from the file it inspects —
+// exactly the argument TestThePostCreateCommandRunsTheScriptThisBenchReads already makes for
+// post-create.sh. Replacing `"build": { "dockerfile": "Dockerfile" }` with a prebuilt
+// `"image": "…"` would leave every test in this file green while gcc, zip and systemd
+// silently stop being installed.
+func TestTheBuildDeclarationBuildsFromTheFileTheseBenchesRead(t *testing.T) {
+	dockerfile := readDevcontainer(t).Build.Dockerfile
+	if dockerfile != "Dockerfile" {
+		t.Errorf("build.dockerfile vaut %q : TestTheImageCarriesWhatTheBenchesNeed et les "+
+			"bancs de version liraient un Dockerfile que l'image ne construit plus — par "+
+			"exemple si devcontainer.json était passé à une clé « image » prébuilt", dockerfile)
+	}
+}
+
+// TestTheContainerDeclaresThePowerShellFeature guards a loss that reads like an honest skip.
+//
+// Removing this feature does not turn any test in this file red: powershellPaths
+// (deploy/harness_test.go) simply finds nothing on the container's Linux, and the .ps1
+// parse benches skip with « ni pwsh ni powershell » — the exact message a machine that never
+// had Windows would produce. TestTheContainerDoesNotRunAsRoot already guards the same shape
+// of loss for the root user; this is the same reasoning applied to the feature that lets
+// three of the four PowerShell benches run under Linux at all (§4 of the design).
+//
+// No version is asserted: this feature pins none (§5.2), and featureVersion would wrongly
+// fail on an intentionally empty version.
+func TestTheContainerDeclaresThePowerShellFeature(t *testing.T) {
+	if _, present := readDevcontainer(t).Features["ghcr.io/devcontainers/features/powershell:1"]; !present {
+		t.Error("devcontainer.json ne déclare plus le feature powershell : les bancs de " +
+			"deploy/harness_test.go qui analysent les .ps1 se sauteraient sur ce conteneur " +
+			"avec « ni pwsh ni powershell » — le même message qu'une machine qui n'a jamais " +
+			"eu Windows, sans rien qui distingue les deux causes")
+	}
+}
+
+// devcontainerLockFile is the CLI-generated companion of devcontainerFile: one content
+// digest per feature, on top of the version devcontainerFile pins.
+const devcontainerLockFile = "../.devcontainer/devcontainer-lock.json"
+
+// devcontainerLock is the part of devcontainer-lock.json this package has an opinion about.
+type devcontainerLock struct {
+	Features map[string]struct {
+		Integrity string `json:"integrity"`
+	} `json:"features"`
+}
+
+// TestEveryFeatureIsPinnedByDigestInTheLockFile guards a supply-chain control that has no
+// guard of its own otherwise: devcontainer-lock.json pins each feature to a content digest,
+// not just the version devcontainer.json names. Adding a fifth feature without touching the
+// lock ships it unpinned, and deleting the lock file entirely leaves every other test in
+// this file green — nothing else reads it.
+func TestEveryFeatureIsPinnedByDigestInTheLockFile(t *testing.T) {
+	var lock devcontainerLock
+	source := withoutJSONComments(readFile(t, devcontainerLockFile))
+	if err := jsonDecode(source, &lock); err != nil {
+		t.Fatalf("%s ne décode pas : %v", devcontainerLockFile, err)
+	}
+	for feature := range readDevcontainer(t).Features {
+		pinned, present := lock.Features[feature]
+		if !present {
+			t.Errorf("%s ne pin pas le feature %s : il s'installerait sans empreinte de "+
+				"contenu, seulement à la version que devcontainer.json déclare", devcontainerLockFile, feature)
+			continue
+		}
+		if !strings.HasPrefix(pinned.Integrity, "sha256:") {
+			t.Errorf("%s : le feature %s a une integrity %q, pas une empreinte sha256",
+				devcontainerLockFile, feature, pinned.Integrity)
+		}
+	}
+}
+
 // TestTheImageCarriesWhatTheBenchesNeed names three apt packages and the bench each one
 // keeps alive. Slimming the image is a reasonable-looking change; losing -race to it is not.
 func TestTheImageCarriesWhatTheBenchesNeed(t *testing.T) {
-	dockerfile := readFile(t, "../.devcontainer/Dockerfile")
+	dockerfile := codeOnly(readFile(t, "../.devcontainer/Dockerfile"))
 	needed := []struct{ packageName, why string }{
 		{"build-essential", "gcc, sans quoi la passe -race de `make test` ne peut pas " +
 			"tourner : c'est la seule vérification automatique des trois invariants de " +
@@ -316,7 +390,10 @@ func TestTheImageCarriesWhatTheBenchesNeed(t *testing.T) {
 			"se saute et plus rien ne juge les unités livrées"},
 	}
 	for _, need := range needed {
-		if !strings.Contains(codeOnly(dockerfile), need.packageName) {
+		// \b évite qu'un « zip » soit satisfait par gzip, unzip ou bzip2 — un Dockerfile qui
+		// remplacerait le paquet zip par une dépendance transitive de gzip resterait vert.
+		pattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(need.packageName) + `\b`)
+		if !pattern.MatchString(dockerfile) {
 			t.Errorf("le Dockerfile n'installe pas %s — %s", need.packageName, need.why)
 		}
 	}
