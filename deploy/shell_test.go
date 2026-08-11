@@ -18,6 +18,10 @@ import (
 // TestNoShellScriptExitsOnATestThatIsSimplyFalse guards a trap `sh -n` cannot see, and
 // that a Saturday-morning installation would find instead.
 //
+// dev.sh joins the list too, for the same reason it joined the `sh -n` bench next to this
+// one: it poses `set -e` and is exactly the kind of script a first-run failure must speak
+// from, not exit silently on a test that was simply false.
+//
 // Under `set -e`, a standalone `[ … ] && commande` whose TEST is false returns a non-zero
 // status, and the shell exits. It reads like « fais ceci si », it behaves like « arrête-toi
 // si ce n'est pas le cas ». It was really in install.sh: an optional file that is not
@@ -31,6 +35,7 @@ func TestNoShellScriptExitsOnATestThatIsSimplyFalse(t *testing.T) {
 	if err != nil || len(scripts) == 0 {
 		t.Fatalf("aucun script shell trouvé : %v", err)
 	}
+	scripts = append(scripts, filepath.Join("..", "dev.sh"))
 	andList := regexp.MustCompile(`^\s*(\[|command\s|test\s).*&&`)
 
 	for _, script := range scripts {

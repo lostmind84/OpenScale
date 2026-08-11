@@ -449,28 +449,68 @@ var devGroupReasonException = parityException{
 	proof: "groupe docker",
 }
 
+// devCheckMarkers are the three checks dev.sh and dev.ps1 must both perform, in the
+// order they must perform them.
+//
+// "devcontainer --version" and not the bare "devcontainer": the second is a substring of
+// the third ("devcontainer up"), so it is true by construction as soon as the third is —
+// it cannot, on its own, catch the second check disappearing. "--version" is what both
+// scripts actually run to tell "the CLI is available" from "a command of this name is
+// merely on the PATH" (see the comment next to each call site) — using it here means this
+// bench would have caught that check going back to a bare presence test.
+var devCheckMarkers = []string{"docker info", "devcontainer --version", "devcontainer up"}
+
 // TestDevScriptsCheckTheSameThings is the parity guard for dev.sh and dev.ps1 — the "one
 // command that checks and guides" pair, and neither one an installer.
 //
 // Both scripts are deliberately option-free (see both headers), so there is no table of
 // flags to compare the way installerParity does above. Parity here means the same THREE
-// checks, in the same order — Docker answers, the devcontainer CLI is available, then
-// devcontainer up is launched — read out of both files as text, the way installerParity's
-// neighbours already do: actually RUNNING either script from this bench would need Docker
-// and Node on whatever machine runs `go test ./deploy/`, which is exactly what these
-// scripts exist to check for instead.
+// checks (devCheckMarkers), in the same order, read out of both files as text, the way
+// installerParity's neighbours already do: actually RUNNING either script from this bench
+// would need Docker and Node on whatever machine runs `go test ./deploy/`, which is
+// exactly what these scripts exist to check for instead.
 func TestDevScriptsCheckTheSameThings(t *testing.T) {
 	sh := codeOnly(readFile(t, devScriptPath))
 	ps1 := codeOnly(readFile(t, devPowerShellScriptPath))
 
-	for _, marker := range []string{"docker info", "devcontainer", "devcontainer up"} {
-		if !strings.Contains(sh, marker) {
-			t.Errorf("dev.sh ne contient pas %q : un des trois contrôles semble absent, "+
-				"alors que dev.ps1 le porte", marker)
+	// Present on both sides — and the message says what it can actually see rather than
+	// assuming the side it is not looking at: a check missing from BOTH scripts is a
+	// different failure from one that fell off a single side, and conflating them would
+	// have this bench contradict itself on exactly the case where both regressed together.
+	for _, marker := range devCheckMarkers {
+		inSh := strings.Contains(sh, marker)
+		inPs1 := strings.Contains(ps1, marker)
+		switch {
+		case inSh && inPs1:
+			// rien à dire
+		case inSh && !inPs1:
+			t.Errorf("dev.ps1 ne contient pas %q, alors que dev.sh le porte : un des trois "+
+				"contrôles a disparu d'un seul côté", marker)
+		case !inSh && inPs1:
+			t.Errorf("dev.sh ne contient pas %q, alors que dev.ps1 le porte : un des trois "+
+				"contrôles a disparu d'un seul côté", marker)
+		default:
+			t.Errorf("ni dev.sh ni dev.ps1 ne contiennent %q : un des trois contrôles a "+
+				"disparu des deux côtés", marker)
 		}
-		if !strings.Contains(ps1, marker) {
-			t.Errorf("dev.ps1 ne contient pas %q : un des trois contrôles semble absent, "+
-				"alors que dev.sh le porte", marker)
+	}
+
+	// Dans le même ordre — sur les marqueurs effectivement trouvés seulement : un marqueur
+	// absent est déjà signalé ci-dessus, et le juger aussi sur l'ordre ne ferait que
+	// répéter la même panne sous un second message.
+	for _, script := range []struct{ name, text string }{{"dev.sh", sh}, {"dev.ps1", ps1}} {
+		last := -1
+		for _, marker := range devCheckMarkers {
+			at := strings.Index(script.text, marker)
+			if at < 0 {
+				continue
+			}
+			if at < last {
+				t.Errorf("%s : %q apparaît avant un contrôle qui devrait le précéder — les "+
+					"trois contrôles doivent se succéder dans le même ordre des deux côtés",
+					script.name, marker)
+			}
+			last = at
 		}
 	}
 
