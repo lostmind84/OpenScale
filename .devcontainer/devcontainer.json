@@ -44,10 +44,16 @@
     "GOCACHE": "/home/vscode/.cache/go-build"
   },
   "remoteEnv": { "PATH": "${containerEnv:PATH}:/home/vscode/go/bin" },
+  // GOMODCACHE et GOCACHE restent partagés entre deux conteneurs OpenScale ouverts en même
+  // temps : leur contenu est adressé par version, l'outil Go verrouille ce qu'il lit, et le
+  // partage n'est qu'un gain. web/node_modules ne peut pas suivre la même règle — un dépôt
+  // principal et un arbre de revue ouverts ensemble peuvent avoir des package-lock.json
+  // différents, et le `npm ci` de l'un viderait et reconstruirait le dossier de l'autre, en
+  // silence. ${devcontainerId} isole ce volume par conteneur.
   "mounts": [
     "source=openscale-gomodcache,target=/home/vscode/go/pkg/mod,type=volume",
     "source=openscale-gocache,target=/home/vscode/.cache/go-build,type=volume",
-    "source=openscale-node-modules,target=${containerWorkspaceFolder}/web/node_modules,type=volume"
+    "source=openscale-node-modules-${devcontainerId},target=${containerWorkspaceFolder}/web/node_modules,type=volume"
   ],
 
   "postCreateCommand": "bash .devcontainer/post-create.sh",

@@ -31,6 +31,9 @@ sudo chown -R vscode:vscode "$HOME/go" "$HOME/.cache" web/node_modules
 # unique — exactement ce que fait l'étape `make lint` de ci.yml.
 golangci_version=$(make -s golangci-version)
 install_dir=$(mktemp -d)
+# Sous `set -e`, un `go install` qui échoue fait sortir le script AVANT le `rm -rf` de la
+# dernière ligne du bloc : ce trap couvre ce chemin-là en plus du chemin heureux.
+trap 'rm -rf "$install_dir"' EXIT
 (
   cd "$install_dir"
   go mod init lintinstall >/dev/null 2>&1
@@ -46,7 +49,7 @@ pip install --no-cache-dir -r handbook/requirements.txt
 # `npm ci` et non `npm install` : les versions sont gelées dans package-lock.json (§14.1),
 # et `ci` est DÉTERMINISTE — il ÉCHOUE sur un lock désynchronisé au lieu de le réparer
 # en silence, là où `install` l'aurait accepté et modifié sans le dire.
-npm ci --prefix web
+npm --prefix web ci
 
 echo ''
 echo 'Poste prêt. Ce que vous pouvez rejouer ici :'
