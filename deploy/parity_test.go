@@ -424,6 +424,103 @@ func TestNeitherInstallerPutsASecretOnTheBinaryCommandLine(t *testing.T) {
 	}
 }
 
+// devScriptPath and devPowerShellScriptPath are dev.sh and dev.ps1 — the "check and
+// guide" pair at the repository root, next to make.ps1. deploy/ tests run one level
+// below the root, hence the "..".
+var (
+	devScriptPath           = filepath.Join("..", "dev.sh")
+	devPowerShellScriptPath = filepath.Join("..", "dev.ps1")
+)
+
+// devGroupReasonException is the one legitimate asymmetry between dev.sh and dev.ps1:
+// dev.sh checks for docker-group membership and dev.ps1 does not, because only Linux
+// has a docker group to be missing from. Same rule as installerParityExceptions above —
+// a silent écart is a carpet, a written one is an arbitrage — so it is held by the same
+// helper rather than a new one.
+var devGroupReasonException = parityException{
+	option:      "le contrôle du groupe docker",
+	carriedBy:   devScriptPath,
+	missingFrom: devPowerShellScriptPath,
+	why: "dev.sh signale quand l'utilisateur Linux n'est pas dans le groupe docker (« " +
+		"permission denied … /var/run/docker.sock ») parce que Docker Desktop pour Windows " +
+		"n'a pas d'équivalent : son démon est exposé par un named pipe que gère son propre " +
+		"service, pas par les permissions d'un groupe Unix — il n'y a donc rien à détecter " +
+		"côté PowerShell.",
+	proof: "groupe docker",
+}
+
+// devCheckMarkers are the three checks dev.sh and dev.ps1 must both perform, in the
+// order they must perform them.
+//
+// "devcontainer --version" and not the bare "devcontainer": the second is a substring of
+// the third ("devcontainer up"), so it is true by construction as soon as the third is —
+// it cannot, on its own, catch the second check disappearing. "--version" is what both
+// scripts actually run to tell "the CLI is available" from "a command of this name is
+// merely on the PATH" (see the comment next to each call site) — using it here means this
+// bench would have caught that check going back to a bare presence test.
+var devCheckMarkers = []string{"docker info", "devcontainer --version", "devcontainer up"}
+
+// TestDevScriptsCheckTheSameThings is the parity guard for dev.sh and dev.ps1 — the "one
+// command that checks and guides" pair, and neither one an installer.
+//
+// Both scripts are deliberately option-free (see both headers), so there is no table of
+// flags to compare the way installerParity does above. Parity here means the same THREE
+// checks (devCheckMarkers), in the same order, read out of both files as text, the way
+// installerParity's neighbours already do: actually RUNNING either script from this bench
+// would need Docker and Node on whatever machine runs `go test ./deploy/`, which is
+// exactly what these scripts exist to check for instead.
+func TestDevScriptsCheckTheSameThings(t *testing.T) {
+	sh := codeOnly(readFile(t, devScriptPath))
+	ps1 := codeOnly(readFile(t, devPowerShellScriptPath))
+
+	// Present on both sides — and the message says what it can actually see rather than
+	// assuming the side it is not looking at: a check missing from BOTH scripts is a
+	// different failure from one that fell off a single side, and conflating them would
+	// have this bench contradict itself on exactly the case where both regressed together.
+	for _, marker := range devCheckMarkers {
+		inSh := strings.Contains(sh, marker)
+		inPs1 := strings.Contains(ps1, marker)
+		switch {
+		case inSh && inPs1:
+			// rien à dire
+		case inSh && !inPs1:
+			t.Errorf("dev.ps1 ne contient pas %q, alors que dev.sh le porte : un des trois "+
+				"contrôles a disparu d'un seul côté", marker)
+		case !inSh && inPs1:
+			t.Errorf("dev.sh ne contient pas %q, alors que dev.ps1 le porte : un des trois "+
+				"contrôles a disparu d'un seul côté", marker)
+		default:
+			t.Errorf("ni dev.sh ni dev.ps1 ne contiennent %q : un des trois contrôles a "+
+				"disparu des deux côtés", marker)
+		}
+	}
+
+	// Dans le même ordre — sur les marqueurs effectivement trouvés seulement : un marqueur
+	// absent est déjà signalé ci-dessus, et le juger aussi sur l'ordre ne ferait que
+	// répéter la même panne sous un second message.
+	for _, script := range []struct{ name, text string }{{"dev.sh", sh}, {"dev.ps1", ps1}} {
+		last := -1
+		for _, marker := range devCheckMarkers {
+			at := strings.Index(script.text, marker)
+			if at < 0 {
+				continue
+			}
+			if at < last {
+				t.Errorf("%s : %q apparaît avant un contrôle qui devrait le précéder — les "+
+					"trois contrôles doivent se succéder dans le même ordre des deux côtés",
+					script.name, marker)
+			}
+			last = at
+		}
+	}
+
+	if !strings.Contains(strings.ToLower(sh), devGroupReasonException.proof) {
+		t.Errorf("dev.sh ne nomme plus %s : la raison écrite dans dev.ps1 excuse un "+
+			"contrôle qui n'existe plus", devGroupReasonException.proof)
+	}
+	checkTheReasonIsWritten(t, devGroupReasonException)
+}
+
 // --- Les lecteurs ---------------------------------------------------------------------
 
 // dashedSpelling renders a PowerShell parameter the way a sh script spells it.
