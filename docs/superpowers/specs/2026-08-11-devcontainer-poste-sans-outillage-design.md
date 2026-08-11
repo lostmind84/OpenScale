@@ -138,6 +138,14 @@ saute **aussi** sous Windows (*« un répertoire Windows se ferme par une ACL et
 branche ». Un développeur sous Windows ne l'a donc **jamais** exécuté. Le conteneur le lui
 rend — à condition de ne pas être root.
 
+L'image de base reste sur cette **étiquette mobile**, `ubuntu-24.04`, plutôt que sur une
+empreinte figée — à la différence des features de §5.2 — et c'est un arbitrage du
+propriétaire du produit, pas un oubli : une étiquette mobile est ce par quoi l'image reçoit
+ses correctifs de sécurité `apt`, et personne ici ne rafraîchirait une empreinte gelée à la
+main. Les features, elles, exécutent du code d'installation à la construction ; l'image de
+base n'exécute que ce que `apt-get upgrade` livrerait de toute façon. Deux politiques,
+chacune sa raison.
+
 ### 5.2 Features, épinglées
 
 | Feature | Version | Source de vérité |
@@ -146,6 +154,15 @@ rend — à condition de ne pas être root.
 | Node | 22 | `ci.yml` (`node-version`) |
 | Python | 3.13 | `docs.yml` (`python-version`) |
 | PowerShell | 7 | — (aucune version épinglée ailleurs ; l'analyse ne dépend pas du correctif) |
+
+Chaque feature est de plus épinglée par empreinte de contenu dans
+`.devcontainer/devcontainer-lock.json`, en plus de la version du tableau ci-dessus. Ce fichier
+n'est pas écrit à la main : il est produit par la CLI `devcontainer`, qui le lit et le complète
+à chaque `up` ou `build`. Il est committé parce que ce dépôt est public et que l'un des quatre
+features, `ghcr.io/devcontainers/features/go:1`, est justement de la forme d'une étiquette
+mobile — sans le lock, deux constructions du même `devcontainer.json` pourraient résoudre deux
+contenus différents, en silence. Pour le rafraîchir volontairement, la commande est
+`devcontainer upgrade` ; il ne se modifie jamais à la main.
 
 ### 5.3 Paquets `apt`, et la raison de chacun
 
