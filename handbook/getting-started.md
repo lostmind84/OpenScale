@@ -3,6 +3,57 @@
 Objectif : un poste complet qui tourne sur votre machine, **sans balance et sans
 imprimante**. Comptez cinq minutes.
 
+## Deux chemins
+
+| Chemin | Ce qu'il faut sur votre poste | Pour qui |
+|---|---|---|
+| **Conteneur** | Docker, et Node si vous passez par la CLI (Docker seul suffit avec un éditeur qui la porte) | Découverte, contribution ponctuelle, poste qu'on ne veut pas encombrer |
+| **Local** | Go, et le reste selon ce que vous touchez | Développement quotidien, mise en route d'une balance ou d'une imprimante réelle |
+
+### Le chemin conteneur
+
+La commande `devcontainer`, indépendante de tout éditeur, construit une image qui porte Go,
+Node, Python, gcc et golangci-lint aux versions **exactes** de l'intégration continue :
+
+```bash
+npm i -g @devcontainers/cli
+devcontainer up --workspace-folder .
+devcontainer exec --workspace-folder . make test
+```
+
+C'est le chemin réellement vérifié : cette fonctionnalité a été construite, lancée et
+testée par cette commande et par `docker exec`, sans jamais ouvrir VS Code.
+
+Un éditeur qui porte les conteneurs de développement — VS Code, Cursor, Windsurf, une
+JetBrains récente — arrive au même résultat depuis « Reopen in Container » et n'a besoin
+que de Docker : l'implémentation du devcontainer est intégrée à l'éditeur. La CLI, elle,
+demande en plus Node sur votre poste. Le compromis est réel : à vous de choisir.
+
+Vous pouvez alors rejouer, avant de pousser, tout ce que la CI vérifie **sauf un point** :
+les scripts d'installation sous Windows PowerShell 5.1, qu'aucun conteneur Linux ne peut
+exécuter. C'est le job `scripts` de la CI qui les juge, à chaque pull request.
+
+!!! note "Sous Windows, si les compilations traînent"
+
+    Le dépôt reste sur votre disque Windows et le conteneur le lit à travers un montage :
+    parcourir 577 fichiers y prend 143 ms contre 5 ms depuis le système de fichiers de WSL,
+    soit **×29 sur les métadonnées**. Les caches Go et npm sont déjà hors de ce montage, si
+    bien que seule la lecture des sources le paie. Si cela vous gêne, clonez le dépôt côté
+    WSL (`~/dev/OpenScale` depuis un terminal Ubuntu) et rouvrez-le de là.
+
+!!! note "Ce que ça coûte, mesuré"
+
+    Première construction de l'image : **8 min 3 s** (`devcontainer up`). Elle n'est payée
+    qu'une fois ; les ouvertures suivantes sont immédiates. `make test` dedans : **84 s**,
+    passe `-race` comprise — celle qu'un poste Windows saute faute de gcc.
+
+Aucune balance ni imprimante n'est nécessaire : aucun test du projet n'ouvre de port série,
+et une machine sans port série est le cas de développement ordinaire.
+
+### Le chemin local
+
+Le tableau des prérequis qui suit reste la référence.
+
 ## Prérequis
 
 | Outil | Version | Pourquoi cette version |
@@ -20,7 +71,8 @@ Deux outils sont **facultatifs** et vous n'en avez pas besoin pour ce parcours :
   `make test` est sautée avec un avertissement et l'intégration continue la couvre.
   Sous Windows : `winget install BrechtSanders.WinLibs.POSIX.UCRT`.
 
-Pas de Docker, pas de chaîne C, pas de service à installer.
+Pas de chaîne C, pas de service à installer. Docker n'est nécessaire que si vous
+choisissez le chemin conteneur ci-dessus.
 
 ## Installer
 
