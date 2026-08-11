@@ -1,7 +1,8 @@
 # Démarrer
 
 Objectif : un poste complet qui tourne sur votre machine, **sans balance et sans
-imprimante**. Comptez cinq minutes.
+imprimante**. Comptez cinq minutes par le chemin local, une dizaine par le conteneur
+la première fois — les suivantes sont immédiates.
 
 ## Deux chemins
 
