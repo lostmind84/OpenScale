@@ -26,6 +26,10 @@
     "ghcr.io/devcontainers/features/powershell:1": {}
   },
 
+  // "vscode" est ici le nom d'un COMPTE UNIX — uid 1000, sans mot de passe — livré par
+  // l'image de base mcr.microsoft.com/devcontainers/base. Rien à voir avec l'éditeur : ce
+  // conteneur tourne identiquement sous VS Code, un fork, ou la CLI seule.
+  //
   // Non root, et ce n'est pas de l'hygiène : TestADirectoryTheServiceCanReadButNotWriteIsRefused
   // se saute sous root — et se saute aussi sous Windows. Un conteneur root laisserait cette
   // branche couverte par rien, en restant vert.
@@ -48,6 +52,9 @@
 
   "postCreateCommand": "bash .devcontainer/post-create.sh",
 
+  // La clé customizations.vscode est IGNORÉE par tout ce qui n'est pas VS Code ou l'un de
+  // ses forks (Cursor, Windsurf...) : sa présence n'oblige à rien qui ouvre ce conteneur
+  // autrement, CLI comprise.
   "customizations": {
     "vscode": {
       "extensions": [
