@@ -618,14 +618,17 @@ func measurementsOf(output string) map[string]string {
 // station half-installed, and the typo is found by whoever runs it as administrator on a
 // Saturday morning.
 //
-// It uses the PowerShell parser itself rather than a heuristic, and it checks the four
-// scripts plus the shared file — under EVERY PowerShell installed, because the encoding
-// defect above is invisible to PowerShell 7 and fatal to 5.1.
+// It uses the PowerShell parser itself rather than a heuristic, and it now checks EVERY
+// PowerShell script of the repository — via powerShellScripts, not a glob of its own —
+// under EVERY PowerShell installed, because the encoding defect above is invisible to
+// PowerShell 7 and fatal to 5.1.
+//
+// The four installers and common.ps1 were always covered this way. make.ps1 and dev.ps1
+// were not: a glob scoped to windows/*.ps1 never saw either, so the script every Windows
+// contributor runs first — make.ps1 — was parsed by no interpreter at all, a hole dev.ps1
+// would otherwise have inherited on day one.
 func TestEveryPowerShellScriptParses(t *testing.T) {
-	scripts, err := filepath.Glob(filepath.Join("windows", "*.ps1"))
-	if err != nil || len(scripts) == 0 {
-		t.Fatalf("aucun script PowerShell trouvé : %v", err)
-	}
+	scripts := powerShellScripts(t)
 
 	body := `$ErrorActionPreference = 'Stop'
 $failed = 0

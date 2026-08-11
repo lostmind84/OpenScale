@@ -92,9 +92,10 @@ func TestNoLinuxArtifactCarriesAWindowsLineEnding(t *testing.T) {
 
 // TestTheShellScriptsAreValidAccordingToTheShell runs `sh -n` when a shell is available.
 //
-// .devcontainer/post-create.sh joins the list: it is not under linux/, but a syntax error in
-// it is otherwise discovered only after an eight-minute container build, while `sh -n` costs
-// nothing and runs on the same Linux CI that already builds this list.
+// The list reaches outside linux/ for two files now, and for the same reason each time: a
+// syntax error in either is otherwise discovered late — after an eight-minute container
+// build for .devcontainer/post-create.sh, on a contributor's first run for dev.sh — while
+// `sh -n` costs nothing and runs on the same Linux CI that already builds this list.
 func TestTheShellScriptsAreValidAccordingToTheShell(t *testing.T) {
 	shell, err := exec.LookPath("sh")
 	if err != nil {
@@ -105,6 +106,7 @@ func TestTheShellScriptsAreValidAccordingToTheShell(t *testing.T) {
 		t.Fatalf("aucun script shell trouvé : %v", err)
 	}
 	scripts = append(scripts, filepath.Join("..", ".devcontainer", "post-create.sh"))
+	scripts = append(scripts, filepath.Join("..", "dev.sh"))
 	for _, script := range scripts {
 		output, err := exec.Command(shell, "-n", script).CombinedOutput()
 		if err != nil {

@@ -424,6 +424,63 @@ func TestNeitherInstallerPutsASecretOnTheBinaryCommandLine(t *testing.T) {
 	}
 }
 
+// devScriptPath and devPowerShellScriptPath are dev.sh and dev.ps1 — the "check and
+// guide" pair at the repository root, next to make.ps1. deploy/ tests run one level
+// below the root, hence the "..".
+var (
+	devScriptPath           = filepath.Join("..", "dev.sh")
+	devPowerShellScriptPath = filepath.Join("..", "dev.ps1")
+)
+
+// devGroupReasonException is the one legitimate asymmetry between dev.sh and dev.ps1:
+// dev.sh checks for docker-group membership and dev.ps1 does not, because only Linux
+// has a docker group to be missing from. Same rule as installerParityExceptions above —
+// a silent écart is a carpet, a written one is an arbitrage — so it is held by the same
+// helper rather than a new one.
+var devGroupReasonException = parityException{
+	option:      "le contrôle du groupe docker",
+	carriedBy:   devScriptPath,
+	missingFrom: devPowerShellScriptPath,
+	why: "dev.sh signale quand l'utilisateur Linux n'est pas dans le groupe docker (« " +
+		"permission denied … /var/run/docker.sock ») parce que Docker Desktop pour Windows " +
+		"n'a pas d'équivalent : son démon est exposé par un named pipe que gère son propre " +
+		"service, pas par les permissions d'un groupe Unix — il n'y a donc rien à détecter " +
+		"côté PowerShell.",
+	proof: "groupe docker",
+}
+
+// TestDevScriptsCheckTheSameThings is the parity guard for dev.sh and dev.ps1 — the "one
+// command that checks and guides" pair, and neither one an installer.
+//
+// Both scripts are deliberately option-free (see both headers), so there is no table of
+// flags to compare the way installerParity does above. Parity here means the same THREE
+// checks, in the same order — Docker answers, the devcontainer CLI is available, then
+// devcontainer up is launched — read out of both files as text, the way installerParity's
+// neighbours already do: actually RUNNING either script from this bench would need Docker
+// and Node on whatever machine runs `go test ./deploy/`, which is exactly what these
+// scripts exist to check for instead.
+func TestDevScriptsCheckTheSameThings(t *testing.T) {
+	sh := codeOnly(readFile(t, devScriptPath))
+	ps1 := codeOnly(readFile(t, devPowerShellScriptPath))
+
+	for _, marker := range []string{"docker info", "devcontainer", "devcontainer up"} {
+		if !strings.Contains(sh, marker) {
+			t.Errorf("dev.sh ne contient pas %q : un des trois contrôles semble absent, "+
+				"alors que dev.ps1 le porte", marker)
+		}
+		if !strings.Contains(ps1, marker) {
+			t.Errorf("dev.ps1 ne contient pas %q : un des trois contrôles semble absent, "+
+				"alors que dev.sh le porte", marker)
+		}
+	}
+
+	if !strings.Contains(strings.ToLower(sh), devGroupReasonException.proof) {
+		t.Errorf("dev.sh ne nomme plus %s : la raison écrite dans dev.ps1 excuse un "+
+			"contrôle qui n'existe plus", devGroupReasonException.proof)
+	}
+	checkTheReasonIsWritten(t, devGroupReasonException)
+}
+
 // --- Les lecteurs ---------------------------------------------------------------------
 
 // dashedSpelling renders a PowerShell parameter the way a sh script spells it.
