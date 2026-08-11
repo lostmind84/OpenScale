@@ -4,8 +4,10 @@
 // la référence, et c'est lui que la CI exécute. Rien ici ne doit devenir un passage obligé.
 //
 // AUCUN NUMÉRO DE VERSION N'EST DÉCIDÉ ICI. Go vient de `go.mod` et de `ci.yml`, Node de
-// `ci.yml`, Python de `docs.yml`, golangci-lint du `Makefile` — et `deploy/devcontainer_test.go`
-// compare les quatre dans les deux sens. Une version modifiée ici sans l'être là-bas rougit.
+// `ci.yml`, Python de `docs.yml` — et `deploy/devcontainer_test.go` compare les trois
+// premières dans les deux sens. golangci-lint n'est pas comparée : elle est INTERDITE
+// D'ÉCRITURE ici et lue dans le `Makefile`, une garantie plus forte qu'une comparaison.
+// Une version modifiée ici sans l'être là-bas rougit.
 //
 // Ce que ce conteneur NE JUGE PAS : les scripts d'installation sous Windows PowerShell 5.1.
 // Un conteneur Linux n'a que pwsh 7, qui n'est pas le shell d'un poste de balance. Le job

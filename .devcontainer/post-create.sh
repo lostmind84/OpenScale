@@ -1,15 +1,19 @@
 #!/bin/sh
 # Ce qui s'installe une fois l'image construite.
 #
-# Ce fichier est commité en LF, et .gitattributes l'impose (`*.sh text eol=lf`). Un
-# `#!/bin/sh\r` fait répondre à dash « Syntax error: word unexpected », et rien dans ce
-# message ne pointe vers les fins de ligne — la panne est déjà arrivée à install.sh.
+# Ce fichier est commité en LF, et .gitattributes l'impose (`*.sh text eol=lf`) — la règle
+# reste vraie ici, mais pas par le mécanisme qui l'a fait poser sur install.sh : ce shebang
+# n'est jamais consulté, devcontainer.json lance ce fichier par `bash .devcontainer/post-
+# create.sh`, pas par exécution directe. Un CRLF ici sortirait donc en `$'\r': command not
+# found` de bash, pas en « Syntax error: word unexpected » de dash.
 set -eu
 
-# Docker crée un volume vide sous root. Monté dans le $HOME d'un utilisateur non root, il
-# est inécrivable, et `go build` échoue alors sur « permission denied » au fond d'un cache
-# — ce qui ne ressemble pas à un problème de montage.
-sudo chown -R vscode:vscode "$HOME/go" "$HOME/.cache/go-build" web/node_modules
+# Docker crée sous root les PARENTS manquants d'une cible de montage, pas seulement la
+# cible elle-même. $HOME/.cache est un tel parent — go-build en est la seule cible montée
+# — et golangci-lint écrit dans $HOME/.cache/golangci-lint : sans ce chown récursif sur
+# .cache entier, `go build` échoue sur « permission denied » au fond d'un cache, ce qui
+# ne ressemble pas à un problème de montage.
+sudo chown -R vscode:vscode "$HOME/go" "$HOME/.cache" web/node_modules
 
 # golangci-lint s'installe HORS MODULE, et ADR-039 l'impose : `make deps` compare go.mod
 # aux deux tables de §17.1 dans les deux sens, et une dépendance de développement inscrite
@@ -32,7 +36,8 @@ rm -rf "$install_dir"
 pip install --no-cache-dir -r handbook/requirements.txt
 
 # `npm ci` et non `npm install` : les versions sont gelées dans package-lock.json (§14.1),
-# et un « ^ » ferait bouger un fichier de référence.
+# et `ci` est DÉTERMINISTE — il ÉCHOUE sur un lock désynchronisé au lieu de le réparer
+# en silence, là où `install` l'aurait accepté et modifié sans le dire.
 npm ci --prefix web
 
 echo ''
