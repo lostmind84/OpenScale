@@ -81,10 +81,14 @@ type bench struct {
 // clock is filled BEFORE the tweaks run, so that a test wiring a collaborator of its
 // own — a Binder, typically — gives it the same injected clock as the station.
 type benchOptions struct {
-	clock           *fake.Clock
-	binder          *Binder
-	config          func(*domain.Config)
-	catalog         *domain.Catalog
+	clock   *fake.Clock
+	binder  *Binder
+	config  func(*domain.Config)
+	catalog *domain.Catalog
+	// catalogAt is when that catalog was IMPORTED — the instant the composition root
+	// reads back from the imports table. The bench's own epoch unless a case moves it,
+	// which is what a case about « the same products at new prices » has to do.
+	catalogAt       time.Time
 	noStore         bool
 	assets          fs.FS
 	images          fs.FS
@@ -164,8 +168,8 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 	t.Helper()
 
 	clock := fake.NewClock(epoch)
-	o := benchOptions{clock: clock, catalog: garlicCatalog(), images: fstest.MapFS{},
-		catalogSources: shippedCatalogSources()}
+	o := benchOptions{clock: clock, catalog: garlicCatalog(), catalogAt: epoch,
+		images: fstest.MapFS{}, catalogSources: shippedCatalogSources()}
 	for _, f := range tweak {
 		f(&o)
 	}
@@ -183,10 +187,11 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 
 	st, err := station.New(station.Options{
 		Clock: clock, Config: cfg, Catalog: o.catalog,
-		// The instant the composition root reads back from the imports table — here, the
-		// bench's own epoch. A station stamps the catalog it STARTS with, and it takes
-		// that instant from the store precisely so that a restart cannot invent one.
-		CatalogAt: epoch,
+		// The instant the composition root reads back from the imports table — the
+		// bench's own epoch unless the case says otherwise. A station stamps the catalog
+		// it STARTS with, and it takes that instant from the store precisely so that a
+		// restart cannot invent one.
+		CatalogAt: o.catalogAt,
 		Scale:     b.scale, Printer: b.printer,
 		Journal: b.store, TechnicalSink: b.store,
 		// The rollback puts the FILE back as well as the running station, and it is the

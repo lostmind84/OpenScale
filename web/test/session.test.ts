@@ -7,11 +7,14 @@ import { catalogFromExport } from './fixtures/odoo'
 /**
  * Ce qui décide qu'un écran client redemande son catalogue.
  *
- * Deux choses le décident, et une seule était branchée. Le nombre de tuiles bouge
- * quand un import passe ; les réglages d'écran, eux, bougent quand un exploitant
- * enregistre une page d'administration — et jusqu'ici l'écran d'à côté n'en savait
- * rien. « On change le réglage, on enregistre, et rien ne se passe » est exactement
- * la conclusion contre laquelle le contrôle 46 d'ADR-031 avait été écrit.
+ * Trois choses le décident, et une seule était branchée au départ. Le nombre de
+ * tuiles bouge quand un import ajoute ou retire des produits ; les réglages d'écran,
+ * eux, bougent quand un exploitant enregistre une page d'administration — et
+ * jusqu'ici l'écran d'à côté n'en savait rien. « On change le réglage, on enregistre,
+ * et rien ne se passe » est exactement la conclusion contre laquelle le contrôle 46
+ * d'ADR-031 avait été écrit. Puis l'instant d'import, branché le 04/09/2026 : un
+ * export aux mêmes produits et à des prix nouveaux ne fait bouger ni le compte ni
+ * l'empreinte, et la grille gardait ses anciens prix jusqu'au prochain F5.
  *
  * L'empreinte est OPAQUE : ce banc ne lui donne jamais de sens, il ne fait que la
  * faire changer. C'est aussi tout ce que le navigateur en fait.
@@ -55,13 +58,22 @@ class FakeEventSource {
 }
 
 /**
- * Un état réduit aux deux champs dont dépend la relecture.
+ * Un état réduit aux trois champs dont dépend la relecture.
  *
  * `#receive` ne lit que ceux-là ; un DTO complet ferait croire que les autres
- * pèsent sur la décision, et c'est précisément ce qu'on vérifie ici.
+ * pèsent sur la décision, et c'est précisément ce qu'on vérifie ici. L'instant
+ * d'import vaut celui du catalogue servi, sauf pour le cas qui le fait bouger.
  */
-function stateWith(catalogCount: number, digest: string): StateDTO {
-  return { catalog_count: catalogCount, presentation_digest: digest } as StateDTO
+function stateWith(
+  catalogCount: number,
+  digest: string,
+  catalogUpdatedAt = catalog.updated_at,
+): StateDTO {
+  return {
+    catalog_count: catalogCount,
+    presentation_digest: digest,
+    catalog_updated_at: catalogUpdatedAt,
+  } as StateDTO
 }
 
 let session: Session | null = null
@@ -148,6 +160,28 @@ describe('la relecture du catalogue sur changement de présentation', () => {
     // a déjà chargé la présentation du poste une milliseconde plus tôt.
     const open = await opened()
     await push(stateWith(open.catalog?.product_count ?? 0, 'peu-importe'), 1)
+  })
+})
+
+describe('la relecture du catalogue sur un nouvel import', () => {
+  it('le redemande quand l’instant d’import bouge, à compte ET empreinte égaux', async () => {
+    // Le défaut du 04/09/2026 : un export de nuit change des prix sans changer le
+    // nombre de produits pesables. Le Hub bascule, l'étiquette porte le nouveau
+    // prix, et la grille gardait l'ancien jusqu'au prochain F5 — plusieurs jours
+    // en magasin, sur deux postes.
+    const open = await opened()
+    const count = open.catalog?.product_count ?? 0
+    await push(stateWith(count, 'p1'), 1)
+    served = { ...catalog, updated_at: '2026-09-04T04:12:00Z' }
+    await push(stateWith(count, 'p1', '2026-09-04T04:12:00Z'), 2)
+    expect(open.catalog?.updated_at).toBe('2026-09-04T04:12:00Z')
+  })
+
+  it('ne redemande rien tant que l’instant d’import est celui du catalogue chargé', async () => {
+    const open = await opened()
+    const count = open.catalog?.product_count ?? 0
+    await push(stateWith(count, 'p1', catalog.updated_at), 1)
+    await push(stateWith(count, 'p1', catalog.updated_at), 1)
   })
 })
 

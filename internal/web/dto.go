@@ -74,11 +74,19 @@ type stateDTO struct {
 	// GET /api/v1/catalog, which the browser keeps: a snapshot at 10 Hz has no
 	// business carrying 355 products.
 	CatalogCount int `json:"catalog_count"`
+	// CatalogUpdatedAt is when the catalog in service was IMPORTED, RFC 3339 -- the same
+	// string GET /api/v1/catalog serves as updated_at, so that the browser can compare
+	// the two and never has to parse either. It exists because the count cannot tell
+	// two catalogs apart: a nightly export with the same products at new prices moved
+	// neither CatalogCount nor PresentationDigest, and two stations showed prices
+	// several days old until somebody pressed F5 (04/09/2026). Empty when no import has
+	// ever applied one, like updated_at.
+	CatalogUpdatedAt string `json:"catalog_updated_at"`
 	// PresentationDigest moves when, and only when, the screen settings served with the
 	// catalog move. It rides next to CatalogCount because it answers the same question
-	// -- « faut-il redemander le catalogue ? » -- for the half of that payload no count
-	// can speak for. The browser COMPARES it and never reads it; presentationDigest in
-	// catalog.go owns what goes into it and why.
+	// -- « faut-il redemander le catalogue ? » -- for the half of that payload neither
+	// the count nor the import instant can speak for. The browser COMPARES it and never
+	// reads it; presentationDigest in catalog.go owns what goes into it and why.
 	PresentationDigest string `json:"presentation_digest"`
 	// UnloggedCount is the counter of ADR-013: labels that came out and could not be
 	// journalled. A red light on the dashboard, never a refusal.
@@ -248,6 +256,10 @@ func (s *Server) stateOf(snap station.Snapshot) stateDTO {
 		Degraded:        degradationOf(snap.Degraded),
 		CatalogCount:    snap.Catalog.WeighableCount(),
 		UnloggedCount:   snap.UnloggedWeighings,
+		// Read from the Hub and not from the snapshot, like the digest below: the Hub
+		// stamps the import that produced the catalog it swaps in (§10.8), and a
+		// snapshot describes a plate, a product and a printer -- never an import.
+		CatalogUpdatedAt: rfc3339OrEmpty(s.hub.CatalogUpdatedAt()),
 		// Read from the Hub and not from the snapshot: the presentation is a
 		// configuration that reloads hot (§11.4), and a snapshot describes a plate, a
 		// product and a printer -- never a screen setting.
