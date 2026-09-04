@@ -171,6 +171,14 @@ export interface StateDTO {
   /** Combien de tuiles la grille porte — les tuiles, elles, viennent du catalogue. */
   catalog_count: number
   /**
+   * Quand le catalogue en service a été importé, RFC 3339 — la même chaîne que
+   * `updated_at` du catalogue, pour se comparer à lui sans être lue. Le compte ne
+   * distingue pas deux catalogues : un export de nuit aux mêmes produits et à des
+   * prix nouveaux ne le faisait pas bouger, et la grille gardait ses anciens prix
+   * jusqu'au prochain F5 (04/09/2026). Vide tant qu'aucun import n'a été appliqué.
+   */
+  catalog_updated_at: string
+  /**
    * L'empreinte des réglages d'écran, OPAQUE : elle se compare, elle ne se lit pas.
    *
    * Calculée côté Go sur le contenu du bloc de présentation seul, et non sur la

@@ -210,11 +210,11 @@ func TestAutomaticIsServedAsTheZeroItIsAndNeverByOmission(t *testing.T) {
 
 // TestThePresentationDigestReachesTheClientScreen is the reason this digest exists.
 //
-// The browser asks for the catalog again only when `catalog_count` moves
-// (web/src/lib/session.svelte.ts). A presentation that changes without changing the
-// count therefore never arrives — which is already true of show_grid_prices, and with a
-// grid setting would become « on règle, on enregistre, et rien ne se passe sur l'écran
-// d'à côté ». The state stream carries a string the browser only ever COMPARES to the
+// The browser asks for the catalog again when `catalog_count` or `catalog_updated_at`
+// moves (web/src/lib/session.svelte.ts). A presentation that changes without an import
+// therefore never arrives — which is already true of show_grid_prices, and with a grid
+// setting would become « on règle, on enregistre, et rien ne se passe sur l'écran d'à
+// côté ». The state stream carries a string the browser only ever COMPARES to the
 // previous one, and that string has to move when the setting does.
 func TestThePresentationDigestReachesTheClientScreen(t *testing.T) {
 	automatic := newBench(t)
@@ -229,6 +229,36 @@ func TestThePresentationDigestReachesTheClientScreen(t *testing.T) {
 	if after := seven.state().PresentationDigest; after == before {
 		t.Fatalf("empreinte inchangée (%q) alors que la grille est passée à 7 colonnes : "+
 			"le navigateur ne redemanderait jamais le catalogue", after)
+	}
+}
+
+// TestTheStateStreamNamesTheCatalogInService is the defect of 04/09/2026, pinned.
+//
+// A nightly export with the same products at new prices swapped in the Hub, printed
+// the new price on every label, and never reached a grid already on screen: the
+// browser asked for the catalog again on catalog_count and on presentation_digest only,
+// and a re-priced catalog moves neither. Two stations showed prices several days old
+// until somebody pressed F5. The stream therefore carries the instant the catalog in
+// service was imported — the `updated_at` the grid already shows as « Catalogue du … »
+// — and the browser compares it to the one of the catalog it holds.
+func TestTheStateStreamNamesTheCatalogInService(t *testing.T) {
+	yesterday := newBench(t)
+	page := decodeStatus[catalogDTO](t, yesterday.get("/api/v1/catalog"), http.StatusOK)
+	before := yesterday.state()
+	if before.CatalogUpdatedAt == "" || before.CatalogUpdatedAt != page.UpdatedAt {
+		t.Fatalf("catalog_updated_at du flux = %q, updated_at du catalogue = %q : "+
+			"le navigateur n'a rien à comparer", before.CatalogUpdatedAt, page.UpdatedAt)
+	}
+
+	today := newBench(t, func(o *benchOptions) { o.catalogAt = epoch.Add(24 * time.Hour) })
+	after := today.state()
+	if after.CatalogCount != before.CatalogCount {
+		t.Fatalf("le compte a bougé (%d → %d) : ce banc doit éprouver un import À COMPTE ÉGAL",
+			before.CatalogCount, after.CatalogCount)
+	}
+	if after.CatalogUpdatedAt == before.CatalogUpdatedAt {
+		t.Fatalf("instant inchangé (%q) alors qu'un import plus récent est en service : "+
+			"l'écran garderait ses anciens prix jusqu'au prochain F5", after.CatalogUpdatedAt)
 	}
 }
 
@@ -372,9 +402,9 @@ func TestTheStationServesEveryWeighableTileWhateverTheGridShows(t *testing.T) {
 // The snapshot below therefore carries what the last import wrote, and the
 // configuration carries what somebody has just typed. What THIS endpoint gets is the
 // second one. What is still open: a browser that already loaded the grid has no
-// signal telling it to ask again — a rename moves neither catalog_count nor
-// presentation_digest (web/src/lib/session.svelte.ts) — so a kiosk left running keeps
-// showing the old label until its next catalog load.
+// signal telling it to ask again — a rename moves none of catalog_count,
+// catalog_updated_at and presentation_digest (web/src/lib/session.svelte.ts) — so a
+// kiosk left running keeps showing the old label until its next catalog load.
 func TestTheCategoryLabelsFollowTheConfigurationAndNotTheLastImport(t *testing.T) {
 	imported := domain.NewCatalog([]domain.Product{
 		{ID: "1", Name: "AIL", Reference: "0493021000003", Mode: domain.ByWeight,

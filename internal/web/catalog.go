@@ -153,12 +153,13 @@ func presentationOf(ui domain.UIConfig) catalogPresentationDTO {
 //
 // # Why it exists at all
 //
-// The browser asks for the catalog again ONLY when catalog_count moves
-// (web/src/lib/session.svelte.ts). A presentation that changes without changing the count
-// therefore never arrives on the grid -- which is already true of show_grid_prices, and
-// with a grid setting would become « on règle, on enregistre, et rien ne se passe sur
-// l'écran d'à côté ». The browser only ever COMPARES this string to the previous one; it
-// is opaque to it, and the ETag of the catalog makes an unchanged presentation cost a 304.
+// The browser asks for the catalog again when catalog_count moves and, since
+// 04/09/2026, when catalog_updated_at moves (web/src/lib/session.svelte.ts). A
+// presentation that changes without an import therefore never arrives on the grid --
+// which is already true of show_grid_prices, and with a grid setting would become « on
+// règle, on enregistre, et rien ne se passe sur l'écran d'à côté ». The browser only ever
+// COMPARES this string to the previous one; it is opaque to it, and the ETag of the
+// catalog makes an unchanged presentation cost a 304.
 //
 // # What it is taken over, because two readings are possible
 //
@@ -326,9 +327,9 @@ func (s *Server) catalogOf(ctx context.Context, catalog *domain.Catalog, cfg dom
 	//
 	// What is still open: this endpoint answers with the new wording the moment it is
 	// asked, but nothing tells a browser already holding a loaded grid to ask again —
-	// catalog_count and presentation_digest are what trigger that (web/src/lib/
-	// session.svelte.ts), and a rename moves neither. A kiosk left running keeps the
-	// old label until its next catalog load.
+	// catalog_count, catalog_updated_at and presentation_digest are what trigger that
+	// (web/src/lib/session.svelte.ts), and a rename moves none of the three. A kiosk
+	// left running keeps the old label until its next catalog load.
 	for _, c := range cfg.Catalog.Categories {
 		out.Categories = append(out.Categories, categoryDTO{
 			Code: c.Code, Label: c.Label, Rank: c.Rank, Color: c.Color,

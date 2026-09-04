@@ -64,3 +64,5 @@ desktop.ini
 /.swarm/
 /agentdb.rvf
 /agentdb.rvf.lock
+# Cache et mémoires de Serena (serveur de langage MCP) — propres à un poste.
+/.serena/

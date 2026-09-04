@@ -91,13 +91,17 @@ export class Session {
   /**
    * Enregistre un état, et redemande le catalogue quand ce qu'il porte a bougé.
    *
-   * DEUX raisons de le redemander, et pas une seule. Le nombre de tuiles se compare
-   * au catalogue chargé ; les réglages d'écran, eux, se comparent à l'état PRÉCÉDENT,
-   * parce que l'empreinte voyage dans le flux et non dans le catalogue. Sans cette
-   * seconde comparaison, un exploitant change le nombre de colonnes, enregistre, et
-   * rien ne se passe sur l'écran d'à côté — la conclusion « ce réglage ne fait rien »
-   * contre laquelle le contrôle 46 d'ADR-031 avait été écrit. C'est déjà vrai de
-   * `show_grid_prices`, invisible aujourd'hui, et réparé au passage.
+   * TROIS raisons de le redemander, et pas une seule. Le nombre de tuiles et
+   * l'instant d'import se comparent au catalogue chargé ; les réglages d'écran, eux,
+   * se comparent à l'état PRÉCÉDENT, parce que l'empreinte voyage dans le flux et non
+   * dans le catalogue. Sans cette comparaison-là, un exploitant change le nombre de
+   * colonnes, enregistre, et rien ne se passe sur l'écran d'à côté — la conclusion
+   * « ce réglage ne fait rien » contre laquelle le contrôle 46 d'ADR-031 avait été
+   * écrit. C'est déjà vrai de `show_grid_prices`, invisible aujourd'hui, et réparé au
+   * passage. Sans l'instant d'import, un export de nuit aux mêmes produits et à des
+   * prix nouveaux ne faisait bouger ni le compte ni l'empreinte : le Hub basculait,
+   * l'étiquette portait le nouveau prix, et la grille gardait l'ancien jusqu'au
+   * prochain F5 — plusieurs jours en magasin, sur deux postes (04/09/2026).
    */
   #receive(event: MessageEvent<string>): void {
     this.#lastMessageAt = Date.now()
@@ -111,11 +115,14 @@ export class Session {
     // validée par ETag, donc un catalogue inchangé coûte un 304 — et une présentation
     // inchangée, jamais de requête du tout.
     const countMoved = next.catalog_count !== this.catalog.product_count
+    // Deux chaînes RFC 3339 écrites par le même code Go : elles se comparent, elles
+    // ne se lisent pas.
+    const importMoved = next.catalog_updated_at !== this.catalog.updated_at
     // Le premier état reçu n'a pas de précédent, et il n'en a pas besoin : `start()`
     // vient de charger le catalogue, donc sa présentation est déjà celle du poste.
     const presentationMoved =
       previous !== null && next.presentation_digest !== previous.presentation_digest
-    if (countMoved || presentationMoved) {
+    if (countMoved || importMoved || presentationMoved) {
       void this.#loadCatalog()
     }
   }

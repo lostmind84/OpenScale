@@ -107,6 +107,9 @@ function restingState(overrides: Partial<StateDTO> = {}): StateDTO {
     printer: { health: 'ready', detail: '', pending_jobs_count: 0, observed_at: '' },
     degraded: null,
     catalog_count: catalog.product_count,
+    // Celui du catalogue servi, pour la même raison que l'empreinte ci-dessous : un
+    // instant qui différerait ferait redemander le catalogue à chaque état poussé.
+    catalog_updated_at: catalog.updated_at,
     // Une chaîne opaque : ce qu'elle vaut n'a aucun sens ici, seul son CHANGEMENT
     // en a un. Figée pour que les cas qui poussent plusieurs états ne redemandent
     // pas le catalogue sans le vouloir.
