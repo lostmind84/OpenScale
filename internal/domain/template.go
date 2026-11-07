@@ -325,22 +325,61 @@ type Template struct {
 	TruncationAccepted bool `json:"truncation_accepted"`
 }
 
+// OffsetBounds is the admissible range of the volunteer's ±1 dot adjustment, on
+// each of the four sides of the label (ADR-063).
+//
+// MinX and MinY are zero or negative: the margin the template's OWN geometry
+// already carries at its left and its top, which the offset may give back without
+// rule 3 pushing the symbol or a text field above or left of the label. A compiled
+// template always starts flush with the edge (MinX == MinY == 0), which is why no
+// bound ever went negative before a cooperative could supply its own layout. MaxX
+// and MaxY are the margin THIS HEAD leaves at the right and the bottom, unchanged
+// from what MaxOffsetDots always answered.
+type OffsetBounds struct {
+	MinX int `json:"min_x"`
+	MaxX int `json:"max_x"`
+	MinY int `json:"min_y"`
+	MaxY int `json:"max_y"`
+}
+
 // MaxOffsetDots reports how far the volunteer's adjustment may go in each
 // direction before rule 3 or rule 5 would refuse it.
 //
 // This is what turns "ce décalage rognerait la zone de silence du code-barres" into
 // a message that names the admissible maximum instead of just saying no.
+//
+// It is an envelope over OffsetBounds, kept because every caller that only ever
+// pushed the offset DOWN and RIGHT — the ±1 dot arrows against a compiled
+// template — has no reason to learn a four-field struct for two numbers.
 func (t *Template) MaxOffsetDots(tierCount int) (x, y int) {
-	return t.MaxOffsetDotsOn(ReferenceHead(), tierCount)
+	bounds := t.OffsetBounds(tierCount)
+	return bounds.MaxX, bounds.MaxY
 }
 
-// MaxOffsetDotsOn reports the same margin ON THIS HEAD.
-//
-// A margin computed against a constant would refuse, on a taller head, an adjustment
-// the printer would have accepted — and the ±1 dot arrows are how a volunteer corrects
-// a roll that sits a hair off.
+// MaxOffsetDotsOn reports the same margin ON THIS HEAD. See MaxOffsetDots for why
+// this stays an envelope over OffsetBoundsOn.
 func (t *Template) MaxOffsetDotsOn(head PrinterCapabilities, tierCount int) (x, y int) {
+	bounds := t.OffsetBoundsOn(head, tierCount)
+	return bounds.MaxX, bounds.MaxY
+}
+
+// OffsetBounds reports OffsetBoundsOn for the reference head (ReferenceHead), the
+// WS408 of the parc.
+func (t *Template) OffsetBounds(tierCount int) OffsetBounds {
+	return t.OffsetBoundsOn(ReferenceHead(), tierCount)
+}
+
+// OffsetBoundsOn reports the admissible range of the offset in each of the four
+// directions, ON THIS HEAD -- MinX/MinY from the template's own geometry
+// (inkedOrigin), MaxX/MaxY from the margin this head leaves (inkedExtent), exactly
+// as MaxOffsetDotsOn always computed them.
+//
+// A margin computed against a constant would refuse, on a taller head, an
+// adjustment the printer would have accepted — and the ±1 dot arrows are how a
+// volunteer corrects a roll that sits a hair off.
+func (t *Template) OffsetBoundsOn(head PrinterCapabilities, tierCount int) OffsetBounds {
 	head = head.orReference()
+	top, left := t.inkedOrigin(tierCount)
 	bottom, right := t.inkedExtent(tierCount)
 	remainingX := (int64(head.InkedWidthDots)*1000 - right) / 1000
 	remainingY := (int64(head.InkedHeightDots)*1000 - bottom) / 1000
@@ -350,7 +389,12 @@ func (t *Template) MaxOffsetDotsOn(head PrinterCapabilities, tierCount int) (x, 
 	if remainingY < 0 {
 		remainingY = 0
 	}
-	return int(remainingX), int(remainingY)
+	return OffsetBounds{
+		MinX: -int(left / 1000),
+		MaxX: int(remainingX),
+		MinY: -int(top / 1000),
+		MaxY: int(remainingY),
+	}
 }
 
 // withOffset returns a copy of the template with the operator's shift applied to
@@ -400,6 +444,33 @@ func (t *Template) inkedExtent(tierCount int) (bottom, right int64) {
 		right = r
 	}
 	return bottom, right
+}
+
+// inkedOrigin reports how far the ink actually starts from the top and from the
+// left of the label, in milli-dots -- the mirror of inkedExtent, read by
+// OffsetBoundsOn to turn a margin a template already carries into a negative
+// offset bound (ADR-063).
+//
+// It compares the top of every ACTIVE text element with the top of the symbol
+// block (symbolBox, quiet zones included), and the left edge of the narrowest
+// active element with the left edge of the symbol. Every compiled template starts
+// flush with the edge on both axes, so this answers 0, 0 for either until a
+// SUPPLIED gabarit declares a margin.
+func (t *Template) inkedOrigin(tierCount int) (top, left int64) {
+	box := t.symbolBox()
+	top, left = box.top, box.left
+	for _, e := range t.Elements {
+		if e.Field == FieldBarcode || !e.Active(tierCount) {
+			continue
+		}
+		if y := t.Media.MilliDots(e.YUM); y < top {
+			top = y
+		}
+		if x := t.Media.MilliDots(e.XUM); x < left {
+			left = x
+		}
+	}
+	return top, left
 }
 
 // rectangle is a box in milli-dots, used by the overlap rules.

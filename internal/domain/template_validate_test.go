@@ -129,6 +129,28 @@ func TestRuleThreeRefusesContentBelowTheInkedHeight(t *testing.T) {
 	}
 }
 
+// TestRuleThreeRefusesASymbolThatStartsAboveOrLeftOfTheLabel: rule 3 used to bear
+// only on the LOWER and RIGHT edges, because no compiled template ever placed a
+// symbol off the top or the left -- a supplied gabarit can (ADR-063). A negative
+// origin is caught here rather than left to the renderer, the same guard that
+// already exists for a text element (rule 1/2's "hors de l'étiquette"), extended to
+// the symbol block.
+func TestRuleThreeRefusesASymbolThatStartsAboveOrLeftOfTheLabel(t *testing.T) {
+	template := NeutralSingleTemplate()
+	// One dot above the label at 8 dots/mm: 125 um.
+	template.Symbol.YUM = -125
+
+	faults := template.Validate(2)
+	if !hasFault(faults, "inked_content") {
+		t.Fatalf("faults = %v, want inked_content", faultFields(faults))
+	}
+	for _, f := range faults {
+		if f.Field == "inked_content" && !strings.Contains(f.Message, "au-dessus") {
+			t.Errorf("message = %q, want \"au-dessus\" named", f.Message)
+		}
+	}
+}
+
 // TestRuleFourRefusesASymbolWiderThanTheLabel: the over-all width, quiet zones
 // included.
 func TestRuleFourRefusesASymbolWiderThanTheLabel(t *testing.T) {

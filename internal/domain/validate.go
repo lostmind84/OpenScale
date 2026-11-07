@@ -326,28 +326,54 @@ func (c *Config) validateTemplate(reg Registries, label labelGeometry) []Fault {
 //	something, at the construction of the driver, and a bound that only a printer's own
 //	package can state is worth more than one the core repeats (§5.2, E1).
 
+// OffsetBounds is control 38's own answer, exposed for a caller outside this
+// package (the route of §11.4 that serves the admin screen's starting point and
+// bounds): the SAME OffsetBounds this control judges printer.options.offset_x/y
+// against, resolved from the configuration's own template and head.
+//
+// false is exactly when control 38 stays silent today: the template is unknown,
+// its resolution is unusable, or the head in service does not count dots at the
+// same pitch -- naming a bound on a geometry that disagrees with the head would
+// answer a question nobody is asking (rule 9's own reasoning, repeated here).
+func (c *Config) OffsetBounds(reg Registries) (OffsetBounds, bool) {
+	return c.offsetBounds(c.labelGeometry(reg))
+}
+
+// offsetBounds is the shared core of OffsetBounds and validateLabelOffsets: it
+// takes the labelGeometry Validate already resolved once, rather than resolving it
+// again from the registry, so control 38 never looks up the registry twice on the
+// same configuration.
+func (c *Config) offsetBounds(label labelGeometry) (OffsetBounds, bool) {
+	if !label.exists || !label.resolutionUsable || label.head.DotsPerMM != label.template.Media.DotsPerMM {
+		return OffsetBounds{}, false
+	}
+	return label.template.OffsetBoundsOn(label.head, len(c.Pricing.Tiers)), true
+}
+
 // validateLabelOffsets is control 38: offset_x/y RECOMPOSED with the geometry of
 // the template (mineur-2).
 //
 // The ±1 dot arrows of the admin screen invite that adjustment, so it must be
 // bounded by the geometry and not merely by ±99. The message names the admissible
-// maximum instead of just saying no. The margin is the one THIS head leaves: a bound
-// counted at another pitch would refuse an adjustment the printer would have accepted.
+// bounds instead of just saying no. They are the ones THIS head and THIS template
+// leave on all four sides (ADR-063): a bound counted at another pitch, or ignoring
+// a margin the template's own geometry already carries, would refuse -- or accept
+// -- an adjustment the printer would not.
 func (c *Config) validateLabelOffsets(label labelGeometry) []Fault {
 	var faults faultList
-	if !label.exists || !label.resolutionUsable || label.head.DotsPerMM != label.template.Media.DotsPerMM {
+	bounds, ok := c.offsetBounds(label)
+	if !ok {
 		return faults
 	}
-	maxX, maxY := label.template.MaxOffsetDotsOn(label.head, len(c.Pricing.Tiers))
-	if offset, ok := intOption(c.Printer.Options, "offset_x"); ok && (offset < 0 || offset > maxX) {
+	if offset, ok := intOption(c.Printer.Options, "offset_x"); ok && (offset < bounds.MinX || offset > bounds.MaxX) {
 		faults.add("printer.options.offset_x",
-			"%d dots hors bornes [0, %d] pour le gabarit %q : au-delà, le contenu encré sortirait de l'étiquette",
-			offset, maxX, c.Printer.Template)
+			"%d dots hors bornes [%d, %d] pour le gabarit %q : au-delà, le contenu encré sortirait de l'étiquette",
+			offset, bounds.MinX, bounds.MaxX, c.Printer.Template)
 	}
-	if offset, ok := intOption(c.Printer.Options, "offset_y"); ok && (offset < 0 || offset > maxY) {
+	if offset, ok := intOption(c.Printer.Options, "offset_y"); ok && (offset < bounds.MinY || offset > bounds.MaxY) {
 		faults.add("printer.options.offset_y",
-			"%d dots hors bornes [0, %d] pour le gabarit %q : au-delà, le contenu encré sortirait de l'étiquette",
-			offset, maxY, c.Printer.Template)
+			"%d dots hors bornes [%d, %d] pour le gabarit %q : au-delà, le contenu encré sortirait de l'étiquette",
+			offset, bounds.MinY, bounds.MaxY, c.Printer.Template)
 	}
 	return faults
 }

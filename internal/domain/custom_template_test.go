@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -220,6 +221,73 @@ func TestAnUntouchedCopyOfStarterTemplateValidatesOnSight(t *testing.T) {
 			fault.Field == "printer.template" {
 			t.Errorf("faute inattendue sur une copie intacte : %s", fault)
 		}
+	}
+}
+
+// --- Control 38 --------------------------------------------------------------------
+
+// graoucoopTopMargin is a cooperative layout that starts, like topMarginTemplate(),
+// 2 mm (16 dots) below the top of the label -- the geometry ADR-063 exists for: a
+// gabarit SUPPLIED by a cooperative, not one compiled into the binary, is the first
+// one that can carry a margin at all.
+func graoucoopTopMargin() Template {
+	t := topMarginTemplate()
+	t.Name = "graoucoop"
+	t.OffsetXDots, t.OffsetYDots = 0, 0
+	return t
+}
+
+// TestControl38ReadsTheNegativeBoundOfACooperativesTopMargin is the anti-objectif-1
+// test of the Review Focus: the screen must not say "dans les clous" on a bound that
+// was not recomputed on the cooperative's own geometry.
+func TestControl38ReadsTheNegativeBoundOfACooperativesTopMargin(t *testing.T) {
+	custom := graoucoopTopMargin()
+	config := loadDelivered(t)
+	config.Printer.CustomTemplate = &custom
+	config.Printer.Template = "graoucoop"
+
+	bounds, ok := config.OffsetBounds(testRegistries())
+	if !ok {
+		t.Fatal("OffsetBounds() ok = false, attendu true")
+	}
+	if bounds.MinY != -16 {
+		t.Fatalf("MinY = %d, attendu -16", bounds.MinY)
+	}
+
+	setOption(t, config.Printer.Options, "offset_y", -16)
+	if fault := findFault(config.Validate(testRegistries()), "printer.options.offset_y"); fault != nil {
+		t.Errorf("offset_y = -16 (la borne elle-même) ne doit pas être refusé : %s", fault.Message)
+	}
+
+	setOption(t, config.Printer.Options, "offset_y", -17)
+	fault := findFault(config.Validate(testRegistries()), "printer.options.offset_y")
+	if fault == nil {
+		t.Fatal("offset_y = -17 (un dot au-delà de la borne) doit être refusé")
+	}
+	want := fmt.Sprintf("-17 dots hors bornes [-16, %d] pour le gabarit \"graoucoop\"", bounds.MaxY)
+	if !strings.HasPrefix(fault.Message, want) {
+		t.Errorf("message = %q, attendu qu'il commence par %q", fault.Message, want)
+	}
+}
+
+// TestControl38MessageIsUnchangedForAShippedTemplate is the regression guard of the
+// Review Focus: La Coope's templates start at (0 ; 0), so the bound stays [0, max]
+// and the message must read EXACTLY what it read before ADR-063.
+func TestControl38MessageIsUnchangedForAShippedTemplate(t *testing.T) {
+	config := loadDelivered(t)
+	setOption(t, config.Printer.Options, "offset_x", -1)
+
+	fault := findFault(config.Validate(testRegistries()), "printer.options.offset_x")
+	if fault == nil {
+		t.Fatal("aucune faute sur printer.options.offset_x")
+	}
+	shipped := IdenticalTemplate()
+	maxX, _ := shipped.MaxOffsetDots(2)
+	want := fmt.Sprintf(
+		"-1 dots hors bornes [0, %d] pour le gabarit \"weighing_identical\" : "+
+			"au-delà, le contenu encré sortirait de l'étiquette", maxX)
+	if fault.Message != want {
+		t.Errorf("message = %q, attendu %q (inchangé au caractère près)", fault.Message, want)
 	}
 }
 

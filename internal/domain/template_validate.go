@@ -203,6 +203,18 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
 				formatMilliDots(right), head.InkedWidthDots)
 		}
 
+		// Rule 3, the other direction: no compiled template ever placed the symbol
+		// above or left of the label, so this never fired until a SUPPLIED gabarit
+		// could declare a margin and ADR-063 let the offset go negative into it. A
+		// negative origin here is exactly what an offset at MinY-1 or MinX-1
+		// produces, and it is caught by name rather than left to the renderer.
+		symbolOrigin := shifted.symbolBox()
+		if symbolOrigin.top < 0 || symbolOrigin.left < 0 {
+			fail("inked_content",
+				"le symbole commence en (%s ; %s) dots, au-dessus ou à gauche du bord de l'étiquette",
+				formatMilliDots(symbolOrigin.left), formatMilliDots(symbolOrigin.top))
+		}
+
 		// Rule 4: the over-all width of the symbol, quiet zones included.
 		if width := shifted.Symbol.TotalWidthMilliDots(); width > inkedWidth {
 			fail("symbol.module_milli_dots",

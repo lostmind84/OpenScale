@@ -69,6 +69,88 @@ func TestMaxOffsetDotsAnswersForTheHeadInService(t *testing.T) {
 	}
 }
 
+// topMarginTemplate is IdenticalTemplate() with every active element, and the
+// symbol, pushed 2 mm (16 dots at 8 dots/mm) down from the top of the label —
+// a layout a cooperative could plausibly supply, with a margin ADR-063 exists to
+// let the volunteer give back as a negative offset.
+//
+// The barcode element's height is reduced by the same 2 000 um its YUM gains, and
+// the symbol's bar height by the same amount, so the BOTTOM of the inked content —
+// what MaxOffsetDotsOn already bounds — lands exactly where it did in
+// IdenticalTemplate(): this fixture exercises the new top margin alone, not a
+// change at the bottom.
+func topMarginTemplate() Template {
+	template := IdenticalTemplate()
+	template.Elements = append([]Element(nil), template.Elements...)
+	for i := range template.Elements {
+		template.Elements[i].YUM += 2_000
+	}
+	for i := range template.Elements {
+		if template.Elements[i].Field == FieldBarcode {
+			template.Elements[i].HeightUM -= 2_000
+		}
+	}
+	template.Symbol.YUM += 2_000
+	template.Symbol.BarHeightUM = 9_375
+	return template
+}
+
+// TestOffsetBoundsOnRecomputesTheMarginOnTheTemplatesOwnGeometry is ADR-063: a
+// gabarit that already carries a margin at its top lets the offset go negative by
+// exactly that margin, on the SHIFTED geometry (symbol included), never further —
+// that is anti-objectif 1 of the design: an offset that passes on paper must not
+// crop the label at print time.
+func TestOffsetBoundsOnRecomputesTheMarginOnTheTemplatesOwnGeometry(t *testing.T) {
+	topMargin := topMarginTemplate()
+	if faults := topMargin.Validate(2); len(faults) != 0 {
+		t.Fatalf("le fixture lui-même devrait être légal, faults = %v", faults)
+	}
+
+	bounds := topMargin.OffsetBoundsOn(ReferenceHead(), 2)
+	if bounds.MinY != -16 {
+		t.Errorf("MinY = %d, attendu -16", bounds.MinY)
+	}
+	if bounds.MinX != 0 {
+		t.Errorf("MinX = %d, attendu 0 : aucune marge n'a été ajoutée à gauche", bounds.MinX)
+	}
+	identical := IdenticalTemplate()
+	wantMaxY := identical.OffsetBoundsOn(ReferenceHead(), 2).MaxY
+	if bounds.MaxY != wantMaxY {
+		t.Errorf("MaxY = %d, attendu %d (celui d'IdenticalTemplate(), le bas de l'encre n'a pas bougé)",
+			bounds.MaxY, wantMaxY)
+	}
+
+	atTheBound := topMarginTemplate()
+	atTheBound.OffsetYDots = bounds.MinY
+	if faults := atTheBound.Validate(2); len(faults) != 0 {
+		t.Errorf("OffsetYDots = %d (la borne elle-même) devrait valider, faults = %v", bounds.MinY, faults)
+	}
+
+	pastTheBound := topMarginTemplate()
+	pastTheBound.OffsetYDots = bounds.MinY - 1
+	if faults := pastTheBound.Validate(2); len(faults) == 0 {
+		t.Errorf("OffsetYDots = %d (un dot au-delà de la borne) devrait être refusé", bounds.MinY-1)
+	}
+}
+
+// TestOffsetBoundsOnShippedTemplatesIsZeroAtTopAndLeft: weighing_identical and
+// weighing_neutral_single both start their ink at the very edge of the label, so
+// they must keep exactly the [0, max] bound that already shipped — the regression
+// guard of the Review Focus: La Coope's templates do not move.
+func TestOffsetBoundsOnShippedTemplatesIsZeroAtTopAndLeft(t *testing.T) {
+	for _, template := range []Template{IdenticalTemplate(), NeutralSingleTemplate()} {
+		bounds := template.OffsetBoundsOn(ReferenceHead(), 2)
+		if bounds.MinX != 0 || bounds.MinY != 0 {
+			t.Errorf("%s : MinX, MinY = %d, %d, attendu 0, 0", template.Name, bounds.MinX, bounds.MinY)
+		}
+		maxX, maxY := template.MaxOffsetDots(2)
+		if bounds.MaxX != maxX || bounds.MaxY != maxY {
+			t.Errorf("%s : MaxX, MaxY = %d, %d, attendu ce que rend MaxOffsetDots : %d, %d",
+				template.Name, bounds.MaxX, bounds.MaxY, maxX, maxY)
+		}
+	}
+}
+
 // TestSymbolHeightUsesMaxAndNotASum is the definition of §7.4 that had to be settled
 // once: the HRI digits sit INSIDE the guard descent band, so the block height is
 // bars + max(descent, hri), never bars + descent + hri.
