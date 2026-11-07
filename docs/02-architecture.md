@@ -2924,6 +2924,8 @@ flowchart TD
   S7 -->|"non confirmé ou bind en échec"| BACK["retour AUTOMATIQUE à la version précédente"]
 ```
 
+> **Le fichier écrit prend le propriétaire et les droits de celui qu'il remplace** — le fichier en service pour `config.json`, et la copie `.1` aussi. `os.CreateTemp` crée un fichier `0600` qui appartient à **celui qui lance la commande**, et le `rename` de l'étape 4 met ce fichier-là en service. Or `install.sh` lance `config station`, `config recovery-code` et `config password` **en root**, `update.sh` y lance `config migrate`, et la procédure de secours imprimée en fin d'installation aussi : chacun laissait au compte `openscale` un `config.json` `root:root 0600` qu'il ne pouvait plus lire, et le service redémarrait en boucle jusqu'à un `chown openscale:` à la main (retour de la Graoucoop, 11/2026). Corrigé à la seule couche qui écrit — `ConfigStore`, `internal/platform/owner_other.go` — plutôt que par un `chown` dans chaque script, que le prochain script aurait oublié. Windows n'a rien à faire : `install.ps1` pose sur le répertoire de données une ACL héritée qui donne déjà `Modify` au compte du kiosque. Une première écriture, sans fichier à remplacer, garde ce que `CreateTemp` a fait : il n'y a personne de qui hériter.
+
 ```go
 // Reload publishes a new configuration and restarts only the subsystems whose
 // block actually changed.
