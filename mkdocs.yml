@@ -59,6 +59,7 @@ nav:
   - Démarrer: getting-started.md
   - Catalogue: catalogue.md
   - Gabarit d'étiquette: gabarit.md
+  - Imprimante: imprimante.md
   - Architecture: architecture.md
   - Décisions d'architecture:
       - odr/README.md
