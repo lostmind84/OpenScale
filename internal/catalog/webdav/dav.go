@@ -85,7 +85,11 @@ func (s *Source) get(ctx context.Context) (*ports.Batch, error) {
 	options.Now = s.clock.Now()
 	batch, err := csvodoo.Parse(io.TeeReader(response.Body, pending), options)
 	if err != nil {
-		s.refuse(ctx, pending, err)
+		if repeated := s.refuse(ctx, pending, err); repeated {
+			// Already told, archived and counted: the watch must not hear of it at every
+			// stable poll either.
+			return nil, nil
+		}
 		return nil, err
 	}
 	s.keep(pending)

@@ -23,11 +23,18 @@ func (s *Source) Name() string { return domain.CatalogSourceWebDAV }
 // and the account used, which is the difference between this source and the local one
 // (§10.1).
 func (s *Source) Describe() string {
+	described := fmt.Sprintf("WebDAV, %s (compte %s)", s.file, s.username)
 	if s.username == "" {
-		return fmt.Sprintf("WebDAV, %s (sans compte)", s.file)
+		described = fmt.Sprintf("WebDAV, %s (sans compte)", s.file)
 	}
-	return fmt.Sprintf("WebDAV, %s (compte %s)", s.file, s.username)
+	if s.missing.Load() {
+		described += " — en attente de " + s.fileName
+	}
+	return described
 }
+
+// keeping reports whether the file stays on the share once it has been read.
+func (s *Source) keeping() bool { return s.afterRead == catalog.AfterReadKeep }
 
 // Next blocks until a whole catalog is available, or until ctx is done.
 func (s *Source) Next(ctx context.Context) (*ports.Batch, error) {
@@ -78,13 +85,45 @@ func (s *Source) poll(ctx context.Context) (*ports.Batch, error) {
 	case !found:
 		s.failures = 0
 		s.stability.Forget()
+		s.sayAbsent()
 		return nil, nil
 	}
 	s.failures = 0
+	s.sayPresent()
+	if s.keeping() && s.watermark.Seen(stamp) {
+		return nil, nil
+	}
 	if !s.stability.Observe(stamp) {
 		return nil, nil
 	}
+	s.observed = stamp
 	return s.get(ctx)
+}
+
+// sayAbsent journals the disappearance of the file ONCE, not at every poll.
+//
+// Deleting after the read makes the absence the ordinary state, so it is only Info. When
+// the file is kept, its disappearance is not something this source did: it is a producer
+// whose export stopped arriving, and an operator wants to hear of it.
+func (s *Source) sayAbsent() {
+	if s.missing.Swap(true) {
+		return
+	}
+	level := domain.LevelInfo
+	if s.keeping() {
+		level = domain.LevelWarn
+	}
+	s.log.Technical(level, "catalog", "",
+		fmt.Sprintf("Fichier de catalogue %s absent du partage.", s.fileName), s.file.Redacted())
+}
+
+// sayPresent journals the return of a file that was said to be absent.
+func (s *Source) sayPresent() {
+	if !s.missing.Swap(false) {
+		return
+	}
+	s.log.Technical(domain.LevelInfo, "catalog", "",
+		fmt.Sprintf("Fichier de catalogue %s de nouveau présent.", s.fileName), s.file.Redacted())
 }
 
 // unreachable reports a share that did not answer, and raises the level on the third
@@ -132,13 +171,33 @@ func (s *Source) isClosed() bool {
 }
 
 // refuse sets aside a file nothing could be made of, counts the failure against its
-// CONTENT, and deletes it from the share.
+// CONTENT, and deletes it from the share — or, with `after_read: keep`, leaves it there.
 //
 // Deleting it is what stops the watcher re-reading the same broken content every five
-// seconds for ever. The copy and its reason stay locally (failure test 9), and the
-// count is what turns the third refusal of the same content into a red light (§10.5).
-func (s *Source) refuse(ctx context.Context, pending *catalog.Pending, cause error) {
+// seconds for ever. In keep mode the file stays, so the stamp takes its place: the same
+// refused content is neither read nor counted again until the file changes. The copy and
+// its reason stay locally (failure test 9), and the count is what turns the third refusal
+// of the same content into a red light (§10.5).
+//
+// A share that dates nothing never lets the stamp match, so it is the DIGEST of the
+// refused content that is remembered as well: the same broken bytes read again are not
+// archived, not counted and not reported again. The result says so — true means « this
+// repeats a refusal already made », which the caller must not turn into one more error.
+func (s *Source) refuse(ctx context.Context, pending *catalog.Pending, cause error) (repeated bool) {
 	s.stability.Forget()
+	sha := ""
+	if content, named := catalog.ContentOf(cause); named {
+		sha = content.SHA256
+	}
+	if s.keeping() && s.watermark.HoldsContent(sha) {
+		pending.Discard()
+		if !s.observed.Modified.IsZero() {
+			// Same bytes under a new date: the stamp follows, so the file is not read
+			// again. Without a date there is nothing new to write.
+			s.rememberRefusal(sha)
+		}
+		return true
+	}
 	archived, err := pending.Commit()
 	if err != nil {
 		s.log.Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
@@ -149,20 +208,24 @@ func (s *Source) refuse(ctx context.Context, pending *catalog.Pending, cause err
 			"Motif du refus non écrit.", err.Error())
 	}
 	entry, counted := s.quarantine.Count(ctx, cause)
-	if err := s.delete(ctx); err != nil {
+	if s.keeping() {
+		s.rememberRefusal(sha)
+	} else if err := s.delete(ctx); err != nil {
 		s.log.Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
 			"Fichier de catalogue refusé non supprimé.", err.Error())
-		return
+		return false
 	}
 	level := domain.LevelWarn
 	if counted && entry.FailureCount >= s.quarantine.Threshold() {
 		level = domain.LevelError
 	}
 	s.log.Technical(level, "catalog", "ERR-CAT-03",
-		"Catalogue refusé, fichier mis de côté.", archived)
+		"Catalogue refusé, "+s.refusedOutcome()+".", archived)
+	return false
 }
 
-// Acknowledge names the local copy and THEN deletes the remote file.
+// Acknowledge names the local copy and THEN deletes the remote file, or, with
+// `after_read: keep`, remembers its stamp and leaves it on the share.
 //
 // The DELETE is the acknowledgement, exactly as the os.Remove is for the local drop
 // (ADR-004).
@@ -181,12 +244,56 @@ func (s *Source) Acknowledge(ctx context.Context, batch *ports.Batch, result por
 				"Motif du refus non écrit.", err.Error())
 		}
 	}
+	if s.keeping() {
+		return s.acknowledgeInPlace(batch, archived)
+	}
 	if err := s.delete(ctx); err != nil {
 		return fmt.Errorf("%w : le compte %s n'a pas pu supprimer %s (lot %s) : %w",
 			catalog.ErrNotAcknowledged, s.account(), s.file, batch.ID, err)
 	}
 	s.log.Technical(domain.LevelInfo, "catalog", "",
 		"Catalogue acquitté, fichier supprimé du partage.", archived)
+	return nil
+}
+
+// rememberRefusal retains the stamp of the refused file and the digest of its content. A
+// failure to write is told (ERR-CAT-05) and changes nothing else: Watermark keeps both in
+// memory all the same.
+func (s *Source) rememberRefusal(sha string) {
+	err := s.watermark.Remember(s.observed)
+	if err == nil && sha != "" {
+		err = s.watermark.RememberContent(sha)
+	}
+	if err != nil {
+		s.log.Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
+			"Repère du catalogue refusé non écrit.", err.Error())
+	}
+}
+
+// refusedOutcome says in the journal what became of a refused file.
+func (s *Source) refusedOutcome() string {
+	if s.keeping() {
+		return "fichier laissé sur le partage"
+	}
+	return "fichier mis de côté"
+}
+
+// acknowledgeInPlace is the acknowledgement of a kept file: the stamp, in place of the
+// DELETE.
+//
+// A stamp that cannot be written is the same failure as a file that cannot be deleted —
+// the catalog is in service, nothing is quarantined, and the operator is told
+// (ERR-CAT-05). Watermark.Remember keeps the stamp in memory all the same, so the file
+// is not applied again at every poll while the disk is unwritable.
+func (s *Source) acknowledgeInPlace(batch *ports.Batch, archived string) error {
+	if err := s.watermark.Remember(s.observed); err != nil {
+		s.log.Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
+			"Repère du catalogue non écrit.", err.Error())
+		return fmt.Errorf("%w : repère non écrit pour %s (lot %s) : %w",
+			catalog.ErrNotAcknowledged, s.file, batch.ID, err)
+	}
+	s.log.Technical(domain.LevelInfo, "catalog", "",
+		"Catalogue acquitté, fichier laissé sur le partage.", archived)
 	return nil
 }
 
