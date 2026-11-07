@@ -246,8 +246,10 @@ func (p *countingPrinter) Descriptor() domain.PrinterDescriptor { return domain.
 func (p *countingPrinter) Status(context.Context) ports.PrinterStatus {
 	return ports.PrinterStatus{}
 }
-func (p *countingPrinter) SelfTest(context.Context, string) error { return nil }
-func (p *countingPrinter) Close() error                           { return nil }
+func (p *countingPrinter) SelfTest(context.Context, string) (ports.PrintReceipt, error) {
+	return ports.PrintReceipt{}, nil
+}
+func (p *countingPrinter) Close() error { return nil }
 
 // TestTheJournalPurgesOnceInFifty is §4, step 16: the purge happens as often as
 // the journal grows, and never on a timer that would fire while a customer weighs.

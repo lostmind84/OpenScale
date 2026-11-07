@@ -185,9 +185,10 @@ func printQuietly(p ports.Printer, ctx context.Context, job ports.PrintJob) (rec
 }
 
 // selfTestQuietly launches one self-test and reports a panic separately.
-func selfTestQuietly(p ports.Printer, ctx context.Context, what string) (err error, panicked any) {
+func selfTestQuietly(p ports.Printer, ctx context.Context, what string) (receipt ports.PrintReceipt, err error, panicked any) {
 	defer func() { panicked = recover() }()
-	return p.SelfTest(ctx, what), nil
+	receipt, err = p.SelfTest(ctx, what)
+	return receipt, err, nil
 }
 
 // statusQuietly reads the status and reports a panic separately.

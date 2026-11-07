@@ -101,6 +101,15 @@ type PrinterStatus struct {
 	Raw []byte
 	// PendingJobs is the queue depth when the platform can tell us (Windows can).
 	PendingJobs int
+	// Cause is the transport failure behind this status, UNCHANGED so a caller can
+	// errors.Is or errors.As it — the printer diagnostic classifies an opening failure
+	// (absent / refusé) on it without this package naming either (ADR-065). It is nil
+	// when the probe ran to completion — an answer or a silence. It is set when the
+	// probe could not run: a failed transport (Health Faulted), a transport that cannot
+	// ask (ErrUnsupported, Health stays Unknown) or a closed driver (Health Unknown).
+	// A non-nil Cause is therefore not a verdict: Health is the verdict, Cause says why
+	// the probe did not complete.
+	Cause error
 }
 
 // Kind classifies a printing failure BY THE ACTION IT CALLS FOR, never by its
@@ -228,8 +237,9 @@ type Printer interface {
 	Print(ctx context.Context, job PrintJob) (PrintReceipt, error)
 	// Status reports what the device says about itself, or an unknown status.
 	Status(ctx context.Context) PrinterStatus
-	// SelfTest prints one built-in pattern: "label", "alignment" or "ruler".
-	SelfTest(ctx context.Context, what string) error
+	// SelfTest prints one built-in pattern: "label", "alignment" or "ruler", and
+	// returns the receipt for the bytes handed to the transport (ADR-065).
+	SelfTest(ctx context.Context, what string) (PrintReceipt, error)
 	// Close releases the device.
 	Close() error
 }

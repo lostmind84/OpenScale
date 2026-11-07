@@ -261,16 +261,16 @@ func (p *stubPrinter) Status(context.Context) ports.PrinterStatus {
 	return p.status
 }
 
-func (p *stubPrinter) SelfTest(_ context.Context, what string) error {
+func (p *stubPrinter) SelfTest(_ context.Context, what string) (ports.PrintReceipt, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.selfTests = append(p.selfTests, what)
 	if len(p.failures) > 0 {
 		var err error
 		err, p.failures = p.failures[0], p.failures[1:]
-		return err
+		return ports.PrintReceipt{}, err
 	}
-	return nil
+	return ports.PrintReceipt{Bytes: 16310}, nil
 }
 
 func (p *stubPrinter) Close() error {

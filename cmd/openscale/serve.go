@@ -234,7 +234,7 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	live, liveSource := &livePrinter{}, &liveCatalog{}
 
 	printer := buildPrinter(cfg, printers, templates, clock, log, o.dataDir)
-	live.hold(printer)
+	live.hold(printer, diagnosisSubject(cfg, printers, o.dataDir))
 	weigher := buildScale(cfg, scales, clock, log)
 
 	catalog, err := db.LoadCatalog(ctx)
@@ -421,6 +421,10 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		},
 		Printer:         live,
 		Troubleshooting: adminTroubleshooting{station: st, printer: live, file: configFile},
+		// The printer diagnostic of page Matériel carries no password either (decision
+		// 7) ; live is the same *livePrinter the self-test route already uses, so both
+		// read the SAME wrapper and Subject (§14.5, cmd/openscale/admin.go).
+		PrinterDiagnosis: live,
 		// diagnostic.zip is its OWN collaborator and not part of Hardware: it is not a
 		// platform question, and its route is the one route of that group with no password
 		// (§15.4, ADR-018).

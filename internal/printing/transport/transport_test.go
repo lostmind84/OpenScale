@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -558,5 +560,71 @@ func TestDialSystemTCPReportsAPrinterThatIsOff(t *testing.T) {
 		t.Fatalf("une imprimante éteinte a été acceptée")
 	} else if !strings.Contains(err.Error(), address) {
 		t.Fatalf("le message ne nomme pas l'imprimante : %v", err)
+	}
+}
+
+// --- Hypothèses du diagnostic (tâche 2 du plan) -----------------------------
+//
+// Ces trois tests ne couvrent rien de nouveau dans ce paquet : ils vérifient, sur le
+// vrai ouvreur, les trois classements que le diagnostic de l'imprimante (tâche 3)
+// posera sur ports.PrinterStatus.Cause — « périphérique absent » et « droit refusé »
+// pour les étapes 1-2, le chemin réseau pour mémoire. Si l'un rougit, le classement
+// envisagé est faux et ne doit pas être codé tel quel (plan, tâche 2, step 1).
+
+// TestOpenSystemNodeReportsAnAbsentDeviceAsAPathError settles the shape the diagnostic
+// reads: a *fs.PathError whose Op is "open" (not "read" or "write") and whose Err
+// errors.Is fs.ErrNotExist — the node simply is not there.
+func TestOpenSystemNodeReportsAnAbsentDeviceAsAPathError(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "aucun-peripherique")
+
+	_, err := transport.OpenSystemNode(missing)
+
+	var pathErr *fs.PathError
+	if !errors.As(err, &pathErr) {
+		t.Fatalf("OpenSystemNode(%q) = %v, attendu un *fs.PathError", missing, err)
+	}
+	if pathErr.Op != "open" {
+		t.Errorf("Op = %q, attendu « open »", pathErr.Op)
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("errors.Is(err, fs.ErrNotExist) est faux : %v", err)
+	}
+}
+
+// TestOpenSystemNodeReportsARefusedDeviceAsPermissionDenied settles the OTHER opening
+// failure the diagnostic classifies: the node exists but openscale is not in the lp
+// group. Root ignores file permissions, so this test skips under root rather than
+// invent a classement nobody can observe there.
+func TestOpenSystemNodeReportsARefusedDeviceAsPermissionDenied(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignore les droits du fichier : ce classement ne s'observe pas sous ce compte")
+	}
+	refused := filepath.Join(t.TempDir(), "noeud-refuse")
+	if err := os.WriteFile(refused, nil, 0o000); err != nil {
+		t.Fatalf("préparation : %v", err)
+	}
+
+	_, err := transport.OpenSystemNode(refused)
+
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("OpenSystemNode(%q) = %v, attendu fs.ErrPermission", refused, err)
+	}
+}
+
+// TestDialSystemTCPReportsAnOffPrinterAsADialError settles the network path for the
+// same record, even though the diagnostic's steps 1-3 only read it through Devfile
+// today (§8.4 names Devfile the Linux default): a *net.OpError whose Op is "dial", so a
+// future classement does not have to guess it from a bare error string.
+func TestDialSystemTCPReportsAnOffPrinterAsADialError(t *testing.T) {
+	address := closedPort(t)
+
+	_, err := transport.DialSystemTCP(context.Background(), address)
+
+	var opErr *net.OpError
+	if !errors.As(err, &opErr) {
+		t.Fatalf("DialSystemTCP(%q) = %v, attendu un *net.OpError", address, err)
+	}
+	if opErr.Op != "dial" {
+		t.Errorf("Op = %q, attendu « dial »", opErr.Op)
 	}
 }

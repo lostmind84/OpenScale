@@ -247,11 +247,47 @@ type CatalogSourceState struct {
 	Label string
 }
 
-// SelfTester prints one of the three built-in patterns (§8.6). ports.Printer
-// satisfies it, and that is the only reason it is one method wide.
+// SelfTester prints one of the three built-in patterns (§8.6). It is one method wide
+// because its only consumer, the self-test handler, has no use for the receipt
+// ports.Printer.SelfTest now returns (ADR-065, écart 1) — *cmd/openscale.livePrinter
+// adapts it away rather than widening this interface for a reader that would ignore it.
 type SelfTester interface {
 	// SelfTest prints "label", "alignment" or "ruler".
 	SelfTest(ctx context.Context, what string) error
+}
+
+// DiagnosisStep is one of the five steps of the printer diagnostic of page Matériel,
+// copied field for field from printing.DiagnosisStep: this package imports neither
+// internal/printing nor internal/station/ports (§5.2), so State crosses that boundary
+// as a plain string — "pass", "fail", "unknown", "not_applicable" or "unanswered" —
+// rather than as printing.StepState.
+type DiagnosisStep struct {
+	Number   int
+	Title    string
+	State    string
+	Observed string
+	Remedy   string
+	Doc      string
+}
+
+// PrinterDiagnosis is one run of the five-step printer diagnostic, plus the name of
+// the printer it ran against — the one a volunteer's copiable report has to name, so a
+// forum reply does not have to ask which station it came from.
+type PrinterDiagnosis struct {
+	Target string
+	Steps  []DiagnosisStep
+}
+
+// PrinterDiagnostician is the printer diagnostic of page Matériel, with NO password
+// anywhere (decision 7, ADR-033: testing the printer changes neither what the station
+// sells nor how it weighs): DiagnosePrinter runs steps 1 to 4 on the printer IN SERVICE
+// and leaves step 5 "unanswered", or "not_applicable" when the run stopped before it
+// or the driver sends nothing to a printer; AnswerStep turns a volunteer's own answer
+// to that step into the step itself (decision 3) — nothing in this binary measures
+// whether a label came out — with the remedy of the transport in service.
+type PrinterDiagnostician interface {
+	DiagnosePrinter(ctx context.Context) (PrinterDiagnosis, error)
+	AnswerStep(printed bool, seen string) DiagnosisStep
 }
 
 // Troubleshooting is what the repair buttons of §14.4 act on and that nothing else in

@@ -151,12 +151,13 @@ func (p *Printer) Status(context.Context) ports.PrinterStatus {
 	return p.status
 }
 
-// SelfTest records the pattern it was asked for.
-func (p *Printer) SelfTest(_ context.Context, what string) error {
+// SelfTest records the pattern it was asked for. It reports no receipt: a fake sends
+// nothing to any transport, so there is nothing to count.
+func (p *Printer) SelfTest(_ context.Context, what string) (ports.PrintReceipt, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.selfTest = append(p.selfTest, what)
-	return p.err
+	return ports.PrintReceipt{}, p.err
 }
 
 // SelfTests returns the patterns that were asked for.

@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte'
   import Act from '../components/Act.svelte'
   import Field from '../components/Field.svelte'
+  import PrinterDiagnosis from '../components/PrinterDiagnosis.svelte'
   import StandingHeader from '../components/StandingHeader.svelte'
   import * as api from '../lib/api'
   import { AdminError, isCredentialRefusal } from '../lib/api'
@@ -89,7 +90,7 @@
    *
    * The name carries its suffix to leave `Act` to the component that draws the buttons.
    */
-  type ActName = '' | 'ports' | 'printers' | 'discover' | 'detect' | 'listen' | SelfTest
+  type ActName = '' | 'ports' | 'printers' | 'discover' | 'detect' | 'listen' | 'diagnosis' | SelfTest
 
   /**
    * Ce qu'un port a répondu au balayage — y compris quand il a REFUSÉ de s'ouvrir.
@@ -632,9 +633,12 @@
         silent asks for the password AFTER the click — the one moment ADR-033 wanted it not
         to surprise anybody. Six buttons of this page were in that case.
 
-        The two exceptions are here on purpose: « Lister les ports » and « Lister les
-        files » are the reads of the open table (`internal/web/server.go`), and they are the
-        only acts of this page that carry no badge. Everything else goes through
+        Three exceptions are here on purpose: « Lister les ports » and « Lister les
+        files » are the reads of the open table (`internal/web/server.go`), and the printer
+        diagnostic below is the third — its two routes are free FOR THE SAME REASON ADR-033
+        already left « Tester l'imprimante » and « Imprimer une étiquette de test » free on
+        the Dépannage page: testing changes neither what the station sells nor how it
+        weighs (decision 7, spec). The three carry no badge. Everything else goes through
         `admin.protect`, which is the same list, checked handler by handler.
       -->
       <Act
@@ -875,6 +879,16 @@
     {#if unreachable > 0}
       <p class="note" data-unreachable>{reachElsewhere(printers, transports, deviceKey)}</p>
     {/if}
+
+    <!--
+      Le diagnostic vient APRÈS la liste des destinations et la note des injoignables :
+      « Lister les files » et « Rechercher l'imprimante » restent collés à leurs résultats.
+    -->
+    <PrinterDiagnosis
+      disabled={acting !== ''}
+      busy={acting === 'diagnosis'}
+      onrun={(job) => void act('diagnosis', job)}
+    />
 
     <!-- Même règle que le volet de la balance : l'ouverture est LIÉE, jamais poussée. -->
     <details class="folded" bind:open={printerSettingsOpen}>

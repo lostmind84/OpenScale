@@ -143,7 +143,9 @@ cp -r internal/printing/example internal/printing/monmodele
 
 Quatre fichiers : `driver.go` (identité, capacités, `OptionSchema`, `ParseOptions`),
 `printer.go` (`Print`, `Status`, `SelfTest`, `Close`), `driver_test.go`,
-`conformance_test.go`.
+`conformance_test.go`. `SelfTest` rend le reçu (`ports.PrintReceipt`) de ce qu'il a remis au
+transport, comme `Print` (ADR-065) : le diagnostic pas à pas de l'imprimante s'en sert pour
+dire « n octets sur N ».
 
 `ports.Printer` demande cinq méthodes. Quatre règles gouvernent leur écriture :
 

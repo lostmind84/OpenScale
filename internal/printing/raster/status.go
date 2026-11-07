@@ -34,18 +34,23 @@ func (p *Printer) Status(ctx context.Context) ports.PrinterStatus {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
+		// NOT refuseWhenClosed: that one takes p.mu again, and Status already holds it.
+		// Built on the spot instead, same shape: it is the closing itself the diagnostic
+		// must not read as an opening refusée or absente (Review Focus, tâche 2).
 		return ports.PrinterStatus{Health: ports.PrinterUnknown,
-			Detail: "l'imprimante a été fermée par le poste."}
+			Detail: "l'imprimante a été fermée par le poste.",
+			Cause: &ports.PrintError{Kind: ports.KindInternal, Op: "raster.Status",
+				Message: "l'imprimante a été fermée : ce poste ne peut plus imprimer sans redémarrer"}}
 	}
 
 	answer, err := p.transport.Query(ctx, sbpl.Enquiry(), statusBudget)
 	switch {
 	case errors.Is(err, ports.ErrUnsupported):
-		return ports.PrinterStatus{Health: ports.PrinterUnknown,
+		return ports.PrinterStatus{Health: ports.PrinterUnknown, Cause: err,
 			Detail: fmt.Sprintf("état inconnu : %s ne peut pas interroger l'imprimante. "+
 				"L'étiquette part, la réponse ne revient pas.", p.transport.Describe())}
 	case err != nil:
-		return ports.PrinterStatus{Health: ports.PrinterFaulted, Raw: answer,
+		return ports.PrinterStatus{Health: ports.PrinterFaulted, Raw: answer, Cause: err,
 			Detail: fmt.Sprintf("l'imprimante n'a pas répondu (%s) : %v", p.transport.Describe(), err)}
 	case len(answer) == 0:
 		return ports.PrinterStatus{Health: ports.PrinterUnknown,

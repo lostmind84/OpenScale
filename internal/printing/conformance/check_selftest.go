@@ -35,7 +35,7 @@ func checkEverySelfTestAnswersAsDeclared(t *testing.T, r reporter, subject Subje
 	for _, known := range printing.SelfTests() {
 		p := build(t, r, subject.New, fake.NewClock(t0))
 		what := string(known.ID)
-		err, panicked := selfTestQuietly(p, context.Background(), what)
+		receipt, err, panicked := selfTestQuietly(p, context.Background(), what)
 		delivered, deliveredKnown := subject.delivered(t, p)
 		closeAndForget(p)
 
@@ -43,7 +43,7 @@ func checkEverySelfTestAnswersAsDeclared(t *testing.T, r reporter, subject Subje
 			r.Fatalf("SelfTest(%q) PANICKED: %v. It is a button on the Dépannage page, reachable without a password (ADR-018)", what, panicked)
 		}
 		if subject.honours(known.ID) {
-			checkADeclaredSelfTestPrinted(r, known, err, delivered, deliveredKnown)
+			checkADeclaredSelfTestPrinted(r, known, receipt, err, delivered, deliveredKnown)
 			continue
 		}
 		checkAnUndeclaredSelfTestWasRefused(r, known, err, delivered, deliveredKnown)
@@ -51,8 +51,8 @@ func checkEverySelfTestAnswersAsDeclared(t *testing.T, r reporter, subject Subje
 }
 
 // checkADeclaredSelfTestPrinted is the verdict on a pattern this driver said it honours.
-func checkADeclaredSelfTestPrinted(r reporter, known printing.SelfTestInfo, err error,
-	delivered int, deliveredKnown bool) {
+func checkADeclaredSelfTestPrinted(r reporter, known printing.SelfTestInfo, receipt ports.PrintReceipt,
+	err error, delivered int, deliveredKnown bool) {
 	r.Helper()
 	what := string(known.ID)
 	if err != nil {
@@ -61,6 +61,9 @@ func checkADeclaredSelfTestPrinted(r reporter, known printing.SelfTestInfo, err 
 	}
 	if deliveredKnown && delivered == 0 {
 		r.Errorf("SelfTest(%q) reported SUCCESS and NOTHING reached the destination. This driver declares that pattern, so a volunteer pressing « %s » is told a label went out and stands in front of a printer that never moved", what, known.Button)
+	}
+	if deliveredKnown && delivered > 0 && receipt.Bytes == 0 {
+		r.Errorf("SelfTest(%q) reported SUCCESS with a receipt of 0 bytes while %d label(s) reached the destination. The receipt is what the printer diagnostic reports as « n octets sur N » (ADR-065): a driver that delivers a pattern has to say how many bytes it was", what, delivered)
 	}
 }
 
@@ -107,7 +110,7 @@ func checkAnUnknownSelfTestNamesTheOnesThatExist(t *testing.T, r reporter, subje
 	r.Helper()
 	for _, what := range []string{"mire", ""} {
 		p := build(t, r, subject.New, fake.NewClock(t0))
-		err, panicked := selfTestQuietly(p, context.Background(), what)
+		_, err, panicked := selfTestQuietly(p, context.Background(), what)
 		delivered, deliveredKnown := subject.delivered(t, p)
 		closeAndForget(p)
 
@@ -151,7 +154,7 @@ func checkTheDemonstrationLabelIsNeverInvented(t *testing.T, r reporter, subject
 	p := build(t, r, subject.WithoutDemoLabel, fake.NewClock(t0))
 	defer closeAndForget(p)
 
-	err, panicked := selfTestQuietly(p, context.Background(), string(printing.SelfTestLabel))
+	_, err, panicked := selfTestQuietly(p, context.Background(), string(printing.SelfTestLabel))
 	if panicked != nil {
 		r.Fatalf("SelfTest(%q) PANICKED with no demonstration label: %v. A station whose composition root supplied none is a configuration, not a bug", printing.SelfTestLabel, panicked)
 	}

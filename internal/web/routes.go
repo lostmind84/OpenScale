@@ -52,6 +52,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /admin/api/troubleshooting/test-scale", s.testScale)
 	mux.HandleFunc("POST /admin/api/troubleshooting/test-printer", s.testPrinter)
 	mux.HandleFunc("POST /admin/api/troubleshooting/test-label", s.testLabel)
+	// The printer diagnostic of page Matériel (§14.5) carries no password either
+	// (decision 7) : ADR-033's criterion decides this pair too, and testing changes
+	// neither what the station sells nor the way it weighs.
+	mux.HandleFunc("POST /admin/api/printer/diagnosis", s.printerDiagnosis)
+	mux.HandleFunc("POST /admin/api/printer/diagnosis/answer", s.printerDiagnosisAnswer)
 	mux.HandleFunc("GET /admin/api/diagnostic.zip", s.diagnostic)
 	mux.HandleFunc("GET /admin/api/health", s.adminHealth)
 	mux.HandleFunc("GET /admin/api/config", s.readConfig)

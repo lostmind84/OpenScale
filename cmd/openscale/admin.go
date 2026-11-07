@@ -257,13 +257,23 @@ type livePrinter struct {
 	// interface: they are what the station ADDS around a driver, and the Hub deliberately
 	// knows nothing about them.
 	wrapper *printing.Service
+	// subject is WHAT the printer diagnostic runs against — the transport and the
+	// device a reload put in service, computed once by diagnosisSubject and held next
+	// to the printer it describes so a diagnostic run after a reload names the printer
+	// that reload just built, never the one the process started with (§11.4).
+	subject printing.Subject
 }
 
-// hold puts the printer that has just taken service in place.
-func (l *livePrinter) hold(printer ports.Printer) {
+var _ web.PrinterDiagnostician = (*livePrinter)(nil)
+
+// hold puts the printer that has just taken service in place, with the Subject that
+// describes it to the diagnostic — under the SAME lock, so a reader never sees a
+// printer paired with the Subject of the one it replaced.
+func (l *livePrinter) hold(printer ports.Printer, subject printing.Subject) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.printer = printer
+	l.subject = subject
 	l.wrapper, _ = printer.(*printing.Service)
 }
 
@@ -272,6 +282,9 @@ func (l *livePrinter) hold(printer ports.Printer) {
 // It satisfies web.SelfTester, which is one method wide on purpose: that is all the
 // three self-test routes need, and a station whose printer could not be built still
 // answers — with the reason the driver gives, which names the offending key.
+// web.SelfTester stays at `error` (ADR-065, écart 1) — its one consumer, this method's
+// caller, has no use for the receipt — so the receipt ports.Printer.SelfTest now
+// returns is adapted away here, not threaded through.
 func (l *livePrinter) SelfTest(ctx context.Context, what string) error {
 	l.mu.RLock()
 	printer := l.printer
@@ -279,27 +292,133 @@ func (l *livePrinter) SelfTest(ctx context.Context, what string) error {
 	if printer == nil {
 		return errors.New("aucune imprimante n'est en service sur ce poste")
 	}
-	return printer.SelfTest(ctx, what)
+	_, err := printer.SelfTest(ctx, what)
+	return err
 }
 
-// printService reports the print service, or says in French why there is none.
+// errNoPrintService is the refusal every reader of l.wrapper gives when it is nil: a
+// station whose printer.options name a queue this binary cannot open runs on the
+// stand-in of serve.go, and the honest answer to « change the roll » — or to diagnose
+// the printer — there is that there is no printer to act on.
 //
-// A nil service is not a bug: a station whose printer.options name a queue this binary
-// cannot open runs on the stand-in of serve.go, and the honest answer to « change the
-// roll » there is that there is no printer to change it on.
+// The refusal names a PAGE and no configuration key, for the reason the twin refusal of
+// catalogadmin.go gives: whoever reads it has the administration screen in front of
+// them, and the « réglages avancés » it used to point at were removed on 27/07/2026.
+// « Pilote d'impression » is the French name the screen itself gives printer.type, so
+// the sentence and the field it blames read the same. It is a shared value, not a
+// sentence repeated at each call site, so printService and diagnosisTarget can never
+// drift into naming the fault two different ways.
+var errNoPrintService = errors.New("l'imprimante de ce poste n'a pas pu être construite : " +
+	"reprenez le pilote d'impression et ses réglages sur la page Matériel")
+
+// printService reports the print service, or says in French why there is none.
 func (l *livePrinter) printService() (*printing.Service, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	if l.wrapper == nil {
-		// The refusal names a PAGE and no configuration key, for the reason the twin refusal
-		// of catalogadmin.go gives: whoever reads it has the administration screen in front
-		// of them, and the « réglages avancés » it used to point at were removed on
-		// 27/07/2026. « Pilote d'impression » is the French name the screen itself gives
-		// printer.type, so the sentence and the field it blames read the same.
-		return nil, errors.New("l'imprimante de ce poste n'a pas pu être construite : " +
-			"reprenez le pilote d'impression et ses réglages sur la page Matériel")
+		return nil, errNoPrintService
 	}
 	return l.wrapper, nil
+}
+
+// diagnosisTarget reads the wrapper and the Subject that describes it to the
+// diagnostic under the SAME RLock, for the guarantee hold's godoc states: a reader
+// must never see a wrapper paired with the Subject of the printer it replaced. Reading
+// them through two separate locks — one via printService, one of its own — would open
+// exactly that window across a reload landing between the two.
+func (l *livePrinter) diagnosisTarget() (*printing.Service, printing.Subject, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if l.wrapper == nil {
+		return nil, printing.Subject{}, errNoPrintService
+	}
+	return l.wrapper, l.subject, nil
+}
+
+// DiagnosePrinter runs the printer diagnostic of page Matériel on the printer IN
+// SERVICE, never on a second handle opened for the occasion (anti-objectif n°4):
+// printing.Diagnose only ever calls l.wrapper.Interrogate and l.wrapper.SelfTest, the
+// same two calls §8.5 and §8.6 already make on this same object. wrapper and subject
+// come from diagnosisTarget's single RLock, so a reload cannot land between the two
+// reads and pair the Subject it just built with the wrapper it just replaced.
+//
+// It refuses in the same two cases printService and UseFallback already name in
+// French: no printer at all (same sentence as printService, admin.go) and the station
+// on its fallback printer — diagnosing the neighbour's printer through THIS station's
+// Subject would name the wrong device in every sentence steps 1 to 4 produce.
+func (l *livePrinter) DiagnosePrinter(ctx context.Context) (web.PrinterDiagnosis, error) {
+	wrapper, subject, err := l.diagnosisTarget()
+	if err != nil {
+		return web.PrinterDiagnosis{}, err
+	}
+	routing := wrapper.Routing()
+	if routing.Fallback {
+		return web.PrinterDiagnosis{}, errors.New("les étiquettes partent sur l'imprimante de secours : " +
+			"repassez sur l'imprimante du poste, page Dépannage, avant de la diagnostiquer")
+	}
+	subject.Target = routing.Name
+
+	steps := printing.Diagnose(ctx, subject, printing.DiagnosisProbes{
+		Printer: wrapper,
+		Queues:  diagnosisQueues,
+	})
+	return web.PrinterDiagnosis{Target: subject.Target, Steps: webDiagnosisSteps(steps)}, nil
+}
+
+// AnswerStep turns a volunteer's own answer to step 5 into the step itself (decision
+// 3): nothing on this binary measures whether a label came out, so the only verdict
+// that can exist here is the one a person gives.
+//
+// It reads the transport IN SERVICE under the same lock hold writes it with, so the
+// remedy of a « Non » names what the bytes of step 4 actually reached — the Windows
+// spooler is not an USB link (final review, I2) — while the route itself stays
+// stateless: nothing of the run is kept between the two calls, only the printer the
+// station holds anyway.
+func (l *livePrinter) AnswerStep(printed bool, seen string) web.DiagnosisStep {
+	l.mu.RLock()
+	transport := l.subject.Transport
+	l.mu.RUnlock()
+	return webDiagnosisStep(printing.AnswerStep(transport, printed, seen))
+}
+
+// diagnosisQueues lists the Windows print queues the winspool step of the diagnostic
+// checks a configured queue name against, filtered to the printer destinations
+// (domain.DeviceKeyQueue) — platform.PrintQueues also enumerates serial-looking
+// addresses the winspool step has no use for.
+func diagnosisQueues(ctx context.Context) ([]string, error) {
+	found, err := platform.PrintQueues(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(found))
+	for _, q := range found {
+		if q.Key == domain.DeviceKeyQueue {
+			names = append(names, q.Name)
+		}
+	}
+	return names, nil
+}
+
+// webDiagnosisStep copies one printing.DiagnosisStep across the package boundary
+// §5.2 draws between internal/printing and internal/web.
+func webDiagnosisStep(s printing.DiagnosisStep) web.DiagnosisStep {
+	return web.DiagnosisStep{
+		Number:   s.Number,
+		Title:    s.Title,
+		State:    string(s.State),
+		Observed: s.Observed,
+		Remedy:   s.Remedy,
+		Doc:      s.Doc,
+	}
+}
+
+// webDiagnosisSteps copies every step of one diagnostic run.
+func webDiagnosisSteps(steps []printing.DiagnosisStep) []web.DiagnosisStep {
+	out := make([]web.DiagnosisStep, len(steps))
+	for i, s := range steps {
+		out[i] = webDiagnosisStep(s)
+	}
+	return out
 }
 
 // adminDashboard answers the four questions of §14.4 that the HTTP layer cannot put to

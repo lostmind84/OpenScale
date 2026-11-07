@@ -136,6 +136,9 @@ type stubPrinter struct {
 	acceptsAnySelfTest bool
 	// bareUnknownRefusal refuses without listing what exists.
 	bareUnknownRefusal bool
+	// selfTestReportsNoBytes succeeds and delivers a pattern, but claims a receipt of
+	// zero bytes (ADR-065) — the betrayal checkADeclaredSelfTestPrinted catches.
+	selfTestReportsNoBytes bool
 	// inventsADemoLabel prints a product and prices nobody supplied.
 	inventsADemoLabel bool
 	// wallClock reports a duration the injected clock never covered. It is a CONSTANT and
@@ -351,24 +354,27 @@ func (s *stubPrinter) Status(context.Context) ports.PrinterStatus {
 // The reference printer HONOURS ALL THREE, which is what referenceSubject declares by
 // leaving Subject.SelfTests nil. A subject that narrows the declaration without narrowing
 // this method is one of the betrayals: it is the pattern nobody can launch.
-func (s *stubPrinter) SelfTest(ctx context.Context, what string) error {
+func (s *stubPrinter) SelfTest(ctx context.Context, what string) (ports.PrintReceipt, error) {
 	if !printing.SelfTestExists(printing.SelfTest(what)) {
 		if s.acceptsAnySelfTest {
-			return nil
+			return ports.PrintReceipt{}, nil
 		}
-		return s.unknown(what)
+		return ports.PrintReceipt{}, s.unknown(what)
 	}
 	switch {
 	case s.unknownOnACatalogueName:
-		return s.unknown(what)
+		return ports.PrintReceipt{}, s.unknown(what)
 	case s.refusesADeclaredSelfTest:
-		return &ports.PrintError{Kind: ports.KindConfig, Op: "stub.SelfTest",
+		return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindConfig, Op: "stub.SelfTest",
 			Message: fmt.Sprintf("l'auto-test « %s » n'est pas produit par ce banc.", what)}
 	case printing.SelfTest(what) == printing.SelfTestLabel:
 		return s.printDemoLabel(ctx)
 	}
-	_, err := s.send("stub.SelfTest."+what, []byte("pattern:"+what), 1)
-	return err
+	receipt, err := s.send("stub.SelfTest."+what, []byte("pattern:"+what), 1)
+	if err == nil && s.selfTestReportsNoBytes {
+		receipt.Bytes = 0
+	}
+	return receipt, err
 }
 
 // unknown is the refusal of a name no self-test answers to.
@@ -382,11 +388,11 @@ func (s *stubPrinter) unknown(what string) error {
 }
 
 // printDemoLabel prints the demonstration label, or says why it cannot.
-func (s *stubPrinter) printDemoLabel(ctx context.Context) error {
+func (s *stubPrinter) printDemoLabel(ctx context.Context) (ports.PrintReceipt, error) {
 	demo := s.demo
 	if demo == nil {
 		if !s.inventsADemoLabel {
-			return &ports.PrintError{Kind: ports.KindConfig, Op: "stub.SelfTest.label",
+			return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindConfig, Op: "stub.SelfTest.label",
 				Message: "aucune étiquette de démonstration n'a été fournie à l'imprimante : " +
 					"elle porte un produit et des prix, qui viennent du catalogue et de la " +
 					"configuration du poste, jamais du driver"}
@@ -395,13 +401,16 @@ func (s *stubPrinter) printDemoLabel(ctx context.Context) error {
 	}
 	label, err := demo()
 	if err != nil {
-		return &ports.PrintError{Kind: ports.KindData, Op: "stub.SelfTest.label", Err: err,
+		return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindData, Op: "stub.SelfTest.label", Err: err,
 			Message: fmt.Sprintf("l'étiquette de démonstration n'a pas pu être préparée : %v", err)}
 	}
-	_, err = s.Print(ctx, ports.PrintJob{
+	receipt, err := s.Print(ctx, ports.PrintJob{
 		Label: label, Template: s.template, Locale: string(domain.LocaleFrench), Copies: 1,
 	})
-	return err
+	if err == nil && s.selfTestReportsNoBytes {
+		receipt.Bytes = 0
+	}
+	return receipt, err
 }
 
 // Close gives up the driver.

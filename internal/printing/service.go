@@ -253,30 +253,48 @@ func labelsOf(job ports.PrintJob) int64 {
 // that the two patterns A2 deleted get an answer that says why they are gone.
 //
 // A self-test burns a label like any other print, so it counts against the roll.
-func (s *Service) SelfTest(ctx context.Context, what string) error {
+//
+// It returns the receipt for the bytes the driver handed to the transport (ADR-065),
+// so that a caller such as the printer diagnostic can report « n octets sur N »
+// instead of a bare success.
+func (s *Service) SelfTest(ctx context.Context, what string) (ports.PrintReceipt, error) {
 	test, err := LookupSelfTest(what)
 	if err != nil {
-		return err
+		return ports.PrintReceipt{}, err
 	}
 	s.printMu.Lock()
 	defer s.printMu.Unlock()
 	if s.isClosed() {
-		return errors.New("l'imprimante a été fermée : ce poste ne peut plus imprimer sans redémarrer")
+		return ports.PrintReceipt{}, errors.New("l'imprimante a été fermée : ce poste ne peut plus imprimer sans redémarrer")
 	}
 
 	target, name := s.target(), s.routedName()
-	if err := target.SelfTest(ctx, string(test.ID)); err != nil {
+	receipt, err := target.SelfTest(ctx, string(test.ID))
+	if err != nil {
 		s.observeWrite(&WriteOutcome{Detail: fmt.Sprintf("%s : %v", name, err)})
-		return err
+		return ports.PrintReceipt{}, err
 	}
 	s.observeWrite(&WriteOutcome{OK: true, Detail: name})
 	s.roll.Printed(ctx, 1)
-	return nil
+	return receipt, nil
 }
 
 // Status reports what the station may say about its printer, in the shape the Hub
 // consumes. It is Observe, converted.
 func (s *Service) Status(ctx context.Context) ports.PrinterStatus { return s.Observe(ctx).Status() }
+
+// Interrogate asks the driver's own probe once and reports it exactly as the driver
+// gave it, Cause included — the printer diagnostic's steps 1 to 3 (ADR-065).
+//
+// It is NOT Status: Status goes through Observe, which converts the probe to a
+// StatusReport that has no Cause field (status.go) and folds in what level N1 last
+// recorded. A diagnostic reading the error BEHIND the probe needs the driver's answer
+// untouched, and asking twice — once through Status, once through a second open — is
+// exactly the anti-objectif this task exists to avoid. It changes nothing: no Report,
+// no journal, no roll counter.
+func (s *Service) Interrogate(ctx context.Context) ports.PrinterStatus {
+	return s.target().Status(ctx)
+}
 
 // Observe asks levels N2 and N3 what they can see, combines them with what level N1
 // last recorded, and reports the conclusion (§8.5).

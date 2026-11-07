@@ -72,6 +72,11 @@ type Options struct {
 	Restart Restarter
 	// Reboot restarts the machine, after the countdown of rebootPlan. Nil answers 501.
 	Reboot Rebooter
+	// PrinterDiagnosis is the five-step printer diagnostic of page Matériel, with NO
+	// password on either route (decision 7): the password guards what changes what the
+	// station sells or how it weighs (ADR-033), and testing the printer changes
+	// neither. Nil answers 501 on its two routes, and nothing else.
+	PrinterDiagnosis PrinterDiagnostician
 
 	// Assets is the built front end (internal/web/dist through //go:embed). Nil
 	// serves a placeholder page rather than a 404: a station whose front end has not
@@ -110,11 +115,16 @@ type Server struct {
 	// rebootPlan is the countdown before the machine restarts, or nil on a platform
 	// that cannot restart — which is what the two reboot routes answer 501 on.
 	rebootPlan *rebootPlan
-	assets     fs.FS
-	images     fs.FS
-	registries domain.Registries
-	binder     *Binder
-	version    string
+	// printerDiagnostician is o.PrinterDiagnosis, named for what it IS rather than
+	// repeating the field it was copied from (every other collaborator above does
+	// the same: o.Printer becomes s.printer, o.Troubleshooting becomes
+	// s.troubleshooting).
+	printerDiagnostician PrinterDiagnostician
+	assets               fs.FS
+	images               fs.FS
+	registries           domain.Registries
+	binder               *Binder
+	version              string
 
 	// subscribers counts the SSE streams in flight. An atomic and not a mutex: the
 	// only question asked of it is « are there already eight? », and it is asked
@@ -146,8 +156,8 @@ func New(o Options) (*Server, error) {
 		store: o.Store, configStore: o.Config, catalog: o.Catalog,
 		hardware: o.Hardware, printer: o.Printer, troubleshooting: o.Troubleshooting,
 		diagnostician: o.Diagnostic, dashboard: o.Dashboard, updater: o.Update,
-		restarter: o.Restart,
-		assets:    o.Assets, images: o.Images, registries: o.Registries,
+		restarter: o.Restart, printerDiagnostician: o.PrinterDiagnosis,
+		assets: o.Assets, images: o.Images, registries: o.Registries,
 		binder: o.Binder, version: o.Version,
 		sessions: newSessionStore(o.Clock),
 	}

@@ -844,7 +844,7 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `BatchResult` | Ce que le poste a fait d'un lot, et ce que `Acknowledge` reçoit : `Result`, `Code`, `Reason`, et `AppliedAt` sur un lot appliqué — l'instant que l'écran client montre (ADR-053). |
 | `PrintJob` | Une étiquette à imprimer : `Label`, `Template`, `Copies`, `Locale`. |
 | `PrintReceipt` | Un travail **remis à un transport** : `JobID`, `Bytes`, `Duration`. Jamais « imprimé » — voir « Reçu » → `PrintReceipt`. |
-| `PrinterStatus` | Ce que l'appareil dit de lui-même : `Health`, `Detail`, `PendingJobs`, `Raw`. |
+| `PrinterStatus` | Ce que l'appareil dit de lui-même : `Health`, `Detail`, `PendingJobs`, `Raw`, `Cause`. `Cause` est la panne de transport INCHANGÉE derrière le statut : nulle tant que la sonde a abouti (réponse ou silence) ; présente aussi quand elle n'a pas pu être tentée (transport sans retour, driver fermé), sans que ce soit une panne — c'est `Health` qui juge. Elle permet au diagnostic de l'imprimante de la classer par `errors.Is`/`errors.As` sans que ce paquet ne nomme lui-même « absent » ou « refusé ». |
 
 ### `internal/platform` et `internal/fake`
 
@@ -877,6 +877,7 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 
 | Identifiant | Ce qu'il désigne |
 | --- | --- |
+| `Diagnose` · `DiagnosisStep` · `StepState` · `Subject` · `Prober` · `AnswerStep` · `DiagnosisGuide` | Le diagnostic pas à pas de l'imprimante, page Matériel (ADR-065) : `Diagnose` ordonne les cinq étapes et écrit tous leurs textes ; `Subject` nomme le transport en service sans y toucher ; `Prober` est ce que `Diagnose` demande à `*Service` (`Interrogate`, `SelfTest`) ; `AnswerStep` transforme la réponse du bénévole en l'étape 5, qui n'est jamais mesurée. |
 | `Library` · `NewLibrary` | Les polices embarquées analysées une fois, et les faces qui en dérivent, mémoïsées. |
 | `(Library).Face` · `Parsed` · `FaceCount` · `Close` | Une face à une taille donnée ; la police analysée ; combien de faces sont mémoïsées (pour qu'un test puisse le vérifier) ; la libération. |
 | `Font` · `Carlito` · `DejaVuSansCondensed` | La famille avec laquelle le moteur sait rendre — la valeur de la clé `font` d'un gabarit. `Carlito` est le clone métrique de Calibri retenu par ADR-020 ; `DejaVuSansCondensed` sert les gabarits neutres et le repli. |
