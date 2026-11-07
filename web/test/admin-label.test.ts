@@ -330,6 +330,25 @@ describe('le plancher du décalage, calculé sur la géométrie du gabarit (ADR-
     expect(text()).toContain('16 dots')
   })
 
+  it('relit la géométrie au remontage même sur un brouillon sale, et garde la flèche armée', async () => {
+    geometryBounds = { min_x: 0, max_x: 40, min_y: -16, max_y: 16 }
+    await open()
+
+    button('↑ 1 dot').click()
+    flushSync()
+    expect(draft.value('printer.options.offset_y')).toBe(-1)
+
+    await remount()
+
+    // Le brouillon reste SALE au remontage — document commun aux six pages, qu'App.svelte
+    // démonte à chaque navigation — et la route de géométrie lit la configuration EN
+    // SERVICE, pas le brouillon : elle doit donc être relue quel que soit `dirty`, sans
+    // quoi la flèche se désarmait et le texte annonçait « jusqu'à 0 dot » à côté d'un
+    // décalage déjà à -1.
+    expect(button('↑ 1 dot').disabled).toBe(false)
+    expect(text()).toContain('16 dots')
+  })
+
   it('le plus prudent reste zéro quand la route de géométrie échoue, sans rien annoncer', async () => {
     geometryFails = true
     await open()
@@ -364,6 +383,24 @@ describe('le bouton « Partir du gabarit livré » (décision 12)', () => {
 
     expect(button('Partir du gabarit livré').disabled).toBe(true)
     expect(text()).toContain('ne l’écrase pas')
+  })
+
+  it('redemande l’image après le bouton puis l’enregistrement', async () => {
+    await open()
+
+    // Le bouton pose `printer.template = cooperative` et demande déjà l'image une
+    // première fois, pour un gabarit qui n'est pas encore en service (422 « gabarit
+    // inconnu » côté moteur). Sans redemander l'image une seconde fois après
+    // l'enregistrement, ce refus restait affiché alors que le gabarit est désormais en
+    // service — le paragraphe du bouton promet exactement le contraire.
+    button('Partir du gabarit livré').click()
+    flushSync()
+    const beforeSave = source()
+
+    await draft.save()
+    await settle()
+
+    expect(source()).not.toBe(beforeSave)
   })
 })
 

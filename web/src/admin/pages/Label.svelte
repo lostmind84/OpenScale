@@ -212,14 +212,26 @@
   /**
    * Reads the starting point and the bound, at the SAME moment as the image and for the
    * same reason: both describe the configuration IN SERVICE, so both are read at the
-   * opening of this page and after every save (`draft.config` is then a fresh object),
-   * never more often — a template chosen but not yet saved does not move this bound.
+   * opening of this page — WHATEVER the draft's own dirty state, because this route
+   * reads the STATION, not the document, and App.svelte remounts this page on every
+   * navigation onto whatever the shared draft already carries — and again after every
+   * save (`draft.config` is then a fresh object; `set` mutates the same object in place,
+   * so nothing else moves this identity).
+   *
+   * The image is asked for again on every reading past the FIRST one, exactly for the
+   * reason {@link askWhatTheImageCarries}'s own effect already is: a save can put a
+   * fresh template IN SERVICE — the button below writes one — without moving a single
+   * offset, and that effect's own comparison would then see the same two numbers and
+   * say nothing. Without this, « Partir du gabarit livré » followed by a save left the
+   * 422 « gabarit inconnu » on screen under a paragraph that promises the opposite.
    */
   $effect(() => {
-    if (draft.config === null || draft.dirty) return
+    if (draft.config === null) return
     if (draft.config === lastGeometryConfig) return
+    const first = lastGeometryConfig === null
     lastGeometryConfig = draft.config
     void fetchGeometry()
+    if (!first) refresh()
   })
 
   /**
