@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"openscale/internal/catalog"
 	"openscale/internal/domain"
 )
 
@@ -293,13 +294,13 @@ func (d *Doctor) declaredSourceSentence(loaded loadedConfig) string {
 
 // catalogArrivalRemedy names the file the station is waiting for.
 //
-// The name DERIVES from station.number and is never written by hand: §14.4 makes that a
-// rule, because two declarations of one fact is the failure the legacy application died
-// of.
+// The name DERIVES from catalog.options.file_name and station.number and is never written
+// by hand: §14.4 makes that a rule, because two declarations of one fact is the failure the
+// legacy application died of.
 func catalogArrivalRemedy(loaded loadedConfig) string {
 	expected := "flv_<numéro de poste>.csv"
 	if loaded.Config.Station.Number > 0 {
-		expected = fmt.Sprintf("flv_%d.csv", loaded.Config.Station.Number)
+		expected = catalog.FileNameOf(loaded.Config.Catalog.Options, loaded.Config.Station.Number)
 	}
 	return "La grille du client est vide et affiche « Catalogue vide ». Faites déposer " + expected +
 		" par le producteur, ou glissez un CSV dans l'écran de dépannage → « Importer un " +

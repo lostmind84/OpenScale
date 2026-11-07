@@ -2,6 +2,7 @@
   import Field from './Field.svelte'
   import Panel from './Panel.svelte'
   import type { Draft } from '../lib/draft.svelte'
+  import { expectedCatalogFile, sharesOneFile } from '../lib/catalog-file'
   import { faultOf } from '../lib/faults'
   import { labelOf } from '../lib/fields'
 
@@ -12,7 +13,8 @@
    * before what it delivered. The directory field only appears under the source that
    * watches one, and the address only under the source that queries one — an empty field
    * under a source that ignores it is an invitation to fill it in, and the station would
-   * refuse the save (§11.3, controls 39 and 47).
+   * refuse the save (§11.3, controls 39 and 47). The file name and what happens to the
+   * file once read belong to BOTH sources, so they show under either.
    */
   interface Props {
     /** The configuration document: this panel edits the `catalog` block of it. */
@@ -38,6 +40,18 @@
     webdav: ['catalog.options.url', 'catalog.options.username', 'catalog.options.password'],
   }
 
+  /** What `after_read` means when the document does not carry it: the file is deleted. */
+  const AFTER_READ_DEFAULT = 'delete'
+
+  /** The one `after_read` value that leaves the file where it is. */
+  const AFTER_READ_KEEP = 'keep'
+
+  /**
+   * The help under the file name, kept out of the markup because Svelte reads `{n}` in a
+   * template as an expression.
+   */
+  const FILE_NAME_HINT = '{n} est remplacé par le numéro du poste.'
+
   /**
    * The source the document declares, empty for as long as it has not been read.
    *
@@ -47,6 +61,50 @@
    * a save that nothing had announced.
    */
   const source = $derived(draft.text('catalog.type'))
+
+  /** The file-name pattern the document carries, undefined while it carries none. */
+  const pattern = $derived(draft.text('catalog.options.file_name') || undefined)
+
+  /** The name this station waits for, from the pattern and its own number. */
+  const expected = $derived(expectedCatalogFile(pattern, station))
+
+  /** What the station does with a file once read: `keep`, or the default deletion. */
+  const keeping = $derived(draft.text('catalog.options.after_read') === AFTER_READ_KEEP)
+
+  /**
+   * Where the station looks on a WebDAV server: the address and the name, with exactly
+   * one slash between them. Just the name while no address has been typed.
+   */
+  const remoteFile = $derived.by(() => {
+    const url = draft.text('catalog.options.url').replace(/\/+$/u, '')
+    return url === '' ? expected : `${url}/${expected}`
+  })
+
+  /**
+   * Writes the file-name pattern, or removes it when the field is emptied.
+   *
+   * The key goes away rather than staying empty: control 51 refuses a PRESENT but empty
+   * `file_name` as a blocking fault, where an absent one just means the default.
+   *
+   * @param value - what was typed.
+   */
+  function setFileName(value: string): void {
+    if (value === '') draft.unset('catalog.options.file_name')
+    else draft.set('catalog.options.file_name', value)
+  }
+
+  /**
+   * Chooses what happens to a file once read.
+   *
+   * Deletion is the default and leaves no key behind, so that the file of a station
+   * which never asked for anything else stays what it was.
+   *
+   * @param chosen - `delete` or `keep`.
+   */
+  function chooseAfterRead(chosen: string): void {
+    if (chosen === AFTER_READ_DEFAULT) draft.unset('catalog.options.after_read')
+    else draft.set('catalog.options.after_read', chosen)
+  }
 
   /**
    * Chooses the catalog source, and wipes the settings of the other one.
@@ -97,10 +155,11 @@
       fault={faultOf(draft, 'catalog.options.directory')}
       onchange={(value) => draft.set('catalog.options.directory', value)}
     />
-    <p class="fact muted">
-      Le poste y cherche le fichier <code>flv_{station}.csv</code>, et le supprime
-      une fois lu : c’est ce qui dit au producteur que la livraison est prise.
+    {@render fileSettings()}
+    <p class="fact muted" data-expected-file>
+      Le poste y cherche le fichier <code>{expected}</code>{@render afterReadClause()}
     </p>
+    {@render sharedFileNote()}
   {:else if source === 'webdav'}
     <Field
       label={labelOf('catalog.options.url')}
@@ -129,6 +188,11 @@
       fault={faultOf(draft, 'catalog.options.password')}
       onchange={(value) => draft.set('catalog.options.password', value)}
     />
+    {@render fileSettings()}
+    <p class="fact muted" data-expected-file>
+      Le poste cherche <code>{remoteFile}</code>{@render afterReadClause()}
+    </p>
+    {@render sharedFileNote()}
     <p class="fact muted" data-webdav-warning>
       Sur un serveur WebDAV, le dépôt d’un fichier CSV depuis cet écran n’est plus
       possible : le poste n’a plus de répertoire local où l’écrire. C’est le seul recours
@@ -142,10 +206,88 @@
   {/if}
 </Panel>
 
+{#snippet fileSettings()}
+  <Field
+    label={labelOf('catalog.options.file_name')}
+    path="catalog.options.file_name"
+    value={draft.text('catalog.options.file_name')}
+    hint={FILE_NAME_HINT}
+    fault={faultOf(draft, 'catalog.options.file_name')}
+    onchange={setFileName}
+  />
+  <p class="group-label" id="catalog-after-read-label">{labelOf('catalog.options.after_read')}</p>
+  <div class="choice" role="radiogroup" aria-labelledby="catalog-after-read-label">
+    <label>
+      <input
+        type="radio"
+        name="catalog-after-read"
+        value="delete"
+        checked={!keeping}
+        onchange={() => chooseAfterRead('delete')}
+      />
+      Supprimer le fichier après lecture
+    </label>
+    <label>
+      <input
+        type="radio"
+        name="catalog-after-read"
+        value="keep"
+        checked={keeping}
+        onchange={() => chooseAfterRead('keep')}
+      />
+      Laisser le fichier en place
+    </label>
+  </div>
+  {#if faultOf(draft, 'catalog.options.after_read') !== ''}
+    <p class="fault">{faultOf(draft, 'catalog.options.after_read')}</p>
+  {/if}
+{/snippet}
+
+<!--
+  What the station does with the file, said in the sentence about where it looks. The
+  deletion is what tells the producer the delivery was taken, so it is only claimed in
+  the mode that does it.
+-->
+{#snippet afterReadClause()}
+  {#if keeping}
+    . Il ne supprime jamais le fichier : il le relit quand il change.
+  {:else}
+    , et le supprime une fois lu : c’est ce qui dit au producteur que la livraison est
+    prise.
+  {/if}
+{/snippet}
+
+<!--
+  Not a refusal: one file shared by several stations is legitimate when it is kept. It is
+  only a warning where the first reader takes the file away from the others.
+-->
+{#snippet sharedFileNote()}
+  {#if sharesOneFile(pattern) && !keeping}
+    <p class="fact" data-shared-file-note>
+      Ce fichier sera supprimé par le premier poste qui le lit : ne le faites lire qu’à un
+      seul poste, ou choisissez « Laisser le fichier en place ».
+    </p>
+  {/if}
+{/snippet}
+
 <style>
   .fact {
     margin: 0.5rem 0;
     font-size: 1.125rem;
+  }
+
+  .group-label {
+    margin: 0.5rem 0 0;
+    font-size: 1.125rem;
+    font-weight: 700;
+  }
+
+  .fault {
+    margin: 0.25rem 0;
+    padding-left: 0.5rem;
+    font-size: 1rem;
+    color: var(--ink-muted);
+    border-left: 0.25rem solid var(--fault);
   }
 
   .muted {

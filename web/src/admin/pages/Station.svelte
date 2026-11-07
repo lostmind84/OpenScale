@@ -363,7 +363,7 @@
       value={draft.text('station.number')}
       fault={faultOf(draft, 'station.number')}
       allowed={allowedFor(draft, 'station.number')}
-      hint="C’est de lui que dérive le nom du fichier de catalogue attendu, flv_<n>.csv."
+      hint={'C’est de lui que dérive le nom du fichier de catalogue attendu, quand ce nom contient {n} (page Catalogue).'}
       onchange={(value) => draft.set('station.number', Number(value))}
     />
     <Field
