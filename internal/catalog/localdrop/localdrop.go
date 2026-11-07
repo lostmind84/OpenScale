@@ -165,14 +165,22 @@ func New(c catalog.SourceConfig) (*Source, error) {
 	parse.Images = c.Images
 
 	afterRead := catalog.AfterReadOf(c.Catalog.Options)
-	var watermark *catalog.Watermark
-	if afterRead == catalog.AfterReadKeep {
-		// Opened on the full path: pointing the source at another directory or another
-		// file name starts from an empty memory, and so reads the file once.
-		watermark, err = catalog.OpenWatermark(c.DataDir, filepath.Join(directory, parse.FileName))
-		if err != nil {
-			return nil, fmt.Errorf("localdrop : %w", err)
+	// Opened on the full path: pointing the source at another directory or another file
+	// name starts from an empty memory, and so reads the file once.
+	watermark, err := catalog.OpenWatermark(c.DataDir, filepath.Join(directory, parse.FileName))
+	if err != nil {
+		return nil, fmt.Errorf("localdrop : %w", err)
+	}
+	if afterRead != catalog.AfterReadKeep {
+		// Deleting does not consult the stamp, so the one a previous keep left behind is
+		// forgotten: it would otherwise come back the day the mode returns to keep and
+		// silently skip a NEW file of the same size and date. A failure to forget is told,
+		// and does not stop the station from starting.
+		if err := watermark.Forget(); err != nil {
+			logOf(c).Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
+				"Repère du catalogue non effacé.", err.Error())
 		}
+		watermark = nil
 	}
 
 	return &Source{

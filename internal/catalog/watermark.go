@@ -2,7 +2,9 @@ package catalog
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -111,6 +113,31 @@ func (w *Watermark) Remember(s Stamp) error {
 	if err := os.Rename(name, w.path); err != nil {
 		_ = os.Remove(name)
 		return fmt.Errorf("nommage du repère : %w", err)
+	}
+	return nil
+}
+
+// Forget drops the stamp from memory and removes its record from disk.
+//
+// It is what a source calls when `after_read` goes back to deleting: a stamp left behind
+// would be reloaded the day the mode returns to keep, and would silently skip a NEW file
+// that happens to share the size and the date of the old one. A record that is already
+// absent is not an error, and neither is one written for ANOTHER location, which is left
+// alone: the file is shared by whichever source was last in keep mode, and this
+// watermark has no business erasing the memory of a file it does not watch. The stamp is
+// cleared from memory even when the removal fails.
+func (w *Watermark) Forget() error {
+	w.stamp, w.held = Stamp{}, false
+	raw, err := os.ReadFile(w.path)
+	if err != nil {
+		return nil
+	}
+	var record watermarkRecord
+	if json.Unmarshal(raw, &record) == nil && record.Location != w.location {
+		return nil
+	}
+	if err := os.Remove(w.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("effacement du repère : %w", err)
 	}
 	return nil
 }

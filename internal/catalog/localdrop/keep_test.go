@@ -57,11 +57,14 @@ func readStable(source *Source) (*ports.Batch, error) {
 	return source.poll(context.Background())
 }
 
-// expectNoBatch runs Next against a clock that advances ten polling intervals and fails
-// when it offers anything: the only acceptable end is the cancellation of its context.
+// expectNoBatch runs Next while the fake clock advances two hundred polling intervals and
+// fails when it offers anything: the only acceptable end is the expiry of a budget
+// measured by that same clock, which cancels the context. No wall-clock wait is involved;
+// the real-time deadline below is only the guard against a hang.
 func expectNoBatch(t *testing.T, source *Source, clock *fake.Clock) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	const interval = 5 * time.Second
+	ctx, cancel := ports.WithBudget(context.Background(), clock, 200*interval)
 	defer cancel()
 	type outcome struct {
 		batch *ports.Batch
@@ -72,19 +75,19 @@ func expectNoBatch(t *testing.T, source *Source, clock *fake.Clock) {
 		batch, err := source.Next(ctx)
 		done <- outcome{batch, err}
 	}()
-	quiet := time.After(100 * time.Millisecond)
-	for advanced := 0; ; advanced++ {
+	guard := time.After(5 * time.Second)
+	for {
 		select {
 		case got := <-done:
-			t.Fatalf("Next a rendu %v / %v alors que le fichier n'a pas changé", got.batch, got.err)
-		case <-quiet:
-			cancel()
-			if got := <-done; got.batch != nil || !errors.Is(got.err, context.Canceled) {
-				t.Fatalf("Next a rendu %v / %v, attendu context.Canceled", got.batch, got.err)
+			if got.batch != nil || !errors.Is(got.err, context.Canceled) {
+				t.Fatalf("Next a rendu %v / %v, attendu context.Canceled et aucun lot "+
+					"puisque le fichier n'a pas changé", got.batch, got.err)
 			}
 			return
+		case <-guard:
+			t.Fatal("Next n'est pas sorti à l'expiration du budget de l'horloge injectée")
 		default:
-			clock.Advance(5 * time.Second)
+			clock.Advance(interval)
 		}
 	}
 }
@@ -283,6 +286,30 @@ func TestSwitchingBackToDeleteDeletesTheNextFile(t *testing.T) {
 	}
 	if _, err := os.Stat(deleting.Path()); !errors.Is(err, os.ErrNotExist) {
 		t.Error("le fichier est resté en mode delete")
+	}
+}
+
+// TestKeepForgetsItsStampWhenTheModeWentThroughDelete: keep, then delete, then keep again
+// on the SAME unchanged file must read it — the stamp of the first keep may not survive
+// the passage through delete, or a new file of the same size and date would be skipped.
+func TestKeepForgetsItsStampWhenTheModeWentThroughDelete(t *testing.T) {
+	dataDir := t.TempDir()
+	first := stationAt(t, dataDir, keepOptions, newBook(), &recorder{})
+	drop(t, first, aCatalog)
+	batch, _ := readStable(first)
+	if err := first.Acknowledge(context.Background(), batch,
+		ports.BatchResult{Result: domain.ImportApplied}); err != nil {
+		t.Fatalf("acquittement : %v", err)
+	}
+	first.Close()
+
+	// Building in delete mode is enough; it does not have to poll.
+	stationAt(t, dataDir, "", newBook(), &recorder{}).Close()
+
+	again := stationAt(t, dataDir, keepOptions, newBook(), &recorder{})
+	next, err := readStable(again)
+	if err != nil || next == nil {
+		t.Fatalf("le fichier inchangé n'a pas été relu après un passage par delete : %v", err)
 	}
 }
 

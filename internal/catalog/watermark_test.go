@@ -112,3 +112,41 @@ func TestAWatermarkThatCannotBeWrittenStillRemembersInMemory(t *testing.T) {
 		t.Error("après un échec d'écriture, le tampon doit rester retenu en mémoire pour ne pas relire le fichier à chaque scrutation")
 	}
 }
+
+func TestForgettingAWatermarkEmptiesItInMemoryAndOnDisk(t *testing.T) {
+	dataDir := t.TempDir()
+	watermark := openWatermark(t, dataDir, "https://a/flv.csv")
+	if err := watermark.Remember(watermarkStamp); err != nil {
+		t.Fatalf("Remember : %v", err)
+	}
+
+	if err := watermark.Forget(); err != nil {
+		t.Fatalf("Forget : %v", err)
+	}
+	if watermark.Seen(watermarkStamp) {
+		t.Error("le repère oublié voit encore le tampon en mémoire")
+	}
+	if openWatermark(t, dataDir, "https://a/flv.csv").Seen(watermarkStamp) {
+		t.Error("le repère oublié est revenu depuis le disque")
+	}
+}
+
+func TestForgettingAnAbsentWatermarkIsNotAnError(t *testing.T) {
+	if err := openWatermark(t, t.TempDir(), "https://a/flv.csv").Forget(); err != nil {
+		t.Errorf("Forget sans enregistrement : %v", err)
+	}
+}
+
+func TestForgettingLeavesTheRecordOfAnotherLocationAlone(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := openWatermark(t, dataDir, "https://a/flv.csv").Remember(watermarkStamp); err != nil {
+		t.Fatalf("Remember : %v", err)
+	}
+
+	if err := openWatermark(t, dataDir, "https://a/flv_1.csv").Forget(); err != nil {
+		t.Fatalf("Forget : %v", err)
+	}
+	if !openWatermark(t, dataDir, "https://a/flv.csv").Seen(watermarkStamp) {
+		t.Error("oublier un autre emplacement a effacé le repère de celui-ci")
+	}
+}
