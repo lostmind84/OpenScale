@@ -256,6 +256,37 @@ type SelfTester interface {
 	SelfTest(ctx context.Context, what string) error
 }
 
+// DiagnosisStep is one of the five steps of the printer diagnostic of page Matériel,
+// copied field for field from printing.DiagnosisStep: this package imports neither
+// internal/printing nor internal/station/ports (§5.2), so State crosses that boundary
+// as a plain string — "pass", "fail", "unknown", "not_applicable" or "unanswered" —
+// rather than as printing.StepState.
+type DiagnosisStep struct {
+	Number   int
+	Title    string
+	State    string
+	Observed string
+	Remedy   string
+	Doc      string
+}
+
+// PrinterDiagnosis is one run of the five-step printer diagnostic, plus the name of
+// the printer it ran against — the one a volunteer's copiable report has to name, so a
+// forum reply does not have to ask which station it came from.
+type PrinterDiagnosis struct {
+	Target string
+	Steps  []DiagnosisStep
+}
+
+// PrinterDiagnostician is the printer diagnostic of page Matériel, AUCUN mot de passe
+// (decision 7): DiagnosePrinter runs steps 1 to 4 on the printer IN SERVICE and leaves
+// step 5 "unanswered", AnswerStep turns a volunteer's own answer to that step into the
+// step itself (decision 3) — nothing in this binary measures whether a label came out.
+type PrinterDiagnostician interface {
+	DiagnosePrinter(ctx context.Context) (PrinterDiagnosis, error)
+	AnswerStep(printed bool, seen string) DiagnosisStep
+}
+
 // Troubleshooting is what the repair buttons of §14.4 act on and that nothing else in
 // this package can reach.
 //

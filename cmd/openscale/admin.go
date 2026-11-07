@@ -257,13 +257,23 @@ type livePrinter struct {
 	// interface: they are what the station ADDS around a driver, and the Hub deliberately
 	// knows nothing about them.
 	wrapper *printing.Service
+	// subject is WHAT the printer diagnostic runs against — the transport and the
+	// device a reload put in service, computed once by diagnosisSubject and held next
+	// to the printer it describes so a diagnostic run after a reload names the printer
+	// that reload just built, never the one the process started with (§11.4).
+	subject printing.Subject
 }
 
-// hold puts the printer that has just taken service in place.
-func (l *livePrinter) hold(printer ports.Printer) {
+var _ web.PrinterDiagnostician = (*livePrinter)(nil)
+
+// hold puts the printer that has just taken service in place, with the Subject that
+// describes it to the diagnostic — under the SAME lock, so a reader never sees a
+// printer paired with the Subject of the one it replaced.
+func (l *livePrinter) hold(printer ports.Printer, subject printing.Subject) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.printer = printer
+	l.subject = subject
 	l.wrapper, _ = printer.(*printing.Service)
 }
 
@@ -304,6 +314,85 @@ func (l *livePrinter) printService() (*printing.Service, error) {
 			"reprenez le pilote d'impression et ses réglages sur la page Matériel")
 	}
 	return l.wrapper, nil
+}
+
+// DiagnosePrinter runs the printer diagnostic of page Matériel on the printer IN
+// SERVICE, never on a second handle opened for the occasion (anti-objectif n°4):
+// printing.Diagnose only ever calls l.wrapper.Interrogate and l.wrapper.SelfTest, the
+// same two calls §8.5 and §8.6 already make on this same object.
+//
+// It refuses in the same two cases printService and UseFallback already name in
+// French: no printer at all (same sentence as printService, admin.go) and the station
+// on its fallback printer — diagnosing the neighbour's printer through THIS station's
+// Subject would name the wrong device in every sentence steps 1 to 4 produce.
+func (l *livePrinter) DiagnosePrinter(ctx context.Context) (web.PrinterDiagnosis, error) {
+	wrapper, err := l.printService()
+	if err != nil {
+		return web.PrinterDiagnosis{}, err
+	}
+	routing := wrapper.Routing()
+	if routing.Fallback {
+		return web.PrinterDiagnosis{}, errors.New("les étiquettes partent sur l'imprimante de secours : " +
+			"repassez sur l'imprimante du poste, page Dépannage, avant de la diagnostiquer")
+	}
+
+	l.mu.RLock()
+	subject := l.subject
+	l.mu.RUnlock()
+	subject.Target = routing.Name
+
+	steps := printing.Diagnose(ctx, subject, printing.DiagnosisProbes{
+		Printer: wrapper,
+		Queues:  diagnosisQueues,
+	})
+	return web.PrinterDiagnosis{Target: subject.Target, Steps: webDiagnosisSteps(steps)}, nil
+}
+
+// AnswerStep turns a volunteer's own answer to step 5 into the step itself (decision
+// 3): nothing on this binary measures whether a label came out, so the only verdict
+// that can exist here is the one a person gives.
+func (l *livePrinter) AnswerStep(printed bool, seen string) web.DiagnosisStep {
+	return webDiagnosisStep(printing.AnswerStep(printed, seen))
+}
+
+// diagnosisQueues lists the Windows print queues the winspool step of the diagnostic
+// checks a configured queue name against, filtered to the printer destinations
+// (domain.DeviceKeyQueue) — platform.PrintQueues also enumerates serial-looking
+// addresses the winspool step has no use for.
+func diagnosisQueues(ctx context.Context) ([]string, error) {
+	found, err := platform.PrintQueues(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(found))
+	for _, q := range found {
+		if q.Key == domain.DeviceKeyQueue {
+			names = append(names, q.Name)
+		}
+	}
+	return names, nil
+}
+
+// webDiagnosisStep copies one printing.DiagnosisStep across the package boundary
+// §5.2 draws between internal/printing and internal/web.
+func webDiagnosisStep(s printing.DiagnosisStep) web.DiagnosisStep {
+	return web.DiagnosisStep{
+		Number:   s.Number,
+		Title:    s.Title,
+		State:    string(s.State),
+		Observed: s.Observed,
+		Remedy:   s.Remedy,
+		Doc:      s.Doc,
+	}
+}
+
+// webDiagnosisSteps copies every step of one diagnostic run.
+func webDiagnosisSteps(steps []printing.DiagnosisStep) []web.DiagnosisStep {
+	out := make([]web.DiagnosisStep, len(steps))
+	for i, s := range steps {
+		out[i] = webDiagnosisStep(s)
+	}
+	return out
 }
 
 // adminDashboard answers the four questions of §14.4 that the HTTP layer cannot put to

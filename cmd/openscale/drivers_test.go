@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -441,6 +443,142 @@ func TestAReloadRebuildsThePrinterOnTheCooperativeTemplate(t *testing.T) {
 	if live.printer != printer {
 		t.Error("l'imprimante reconstruite n'est pas celle que le poste tient en service")
 	}
+}
+
+// TestTheDiagnosisRunsOnThePrinterInService is anti-objectif n°4 of the design doc, made
+// concrete: the diagnostic must run on the transport the SERVICE opened, not on one the
+// test builds for the occasion. printerRebuilder puts the printer in service exactly as
+// serve.go does, and DiagnosePrinter is asked without touching l.printer or l.subject
+// directly — if it read the wrong Subject, step 4 would write to a directory this test
+// never inspects, and the assertion on `dir` below would catch it.
+func TestTheDiagnosisRunsOnThePrinterInService(t *testing.T) {
+	cfg := shippedConfig(t)
+	dir := t.TempDir()
+	cfg.Printer.Options = cfg.Printer.Options.WithText(optionTransport, domain.TransportFile).WithText(optionPath, dir)
+
+	live := &livePrinter{}
+	rebuild := printerRebuilder(registries(), printerRegistry(), fake.NewClock(captureStart), nopLog{}, t.TempDir(), live)
+	printer, err := rebuild(cfg)
+	if err != nil {
+		t.Fatalf("l'imprimante n'a pas pu être construite : %v", err)
+	}
+	defer printer.Close()
+
+	diagnosis, err := live.DiagnosePrinter(context.Background())
+	if err != nil {
+		t.Fatalf("DiagnosePrinter : %v", err)
+	}
+
+	wantStates := []string{"pass", "not_applicable", "not_applicable", "pass", "unanswered"}
+	if len(diagnosis.Steps) != len(wantStates) {
+		t.Fatalf("%d étape(s), attendu %d", len(diagnosis.Steps), len(wantStates))
+	}
+	for i, want := range wantStates {
+		if got := diagnosis.Steps[i].State; got != want {
+			t.Errorf("étape %d : état %q, attendu %q (%+v)", i+1, got, want, diagnosis.Steps[i])
+		}
+	}
+	if !strings.Contains(diagnosis.Steps[3].Observed, "octets sur") {
+		t.Errorf("étape 4 Observed = %q, attendu qu'il contienne %q", diagnosis.Steps[3].Observed, "octets sur")
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("lecture de %q : %v", dir, err)
+	}
+	if len(entries) == 0 {
+		t.Errorf("aucun fichier n'est apparu dans %q : l'étape 4 n'a pas écrit sur le transport en service", dir)
+	}
+}
+
+// TestTheDiagnosisFollowsAReload holds the diagnostic to the SAME rule §11.4 holds the
+// roll counter and the fallback routing to: it must act on the printer a reload just put
+// in service, never on the one the process started with. A diagnostic reading a stale
+// Subject would write step 4's test label into the directory the first configuration
+// named, which this test's `first` catches empty.
+func TestTheDiagnosisFollowsAReload(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	live := &livePrinter{}
+	rebuild := printerRebuilder(registries(), printerRegistry(), fake.NewClock(captureStart), nopLog{}, t.TempDir(), live)
+
+	cfg := shippedConfig(t)
+	cfg.Printer.Options = cfg.Printer.Options.WithText(optionTransport, domain.TransportFile).WithText(optionPath, first)
+	printer1, err := rebuild(cfg)
+	if err != nil {
+		t.Fatalf("première construction : %v", err)
+	}
+	defer printer1.Close()
+
+	cfg.Printer.Options = cfg.Printer.Options.WithText(optionTransport, domain.TransportFile).WithText(optionPath, second)
+	printer2, err := rebuild(cfg)
+	if err != nil {
+		t.Fatalf("rechargement : %v", err)
+	}
+	defer printer2.Close()
+
+	if _, err := live.DiagnosePrinter(context.Background()); err != nil {
+		t.Fatalf("DiagnosePrinter : %v", err)
+	}
+
+	firstEntries, err := os.ReadDir(first)
+	if err != nil {
+		t.Fatalf("lecture de %q : %v", first, err)
+	}
+	if len(firstEntries) != 0 {
+		t.Errorf("l'étape 4 a écrit dans %q, le dossier remplacé par le rechargement", first)
+	}
+	secondEntries, err := os.ReadDir(second)
+	if err != nil {
+		t.Fatalf("lecture de %q : %v", second, err)
+	}
+	if len(secondEntries) == 0 {
+		t.Errorf("l'étape 4 n'a rien écrit dans %q, le dossier mis en service par le rechargement", second)
+	}
+}
+
+// TestTheDiagnosisRefusesAnUnbuiltPrinter checks the same refusal printService already
+// gives every other admin screen (ADR consistent wording): a station whose printer
+// could not be built has no Prober to run Diagnose on, so DiagnosePrinter must say so
+// in French rather than reach into a nil *printing.Service.
+func TestTheDiagnosisRefusesAnUnbuiltPrinter(t *testing.T) {
+	live := &livePrinter{}
+	live.hold(unbuiltPrinter{reason: "x"}, printing.Subject{})
+
+	_, err := live.DiagnosePrinter(context.Background())
+	if err == nil {
+		t.Fatal("DiagnosePrinter aurait dû refuser : aucune imprimante en service")
+	}
+	if !strings.Contains(err.Error(), "page Matériel") {
+		t.Errorf("erreur = %q, attendu qu'elle renvoie vers %q", err.Error(), "page Matériel")
+	}
+}
+
+// TestDiagnosisSubject holds diagnosisSubject to the two cases the design doc names:
+// the neutral profile's printer, which declares no transport at all, and the delivered
+// configuration, whose winspool queue diagnosisSubject must read the same way
+// newTransport does.
+func TestDiagnosisSubject(t *testing.T) {
+	t.Run("preview n'ouvre rien", func(t *testing.T) {
+		cfg := shippedConfig(t)
+		cfg.Printer.Type = "preview"
+
+		subject := diagnosisSubject(cfg, printerRegistry(), t.TempDir())
+		if subject.Transport != "" {
+			t.Errorf("Transport = %q, attendu vide : le driver preview ne déclare pas de transport", subject.Transport)
+		}
+	})
+
+	t.Run("configuration livrée", func(t *testing.T) {
+		cfg := shippedConfig(t)
+
+		subject := diagnosisSubject(cfg, printerRegistry(), t.TempDir())
+		if subject.Transport != domain.TransportWinspool {
+			t.Errorf("Transport = %q, attendu %q", subject.Transport, domain.TransportWinspool)
+		}
+		if subject.Device != "SATO WS408_2" {
+			t.Errorf("Device = %q, attendu %q", subject.Device, "SATO WS408_2")
+		}
+	})
 }
 
 // descriptorOf returns the descriptor printerRegistry() registers under id.

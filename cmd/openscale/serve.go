@@ -234,7 +234,7 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 	live, liveSource := &livePrinter{}, &liveCatalog{}
 
 	printer := buildPrinter(cfg, printers, templates, clock, log, o.dataDir)
-	live.hold(printer)
+	live.hold(printer, diagnosisSubject(cfg, printers, o.dataDir))
 	weigher := buildScale(cfg, scales, clock, log)
 
 	catalog, err := db.LoadCatalog(ctx)

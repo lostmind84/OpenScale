@@ -70,7 +70,7 @@ func printerRebuilder(reg domain.Registries, printers *printing.Registry, clk po
 		if err != nil {
 			return nil, err
 		}
-		live.hold(rebuilt)
+		live.hold(rebuilt, diagnosisSubject(next, printers, dataDir))
 		return rebuilt, nil
 	}
 }
@@ -204,6 +204,41 @@ func declaresTransport(reg *printing.Registry, driverID string) bool {
 		}
 	}
 	return false
+}
+
+// diagnosisSubject reports WHAT the printer diagnostic of page Matériel (printing.Diagnose)
+// runs against, built from the configuration newPrinter is given — never from the printer
+// it produced, so a driver that failed to build (newTransport refused, the driver itself
+// refused) still gets a Subject the diagnostic can name in its refusal, instead of a zero
+// value nobody chose on purpose.
+//
+// Transport is "" for a driver that declares none (the preview driver): that empty string
+// is what tells printing.Diagnose to open NOTHING for steps 1 to 3 (anti-objectif n°4), the
+// same test declaresTransport already answers for newPrinter. Device follows newTransport's
+// own rule key for key — queue, path or address — down to the `file` fallback on labelDir
+// (transport.New, transport.go:179-183): a second copy of that rule here would drift from
+// the one newTransport reads the day either changes.
+func diagnosisSubject(cfg domain.Config, reg *printing.Registry, dataDir string) printing.Subject {
+	if !declaresTransport(reg, cfg.Printer.Type) {
+		return printing.Subject{}
+	}
+	name, _ := cfg.Printer.Options.Text(optionTransport)
+	subject := printing.Subject{Transport: name}
+	switch name {
+	case domain.TransportWinspool:
+		subject.Device, _ = cfg.Printer.Options.Text(optionQueue)
+	case domain.TransportDevfile:
+		subject.Device, _ = cfg.Printer.Options.Text(optionPath)
+	case domain.TransportTCP:
+		subject.Device, _ = cfg.Printer.Options.Text(optionAddress)
+	case domain.TransportFile:
+		path, _ := cfg.Printer.Options.Text(optionPath)
+		if path == "" {
+			path = labelsDir(dataDir)
+		}
+		subject.Device = path
+	}
+	return subject
 }
 
 // describeTransport is the French name of the byte layer, or nothing when there is none.
