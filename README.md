@@ -164,7 +164,7 @@ qu'un détail compte.
 
 ## Développer
 
-Go 1.26.5, Node 22 seulement pour le front. Pas de chaîne C. Un devcontainer est fourni
+Go 1.26.10, Node 22 seulement pour le front. Pas de chaîne C. Un devcontainer est fourni
 pour qui préfère ne rien installer : `.devcontainer/`, et
 [le parcours de démarrage](https://lostmind84.github.io/OpenScale/getting-started/) le
 détaille.

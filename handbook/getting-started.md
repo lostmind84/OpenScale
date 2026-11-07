@@ -104,7 +104,7 @@ Le tableau des prérequis qui suit reste la référence.
 
 | Outil | Version | Pourquoi cette version |
 |---|---|---|
-| Go | **1.26.5 exactement** | `go.mod` l'épingle par `toolchain`. Les fichiers de référence du rendu d'étiquette ne doivent pas bouger d'une version d'outillage à l'autre |
+| Go | **1.26.10 exactement** | `go.mod` l'épingle par `toolchain`. Les fichiers de référence du rendu d'étiquette ne doivent pas bouger d'une version d'outillage à l'autre |
 | Git | quelconque | — |
 | PowerShell 7 | Windows uniquement | `winget install Microsoft.PowerShell`. Le `make.ps1` du dépôt n'y tourne pas sans |
 | GNU make | Linux et macOS | fourni par la distribution |

@@ -17,7 +17,7 @@
   "build": { "dockerfile": "Dockerfile" },
 
   "features": {
-    "ghcr.io/devcontainers/features/go:1": { "version": "1.26.5" },
+    "ghcr.io/devcontainers/features/go:1": { "version": "1.26.10" },
     "ghcr.io/devcontainers/features/node:1": { "version": "22" },
     "ghcr.io/devcontainers/features/python:1": { "version": "3.13" },
     // pwsh 7 ANALYSE les .ps1 — `powershellPaths` les lit sous tout shell présent, et une

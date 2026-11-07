@@ -2,7 +2,7 @@
 
 ## Prérequis
 
-Go 1.26.5 (épinglé dans `go.mod`). Node 22 seulement si vous touchez au front. Rien
+Go 1.26.10 (épinglé dans `go.mod`). Node 22 seulement si vous touchez au front. Rien
 d'autre — pas de chaîne C, pas de Docker.
 
 ## Cibles de construction
