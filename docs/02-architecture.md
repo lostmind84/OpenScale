@@ -4374,6 +4374,10 @@ GET  /admin/api/config            ← EXPURGÉ des deux empreintes admin ET du m
                                     SEULE : laissé vide, PUT reprend celui du fichier.
 GET  /admin/api/config/versions · GET /admin/api/ports · GET /admin/api/printers
 GET  /admin/api/label/preview.png?template=…&demo=1&dual=1
+GET  /admin/api/label/geometry     ← sert le point de départ du bouton « Partir du
+       gabarit livré » (décision 12) et les bornes des flèches ±1 point du contrôle 38
+       (ADR-063), lues sur la configuration EN SERVICE ; `offset_bounds` vaut `null`
+       quand le contrôle 38 se tait déjà. Ouverte parce qu'elle ne fait que lire.
 GET  /admin/api/journal · GET /admin/api/journal/export.csv
        ← l'export CSV aussi : la page montre déjà les 200 pesées, et diagnostic.zip,
          que personne ne protège, les emporte également. Une serrure sur la troisième
