@@ -101,6 +101,12 @@ type PrinterStatus struct {
 	Raw []byte
 	// PendingJobs is the queue depth when the platform can tell us (Windows can).
 	PendingJobs int
+	// Cause is the transport failure behind this status, UNCHANGED so a caller can
+	// errors.Is or errors.As it — the printer diagnostic classifies an opening failure
+	// (absent / refusé) on it without this package naming either (ADR-065). It is nil
+	// whenever the probe completed, silence included: an unknown status is not a
+	// failure, and giving it a Cause would be the exact lie important-7 removed.
+	Cause error
 }
 
 // Kind classifies a printing failure BY THE ACTION IT CALLS FOR, never by its

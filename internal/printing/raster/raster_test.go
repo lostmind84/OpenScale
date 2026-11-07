@@ -3,6 +3,7 @@ package raster
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"strings"
 	"testing"
 	"time"
@@ -288,18 +289,24 @@ func TestAShortWriteIsAFailureAndNotASuccess(t *testing.T) {
 // TestStatusIsHonestAboutWhatItCannotKnow covers the three answers of §8.5, and the
 // one it must never give: a failure invented out of a silence.
 func TestStatusIsHonestAboutWhatItCannotKnow(t *testing.T) {
+	boom := errors.New("connexion refusée")
+	notExist := &fs.PathError{Op: "open", Path: "/dev/usb/lp0", Err: fs.ErrNotExist}
 	for _, c := range []struct {
 		name     string
 		arrange  func(*recorder)
 		health   ports.PrinterHealth
 		says     string
 		wantsRaw bool
+		// wantCause is nil when the probe completed and Cause must be nil too — a
+		// silence (muette, vivante) is not a failure and must not carry one (§8.5, ADR-065).
+		wantCause error
 	}{
 		{
-			name:    "transport unidirectionnel",
-			arrange: func(r *recorder) { r.queryErr = ports.ErrUnsupported },
-			health:  ports.PrinterUnknown,
-			says:    "état inconnu",
+			name:      "transport unidirectionnel",
+			arrange:   func(r *recorder) { r.queryErr = ports.ErrUnsupported },
+			health:    ports.PrinterUnknown,
+			says:      "état inconnu",
+			wantCause: ports.ErrUnsupported,
 		},
 		{
 			name:    "imprimante muette",
@@ -323,10 +330,21 @@ func TestStatusIsHonestAboutWhatItCannotKnow(t *testing.T) {
 			wantsRaw: true,
 		},
 		{
-			name:    "transport en panne",
-			arrange: func(r *recorder) { r.queryErr = errors.New("connexion refusée") },
-			health:  ports.PrinterFaulted,
-			says:    "n'a pas répondu",
+			name:      "transport en panne",
+			arrange:   func(r *recorder) { r.queryErr = boom },
+			health:    ports.PrinterFaulted,
+			says:      "n'a pas répondu",
+			wantCause: boom,
+		},
+		{
+			// L'ouverture ratée que le diagnostic (tâche 3) classera « périphérique
+			// absent » : Cause doit porter fs.ErrNotExist intact pour qu'errors.Is le
+			// retrouve, sans que ce driver ait à le reconnaître lui-même.
+			name:      "ouverture refusée : périphérique absent",
+			arrange:   func(r *recorder) { r.queryErr = notExist },
+			health:    ports.PrinterFaulted,
+			says:      "n'a pas répondu",
+			wantCause: notExist,
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -344,6 +362,14 @@ func TestStatusIsHonestAboutWhatItCannotKnow(t *testing.T) {
 			if c.wantsRaw && len(status.Raw) == 0 {
 				t.Error("Raw est vide : c'est la trame brute affichée en hexa qui permettra de " +
 					"compléter le décodage sans se déplacer (§8.5)")
+			}
+			if c.wantCause == nil {
+				if status.Cause != nil {
+					t.Errorf("Cause = %v : un silence n'est pas un échec, il ne doit porter aucune cause", status.Cause)
+				}
+			} else if !errors.Is(status.Cause, c.wantCause) {
+				t.Errorf("Cause = %v : errors.Is ne retrouve pas %v, le diagnostic ne pourra pas classer cette panne",
+					status.Cause, c.wantCause)
 			}
 			if len(transport.queries) != 1 || transport.queries[0][0] != 0x05 {
 				t.Errorf("interrogations émises : %v, attendu un seul ENQ (0x05)", transport.queries)
@@ -370,8 +396,18 @@ func TestCloseIsIdempotentAndPrintingAfterwardsIsRefused(t *testing.T) {
 	if _, err := printer.Print(context.Background(), job(t)); err == nil {
 		t.Error("une impression a été acceptée après Close")
 	}
-	if status := printer.Status(context.Background()); status.Health != ports.PrinterUnknown {
+	status := printer.Status(context.Background())
+	if status.Health != ports.PrinterUnknown {
 		t.Errorf("Health = %d après Close : on ne sait plus rien de l'imprimante", status.Health)
+	}
+	// Cause porte la fermeture elle-même, pas une ouverture ratée : le diagnostic
+	// (tâche 3) ne doit pas la lire comme « périphérique absent » ou « refusé ».
+	var pe *ports.PrintError
+	if !errors.As(status.Cause, &pe) {
+		t.Fatalf("Cause = %v : attendu un *ports.PrintError après Close", status.Cause)
+	}
+	if pe.Op != "raster.Status" {
+		t.Errorf("Op = %q, attendu « raster.Status »", pe.Op)
 	}
 }
 

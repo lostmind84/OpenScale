@@ -283,6 +283,19 @@ func (s *Service) SelfTest(ctx context.Context, what string) (ports.PrintReceipt
 // consumes. It is Observe, converted.
 func (s *Service) Status(ctx context.Context) ports.PrinterStatus { return s.Observe(ctx).Status() }
 
+// Interrogate asks the driver's own probe once and reports it exactly as the driver
+// gave it, Cause included — the printer diagnostic's steps 1 to 3 (ADR-065).
+//
+// It is NOT Status: Status goes through Observe, which converts the probe to a
+// StatusReport that has no Cause field (status.go) and folds in what level N1 last
+// recorded. A diagnostic reading the error BEHIND the probe needs the driver's answer
+// untouched, and asking twice — once through Status, once through a second open — is
+// exactly the anti-objectif this task exists to avoid. It changes nothing: no Report,
+// no journal, no roll counter.
+func (s *Service) Interrogate(ctx context.Context) ports.PrinterStatus {
+	return s.target().Status(ctx)
+}
+
 // Observe asks levels N2 and N3 what they can see, combines them with what level N1
 // last recorded, and reports the conclusion (§8.5).
 //

@@ -527,6 +527,32 @@ func TestStatusIsTheReportInTheShapeTheHubConsumes(t *testing.T) {
 	}
 }
 
+// TestInterrogateAsksTheDriverOnceAndKeepsTheCause: the printer diagnostic (tâche 3)
+// classifies an opening failure on Cause, which Status/Observe never carries this far
+// (status.go). Interrogate must ask the driver EXACTLY once — a second open is the
+// anti-objectif this task exists to avoid — and it must leave Report untouched: it is
+// a probe for a diagnostic screen, not an observation the Hub's dashboard should see.
+func TestInterrogateAsksTheDriverOnceAndKeepsTheCause(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t, false)
+	errBoom := errors.New("connexion refusée")
+	s.main.setStatus(ports.PrinterStatus{Health: ports.PrinterFaulted, Cause: errBoom})
+	before := s.Report()
+
+	status := s.Interrogate(ctx)
+
+	if !errors.Is(status.Cause, errBoom) {
+		t.Errorf("Cause = %v : errors.Is ne retrouve pas la cause que le driver a rendue", status.Cause)
+	}
+	if asked := s.main.statusAsked(); asked != 1 {
+		t.Errorf("le driver a été interrogé %d fois, attendu 1 : une deuxième interrogation ouvrirait "+
+			"le périphérique une deuxième fois", asked)
+	}
+	if after := s.Report(); after.Level != before.Level || after.Health != before.Health {
+		t.Errorf("Report a changé après Interrogate : %+v, attendu %+v inchangé", after, before)
+	}
+}
+
 // TestTheQueueProbeIsOptionalAndItsFailureIsNotAFault: no probe means level N2 is
 // simply never reached, and a probe that errors has observed nothing — neither is a
 // reason to call a printer broken.
