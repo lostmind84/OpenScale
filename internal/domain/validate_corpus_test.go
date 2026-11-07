@@ -261,6 +261,19 @@ func brokenConfigurations() []brokenConfiguration {
 			},
 			field: "catalog.options.password",
 		}, {
+			control: "51", name: "nom de fichier qui remonte d'un dossier",
+			mutate: func(t *testing.T, c *Config) {
+				setOption(t, c.Catalog.Options, "file_name", "../x.csv")
+			},
+			field: "catalog.options.file_name",
+		}, {
+			control: "52", name: "adresse du dossier qui désigne un fichier",
+			mutate: func(t *testing.T, c *Config) {
+				c.Catalog.Type = CatalogSourceWebDAV
+				setOption(t, c.Catalog.Options, "url", "https://dav.example.org:8001/catalogue/flv.csv")
+			},
+			field: "catalog.options.url",
+		}, {
 			control: "40", name: "baisse de pesables au-delà de la moitié",
 			mutate: func(t *testing.T, c *Config) {
 				setOption(t, c.Catalog.Options, "max_weighable_drop", 0.9)
@@ -396,7 +409,7 @@ func TestTheCorpusCoversTheControls(t *testing.T) {
 		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
 		"16", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32",
 		"33", "34", "35", "36", "38", "39", "40", "41", "42", "43", "44", "45",
-		"46", "47", "48",
+		"46", "47", "48", "51", "52",
 	} {
 		if !covered[control] {
 			t.Errorf("le contrôle %s n'a aucune configuration fausse", control)
@@ -406,5 +419,67 @@ func TestTheCorpusCoversTheControls(t *testing.T) {
 		if covered[control] {
 			t.Errorf("le contrôle %s ne se provoque pas depuis une structure Config", control)
 		}
+	}
+}
+
+// TestControlsFiftyOneAndFiftyTwoJudgeTheFileName pins the wording and the edges of the
+// two controls ADR-061 adds: what is a file name, and what is NOT a folder address.
+func TestControlsFiftyOneAndFiftyTwoJudgeTheFileName(t *testing.T) {
+	for _, source := range []string{CatalogSourceLocalDrop, CatalogSourceWebDAV} {
+		for _, name := range []string{"../x.csv", "a/b.csv", `a\b.csv`, "  ", ""} {
+			t.Run(source+" file_name "+name, func(t *testing.T) {
+				config := loadDelivered(t)
+				config.Catalog.Type = source
+				setOption(t, config.Catalog.Options, "file_name", name)
+				fault := findFault(config.Validate(testRegistries()), "catalog.options.file_name")
+				if fault == nil {
+					t.Fatalf("file_name %q accepté", name)
+				}
+				if !strings.Contains(fault.Message, "un nom de fichier, pas un chemin") {
+					t.Errorf("message %q", fault.Message)
+				}
+			})
+		}
+		for _, name := range []string{"flv.csv", "flv_{n}.csv"} {
+			t.Run(source+" file_name accepté "+name, func(t *testing.T) {
+				config := loadDelivered(t)
+				config.Catalog.Type = source
+				setOption(t, config.Catalog.Options, "file_name", name)
+				if fault := findFault(config.Validate(testRegistries()), "catalog.options.file_name"); fault != nil {
+					t.Errorf("file_name %q refusé : %s", name, fault.Message)
+				}
+			})
+		}
+	}
+
+	for _, address := range []string{
+		"https://dav.example.org:8001/catalogue/flv.csv",
+		"https://dav.example.org:8001/catalogue/FLV.CSV",
+	} {
+		t.Run("url "+address, func(t *testing.T) {
+			config := loadDelivered(t)
+			config.Catalog.Type = CatalogSourceWebDAV
+			setOption(t, config.Catalog.Options, "url", address)
+			fault := findFault(config.Validate(testRegistries()), "catalog.options.url")
+			if fault == nil {
+				t.Fatalf("url %q acceptée", address)
+			}
+			if !strings.Contains(fault.Message, "file_name") {
+				t.Errorf("message %q", fault.Message)
+			}
+		})
+	}
+	for _, address := range []string{
+		"https://dav.example.org:8001/catalogue",
+		"https://dav.example.org:8001/catalogue/",
+	} {
+		t.Run("url acceptée "+address, func(t *testing.T) {
+			config := loadDelivered(t)
+			config.Catalog.Type = CatalogSourceWebDAV
+			setOption(t, config.Catalog.Options, "url", address)
+			if fault := findFault(config.Validate(testRegistries()), "catalog.options.url"); fault != nil {
+				t.Errorf("url %q refusée : %s", address, fault.Message)
+			}
+		})
 	}
 }

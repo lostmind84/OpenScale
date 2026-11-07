@@ -119,7 +119,7 @@ func New(c catalog.SourceConfig) (*Source, error) {
 		folder.Path += "/"
 	}
 
-	fileName := catalog.FileName(c.StationNumber)
+	fileName := catalog.FileNameOf(c.Catalog.Options, c.StationNumber)
 	file := *folder
 	file.Path = folder.Path + fileName
 
@@ -229,9 +229,11 @@ func Descriptor() catalog.Source {
 		ID:    domain.CatalogSourceWebDAV,
 		Label: Label,
 		Options: []domain.OptionSchema{
-			{Key: "url", Kind: domain.OptionURL, Required: true},
+			{Key: "url", Kind: domain.OptionURL, Required: true, Use: domain.UseCatalogFolderURL},
 			{Key: "username", Kind: domain.OptionText},
 			{Key: "password", Kind: domain.OptionText},
+			{Key: "file_name", Kind: domain.OptionText, Use: domain.UseCatalogFileName},
+			{Key: "after_read", Kind: domain.OptionEnum, Values: []string{catalog.AfterReadDelete, catalog.AfterReadKeep}},
 			{Key: "separator", Kind: domain.OptionText},
 			{Key: "poll_interval_s", Kind: domain.OptionInt, Min: 1, Max: 3600},
 			{Key: "stable_polls", Kind: domain.OptionInt, Min: 2, Max: 60},

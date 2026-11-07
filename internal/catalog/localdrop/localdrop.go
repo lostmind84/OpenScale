@@ -146,7 +146,7 @@ func New(c catalog.SourceConfig) (*Source, error) {
 
 	parse := csvodoo.OptionsFrom(c.Catalog)
 	parse.Source = domain.CatalogSourceLocalDrop
-	parse.FileName = catalog.FileName(c.StationNumber)
+	parse.FileName = catalog.FileNameOf(c.Catalog.Options, c.StationNumber)
 	parse.Images = c.Images
 
 	return &Source{
@@ -197,6 +197,8 @@ func Descriptor() catalog.Source {
 		Label: Label,
 		Options: []domain.OptionSchema{
 			{Key: DirectoryOption, Kind: domain.OptionText, Use: domain.UseDropDirectory},
+			{Key: "file_name", Kind: domain.OptionText, Use: domain.UseCatalogFileName},
+			{Key: "after_read", Kind: domain.OptionEnum, Values: []string{catalog.AfterReadDelete, catalog.AfterReadKeep}},
 			{Key: "separator", Kind: domain.OptionText},
 			{Key: "poll_interval_s", Kind: domain.OptionInt, Min: 1, Max: 3600},
 			{Key: "stable_polls", Kind: domain.OptionInt, Min: 2, Max: 60},

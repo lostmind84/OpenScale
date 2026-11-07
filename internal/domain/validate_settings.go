@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -249,8 +250,9 @@ func (c *Config) validateCatalogShelving() []Fault {
 	return faults
 }
 
-// validateCatalogGuards is controls 39 and 40: what a drop path may point at, and
-// how far a batch is allowed to shrink the shop.
+// validateCatalogGuards is controls 39, 40, 51 and 52: what a drop path may point at,
+// how far a batch is allowed to shrink the shop, and what a file name and a folder
+// address may be.
 func (c *Config) validateCatalogGuards(reg Registries) []Fault {
 	var faults faultList
 
@@ -281,6 +283,39 @@ func (c *Config) validateCatalogGuards(reg Registries) []Fault {
 	//     (§10.4b, important-13).
 	if drop, ok := c.Catalog.Options.Ratio("max_weighable_drop"); ok && (drop < 0 || drop > 0.5) {
 		faults.add("catalog.options.max_weighable_drop", "%v hors bornes [0, 0,5] : c'est une baisse relative du nombre de produits pesables", drop)
+	}
+
+	// 51. A file name is a NAME. The folder is set apart, and a name that climbs out of it
+	//     (`..`) or descends into another (`/`, `\`) would make the setting a second way to
+	//     name a path (ADR-061). An empty name is refused too: FileName turns the ABSENCE
+	//     of the option into the default, but a field the volunteer emptied is a mistake to
+	//     say, not one to repair silently.
+	for _, schema := range optionsUsedAs(reg.CatalogSources, c.Catalog.Type, UseCatalogFileName) {
+		value, ok := c.Catalog.Options.Text(schema.Key)
+		if !ok {
+			continue
+		}
+		if name := strings.TrimSpace(value); name == "" || strings.ContainsAny(name, `/\`) ||
+			strings.Contains(name, "..") {
+			faults.add("catalog.options."+schema.Key,
+				"%q n'est pas un nom de fichier valide : c'est un nom de fichier, pas un chemin — le dossier se règle à part",
+				value)
+		}
+	}
+
+	// 52. The address of a folder does not end in a file. The case is ignored: a share
+	//     that serves FLV.CSV is the same mistake.
+	for _, schema := range optionsUsedAs(reg.CatalogSources, c.Catalog.Type, UseCatalogFolderURL) {
+		value, ok := c.Catalog.Options.Text(schema.Key)
+		if !ok {
+			continue
+		}
+		if parsed, err := url.Parse(value); err == nil &&
+			strings.HasSuffix(strings.ToLower(parsed.Path), ".csv") {
+			faults.add("catalog.options."+schema.Key,
+				"%q désigne un fichier : l'adresse est celle du dossier, et le nom du fichier se règle dans file_name",
+				value)
+		}
 	}
 	return faults
 }

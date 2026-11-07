@@ -82,6 +82,8 @@ func testRegistries() Registries {
 		{Key: "roll_capacity", Kind: OptionInt},
 	}
 	commonCatalog := []OptionSchema{
+		{Key: "file_name", Kind: OptionText, Use: UseCatalogFileName},
+		{Key: "after_read", Kind: OptionEnum, Values: []string{"delete", "keep"}},
 		{Key: "separator", Kind: OptionText},
 		{Key: "poll_interval_s", Kind: OptionInt},
 		{Key: "stable_polls", Kind: OptionInt},
@@ -94,7 +96,7 @@ func testRegistries() Registries {
 		{Key: "failures_before_reject", Kind: OptionInt},
 	}
 	webdav := append([]OptionSchema{
-		{Key: "url", Kind: OptionURL, Required: true},
+		{Key: "url", Kind: OptionURL, Required: true, Use: UseCatalogFolderURL},
 		{Key: "username", Kind: OptionText},
 		{Key: "password", Kind: OptionText},
 	}, commonCatalog...)
