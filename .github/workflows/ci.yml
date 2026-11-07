@@ -66,7 +66,7 @@ concurrency:
 env:
   # Épinglé : les golden de rendu de §7.4 ne doivent pas bouger avec la version de
   # la chaîne d'outils.
-  GO_VERSION: "1.26.5"
+  GO_VERSION: "1.26.10"
 
 # LES ACTIONS SONT ÉPINGLÉES SUR UN SHA DE COMMIT, jamais sur un tag.
 #
