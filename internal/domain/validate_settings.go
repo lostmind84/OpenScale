@@ -286,19 +286,31 @@ func (c *Config) validateCatalogGuards(reg Registries) []Fault {
 	}
 
 	// 51. A file name is a NAME. The folder is set apart, and a name that climbs out of it
-	//     (`..`) or descends into another (`/`, `\`) would make the setting a second way to
-	//     name a path (ADR-061). An empty name is refused too: FileName turns the ABSENCE
-	//     of the option into the default, but a field the volunteer emptied is a mistake to
-	//     say, not one to repair silently.
+	//     (`..`), descends into another (`/`, `\`), IS the folder (`.`) or names a drive or
+	//     an alternate stream on Windows (`:`) would make the setting a second way to name
+	//     a path (ADR-061). An empty name is refused too: FileName turns the ABSENCE of the
+	//     option into the default, but a field the volunteer emptied is a mistake to say,
+	//     not one to repair silently.
+	//
+	//     A space at either end is refused rather than cut: « flv.csv  » pasted from a
+	//     file manager would make the station wait for a file that carries the space, while
+	//     every screen that shows the name shows it without. Cutting it silently would only
+	//     move the difference — the preview and the file on disk would disagree again.
 	for _, schema := range optionsUsedAs(reg.CatalogSources, c.Catalog.Type, UseCatalogFileName) {
 		value, ok := c.Catalog.Options.Text(schema.Key)
 		if !ok {
 			continue
 		}
-		if name := strings.TrimSpace(value); name == "" || strings.ContainsAny(name, `/\`) ||
-			strings.Contains(name, "..") {
+		name := strings.TrimSpace(value)
+		switch {
+		case name == "" || name == "." || strings.ContainsAny(name, `/\:`) || strings.Contains(name, ".."):
 			faults.add("catalog.options."+schema.Key,
 				"%q n'est pas un nom de fichier valide : c'est un nom de fichier, pas un chemin — le dossier se règle à part",
+				value)
+		case name != value:
+			faults.add("catalog.options."+schema.Key,
+				"%q commence ou finit par une espace : le poste chercherait un fichier qui porte cette espace, "+
+					"alors qu'aucun écran ne la montre — retirez-la",
 				value)
 		}
 	}
@@ -310,7 +322,9 @@ func (c *Config) validateCatalogGuards(reg Registries) []Fault {
 		if !ok {
 			continue
 		}
-		if parsed, err := url.Parse(value); err == nil &&
+		// Trimmed as webdav.New trims it: an address refused there but accepted here would
+		// make a station that saves and then cannot build its source.
+		if parsed, err := url.Parse(strings.TrimSpace(value)); err == nil &&
 			strings.HasSuffix(strings.ToLower(parsed.Path), ".csv") {
 			faults.add("catalog.options."+schema.Key,
 				"%q désigne un fichier : l'adresse est celle du dossier, et le nom du fichier se règle dans file_name",

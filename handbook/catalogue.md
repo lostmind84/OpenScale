@@ -21,9 +21,11 @@ Quelques exemples de **Nom du fichier** :
 - `flv.csv` : **un seul** fichier, que tous les postes lisent.
 - `{n}-produits.csv` : un fichier par poste, sous un autre nom.
 
-C'est un **nom de fichier**, jamais un chemin : un `/`, un `\` ou un `..` est refusé à
-l'enregistrement. Le dossier se règle ailleurs, dans l'adresse (WebDAV) ou dans le
-répertoire (`local_drop`).
+C'est un **nom de fichier**, jamais un chemin : un `/`, un `\`, un `:` ou un `..` est refusé
+à l'enregistrement. Le dossier se règle ailleurs, dans l'adresse (WebDAV) ou dans le
+répertoire (`local_drop`). Une **espace au début ou à la fin** du nom est refusée aussi : elle
+arrive avec un copier-coller, ne se voit sur aucun écran, et le poste attendrait un fichier
+qui la porte.
 
 L'écran montre, avant l'enregistrement, le nom que le poste va chercher et, pour WebDAV,
 l'adresse complète. **Lisez cette ligne** : c'est elle que le poste utilisera.

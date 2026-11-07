@@ -426,7 +426,7 @@ func TestTheCorpusCoversTheControls(t *testing.T) {
 // two controls ADR-061 adds: what is a file name, and what is NOT a folder address.
 func TestControlsFiftyOneAndFiftyTwoJudgeTheFileName(t *testing.T) {
 	for _, source := range []string{CatalogSourceLocalDrop, CatalogSourceWebDAV} {
-		for _, name := range []string{"../x.csv", "a/b.csv", `a\b.csv`, "  ", ""} {
+		for _, name := range []string{"../x.csv", "a/b.csv", `a\b.csv`, "  ", "", ".", "C:flv.csv", "flv.csv:stream"} {
 			t.Run(source+" file_name "+name, func(t *testing.T) {
 				config := loadDelivered(t)
 				config.Catalog.Type = source
@@ -440,7 +440,23 @@ func TestControlsFiftyOneAndFiftyTwoJudgeTheFileName(t *testing.T) {
 				}
 			})
 		}
-		for _, name := range []string{"flv.csv", "flv_{n}.csv"} {
+		// A space at either end is invisible on every screen that shows the name, and the
+		// station would wait for a file that carries it (final review, I-3).
+		for _, name := range []string{"flv.csv ", " flv.csv", "flv.csv\t"} {
+			t.Run(source+" file_name espace "+name, func(t *testing.T) {
+				config := loadDelivered(t)
+				config.Catalog.Type = source
+				setOption(t, config.Catalog.Options, "file_name", name)
+				fault := findFault(config.Validate(testRegistries()), "catalog.options.file_name")
+				if fault == nil {
+					t.Fatalf("file_name %q accepté", name)
+				}
+				if !strings.Contains(fault.Message, "commence ou finit par une espace") {
+					t.Errorf("message %q", fault.Message)
+				}
+			})
+		}
+		for _, name := range []string{"flv.csv", "flv_{n}.csv", "produits du poste {n}.csv"} {
 			t.Run(source+" file_name accepté "+name, func(t *testing.T) {
 				config := loadDelivered(t)
 				config.Catalog.Type = source
@@ -455,6 +471,7 @@ func TestControlsFiftyOneAndFiftyTwoJudgeTheFileName(t *testing.T) {
 	for _, address := range []string{
 		"https://dav.example.org:8001/catalogue/flv.csv",
 		"https://dav.example.org:8001/catalogue/FLV.CSV",
+		"https://dav.example.org:8001/catalogue/flv.csv ",
 	} {
 		t.Run("url "+address, func(t *testing.T) {
 			config := loadDelivered(t)
