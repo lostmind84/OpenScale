@@ -72,20 +72,18 @@ func printerRegistry() *printing.Registry {
 //	transport, queue, path, address  build the byte layer (§8.4) — a driver that opened a
 //	                                 device itself would lose « one frame, four
 //	                                 destinations »
-//	offset_x, offset_y               shift the TEMPLATE, which is the only one of the two
-//	                                 offsets the preview screen shows (raster.ParseOptions)
 //	roll_capacity                    sizes the roll counter, which counts labels for a
 //	                                 station and not for a printer
 //
-// Everything else in printer.options is read by raster.ParseOptions, in the package that
-// declares it.
+// offset_x and offset_y are not read here either: domain.Config.Templates recomposes
+// them into the template in service (ADR-062), the only one of the two offsets the
+// preview screen shows. Everything else in printer.options is read by
+// raster.ParseOptions, in the package that declares it.
 const (
 	optionTransport    = "transport"
 	optionQueue        = "queue"
 	optionPath         = "path"
 	optionAddress      = "address"
-	optionOffsetX      = "offset_x"
-	optionOffsetY      = "offset_y"
 	optionRollCapacity = "roll_capacity"
 )
 

@@ -15,12 +15,10 @@ import (
 // comparison that decides a block moved in fingerprint_test.go, and the catalog watch
 // in catalogwatch_test.go.
 
-// TestAReloadedCooperativeTemplateIsWhatPrints is the gap the design doc names:
-// Hub.templates was frozen at station.New (hub.go:190) and Hub.template only looked
-// up a NAME in it (effects.go, before this task); a cooperative's own gabarit
-// registered from the admin screen -- a hot reload, by ADR-027 -- would print the
-// zero domain.Template until the process restarted, even though printer.template
-// changed through the instant, no-restart block of §11.4.
+// TestAReloadedCooperativeTemplateIsWhatPrints is the gap the design doc names
+// (ADR-062): a Hub that looked up a NAME in a map frozen at station.New would print
+// the zero domain.Template for a cooperative's own gabarit registered from the admin
+// screen -- a hot reload, by ADR-027 -- until the process restarted.
 func TestAReloadedCooperativeTemplateIsWhatPrints(t *testing.T) {
 	b := newBench(t)
 

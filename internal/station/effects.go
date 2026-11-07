@@ -82,15 +82,13 @@ func (h *Hub) print(e domain.PrintEffect) domain.Event {
 // template resolves "the gabarit in service" against the CONFIGURATION IN SERVICE,
 // not against a map frozen at station.New.
 //
-// Before this resolution existed, h.templates was built once by the composition
-// root and never touched again: a cooperative's own layout registered from the
-// admin screen, or an offset the ±1 dot arrows wrote, reached printer.options and
-// printer.custom_template through the hot reload of §11.4 but never reached what
-// actually prints, because nothing recomputed the map a reload had just made stale.
-// cfg.SelectedTemplate redoes that recomposition on EVERY call -- the registry
-// (h.templates) merged with the cooperative's layout and the station's offset,
-// both read off cfg -- so the label a reload just enabled is what prints next,
-// with no restart.
+// h.templates is the registry only, built once by the composition root. A
+// cooperative's own layout, or an offset the ±1 dot arrows wrote, reaches
+// printer.custom_template and printer.options through the hot reload of §11.4, and a
+// map computed at start-up would never see it. cfg.SelectedTemplate redoes the
+// recomposition on EVERY call -- the registry merged with the cooperative's layout and
+// the station's offset, both read off cfg (ADR-062) -- so the label a reload just
+// enabled is what prints next, with no restart.
 //
 // A name that resolves to nothing yields the zero template rather than a panic: a
 // configuration control refuses an unknown template long before a customer stands
