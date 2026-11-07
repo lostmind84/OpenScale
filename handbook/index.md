@@ -18,6 +18,7 @@ vit seul : sa configuration, sa base SQLite, son catalogue, aucun serveur centra
 | Page | Ce qu'elle donne |
 |---|---|
 | [Démarrer](getting-started.md) | Du `git clone` à un poste qui tourne sur votre machine, sans balance ni imprimante |
+| [Catalogue](catalogue.md) | Le nom du fichier attendu et ce que le poste en fait : les deux réglages d'une coopérative |
 | [Architecture](architecture.md) | La carte des composants, et les quatre frontières qui tiennent le code |
 | [Décisions d'architecture](odr/README.md) | Ce qui a été tranché, et comment en trancher une nouvelle |
 | [Contribuer](contributing.md) | Branches, commits, tests, ce que la CI refuse |

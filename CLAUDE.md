@@ -126,8 +126,12 @@ Ces points ont été tranchés après analyse ; les rouvrir demande une décisio
   la question à trois réponses de §10.3, les doublons d'identifiant, les photos, les
   gardes — est dans `catalog.Assemble` et **ne se réimplémente jamais dans une source**.
   Lire `docs/08-ajouter-une-source-de-catalogue.md` avant d'en ajouter une.
-- **Le CSV par poste reste le mode livré**, supprimé après lecture — la suppression _est_
-  l'acquittement. Ne pas proposer de fichier partagé unique.
+- **Par défaut, un fichier par poste, supprimé après lecture** — la suppression _est_
+  l'acquittement. `catalog.options.file_name` (défaut `flv_{n}.csv`) et `after_read`
+  (`delete`, défaut, ou `keep`) le règlent **par coopérative** sur les deux sources
+  fichier (ADR-061, qui remplace ADR-004) : un fichier partagé par plusieurs postes
+  est donc un réglage légitime, mais **c'est `keep` qui le rend sûr** — sans lui, le
+  premier poste qui lit le supprime pour les autres. Ne pas changer le défaut livré.
 - **Le préfixe du code-barres fait foi** pour le mode de vente, pas le champ `unite`
   du CSV, qui n'est qu'un libellé d'affichage.
 - **La largeur des champs du code-barres est déclarée par préfixe**, jamais déduite

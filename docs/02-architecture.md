@@ -84,7 +84,7 @@ flowchart TB
 
       SCALE(["Balance GRAM XFOC — RS-232"])
       SATO(["Imprimante SATO WS408"])
-      CSV(["flv_N.csv déposé par Odoo"])
+      CSV(["fichier déposé par Odoo, flv_N.csv par défaut"])
 
       LOOP["internal/scale<br/>serial.Loop + Decoder"]
       IMPORT["internal/catalog<br/>localdrop · webdav · csvodoo"]
@@ -2234,7 +2234,7 @@ func toGrams(intPart, fracPart string, u Unit) (domain.Grams, error) {
 
 **`local_drop`.** Un répertoire **que le service crée lui-même quand personne n'en désigne un autre** (`<data>/catalog/incoming/`) : ni identifiant, ni mot de passe. Depuis ADR-038, `catalog.options.directory` permet d'en nommer un — un point de montage, un partage UNC —, et **le poste ne le crée alors jamais** : un chemin mal saisi fabriquerait une arborescence que personne ne surveille, et le poste attendrait son fichier dans un endroit que personne ne connaît. Ce qui reste vrai de cette source, et qui **est** sa définition, c'est qu'elle **ne porte aucun secret** ; le seul canal authentifié est `webdav`, ci-dessous, et c'est le vrai. N'importe quoi peut y déposer un fichier — un outil de synchronisation, l'export d'un producteur, ou le **glisser-déposer de l'écran d'administration**, qui emprunte ce même chemin au lieu d'être une troisième source. *(Un répertoire « local » qui réclamerait un compte et un mot de passe ne serait pas un répertoire local : ce serait le lecteur `Z:` de l'existant sous un autre nom, et le contrôle 39 continue de refuser `username` et `password` sur cette source. Une lettre de lecteur, elle, n'est plus écartée par une règle de forme mais par la mesure : le contrôle 46 sonde le chemin **depuis le compte du service**, qui ne voit pas les montages d'une session utilisateur, et la faute sort au moment de la saisie plutôt qu'au premier import manqué.)* Scrutation toutes les `poll_interval_s` (5 s) :
 
-1. `os.Stat(<dir>/flv_<n>.csv)` — absent → rien à faire. **Le nom est dérivé de `station.number`** et de rien d'autre (§11.2).
+1. `os.Stat(<dir>/<nom>)` — absent → rien à faire. **Le nom vient de `catalog.options.file_name`** (défaut `flv_{n}.csv`, `{n}` remplacé par `station.number`, §11.2, ADR-061) : `catalog.FileNameOf` est le seul endroit qui le compose, les deux sources et l'écran s'en servent. Une absence est journalisée **une fois** quand elle commence et **une fois** quand le fichier revient — au niveau Info avec `delete`, où l'absence est l'état ordinaire, au niveau Warn avec `keep`, où elle veut dire qu'un export a cessé d'arriver —, et la ligne du tableau de bord annonce « en attente de <nom> » tant qu'il manque.
 2. **Contrôle de stabilité** : taille **et** mtime identiques sur **deux scrutations consécutives** (≥ 5 s d'immobilité). Sur un partage distant avec un producteur qui écrit, c'est le seul garde-fou contre la lecture d'un fichier partiel ; la transaction ne protège pas de ça, elle rend juste l'application atomique.
 3. **Lecture en flux** (bloquant-9) : `bufio` + `encoding/csv` en streaming, jamais de chargement complet en mémoire ; le pic mémoire est **une ligne**, pas deux fois le fichier.
 
@@ -2242,7 +2242,7 @@ func toGrams(intPart, fracPart string, u Unit) (domain.Grams, error) {
 4. `sha256` calculé **au fil de la lecture** → `Batch.ID`.
 5. **Qualification** de chaque ligne (§10.3), construction du lot. **Ne touche pas au fichier.**
 6. Le Hub applique (une transaction, §12.3).
-7. `Acknowledge(Applied)` : **copie** vers `archives/flv_<n>-2026-07-24T15-38-12.csv`, `fsync`, **puis `os.Remove` sur la source**. L'acquittement **est** le `Remove`.
+7. `Acknowledge(Applied)` : **copie** vers `archives/flv_<n>-2026-07-24T15-38-12.csv` (le nom du fichier lu, horodaté), `fsync`, **puis `os.Remove` sur la source**. **Avec `after_read: delete` — le défaut —, l'acquittement *est* le `Remove`.** Avec `keep`, rien n'est supprimé : l'acquittement est l'écriture du repère, ci-dessous.
 
 > **Pourquoi une copie puis un `Remove`, et jamais un `os.Rename`** : entre un partage réseau et le disque local, `Rename` échoue en `ERROR_NOT_SAME_DEVICE` / `EXDEV`, ce qui laisserait le fichier en place et reboucterait l'import indéfiniment.
 
@@ -2255,7 +2255,7 @@ sequenceDiagram
     participant HUB as station.Hub
     participant STO as store — SQLite
 
-    PROD->>DIR: dépose flv_N.csv, N vient de station.number
+    PROD->>DIR: dépose le fichier — flv_N.csv par défaut, N vient de station.number
     loop toutes les poll_interval_s, 5 s
         SRC->>DIR: os.Stat
     end
@@ -2268,10 +2268,19 @@ sequenceDiagram
     STO-->>HUB: applied, unchanged, rejected ou failed
     HUB->>SRC: Acknowledge avec le résultat
     SRC->>DIR: copie vers archives puis fsync
-    SRC->>DIR: os.Remove — LE REMOVE EST L'ACQUITTEMENT
+    SRC->>DIR: os.Remove — AVEC after_read delete, LE REMOVE EST L'ACQUITTEMENT
 ```
 
-**`webdav`.** Même séquence en `net/http` + `encoding/xml` : `PROPFIND Depth: 1` (liste + `getcontentlength` + `getlastmodified`, contrôle de stabilité identique), `GET` avec `Accept-Encoding: identity`, **`DELETE` = acquittement**. Timeouts explicites (10 s connexion, 120 s corps), 3 réessais, aucune redirection hors du même hôte.
+> **`after_read: keep` — le fichier reste, et c'est un repère qui dit qu'il est pris** (ADR-061). Le repère est `<data>/catalog/watermark.json`, propre à chaque poste : il retient la **taille et la date** du dernier fichier acquitté, et, pour un refus, le `sha256` du contenu refusé. Il porte aussi l'emplacement surveillé, si bien qu'un changement de dossier, de nom ou d'adresse repart d'un repère vide : le fichier est lu une fois. Il vit sur disque, parce qu'un poste redémarré chaque matin ne doit pas réappliquer à chaque fois un catalogue qui n'a pas bougé. Règles :
+>
+> - **`keep` ne supprime jamais**, ni un fichier appliqué ni un fichier refusé. Le refus d'un contenu laisse le fichier en place et retient sa taille et sa date : le même contenu n'est ni relu ni recompté en quarantaine tant que le fichier ne change pas.
+> - **Le repère est oublié dès que la source démarre en `delete`.** Supprimer ne consulte pas le repère ; un repère laissé là reviendrait le jour où le mode repasse à `keep` et ferait ignorer en silence un fichier *nouveau* de même taille et de même date.
+> - **Un fichier sans date ne correspond jamais au repère.** Un serveur WebDAV qui n'envoie pas `getlastmodified` ne peut pas faire remarquer qu'un fichier a changé, et la taille seule ne doit pas le faire taire : un fichier appliqué y est donc **relu à chaque scrutation stable**. C'est peu coûteux, la règle du lot identique d'ADR-015 faisant que relire un catalogue inchangé ne touche rien. Un contenu refusé déjà retenu n'y est **pas recompté** en quarantaine : c'est son empreinte, et non sa date, qui le reconnaît.
+> - **Sur un partage qui date ses fichiers, les mêmes octets cassés ré-exportés sous une nouvelle date *sont* comptés**, comme `local_drop` les compte : une nouvelle date est une nouvelle livraison.
+> - **Un repère qui ne s'écrit pas est la même panne qu'un fichier qui ne se supprime pas** : le catalogue est en service, la quarantaine ne bouge pas, `ERR-CAT-05` est levé (« Fichier de catalogue non acquitté. »). Le repère reste en mémoire, pour ne pas réappliquer le fichier à chaque scrutation tant que le disque est fermé à l'écriture.
+> - **L'emplacement du repère WebDAV ne porte jamais d'identifiants d'URL** : ce qui s'écrit sur disque est l'adresse expurgée.
+
+**`webdav`.** Même séquence en `net/http` + `encoding/xml` : `PROPFIND Depth: 1` (liste + `getcontentlength` + `getlastmodified`, contrôle de stabilité identique), `GET` avec `Accept-Encoding: identity`, **`DELETE` = acquittement avec `after_read: delete`** ; avec `keep`, le fichier reste sur le partage et le repère de §10.1 tient lieu d'acquittement. `url` désigne le **dossier** et la source y ajoute le nom du fichier (`file_name`) : une adresse qui se termine par un `.csv` est refusée par le contrôle 52. Timeouts explicites (10 s connexion, 120 s corps), 3 réessais, aucune redirection hors du même hôte.
 
 > **Pourquoi ce driver est maintenu en V1 alors qu'important-14 propose de le couper.** Le partage de production est un hôte **WebDAV en HTTPS sur un port non standard** (`https://dav.example.org:8001/`), monté en lettre `Z:`. Or une lettre de lecteur est un mapping **par session utilisateur, invisible d'un service Windows**, et un chemin UNC ne permet pas d'atteindre un hôte HTTPS sur un port non standard. **Sans ce driver, la chaîne d'alimentation réelle de La Cagette ne fonctionne pas** — c'est la différence entre livrer et ne pas livrer. Coût : ~200 lignes de `net/http` + `encoding/xml`. La compensation budgétaire est prise ailleurs (§18 : GDI/CUPS hors V1, 3 gabarits sur 5, thème sombre).
 
@@ -2803,9 +2812,16 @@ Surcharges : `--config`, `--data`, `OPENSCALE_CONFIG`, `OPENSCALE_DATA`. **Aucun
                  "username": "balance", "password": "",   // webdav ONLY — encrypted at rest, never exported,
                                                           // and never served to the browser (§14.5)
                  "separator": ";",
-                 // file_name and after_read are OPTIONAL and absent from the delivered
-                 // file: absent means "flv_{n}.csv" and "delete" (ADR-061, ADR-004 turned
-                 // into the default). {n} is station.number.
+                 // file_name and after_read are OPTIONAL, on BOTH sources, and absent from
+                 // the delivered file: absent means "flv_{n}.csv" and "delete" (ADR-061,
+                 // ADR-004 turned into the default). {n} is station.number, so one
+                 // setting cloned onto four stations (§11.5) still names four files; a
+                 // name without {n} names ONE file all of them read.
+                 //   "file_name": "flv.csv",   a file NAME, never a path (control 51); on
+                 //                             webdav, url stays the FOLDER (control 52)
+                 //   "after_read": "keep",     delete (default) | keep. keep never deletes
+                 //                             and remembers the file in <data>/catalog/
+                 //                             watermark.json (§10.1)
                  "poll_interval_s": 5, "stable_polls": 2,
                  "max_file_size_mb": 8,        // last-resort guard — the real file is 527 kB (§10.1)
                  "max_image_size_kb": 256,     // per DECODED image; the largest observed is 11 kB (§10.7)
@@ -2856,6 +2872,8 @@ Surcharges : `--config`, `--data`, `OPENSCALE_CONFIG`, `OPENSCALE_DATA`. **Aucun
 > **Le compte ne suffit pourtant pas à faire arriver un réglage d'affichage, et c'est ADR-057 qui l'a découvert.** Une présentation qui change **sans** changer le nombre de produits — `show_grid_prices`, `show_by_unit_products`, `grid_columns` — ne déclenchait aucune relecture : on réglait, on enregistrait, et rien ne se passait sur l'écran d'à côté. Le flux d'état porte donc, à côté de `catalog_count`, une **empreinte de présentation** que le navigateur **compare sans jamais la lire**. Elle est prise sur le **DTO de présentation** et non sur la configuration entière : une empreinte globale rechargerait toute la grille au changement de port série ou de noircissement d'impression, pour une donnée que l'écran client ne lit pas. Un champ ajouté demain à la présentation y entre **sans qu'on ait à y penser** ; un bloc qui n'y est pas n'y entrera jamais. L'ETag du catalogue fait qu'une présentation inchangée coûte un 304.
 >
 > **Le compte et l'empreinte ne suffisaient pas non plus à faire arriver un nouveau prix, et c'est la production qui l'a montré (04/09/2026).** Un export de nuit aux mêmes produits pesables et à des prix nouveaux ne fait bouger ni `catalog_count` ni `presentation_digest` : le Hub bascule, l'étiquette porte le nouveau prix, et la grille gardait l'ancien jusqu'au prochain F5 — plusieurs jours, sur deux postes. Le flux porte donc un troisième signal, **`catalog_updated_at`**, l'instant de l'import appliqué — la chaîne même que `GET /api/v1/catalog` sert en `updated_at` et que la barre basse affiche (§14.3, ADR-053). Le navigateur la **compare** à celle du catalogue qu'il tient et ne la lit jamais ; un fichier déjà vu (`unchanged`, §10.5) ne bascule pas, donc ne la fait pas bouger. Ce que le renommage d'une catégorie laisse ouvert est inchangé : il ne bouge aucun des trois signaux.
+
+> **Le flux d'état et `GET /admin/api/health` portent aussi `catalog_file`, le nom du fichier que ce poste attend** (ADR-061). Il est composé **côté Go**, à chaque état, par `catalog.FileNameOf(cfg.Catalog.Options, cfg.Station.Number)` — la fonction même que les deux sources appellent pour chercher le fichier — et lu sur la configuration du Hub et non sur le snapshot, comme `presentation_digest` : le nom se recharge à chaud (§11.4) et un snapshot ne porte jamais un réglage. L'écran client (catalogue vide), la page Dépannage et la zone de dépôt de la page Catalogue **affichent cette chaîne telle quelle** ; aucun ne recompose `flv_<n>.csv`, parce qu'un « En attente du fichier flv_2.csv » qui nomme un fichier que personne ne lit est exactement ce que verrait, sur son seul écran, une coopérative qui a réglé son propre `file_name`. Le panneau de la source, lui, montre le nom **avant** l'enregistrement, à partir du brouillon : il en tient une copie (`expectedCatalogFile`, `web/src/admin/lib/catalog-file.ts`), qui reproduit `catalog.FileName` et que `web/test/catalog-file.test.ts` garde. Pour WebDAV, il montre l'adresse complète (dossier et nom). Une note non bloquante prévient qu'un nom **sans `{n}`** en mode `delete` sera supprimé par le premier poste qui le lit ; elle disparaît avec `keep`, où lire un même fichier à plusieurs est légitime.
 >
 > **Le défaut `false` s'applique en silence aux fichiers existants.** La lecture du document n'applique aucun défaut : un fichier écrit avant cette clé se relit comme « masqués ». C'est ce qui est demandé, mais un poste mis à jour perd quinze tuiles sans un message. D'où deux exigences tenues : les fichiers livrés **écrivent la clé** plutôt que de compter sur le zéro du langage — `config-lacagette.json` à `false`, `config-demo.json` à `true`, `NeutralProfile` à `false` —, et la page **Catalogue** annonce combien de produits sont concernés sur le catalogue en service (§14.4). La clé traverse `Export(false)`, donc l'**empreinte de configuration** que les postes d'un parc comparent à l'œil : ajouter cette clé change les huit caractères de tous les postes, même à valeur identique (§11.5, ADR-041).
 
@@ -4273,7 +4291,7 @@ Contrastes **AAA** (≥ 7:1) sur tout texte ≥ 24 px, **AA** partout ailleurs �
 
 > **Le seuil de puce se règle dans le même panneau, sous le choix des colonnes** (`ui.min_products_for_chip`, ADR-059) : un simple champ nombre, plancher `1`, sans plafond. **Il n'a pas l'aperçu chiffré des colonnes** : aucune phrase n'annonce, avant l'enregistrement, si le nombre qu'on vient de taper va faire perdre sa puce à une catégorie du catalogue en service — la note du champ dit seulement ce que le réglage fait en général, jamais ce qu'il donnerait sur ce poste. C'est la conséquence assumée d'ADR-059 : se tromper se répare en revenant sur le champ, mais rien ne le signale avant.
 
-**Premier démarrage** : assistant en 5 étapes (mot de passe → poste → balance → imprimante → catalogue). Tant que le catalogue est vide, la grille client affiche *« Catalogue vide. En attente du fichier `flv_<n>.csv` depuis 4 min »* — **le nom est dérivé de `station.number`**, jamais écrit en dur dans un message — **avec le chemin surveillé en clair** et un renvoi vers l'import manuel.
+**Premier démarrage** : assistant en 5 étapes (mot de passe → poste → balance → imprimante → catalogue). Tant que le catalogue est vide, la grille client affiche *« Catalogue vide. En attente du fichier `flv_2.csv`. »* — **le nom est celui que le serveur envoie dans `catalog_file`**, jamais recomposé par un écran ni écrit en dur dans un message (§11.2) — **avec le chemin surveillé en clair** et un renvoi vers l'import manuel.
 
 **Authentification** : `POST /admin/api/session` → **argon2id** (`x/crypto/argon2`) → cookie `HttpOnly; SameSite=Strict; Path=/admin`, session 30 min en mémoire, **5 tentatives/minute par IP** puis verrouillage 5 min. Vérification de `Origin`/`Host` sur toute méthode non-`GET` (CSRF et DNS-rebinding contre `127.0.0.1`). **Aucune porte dérobée** — le littéral `"admin"` de l'existant disparaît.
 
@@ -4625,8 +4643,8 @@ Le kiosque : unité séparée, `ExecStart=/usr/bin/cage -d -- /usr/local/bin/bal
 | Imprimante injoignable | « L'imprimante ne répond pas. Prévenez un responsable. » | `ERR-PRN-01`, ce qui est configuré **vs** la liste des files disponibles | *Imprimer sur l'imprimante du poste N* |
 | Étiquette pas sortie | **barre basse permanente** « Réimprimer » | — | 1 clic → réimpression **marquée** |
 | CSV corrompu | (rien : le catalogue précédent reste) | feu rouge Catalogue, `ERR-CAT-03`, **numéro de ligne fautif** | prévenir le producteur |
-| CSV non supprimable | (rien) | feu **orange**, `ERR-CAT-05`, « droits manquants sur \<chemin\> pour \<compte\> » | corriger les droits |
-| Catalogue jamais reçu | « Catalogue vide. En attente de `flv_<n>.csv` depuis 4 min. » + chemin | feu orange, chemin + compte + dernier essai | vérifier le partage, **ou glisser-déposer un CSV** |
+| CSV non supprimable, ou repère de `keep` non écrit | (rien) | feu **orange**, `ERR-CAT-05`, « Fichier de catalogue non acquitté. », « droits manquants sur \<chemin\> pour \<compte\> » | corriger les droits |
+| Catalogue jamais reçu | « Catalogue vide. En attente du fichier `<nom>`. » (le nom de `catalog_file`, `flv_<n>.csv` par défaut) + chemin | feu orange, chemin + compte + dernier essai, ligne du tableau de bord « en attente de `<nom>` » | vérifier le partage **et le nom attendu** (page Catalogue), **ou glisser-déposer un CSV** |
 | **Anomalies dans le catalogue** | **rien — et c'est voulu** | feu orange, **la liste nommée** : ligne CSV, motif, valeur fautive (« ligne 28, clé de contrôle fausse : `9999990005422` ») | prévenir le producteur **pour ces lignes-là** |
 | Chute du nombre de produits pesables | (rien : le catalogue précédent reste) | feu rouge, lot **non appliqué**, 3 motifs majoritaires + ligne d'exemple | décalage de colonne probable chez Odoo — prévenir le producteur |
 | Beaucoup de produits non pesables | **rien, jamais** | inventaire neutre : « 39 non pesables — préemballés ou sans code-barres » | **aucune** : ces produits ne relèvent pas de la balance |
@@ -5967,7 +5985,7 @@ La conversion de `coef_num`/`coef_den` est **exacte ou n'est pas.** `discount_pe
 
 **Décision.** Deux options de `catalog.options`, déclarées au schéma des deux sources : `file_name` (texte, défaut `flv_{n}.csv`, `{n}` remplacé par `station.number`) et `after_read` (`delete`, défaut, ou `keep`). `catalog.FileName(pattern, n)`, `catalog.FileNameOf` et `catalog.AfterReadOf` sont les seuls endroits qui les lisent. Deux contrôles les gardent (§11.3) : le **51** refuse un `file_name` qui est un chemin, le **52** refuse une adresse de dossier qui se termine par un fichier. Ils lisent le schéma (`UseCatalogFileName`, `UseCatalogFolderURL`), comme le contrôle 39 lit `UseDropDirectory` (ADR-052).
 
-**Conséquences.** (a) **ADR-004 devient le défaut, pas une loi** : une configuration qui ne dit rien surveille `flv_<n>.csv` et supprime après lecture, exactement comme avant, et l'empreinte d'un fichier livré ne bouge pas. ADR-004 n'est pas réécrit. (b) **`keep` autorise plusieurs postes sur un même fichier** ; sans suppression, ce qui dit qu'un contenu est déjà appliqué est un repère `<data>/catalog/watermark.json`, propre à chaque poste. Ce comportement de `keep` n'est pas dans le lot de cet ADR : il est déclaré ici et au schéma, les sources le branchent à leur tour. (c) **Un nom sans `{n}` fait lire le même fichier par tous les postes**, et c'est voulu. (d) **Un `file_name` vide est refusé et un `file_name` absent ne l'est pas** : l'absence est « je n'ai rien réglé », le vide est un champ qu'on a effacé. (e) **Une adresse WebDAV qui se termine par le nom du fichier est désormais refusée** par le contrôle 52 : `webdav` complète l'adresse en dossier et y ajoute le nom, si bien qu'une URL `…/flv.csv` faisait interroger `…/flv.csv/flv_1.csv` sans rien dire.
+**Conséquences.** (a) **ADR-004 devient le défaut, pas une loi** : une configuration qui ne dit rien surveille `flv_<n>.csv` et supprime après lecture, exactement comme avant, et l'empreinte d'un fichier livré ne bouge pas. ADR-004 n'est pas réécrit. (b) **`keep` autorise plusieurs postes sur un même fichier** ; sans suppression, ce qui dit qu'un contenu est déjà appliqué est un repère `<data>/catalog/watermark.json`, propre à chaque poste. Le comportement de `keep` est décrit en §10.1 ; il est branché sur les deux sources. (c) **Un nom sans `{n}` fait lire le même fichier par tous les postes**, et c'est voulu. (d) **Un `file_name` vide est refusé et un `file_name` absent ne l'est pas** : l'absence est « je n'ai rien réglé », le vide est un champ qu'on a effacé. (e) **Une adresse WebDAV qui se termine par le nom du fichier est désormais refusée** par le contrôle 52 : `webdav` complète l'adresse en dossier et y ajoute le nom, si bien qu'une URL `…/flv.csv` faisait interroger `…/flv.csv/flv_1.csv` sans rien dire.
 
 ---
 

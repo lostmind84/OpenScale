@@ -236,7 +236,7 @@ le maximum honnête ici.
 toucher, et l'acquittement vient après, parce qu'une panne entre la lecture et l'application ne
 doit pas perdre une mise à jour définitivement et sans trace (ADR-004).
 
-Pour une source **fichier**, la suppression *est* l'acquittement. Pour les autres :
+Pour une source **fichier**, la suppression *est* l'acquittement **tant que `after_read` vaut `delete`**, son défaut. Avec `keep`, c'est le repère `<data>/catalog/watermark.json` (`catalog.Watermark`) qui tient lieu d'acquittement et le fichier reste en place (ADR-061, §10.1) ; une source fichier nouvelle qui déclare `file_name` et `after_read` hérite des deux comportements en les branchant, elle n'en réinvente pas un troisième. Pour les autres :
 
 | Résultat | Ce que la source doit faire | Pourquoi |
 |---|---|---|
@@ -384,8 +384,8 @@ sérialisation du producteur, et un refus n'est jamais acquitté.**
    réimplémente les réimplémentera **différemment**, et c'est ainsi qu'un poste se met à
    refuser ce qu'un autre accepte.
 2. **Les décisions de `CLAUDE.md` sont acquises.** Le préfixe du code-barres fait foi sur le
-   mode de vente et non le champ `unite` ; le CSV par poste est supprimé après lecture et la
-   suppression *est* l'acquittement ; aucune migration depuis l'ancienne application. Une
+   mode de vente et non le champ `unite` ; le CSV par poste est, par défaut, supprimé après lecture et la
+   suppression *est* l'acquittement — `file_name` et `after_read` le règlent par coopérative (ADR-061) ; aucune migration depuis l'ancienne application. Une
    source nouvelle **n'est pas** une occasion de les rouvrir — elle est la raison pour
    laquelle le CSV n'est plus le seul chemin, ce qui est autre chose.
 3. **On déclare exactement ce que la source fait.** `Bytes` à zéro veut dire « je n'ai rien
