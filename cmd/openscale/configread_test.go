@@ -423,24 +423,33 @@ func TestTheCatalogOptionsOfADR061LeaveTheFingerprintAlone(t *testing.T) {
 }
 
 // TestACooperativeThatDeclaresNoTemplateLeavesTheFingerprintAlone (ADR-062): La
-// Coope never set printer.custom_template, so the key must neither appear in the
-// delivered file's JSON nor survive a round trip as an empty object — either would
-// move the eight characters four volunteers compare by eye on a file nobody touched.
+// Coope never set printer.custom_template, so the key must neither appear in the JSON
+// that a round trip through PUT /admin/api/config actually sends nor survive that
+// round trip as an empty object — either would move the eight characters four
+// volunteers compare by eye on a file nobody touched. The delivered fingerprint is
+// pinned so a future change to omitempty, or to the JSON tag, cannot slip past a
+// comparison computed by the same code on both sides.
 func TestACooperativeThatDeclaresNoTemplateLeavesTheFingerprintAlone(t *testing.T) {
+	const fingerprintAt631d128 = "137a47a9"
+
 	before := readJSONConfig(t, deliveredConfig(t))
-
-	raw, err := os.ReadFile(deliveredConfig(t))
-	if err != nil {
-		t.Fatalf("lecture du fichier livré : %v", err)
-	}
-	if strings.Contains(string(raw), "custom_template") {
-		t.Error("custom_template figure dans le fichier livré, alors qu'aucune coopérative ne l'a réglé")
+	if got := before.Fingerprint(); got != fingerprintAt631d128 {
+		t.Fatalf("empreinte de %s : %s, attendu %s (valeur épinglée avant ADR-062) — "+
+			"un changement de testdata/config-lacagette.json doit mettre à jour cette constante "+
+			"après vérification que le déplacement est voulu", deliveredConfig(t), got, fingerprintAt631d128)
 	}
 
+	// round est le JSON tel qu'il part réellement sur le fil de PUT /admin/api/config —
+	// pas le fichier sur disque, qu'aucun code n'écrit. C'est l'aller-retour que le Step 3
+	// du plan vise, et le seul endroit où `omitempty` peut être vérifié.
 	round, err := json.Marshal(before)
 	if err != nil {
 		t.Fatalf("encodage : %v", err)
 	}
+	if bytes.Contains(round, []byte("custom_template")) {
+		t.Error("custom_template figure dans le JSON de l'aller-retour, alors qu'aucune coopérative ne l'a réglé")
+	}
+
 	var after domain.Config
 	if err := json.Unmarshal(round, &after); err != nil {
 		t.Fatalf("décodage : %v", err)
