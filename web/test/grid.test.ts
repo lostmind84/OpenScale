@@ -180,12 +180,18 @@ describe('le nombre de colonnes, réglable et automatique par défaut', () => {
   })
 
   // Le point-virgule final est celui que Svelte ajoute en normalisant l'attribut :
-  // c'est le DOM qui est vérifié ici, pas la chaîne que le composant a écrite.
+  // c'est le DOM qui est vérifié ici, pas la chaîne que le composant a écrite. Le
+  // même DOM écrit `0` ou `0px` selon la version de jsdom (`0px` depuis jsdom 31) :
+  // les deux sont la même longueur nulle, et c'est elle qui compte, pas son unité.
+  const columnsStyle = (columns: number): RegExp =>
+    new RegExp(
+      `^grid-template-columns: repeat\\(${String(columns)}, minmax\\(0(px)?, 1fr\\)\\);$`,
+      'u',
+    )
+
   it.each([3, 7, 12])('à %i, déclare repeat(N, minmax(0, 1fr))', (columns) => {
     render(few, { gridColumns: columns })
-    expect(grid().getAttribute('style')).toBe(
-      `grid-template-columns: repeat(${columns}, minmax(0, 1fr));`,
-    )
+    expect(grid().getAttribute('style')).toMatch(columnsStyle(columns))
   })
 
   it('n’écrit JAMAIS 1fr seul, qui vaut minmax(auto, 1fr)', () => {
@@ -198,7 +204,7 @@ describe('le nombre de colonnes, réglable et automatique par défaut', () => {
 
   it('donne au squelette de chargement la grille du poste, et non celle d’un autre', () => {
     render([], { gridColumns: 6, loading: true })
-    expect(grid().getAttribute('style')).toBe('grid-template-columns: repeat(6, minmax(0, 1fr));')
+    expect(grid().getAttribute('style')).toMatch(columnsStyle(6))
   })
 })
 
