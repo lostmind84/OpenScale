@@ -844,7 +844,7 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `BatchResult` | Ce que le poste a fait d'un lot, et ce que `Acknowledge` reçoit : `Result`, `Code`, `Reason`, et `AppliedAt` sur un lot appliqué — l'instant que l'écran client montre (ADR-053). |
 | `PrintJob` | Une étiquette à imprimer : `Label`, `Template`, `Copies`, `Locale`. |
 | `PrintReceipt` | Un travail **remis à un transport** : `JobID`, `Bytes`, `Duration`. Jamais « imprimé » — voir « Reçu » → `PrintReceipt`. |
-| `PrinterStatus` | Ce que l'appareil dit de lui-même : `Health`, `Detail`, `PendingJobs`, `Raw`, `Cause`. `Cause` est la panne de transport INCHANGÉE derrière le statut, nulle tant que la sonde n'a rien à reprocher — un silence n'est pas un échec (ADR-065) — ce qui permet au diagnostic de l'imprimante de la classer par `errors.Is`/`errors.As` sans que ce paquet ne nomme lui-même « absent » ou « refusé ». |
+| `PrinterStatus` | Ce que l'appareil dit de lui-même : `Health`, `Detail`, `PendingJobs`, `Raw`, `Cause`. `Cause` est la panne de transport INCHANGÉE derrière le statut : nulle tant que la sonde a abouti (réponse ou silence) ; présente aussi quand elle n'a pas pu être tentée (transport sans retour, driver fermé), sans que ce soit une panne — c'est `Health` qui juge. Elle permet au diagnostic de l'imprimante de la classer par `errors.Is`/`errors.As` sans que ce paquet ne nomme lui-même « absent » ou « refusé ». |
 
 ### `internal/platform` et `internal/fake`
 

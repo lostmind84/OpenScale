@@ -104,8 +104,11 @@ type PrinterStatus struct {
 	// Cause is the transport failure behind this status, UNCHANGED so a caller can
 	// errors.Is or errors.As it — the printer diagnostic classifies an opening failure
 	// (absent / refusé) on it without this package naming either (ADR-065). It is nil
-	// whenever the probe completed, silence included: an unknown status is not a
-	// failure, and giving it a Cause would be the exact lie important-7 removed.
+	// when the probe ran to completion — an answer or a silence. It is set when the
+	// probe could not run: a failed transport (Health Faulted), a transport that cannot
+	// ask (ErrUnsupported, Health stays Unknown) or a closed driver (Health Unknown).
+	// A non-nil Cause is therefore not a verdict: Health is the verdict, Cause says why
+	// the probe did not complete.
 	Cause error
 }
 
