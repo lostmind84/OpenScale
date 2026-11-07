@@ -137,7 +137,10 @@ func TestForgettingAnAbsentWatermarkIsNotAnError(t *testing.T) {
 	}
 }
 
-func TestForgettingLeavesTheRecordOfAnotherLocationAlone(t *testing.T) {
+// TestForgettingErasesTheRecordWhateverItsLocation: there is one catalog source per
+// station, so keep(A) then delete(B) then keep(A) must not bring A's stamp back while
+// B's catalog was in service.
+func TestForgettingErasesTheRecordWhateverItsLocation(t *testing.T) {
 	dataDir := t.TempDir()
 	if err := openWatermark(t, dataDir, "https://a/flv.csv").Remember(watermarkStamp); err != nil {
 		t.Fatalf("Remember : %v", err)
@@ -146,7 +149,96 @@ func TestForgettingLeavesTheRecordOfAnotherLocationAlone(t *testing.T) {
 	if err := openWatermark(t, dataDir, "https://a/flv_1.csv").Forget(); err != nil {
 		t.Fatalf("Forget : %v", err)
 	}
-	if !openWatermark(t, dataDir, "https://a/flv.csv").Seen(watermarkStamp) {
-		t.Error("oublier un autre emplacement a effacé le repère de celui-ci")
+	if openWatermark(t, dataDir, "https://a/flv.csv").Seen(watermarkStamp) {
+		t.Error("le repère de l'ancien emplacement est revenu après un passage par un autre")
+	}
+}
+
+const refusedDigest = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+
+func TestAWatermarkRemembersARefusedContentAcrossReopening(t *testing.T) {
+	dataDir := t.TempDir()
+	first := openWatermark(t, dataDir, "https://a/flv.csv")
+	if first.HoldsContent(refusedDigest) {
+		t.Fatal("un repère neuf ne retient aucun contenu")
+	}
+	if err := first.RememberContent(refusedDigest); err != nil {
+		t.Fatalf("RememberContent : %v", err)
+	}
+	if !first.HoldsContent(refusedDigest) {
+		t.Error("le contenu retenu n'est pas retenu en mémoire")
+	}
+	if first.HoldsContent("autre") {
+		t.Error("un autre contenu ne doit pas être retenu")
+	}
+
+	reopened := openWatermark(t, dataDir, "https://a/flv.csv")
+	if !reopened.HoldsContent(refusedDigest) {
+		t.Error("le contenu refusé doit survivre à une réouverture")
+	}
+	if openWatermark(t, dataDir, "https://a/flv_1.csv").HoldsContent(refusedDigest) {
+		t.Error("le contenu retenu pour un autre emplacement ne doit pas être repris")
+	}
+}
+
+func TestAnEmptyDigestIsNeverHeld(t *testing.T) {
+	watermark := openWatermark(t, t.TempDir(), "https://a/flv.csv")
+	if watermark.HoldsContent("") {
+		t.Error("un repère neuf retient le contenu vide")
+	}
+	if err := watermark.Remember(watermarkStamp); err != nil {
+		t.Fatalf("Remember : %v", err)
+	}
+	if watermark.HoldsContent("") {
+		t.Error("un repère sans contenu retenu retient le contenu vide")
+	}
+}
+
+func TestRememberingAStampReleasesTheHeldContent(t *testing.T) {
+	dataDir := t.TempDir()
+	watermark := openWatermark(t, dataDir, "https://a/flv.csv")
+	if err := watermark.RememberContent(refusedDigest); err != nil {
+		t.Fatalf("RememberContent : %v", err)
+	}
+	if err := watermark.Remember(watermarkStamp); err != nil {
+		t.Fatalf("Remember : %v", err)
+	}
+	if watermark.HoldsContent(refusedDigest) {
+		t.Error("un catalogue accepté ensuite doit libérer le contenu refusé")
+	}
+	if openWatermark(t, dataDir, "https://a/flv.csv").HoldsContent(refusedDigest) {
+		t.Error("le contenu libéré est revenu depuis le disque")
+	}
+}
+
+func TestAContentThatCannotBeWrittenStillIsHeldInMemory(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, "catalog"), []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	watermark := openWatermark(t, dataDir, "https://a/flv.csv")
+
+	if err := watermark.RememberContent(refusedDigest); err == nil {
+		t.Fatal("RememberContent doit signaler l'échec de l'écriture")
+	}
+	if !watermark.HoldsContent(refusedDigest) {
+		t.Error("après un échec d'écriture, le contenu doit rester retenu en mémoire")
+	}
+}
+
+func TestForgettingAlsoForgetsTheHeldContent(t *testing.T) {
+	dataDir := t.TempDir()
+	watermark := openWatermark(t, dataDir, "https://a/flv.csv")
+	if err := watermark.RememberContent(refusedDigest); err != nil {
+		t.Fatalf("RememberContent : %v", err)
+	}
+	if err := watermark.Forget(); err != nil {
+		t.Fatalf("Forget : %v", err)
+	}
+	if watermark.HoldsContent(refusedDigest) {
+		t.Error("le contenu oublié est encore retenu en mémoire")
+	}
+	if openWatermark(t, dataDir, "https://a/flv.csv").HoldsContent(refusedDigest) {
+		t.Error("le contenu oublié est revenu depuis le disque")
 	}
 }

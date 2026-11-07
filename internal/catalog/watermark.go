@@ -28,6 +28,8 @@ type Watermark struct {
 	location string
 	stamp    Stamp
 	held     bool
+	// content is the sha256 of the refused content left in place, empty when none.
+	content string
 }
 
 // watermarkRecord is the on-disk form. The location is written with the stamp so that
@@ -36,6 +38,10 @@ type watermarkRecord struct {
 	Location string    `json:"location"`
 	Size     int64     `json:"size"`
 	Modified time.Time `json:"modified"`
+	// Content is the sha256 of a refused catalog left in place. It is what lets a share
+	// that dates nothing, and so never gives the stamp a chance to match, avoid
+	// quarantining the same refused file again at every stable poll.
+	Content string `json:"content,omitempty"`
 }
 
 // OpenWatermark returns the watermark of a location, empty when nothing usable is held.
@@ -56,6 +62,7 @@ func OpenWatermark(dataDir, location string) (*Watermark, error) {
 	}
 	watermark.stamp = Stamp{Size: record.Size, Modified: record.Modified}
 	watermark.held = true
+	watermark.content = record.Content
 	return watermark, nil
 }
 
@@ -81,13 +88,41 @@ func (w *Watermark) Seen(s Stamp) bool {
 // fails: the error is returned for the caller to report, but an unwritable disk must
 // not make the same unchanged (or refused) file be read, applied or quarantined again
 // at every stable poll. The price is that a restart will read it once more.
+//
+// A stamp acknowledges a file that was APPLIED or whose refusal is already counted by
+// its date: the refused content RememberContent held, if any, is released.
 func (w *Watermark) Remember(s Stamp) error {
-	w.stamp, w.held = s, true
+	w.stamp, w.held, w.content = s, true, ""
+	return w.persist()
+}
+
+// RememberContent retains the sha256 of a refused catalog left in place, on top of the
+// stamp already held, and writes it to disk.
+//
+// It is the second line of defence of a refused file: the stamp stops it being read
+// again, but a stamp without a date never matches (see Seen), and the same broken
+// content would then be archived and counted at every stable poll until the quarantine
+// bans it — which is the red light a file merely LEFT in place must not turn on. Same
+// rule as Remember: kept in memory first, and kept when the write fails.
+func (w *Watermark) RememberContent(sha string) error {
+	w.content = sha
+	return w.persist()
+}
+
+// HoldsContent reports whether sha is the refused content already retained. An empty
+// digest is never held.
+func (w *Watermark) HoldsContent(sha string) bool {
+	return sha != "" && w.content == sha
+}
+
+// persist writes the current state to disk, atomically.
+func (w *Watermark) persist() error {
 	directory := filepath.Dir(w.path)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return fmt.Errorf("création du dossier du repère : %w", err)
 	}
-	raw, err := json.Marshal(watermarkRecord{Location: w.location, Size: s.Size, Modified: s.Modified})
+	raw, err := json.Marshal(watermarkRecord{
+		Location: w.location, Size: w.stamp.Size, Modified: w.stamp.Modified, Content: w.content})
 	if err != nil {
 		return fmt.Errorf("encodage du repère : %w", err)
 	}
@@ -117,25 +152,18 @@ func (w *Watermark) Remember(s Stamp) error {
 	return nil
 }
 
-// Forget drops the stamp from memory and removes its record from disk.
+// Forget drops the stamp and the held content from memory and removes the record from
+// disk.
 //
 // It is what a source calls when `after_read` goes back to deleting: a stamp left behind
 // would be reloaded the day the mode returns to keep, and would silently skip a NEW file
-// that happens to share the size and the date of the old one. A record that is already
-// absent is not an error, and neither is one written for ANOTHER location, which is left
-// alone: the file is shared by whichever source was last in keep mode, and this
-// watermark has no business erasing the memory of a file it does not watch. The stamp is
-// cleared from memory even when the removal fails.
+// that happens to share the size and the date of the old one. The record is removed
+// WHATEVER location it holds: a station has one catalog source, so a record written for
+// another location is the memory of a catalog no longer in service, and keep(A) then
+// delete(B) then keep(A) must not bring A's stamp back. A record already absent is not an
+// error, and the memory is cleared even when the removal fails.
 func (w *Watermark) Forget() error {
-	w.stamp, w.held = Stamp{}, false
-	raw, err := os.ReadFile(w.path)
-	if err != nil {
-		return nil
-	}
-	var record watermarkRecord
-	if json.Unmarshal(raw, &record) == nil && record.Location != w.location {
-		return nil
-	}
+	w.stamp, w.held, w.content = Stamp{}, false, ""
 	if err := os.Remove(w.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("effacement du repère : %w", err)
 	}
