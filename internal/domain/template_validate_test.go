@@ -165,6 +165,97 @@ func TestRuleFourRefusesASymbolWiderThanTheLabel(t *testing.T) {
 	}
 }
 
+// starterOnMedia is StarterTemplate() on a media of widthUM × heightUM whose printable
+// area is the whole media, every element box clipped to fit it, so rules 1 and 2 hold
+// and what is left to judge is the INK -- the symbol above all, which no box binds.
+//
+// Built on the starter on purpose: it is the copy a cooperative edits, and changing
+// media.width_um is the first thing a cooperative with another roll would do.
+func starterOnMedia(widthUM, heightUM Micrometers) Template {
+	template := StarterTemplate()
+	template.Media.WidthUM, template.Media.HeightUM = widthUM, heightUM
+	template.PrintableWidthUM, template.PrintableHeightUM = widthUM, heightUM
+	template.Elements = append([]Element(nil), template.Elements...)
+	for i := range template.Elements {
+		if right := template.Elements[i].Right(); right > widthUM {
+			template.Elements[i].WidthUM -= right - widthUM
+		}
+		if bottom := template.Elements[i].Bottom(); bottom > heightUM {
+			template.Elements[i].HeightUM -= bottom - heightUM
+		}
+	}
+	return template
+}
+
+// hasMessage reports whether one fault of field names fragment in its message.
+func hasMessage(faults []Fault, field, fragment string) bool {
+	for _, fault := range faults {
+		if fault.Field == field && strings.Contains(fault.Message, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRulesThreeAndFourMeasureTheInkAgainstANarrowerMedia: a 30 mm roll on the 280-dot
+// head of the parc. Every box fits the declared area, but the symbol is 264.872 dots
+// wide and the label 240: the renderer sizes its image on the MEDIA and refuses that
+// symbol on every label. Rules 3 and 4 measured the ink against the head alone, so the
+// template was accepted at save time and then refused at print time -- anti-objectif 1
+// of the lot, met by a narrower roll rather than by an offset.
+func TestRulesThreeAndFourMeasureTheInkAgainstANarrowerMedia(t *testing.T) {
+	narrow := starterOnMedia(30_000, 25_000)
+
+	faults := narrow.Validate(2)
+	if !hasMessage(faults, "symbol.module_milli_dots", "240 dots") {
+		t.Errorf("règle 4 : aucun refus du hors-tout du symbole qui nomme les 240 dots du média :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+	if !hasMessage(faults, "inked_content", "240 dots") {
+		t.Errorf("règle 3 : aucun refus de l'encre qui nomme les 240 dots du média :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
+// TestRuleThreeMeasuresTheInkAgainstAShorterMedia is the vertical twin: a 22 mm roll
+// (176 dots) under a symbol that ends at 198.104 dots.
+func TestRuleThreeMeasuresTheInkAgainstAShorterMedia(t *testing.T) {
+	short := starterOnMedia(35_000, 22_000)
+
+	faults := short.Validate(2)
+	if !hasMessage(faults, "inked_content", "176 dots") {
+		t.Errorf("règle 3 : aucun refus de l'encre qui nomme les 176 dots du média :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
+// TestRuleThreeMeasuresTheInkAgainstThePrintableAreaAndNotTheMedia: the printable
+// area is the operator's statement of where the printer accepts ink, and rule 2 holds
+// it inside the media. A symbol past it is refused even when the media would still
+// carry it.
+func TestRuleThreeMeasuresTheInkAgainstThePrintableAreaAndNotTheMedia(t *testing.T) {
+	template := starterOnMedia(30_000, 25_000)
+	template.Media.WidthUM = 35_000
+
+	if faults := template.Validate(2); !hasMessage(faults, "symbol.module_milli_dots", "240 dots") {
+		t.Errorf("le symbole déborde la zone imprimable de 30 mm et passe :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
+// TestRulesThreeAndFourStillAnswerForTheHeadOnALargerMedia: the head stays a bound of
+// its own. A 40 mm roll on a 280-dot head inks 280 dots, not 320.
+func TestRulesThreeAndFourStillAnswerForTheHeadOnALargerMedia(t *testing.T) {
+	template := NeutralSingleTemplate()
+	template.Media.WidthUM, template.PrintableWidthUM = 40_000, 40_000
+	template.Symbol.ModuleMilliDots = 2_600 // 293.8 dots: past the head, inside the media
+
+	if faults := template.Validate(2); !hasMessage(faults, "symbol.module_milli_dots", "280 dots") {
+		t.Errorf("un symbole plus large que la tête passe sur un média plus large qu'elle :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
 // TestRuleFiveProtectsTheQuietZones: a field overlapping a quiet zone looks fine on
 // a preview and makes the symbol unreadable at the till.
 func TestRuleFiveProtectsTheQuietZones(t *testing.T) {

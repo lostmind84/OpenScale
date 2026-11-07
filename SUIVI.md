@@ -1698,9 +1698,9 @@ de référence produit, pas une correction cosmétique.
 
 ## Décisions structurantes
 
-63 ADR dans `docs/02-architecture.md` §20 — contigus de 001 à 063, sans trou (compté le
+64 ADR dans `docs/02-architecture.md` §20 — contigus de 001 à 064, sans trou (compté le
 07/11/2026 par `grep -c '^### ADR-'` et par `grep -cE "^#{2,5} ADR-[0-9]{3}"`, qui donnent
-tous deux 63 ; c'est la cinquième fois que ce nombre est repris après avoir menti : il ne se
+tous deux 64 ; c'est la cinquième fois que ce nombre est repris après avoir menti : il ne se
 recopie pas, il se mesure). Les plus
 engageantes :
 
@@ -1726,8 +1726,9 @@ engageantes :
 | **060** | **L'installation demande ce qu'elle seule peut savoir** — mot de passe d'administration, numéro et nom du poste —, et la balance sort **déclarée absente**. Un poste neuf passe de **4 fautes à 1**. Le plancher du mot de passe d'administration descend à **4**, avec une autorité unique. **Amende** §15.2, §15.5 et le parcours d'ADR-018 ; **n'amende pas** ADR-012 |
 | **051** | **A1 n'était pas une contrainte, c'était l'état d'un logiciel Access.** Ce qui est tenu est le contrat de caisse, pas le dessin. Barres 10 875 → **11 375 µm**, gabarit B retiré, règle 9 réécrite contre la plage GS1. **Remplace ADR-003**, reprend les chiffres d'**ADR-029** |
 | **061** | **Le nom du fichier de catalogue et son sort après lecture se règlent par coopérative** — `file_name` et `after_read` (`delete` par défaut, ou `keep`, qui ne supprime jamais et acquitte par un repère). **Remplace ADR-004** |
-| **062** | **Le gabarit d'étiquette se déclare par coopérative, sous `printer.custom_template`** — un `*domain.Template` optionnel, choisi comme un gabarit livré par `printer.template`, qui ne recouvre jamais `weighing_identical` ni `weighing_neutral_single` (contrôle 53). **Tâche 1/7 du lot ; `templatesFor` ne le lit pas encore** |
-| **063** | **Les bornes du décalage se calculent sur les quatre côtés du gabarit en service, pas seulement `[0, max]`** — `domain.OffsetBounds{MinX, MaxX, MinY, MaxY}`, `Min*` négatif exactement quand le gabarit laisse une marge à son bord haut ou gauche. **Tâche 3/7 du lot** |
+| **062** | **Le gabarit d'étiquette se déclare par coopérative, sous `printer.custom_template`** — un `*domain.Template` optionnel, choisi comme un gabarit livré par `printer.template`, qui ne recouvre jamais `weighing_identical` ni `weighing_neutral_single` (contrôle 53). `templatesFor`, `Hub.template` et la fabrique de rechargement de l'imprimante le lisent (fermé par 9f43d65, §11.4) |
+| **063** | **Les bornes du décalage se calculent sur les quatre côtés du gabarit en service, pas seulement `[0, max]`** — `domain.OffsetBounds{MinX, MaxX, MinY, MaxY}`, `Min*` négatif exactement quand le gabarit laisse une marge à son bord haut ou gauche |
+| **064** | **Les règles 3 et 4 mesurent l'encre contre la tête ET la zone imprimable du gabarit** — `min(tête, zone imprimable en dots entiers)`, pour les règles comme pour `MaxX`/`MaxY` : un rouleau plus étroit que la tête est refusé à l'enregistrement, plus au rendu. **Amende ADR-045** sur « aucune règle ne dépend de la taille du média » ; La Coope inchangée (35 × 25 mm = la tête au dot près) |
 
 ---
 

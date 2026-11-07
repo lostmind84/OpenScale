@@ -256,6 +256,50 @@ func TestOffsetBoundsOnCountsTheSymbolAsTheLeftmostInk(t *testing.T) {
 	}
 }
 
+// TestOffsetBoundsOnStopsAtTheMediaAndNotOnlyAtTheHead: MaxX and MaxY are the margin
+// the LABEL leaves, and a label narrower or shorter than the head leaves less. Measured
+// against the head alone, a 34 × 24.9 mm roll whose text stops at 30 mm answered
+// MaxX = 15 and MaxY = 1, and every arrow press past 7 or 0 printed a symbol the
+// renderer refuses -- the bound said "dans les clous" while the label came out
+// refused, which is anti-objectif 1 of the lot.
+func TestOffsetBoundsOnStopsAtTheMediaAndNotOnlyAtTheHead(t *testing.T) {
+	build := func() Template {
+		template := starterOnMedia(34_000, 24_900)
+		for i := range template.Elements {
+			if right := template.Elements[i].Right(); right > 30_000 {
+				template.Elements[i].WidthUM -= right - 30_000
+			}
+		}
+		return template
+	}
+	template := build()
+	if faults := template.Validate(2); len(faults) != 0 {
+		t.Fatalf("le fixture lui-même devrait être légal, faults = %v", faults)
+	}
+
+	// 34 mm = 272 dots, symbol right edge 264.872 dots -> 7. 24.9 mm = 199.2 dots,
+	// floored to the 199 the renderer allocates, symbol bottom 198.104 dots -> 0.
+	bounds := template.OffsetBoundsOn(ReferenceHead(), 2)
+	if bounds.MaxX != 7 || bounds.MaxY != 0 {
+		t.Fatalf("MaxX, MaxY = %d, %d, attendu 7, 0 (la marge du média, pas celle de la tête)",
+			bounds.MaxX, bounds.MaxY)
+	}
+
+	atTheBound := build()
+	atTheBound.OffsetXDots, atTheBound.OffsetYDots = bounds.MaxX, bounds.MaxY
+	if faults := atTheBound.Validate(2); len(faults) != 0 {
+		t.Errorf("le décalage à la borne (%d ; %d) devrait valider, faults = %v",
+			bounds.MaxX, bounds.MaxY, faults)
+	}
+	for _, past := range []struct{ x, y int }{{bounds.MaxX + 1, 0}, {0, bounds.MaxY + 1}} {
+		pastTheBound := build()
+		pastTheBound.OffsetXDots, pastTheBound.OffsetYDots = past.x, past.y
+		if faults := pastTheBound.Validate(2); len(faults) == 0 {
+			t.Errorf("le décalage (%d ; %d), un dot au-delà de la borne, devrait être refusé", past.x, past.y)
+		}
+	}
+}
+
 // TestSymbolHeightUsesMaxAndNotASum is the definition of §7.4 that had to be settled
 // once: the HRI digits sit INSIDE the guard descent band, so the block height is
 // bars + max(descent, hri), never bars + descent + hri.

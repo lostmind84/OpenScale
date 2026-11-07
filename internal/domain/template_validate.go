@@ -26,7 +26,9 @@ func (t *Template) Validate(tierCount int) []Fault {
 //
 // Rules 3 and 4 are the two that need one: they bound the ink by what the head can
 // print, and holding that bound as a constant of the core made every station whose
-// printer is not the WS408 of the parc fail its own validation at start-up.
+// printer is not the WS408 of the parc fail its own validation at start-up. They bound
+// it by the label as well (inkableExtent): a roll narrower than the head leaves less
+// room than the head does, and the renderer sizes its image on the media.
 //
 // A head that declares nothing is measured against ReferenceHead, so a caller with no
 // descriptor in hand — a test, a preview — validates exactly what it validated before.
@@ -67,8 +69,7 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
 			t.Media.DotsPerMM, head.DotsPerMM)
 	}
 
-	inkedWidth := int64(head.InkedWidthDots) * 1000
-	inkedHeight := int64(head.InkedHeightDots) * 1000
+	inkedWidth, inkedHeight := t.inkableExtent(head)
 
 	// Rule 9, checked first: a template with an absurd module or an unreadable type
 	// size produces cascades of geometric faults, and naming the cause is kinder
@@ -196,11 +197,11 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
 		bottom, right := shifted.inkedExtent(tierCount)
 		if bottom > inkedHeight {
 			fail("inked_content", "le contenu encré descend à %s dots, au-delà des %d dots de hauteur encrée de l'étiquette",
-				formatMilliDots(bottom), head.InkedHeightDots)
+				formatMilliDots(bottom), inkedHeight/1000)
 		}
 		if right > inkedWidth {
 			fail("inked_content", "le contenu encré s'étend à %s dots, au-delà des %d dots de largeur encrée de l'étiquette",
-				formatMilliDots(right), head.InkedWidthDots)
+				formatMilliDots(right), inkedWidth/1000)
 		}
 
 		// Rule 3, the other direction: no compiled template ever placed the symbol
@@ -219,7 +220,7 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
 		if width := shifted.Symbol.TotalWidthMilliDots(); width > inkedWidth {
 			fail("symbol.module_milli_dots",
 				"le hors-tout du symbole (113 modules = %s dots) dépasse les %d dots de largeur encrée",
-				formatMilliDots(width), head.InkedWidthDots)
+				formatMilliDots(width), inkedWidth/1000)
 		}
 	}
 

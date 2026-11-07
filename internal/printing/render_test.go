@@ -434,3 +434,34 @@ func TestTheFreeRasterizeRendersAndStaysAudible(t *testing.T) {
 			"§7.3 sort en silence.\nJournal : %s", codeFieldTruncated, captured.String())
 	}
 }
+
+// TestATemplateOnARollSmallerThanTheHeadPrintsAtEveryOffsetItsBoundsAdmit closes the
+// loop the domain rules open: a cooperative's gabarit on a 34 × 24.9 mm roll, text
+// kept inside 30 mm, is pushed to the largest offset OffsetBounds admits and must
+// still RENDER. Measured against the 280 × 200 dots of the head alone, the bound said
+// 15 and 1, Validate agreed, and DrawEAN13 then refused every label because the image
+// is sized on the media -- anti-objectif 1 of the lot.
+func TestATemplateOnARollSmallerThanTheHeadPrintsAtEveryOffsetItsBoundsAdmit(t *testing.T) {
+	template := domain.StarterTemplate()
+	template.Media.WidthUM, template.Media.HeightUM = 34_000, 24_900
+	template.PrintableWidthUM, template.PrintableHeightUM = 34_000, 24_900
+	template.Elements = append([]domain.Element(nil), template.Elements...)
+	for i := range template.Elements {
+		if right := template.Elements[i].Right(); right > 30_000 {
+			template.Elements[i].WidthUM -= right - 30_000
+		}
+	}
+
+	bounds := template.OffsetBounds(2)
+	template.OffsetXDots, template.OffsetYDots = bounds.MaxX, bounds.MaxY
+	if faults := template.Validate(2); len(faults) != 0 {
+		t.Fatalf("le gabarit à sa borne (%d ; %d) devrait valider : %v", bounds.MaxX, bounds.MaxY, faults)
+	}
+
+	r, _ := newTestRasterizer(t)
+	label := weighing(t, celeryRow, referenceMass, domain.LaCagetteRules())
+	if _, err := r.Rasterize(&template, label, domain.LocaleFrench, RenderOptions{}); err != nil {
+		t.Errorf("un décalage que les bornes admettent (%d ; %d) est refusé au rendu : %v",
+			bounds.MaxX, bounds.MaxY, err)
+	}
+}

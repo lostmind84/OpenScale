@@ -236,7 +236,10 @@ refus exacts, recopiés depuis le code :
   dots/mm : à ce module le symbole sortirait à un autre grandissement »* — et ne peut
   pas être absente ou nulle.
 - **Rien ne dépasse l'étiquette, et deux champs ne se recouvrent jamais entre eux**
-  (au-delà des zones de silence du symbole, déjà citées).
+  (au-delà des zones de silence du symbole, déjà citées). « L'étiquette », c'est la
+  plus petite des deux surfaces : celle que la tête encre, et la zone imprimable que
+  votre gabarit déclare. Un rouleau plus étroit que la tête refuse donc un symbole qui
+  tiendrait sur la tête mais pas sur le papier.
 
 Un gabarit qui viole une seule de ces règles est refusé **à l'enregistrement**, avec
 le même niveau de détail qu'aujourd'hui pour `weighing_identical` — jamais découvert
@@ -250,9 +253,11 @@ fois, mais leurs bornes ne sont **pas fixes** : elles dépendent de la marge que
 deux gabarits livrés) ne peut descendre qu'à zéro — il n'y a pas de marge à
 consommer. Un gabarit qui laisse de la place en haut ou à gauche peut descendre
 au-delà de zéro, jusqu'à cette marge et pas plus loin, pour recentrer l'impression sur
-le rouleau. La borne est annoncée sous les flèches, et un enregistrement qui la
-dépasse est refusé avec le message *« … dots hors bornes […, …] pour le gabarit
-"…" »* — exactement la borne affichée, jamais une surprise.
+le rouleau. À droite et en bas, la borne s'arrête au bord de l'étiquette, c'est-à-dire
+de la plus petite des deux surfaces décrites plus haut. La borne est annoncée sous les
+flèches, et un enregistrement qui la dépasse est refusé avec le message *« … dots hors
+bornes […, …] pour le gabarit "…" »* — exactement la borne affichée, jamais une
+surprise.
 
 ## Lire l'aperçu avant tout tirage réel
 

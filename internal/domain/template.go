@@ -371,18 +371,18 @@ func (t *Template) OffsetBounds(tierCount int) OffsetBounds {
 
 // OffsetBoundsOn reports the admissible range of the offset in each of the four
 // directions, ON THIS HEAD -- MinX/MinY from the template's own geometry
-// (inkedOrigin), MaxX/MaxY from the margin this head leaves (inkedExtent), exactly
-// as MaxOffsetDotsOn always computed them.
+// (inkedOrigin), MaxX/MaxY from the margin left between the ink (inkedExtent) and
+// whichever ends first, the head or the template's printable area (inkableExtent).
 //
 // A margin computed against a constant would refuse, on a taller head, an
 // adjustment the printer would have accepted — and the ±1 dot arrows are how a
 // volunteer corrects a roll that sits a hair off.
 func (t *Template) OffsetBoundsOn(head PrinterCapabilities, tierCount int) OffsetBounds {
-	head = head.orReference()
 	top, left := t.inkedOrigin(tierCount)
 	bottom, right := t.inkedExtent(tierCount)
-	remainingX := (int64(head.InkedWidthDots)*1000 - right) / 1000
-	remainingY := (int64(head.InkedHeightDots)*1000 - bottom) / 1000
+	inkableWidth, inkableHeight := t.inkableExtent(head)
+	remainingX := (inkableWidth - right) / 1000
+	remainingY := (inkableHeight - bottom) / 1000
 	if remainingX < 0 {
 		remainingX = 0
 	}
@@ -417,6 +417,39 @@ func (t *Template) withOffset() *Template {
 	shifted.Symbol.XUM += dx
 	shifted.Symbol.YUM += dy
 	return &shifted
+}
+
+// inkableExtent reports how far right and how far down ink may go, in milli-dots:
+// the smaller of what THIS head prints and the printable area the template declares
+// (its media when it declares none), the latter floored to whole dots.
+//
+// The head alone was enough while every template was 35 × 25 mm at 8 dots/mm, which is
+// the 280 × 200 dots of the WS408 to the dot. A cooperative's own gabarit may declare a
+// narrower or a shorter roll, and the renderer sizes its image on the media: a symbol
+// that fits the head but not the label passed every rule and was then refused on every
+// label. The floor is the conservative side of the renderer's own rounding -- 24.9 mm
+// is 199.2 dots, and no ink may count on the fifth of a dot no image carries.
+func (t *Template) inkableExtent(head PrinterCapabilities) (width, height int64) {
+	head = head.orReference()
+	width = t.Media.inkableBound(int64(head.InkedWidthDots)*1000, t.PrintableWidthUM, t.Media.WidthUM)
+	height = t.Media.inkableBound(int64(head.InkedHeightDots)*1000, t.PrintableHeightUM, t.Media.HeightUM)
+	return width, height
+}
+
+// inkableBound returns headBound, lowered to the declared area in whole dots when the
+// area is narrower. printable wins over media when declared, as rules 1 and 2 read it.
+func (m Media) inkableBound(headBound int64, printable, media Micrometers) int64 {
+	area := printable
+	if area <= 0 {
+		area = media
+	}
+	if area <= 0 {
+		return headBound
+	}
+	if declared := m.MilliDots(area) / 1000 * 1000; declared < headBound {
+		return declared
+	}
+	return headBound
 }
 
 // inkedExtent reports how far down and how far right the ink actually goes, in
