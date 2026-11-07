@@ -17,6 +17,10 @@ const watermarkFile = "watermark.json"
 // Without it a kept file would be read again at every poll, and again after every
 // restart. The memory is on disk for the second reason: a station that reboots every
 // morning must not re-apply an unchanged catalog each time.
+//
+// It is not safe for concurrent use. It is meant to be called from the single goroutine
+// that runs a source's Next and Acknowledge (internal/station/catalogwatch.go), never
+// from Close or Wake.
 type Watermark struct {
 	path     string
 	location string
@@ -70,7 +74,13 @@ func (w *Watermark) Seen(s Stamp) bool {
 // The write goes through a temporary file of the same directory, synced then renamed,
 // so that a power cut leaves either the previous watermark or the new one, never half
 // of a JSON document that would be read back as empty.
+//
+// The stamp is retained in memory BEFORE the write, and stays retained when the write
+// fails: the error is returned for the caller to report, but an unwritable disk must
+// not make the same unchanged (or refused) file be read, applied or quarantined again
+// at every stable poll. The price is that a restart will read it once more.
 func (w *Watermark) Remember(s Stamp) error {
+	w.stamp, w.held = s, true
 	directory := filepath.Dir(w.path)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return fmt.Errorf("création du dossier du repère : %w", err)
@@ -102,6 +112,5 @@ func (w *Watermark) Remember(s Stamp) error {
 		_ = os.Remove(name)
 		return fmt.Errorf("nommage du repère : %w", err)
 	}
-	w.stamp, w.held = s, true
 	return nil
 }

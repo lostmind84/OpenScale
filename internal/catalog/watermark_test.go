@@ -95,3 +95,20 @@ func TestAnUnreadableWatermarkIsEmpty(t *testing.T) {
 		t.Error("un repère illisible ne doit rien avoir vu")
 	}
 }
+
+func TestAWatermarkThatCannotBeWrittenStillRemembersInMemory(t *testing.T) {
+	dataDir := t.TempDir()
+	// A regular file where the "catalog" directory should be makes the write fail
+	// whoever runs the test; directory permissions would not stop root.
+	if err := os.WriteFile(filepath.Join(dataDir, "catalog"), []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	watermark := openWatermark(t, dataDir, "https://a/flv.csv")
+
+	if err := watermark.Remember(watermarkStamp); err == nil {
+		t.Fatal("Remember doit signaler l'échec de l'écriture")
+	}
+	if !watermark.Seen(watermarkStamp) {
+		t.Error("après un échec d'écriture, le tampon doit rester retenu en mémoire pour ne pas relire le fichier à chaque scrutation")
+	}
+}
