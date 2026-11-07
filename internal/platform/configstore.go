@@ -118,7 +118,7 @@ func (s *ConfigStore) Save(_ context.Context, cfg domain.Config) error {
 	raw = append(raw, '\n')
 
 	directory := filepath.Dir(s.path)
-	tmp, err := writeTemporary(directory, raw)
+	tmp, err := writeTemporary(directory, raw, s.path)
 	if err != nil {
 		return err
 	}
@@ -216,7 +216,7 @@ func (s *ConfigStore) rotate() error {
 	if err != nil {
 		return fmt.Errorf("configuration en service illisible (%s) : %w", s.path, err)
 	}
-	tmp, err := writeTemporary(filepath.Dir(s.path), current)
+	tmp, err := writeTemporary(filepath.Dir(s.path), current, s.path)
 	if err != nil {
 		return err
 	}
@@ -232,33 +232,60 @@ func (s *ConfigStore) versionPath(version int) string {
 	return fmt.Sprintf("%s.%d", s.path, version)
 }
 
-// writeTemporary puts the bytes in a file of the target DIRECTORY and flushes them to
-// the device before returning its name.
+// writeTemporary puts the bytes in a file of the target DIRECTORY, gives it the mode and
+// the owner of the file at like, and flushes it to the device before returning its name.
 //
 // The fsync is not decoration: without it the rename can reach the disk before the
 // content does, and a power cut then leaves a config.json that exists, is named
 // correctly, and is empty — which is worse than the old one, because it looks valid.
-func writeTemporary(directory string, content []byte) (string, error) {
+//
+// Taking after like is not decoration either. os.CreateTemp makes a file 0600 owned by
+// whoever runs the command, and the rename then puts THAT file in force: install.sh,
+// update.sh and the recovery procedure all run the binary as root, and each of them used
+// to leave the service account facing a config.json it could not read — a station that
+// restarts in a loop until somebody types `chown openscale:` (Graoucoop, 2026-11).
+func writeTemporary(directory string, content []byte, like string) (string, error) {
 	file, err := os.CreateTemp(directory, "config-*.json")
 	if err != nil {
 		return "", fmt.Errorf("fichier temporaire dans %s : %w", directory, err)
 	}
 	name := file.Name()
-	if _, err := file.Write(content); err != nil {
+	fail := func(format string, err error) (string, error) {
 		file.Close()
 		os.Remove(name)
-		return "", fmt.Errorf("écriture de %s : %w", name, err)
+		return "", fmt.Errorf(format, name, err)
+	}
+	if err := takeAfter(file, like); err != nil {
+		return fail("droits de %s : %w", err)
+	}
+	if _, err := file.Write(content); err != nil {
+		return fail("écriture de %s : %w", err)
 	}
 	if err := file.Sync(); err != nil {
-		file.Close()
-		os.Remove(name)
-		return "", fmt.Errorf("vidage de %s sur le disque : %w", name, err)
+		return fail("vidage de %s sur le disque : %w", err)
 	}
 	if err := file.Close(); err != nil {
 		os.Remove(name)
 		return "", fmt.Errorf("fermeture de %s : %w", name, err)
 	}
 	return name, nil
+}
+
+// takeAfter gives file the permission bits and the owner of the file at like. A like
+// that does not exist yet — the first save of a station — leaves file as CreateTemp made
+// it: there is nobody to take after, and inventing an owner would be a guess.
+func takeAfter(file *os.File, like string) error {
+	info, err := os.Stat(like)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := file.Chmod(info.Mode().Perm()); err != nil {
+		return err
+	}
+	return keepOwner(file, info)
 }
 
 // readConfigFile is what ConfigStore.Read reads with, and it goes through LoadConfig for
