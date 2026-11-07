@@ -368,8 +368,17 @@ func (l *livePrinter) DiagnosePrinter(ctx context.Context) (web.PrinterDiagnosis
 // AnswerStep turns a volunteer's own answer to step 5 into the step itself (decision
 // 3): nothing on this binary measures whether a label came out, so the only verdict
 // that can exist here is the one a person gives.
+//
+// It reads the transport IN SERVICE under the same lock hold writes it with, so the
+// remedy of a « Non » names what the bytes of step 4 actually reached — the Windows
+// spooler is not an USB link (final review, I2) — while the route itself stays
+// stateless: nothing of the run is kept between the two calls, only the printer the
+// station holds anyway.
 func (l *livePrinter) AnswerStep(printed bool, seen string) web.DiagnosisStep {
-	return webDiagnosisStep(printing.AnswerStep(printed, seen))
+	l.mu.RLock()
+	transport := l.subject.Transport
+	l.mu.RUnlock()
+	return webDiagnosisStep(printing.AnswerStep(transport, printed, seen))
 }
 
 // diagnosisQueues lists the Windows print queues the winspool step of the diagnostic

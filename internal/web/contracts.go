@@ -278,10 +278,13 @@ type PrinterDiagnosis struct {
 	Steps  []DiagnosisStep
 }
 
-// PrinterDiagnostician is the printer diagnostic of page Matériel, AUCUN mot de passe
-// (decision 7): DiagnosePrinter runs steps 1 to 4 on the printer IN SERVICE and leaves
-// step 5 "unanswered", AnswerStep turns a volunteer's own answer to that step into the
-// step itself (decision 3) — nothing in this binary measures whether a label came out.
+// PrinterDiagnostician is the printer diagnostic of page Matériel, with NO password
+// anywhere (decision 7, ADR-033: testing the printer changes neither what the station
+// sells nor how it weighs): DiagnosePrinter runs steps 1 to 4 on the printer IN SERVICE
+// and leaves step 5 "unanswered", or "not_applicable" when the run stopped before it
+// or the driver sends nothing to a printer; AnswerStep turns a volunteer's own answer
+// to that step into the step itself (decision 3) — nothing in this binary measures
+// whether a label came out — with the remedy of the transport in service.
 type PrinterDiagnostician interface {
 	DiagnosePrinter(ctx context.Context) (PrinterDiagnosis, error)
 	AnswerStep(printed bool, seen string) DiagnosisStep

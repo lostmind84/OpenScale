@@ -1,8 +1,9 @@
 package printing
 
 // This file is the printer diagnostic of the admin screen, page Matériel: five steps
-// a volunteer runs WITHOUT a password, because the fifth asks THEM a question nothing
-// in this binary can answer — did the label come out? (decision 3, decision 7).
+// a volunteer runs WITHOUT a password — testing the printer changes neither what the
+// station sells nor how it weighs (decision 7, ADR-033) — the fifth of which asks THEM
+// a question nothing in this binary can answer: did the label come out? (decision 3).
 //
 // It orders the five steps and writes every sentence a volunteer reads; nothing else
 // does. Steps 1 to 3 are the SAME probe this package already makes for the dashboard
@@ -11,7 +12,9 @@ package printing
 // time (ADR-065, Review Focus). Step 4 is Service.SelfTest("label"), which hands back
 // the receipt ADR-065 added for exactly this. Step 5 is never measured — AnswerStep
 // turns a volunteer's own answer into the step, and nothing here collects it from a
-// sensor that does not exist.
+// sensor that does not exist. Its remedy names what the bytes of step 4 actually
+// reached — a device node, a socket, the Windows spooler, a directory — because a
+// « Non » means a different first thing to check on each (final review, I2).
 //
 // What classifies an opening failure (absent device, refused permission, connexion
 // impossible) lives HERE and nowhere upstream: ports.PrinterStatus.Cause travels
@@ -56,6 +59,9 @@ const (
 	// StepNotApplicable means an earlier step already decided the rest, or this
 	// transport has nothing to say about this step (a Windows queue has no file
 	// permission to check, a disk directory has nothing a device-level probe can ask).
+	// Observed always says which: a bare « sans objet » next to « inconnu » leaves a
+	// volunteer guessing whether anything was even tried (spec, « Tranché en
+	// relecture », winspool).
 	StepNotApplicable StepState = "not_applicable"
 	// StepUnanswered means step 5 has not been put to the volunteer yet.
 	StepUnanswered StepState = "unanswered"
@@ -183,7 +189,9 @@ func Diagnose(ctx context.Context, s Subject, p DiagnosisProbes) []DiagnosisStep
 		// "" is the neutral profile's printer, which declares no transport at all
 		// (§8.1): there is nothing to open, so nothing is — zero Interrogate calls,
 		// not a probe that would have nothing to ask (decision, Task 3).
-		steps[0].State, steps[1].State, steps[2].State = StepNotApplicable, StepNotApplicable, StepNotApplicable
+		for i := range 3 {
+			steps[i].State, steps[i].Observed = StepNotApplicable, observedNoPrinter
+		}
 	}
 
 	// Step 3 reads the SAME probe steps 1 and 2 already read, but only devfile and tcp
@@ -198,18 +206,47 @@ func Diagnose(ctx context.Context, s Subject, p DiagnosisProbes) []DiagnosisStep
 	case !interrogated:
 		// steps[2] was already set to not_applicable above.
 	case steps[0].State == StepFail || steps[1].State == StepFail:
-		steps[2].State = StepNotApplicable
-		steps[3].State = StepNotApplicable
-		steps[4].State = StepNotApplicable
+		haltAfterFailure(steps)
 		return steps
 	case spreadsUnknown && (steps[0].State == StepUnknown || steps[1].State == StepUnknown):
 		fillUnknownStep3(&steps[2])
 	default:
-		classifyStep3(&steps[2], status)
+		classifyStep3(&steps[2], s.Transport, status)
 	}
 
 	runSelfTest(ctx, &steps[3], &steps[4], p.Printer)
+	if s.Transport == "" {
+		// Step 4 wrote a file, not a label: there is nothing for a volunteer to look
+		// at, and asking would invite an answer about a printer this run never
+		// reached (anti-objectif 3, final review I2).
+		steps[4].State, steps[4].Observed = StepNotApplicable, observedNoPrinter
+	}
 	return steps
+}
+
+// observedNoPrinter is what every step a driver without a transport skips says: the
+// preview driver (§8.1) renders an image and a PDF, and nothing reaches a printer.
+const observedNoPrinter = "le driver d'impression en service écrit l'étiquette dans un fichier " +
+	"(aperçu) et n'envoie rien à une imprimante : il n'y a rien à vérifier ici."
+
+// haltAfterFailure closes every step after the first failing one, and says so in each
+// of them: a step left « sans objet » without a word reads as one nobody tried.
+func haltAfterFailure(steps []DiagnosisStep) {
+	first := 0
+	for i := range steps {
+		if steps[i].State == StepFail {
+			first = i
+			break
+		}
+	}
+	for i := first + 1; i < len(steps); i++ {
+		if steps[i].State == StepNotApplicable && steps[i].Observed != "" {
+			continue // a transport that already said why this step does not apply
+		}
+		steps[i].State = StepNotApplicable
+		steps[i].Observed = fmt.Sprintf("non menée : l'étape %d a échoué, c'est elle qu'il faut corriger d'abord.",
+			steps[first].Number)
+	}
 }
 
 // classifyDevfile fills steps 1 and 2 for the devfile transport (§8.4, Linux default).
@@ -279,6 +316,8 @@ func classifyDevfile(steps []DiagnosisStep, device string, status ports.PrinterS
 // the same positive-proof rule as classifyDevfile, with "dial" standing in for "open".
 func classifyTCP(steps []DiagnosisStep, device string, status ports.PrinterStatus) {
 	steps[1].State = StepNotApplicable
+	steps[1].Observed = "une connexion réseau n'a pas de droit de fichier à vérifier : l'étape 1 dit " +
+		"déjà si le poste peut s'y connecter."
 
 	cause := status.Cause
 	if cause == nil {
@@ -314,6 +353,8 @@ func classifyTCP(steps []DiagnosisStep, device string, status ports.PrinterStatu
 // station, owns who may write to it.
 func classifyWinspool(ctx context.Context, steps []DiagnosisStep, device string, queues func(context.Context) ([]string, error)) {
 	steps[1].State = StepNotApplicable
+	steps[1].Observed = "c'est le spouleur Windows, pas ce poste, qui décide qui peut écrire dans une " +
+		"file : l'étape 4 y écrit réellement."
 
 	if queues == nil {
 		steps[0].State = StepUnknown
@@ -346,6 +387,8 @@ func classifyWinspool(ctx context.Context, steps []DiagnosisStep, device string,
 // so (plan, écart 3) — a weaker claim than "pass", on purpose.
 func classifyFile(steps []DiagnosisStep, device string, stat func(string) (fs.FileInfo, error)) {
 	steps[1].State = StepNotApplicable
+	steps[1].Observed = "l'étape 4 écrit réellement dans ce dossier : c'est elle qui dira si le poste " +
+		"peut y écrire."
 	if stat == nil {
 		stat = os.Stat
 	}
@@ -394,15 +437,21 @@ func fillUnknownStep3(step *DiagnosisStep) {
 // It never turns a silence into a failure (§8.5, decision 2): PrinterUnknown with no
 // Raw and no Cause is the honest "nous ne savons pas", reported unknown and NOT fail —
 // neither Observed nor Remedy may say « erreur » here, because nothing failed.
-func classifyStep3(step *DiagnosisStep, status ports.PrinterStatus) {
+//
+// Nor does it explain the silence away. docs/04-parametrage-sato.md measured that a
+// SATO at rest in standard protocol DOES answer the ENQ; a silence is therefore a clue
+// about the interface's settings, and the remedy is the validated maquette's, which
+// says exactly that without claiming to know which setting (final review, I1).
+func classifyStep3(step *DiagnosisStep, transport string, status ports.PrinterStatus) {
 	switch {
 	case errors.Is(status.Cause, ports.ErrUnsupported):
 		step.State = StepNotApplicable
+		step.Observed = unsupportedStep3(transport)
 	case status.Cause == nil && status.Health == ports.PrinterUnknown && len(status.Raw) == 0:
 		step.State = StepUnknown
-		step.Observed = "l'imprimante n'a rien renvoyé à la sonde de statut en 500 ms : une SATO " +
-			"au repos ne dit rien de sa santé, ce silence est courant."
-		step.Remedy = "On continue : ce silence n'empêche pas d'imprimer, l'étape suivante le vérifie."
+		step.Observed = "aucune réponse à la sonde de statut en 500 ms."
+		step.Remedy = "Ce n'est pas une panne en soi : certains réglages de l'interface ne renvoient " +
+			"pas d'état. On continue."
 	case status.Health == ports.PrinterFaulted:
 		step.State = StepFail
 		step.Observed = status.Detail
@@ -413,6 +462,20 @@ func classifyStep3(step *DiagnosisStep, status ports.PrinterStatus) {
 		step.State = StepPass
 		step.Observed = status.Detail
 	}
+}
+
+// unsupportedStep3 says why step 3 does not apply to a transport that cannot ask the
+// printer anything — which is not a silence, and must not read like one: « sans
+// objet » means nothing was asked, « inconnu » that nothing came back.
+func unsupportedStep3(transport string) string {
+	switch transport {
+	case domain.TransportWinspool:
+		return "une file Windows ne renvoie pas l'état de l'imprimante : cette étape ne s'applique " +
+			"pas ici, ce n'est pas un silence."
+	case domain.TransportFile:
+		return "un dossier n'a pas d'état à demander : cette étape ne s'applique pas ici."
+	}
+	return "ce transport ne sait pas demander son état à l'imprimante : cette étape ne s'applique pas ici."
 }
 
 // runSelfTest fills step 4 from the `label` self-test's receipt (ADR-065), and sets
@@ -428,6 +491,8 @@ func runSelfTest(ctx context.Context, step4, step5 *DiagnosisStep, printer Probe
 			"même raison qu'une étiquette de vente."
 		step4.Doc = anchor(4)
 		step5.State = StepNotApplicable
+		step5.Observed = "non posée : l'étiquette de test n'est pas partie (étape 4), il n'y a rien à " +
+			"regarder sortir."
 		return
 	case receipt.Bytes <= 0:
 		step4.State = StepUnknown
@@ -443,18 +508,51 @@ func runSelfTest(ctx context.Context, step4, step5 *DiagnosisStep, printer Probe
 // AnswerStep turns a volunteer's own answer to step 5 into the step itself: nothing in
 // this binary measures whether a label came out (decision 3), so the only verdict that
 // can exist here is the one a person gives.
-func AnswerStep(printed bool, seen string) DiagnosisStep {
+//
+// transport is Subject.Transport of the printer in service. It picks the remedy of a
+// « Non », because the receipt of step 4 counts bytes handed to the TRANSPORT, and what
+// that proves differs on each: a device node and a socket reach the printer, a Windows
+// queue only reaches the spooler — where a paused or offline queue is the first thing
+// to look at (final review, I2). "" is a driver that sends nothing to a printer: there
+// was no label to look at, so whatever the answer, the step does not apply.
+func AnswerStep(transport string, printed bool, seen string) DiagnosisStep {
 	step := DiagnosisStep{Number: 5, Title: title5}
+	if transport == "" {
+		step.State, step.Observed = StepNotApplicable, observedNoPrinter
+		return step
+	}
 	if printed {
 		step.State = StepPass
 		return step
 	}
 	step.State = StepFail
 	step.Observed = seen
-	step.Remedy = "L'imprimante a tout reçu mais n'a pas fini le travail. À vérifier sur " +
-		"l'imprimante : le protocole de l'interface USB, puis la calibration du rouleau."
+	step.Remedy = notPrintedRemedy(transport)
 	step.Doc = anchor(5)
 	return step
+}
+
+// notPrintedRemedy is what to check first when a label did not come out, on the
+// transport that carried it.
+func notPrintedRemedy(transport string) string {
+	switch transport {
+	case domain.TransportDevfile:
+		return "L'imprimante a tout reçu mais n'a pas fini le travail. À vérifier sur " +
+			"l'imprimante : le protocole de l'interface USB, puis la calibration du rouleau."
+	case domain.TransportWinspool:
+		return "Le travail a été remis en entier à la file Windows, pas directement à " +
+			"l'imprimante. Ouvrir la file d'attente de cette imprimante (Panneau de configuration → " +
+			"Périphériques et imprimantes) et vérifier qu'elle n'est ni suspendue ni hors connexion ; " +
+			"puis, sur l'imprimante, la calibration du rouleau."
+	case domain.TransportTCP:
+		return "L'imprimante a reçu tout le travail par le réseau mais ne l'a pas fini. À vérifier " +
+			"sur l'imprimante : son réglage de protocole, puis la calibration du rouleau."
+	case domain.TransportFile:
+		return "Le transport « file » n'imprime rien : il dépose chaque étiquette dans le dossier " +
+			"de printer.options.path. Vérifier qu'un nouveau fichier y est apparu."
+	}
+	return "Le travail est parti en entier mais rien n'est sorti. À vérifier sur l'imprimante : " +
+		"son réglage de protocole, puis la calibration du rouleau."
 }
 
 // groupThousands writes n grouped by thousands with the narrow no-break space of

@@ -544,6 +544,24 @@ func TestTheDiagnosisFollowsAReload(t *testing.T) {
 	}
 }
 
+// TestTheAnswerFollowsTheTransportInService is I2 of the final review: livePrinter
+// hands the transport hold put in service to printing.AnswerStep, so a « Non » on La
+// Coope's Windows queue sends the volunteer to the spooler, never to an USB setting.
+func TestTheAnswerFollowsTheTransportInService(t *testing.T) {
+	live := &livePrinter{}
+	live.hold(unbuiltPrinter{reason: "x"}, printing.Subject{Transport: domain.TransportWinspool, Device: "SATO WS408_2"})
+
+	step := live.AnswerStep(false, "rien")
+	if !strings.Contains(step.Remedy, "file Windows") || strings.Contains(step.Remedy, "USB") {
+		t.Errorf("Remedy = %q : attendu le remède de la file Windows, sans « USB »", step.Remedy)
+	}
+
+	live.hold(unbuiltPrinter{reason: "x"}, printing.Subject{})
+	if step := live.AnswerStep(true, ""); step.State != "not_applicable" {
+		t.Errorf("sans transport, étape 5 = %q, attendu not_applicable", step.State)
+	}
+}
+
 // TestTheDiagnosisRefusesAnUnbuiltPrinter checks the same refusal printService already
 // gives every other admin screen (ADR consistent wording): a station whose printer
 // could not be built has no Prober to run Diagnose on, so DiagnosePrinter must say so

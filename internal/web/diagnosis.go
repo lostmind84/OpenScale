@@ -1,8 +1,9 @@
 // This file holds the two routes of the printer diagnostic of page Matériel, §14.5 --
 // POST /admin/api/printer/diagnosis and its twin .../diagnosis/answer -- and NEITHER
-// IS AUTHENTICATED (decision 7, Global Constraints) : a diagnostic nobody can run
-// without the password they came here BECAUSE they forgot would defeat the one thing
-// it is for.
+// IS AUTHENTICATED (decision 7) : the password guards what changes what the station
+// sells or how it weighs (ADR-033), and testing the printer changes neither -- the
+// same reason « Tester l'imprimante » and « Imprimer une étiquette de test » of page
+// Dépannage are open too.
 //
 // The two routes carry no state between them. A run's first four steps live only in
 // the browser between the two calls, and printerDiagnosisAnswer is handed them back
@@ -88,8 +89,8 @@ func (s *Server) printerDiagnosis(w http.ResponseWriter, r *http.Request) {
 	// and never by this one : Review Focus is explicit that a parcours is one line,
 	// never two.
 	if steps := diagnosis.Steps; len(steps) > 0 && steps[len(steps)-1].State == "not_applicable" {
-		s.technical.Technical(domain.LevelWarn, "printer", "",
-			diagnosisHaltMessage(steps), stepSummary(steps))
+		level, message := diagnosisHalt(steps)
+		s.technical.Technical(level, "printer", "", message, stepSummary(steps))
 	}
 	writeJSON(w, http.StatusOK, diagnosisPayload(diagnosis))
 }
@@ -183,20 +184,23 @@ func diagnosisAnswerMessage(printed bool) string {
 	return "Diagnostic de l'imprimante : l'étiquette de test n'est pas sortie."
 }
 
-// diagnosisHaltMessage names the step that stopped a parcours before it reached the
-// volunteer -- the only reason step 5 can be "not_applicable" rather than
-// "unanswered" (runSelfTest, printing.Diagnose).
-func diagnosisHaltMessage(steps []DiagnosisStep) string {
+// diagnosisHalt is the one journal line of a parcours whose step 5 was never put to
+// the volunteer. Step 5 is "not_applicable" for exactly two reasons (printing.Diagnose):
+// a step before it failed -- a warning, naming that step -- or the driver in service
+// sends nothing to a printer (preview), so there was never a label to ask about. The
+// second is no fault and was not cut short, so it is not written as one.
+func diagnosisHalt(steps []DiagnosisStep) (level, message string) {
 	for _, st := range steps {
 		if st.Number == 5 {
 			break
 		}
 		if st.State == "fail" {
-			return fmt.Sprintf("Diagnostic de l'imprimante interrompu à l'étape %d (%s).",
+			return domain.LevelWarn, fmt.Sprintf("Diagnostic de l'imprimante interrompu à l'étape %d (%s).",
 				st.Number, st.Title)
 		}
 	}
-	return "Diagnostic de l'imprimante interrompu avant la question au bénévole."
+	return domain.LevelInfo, "Diagnostic de l'imprimante mené jusqu'au bout : le driver d'impression " +
+		"en service n'imprime rien, la question de l'étiquette sortie n'a pas lieu d'être."
 }
 
 // stepSummary renders every step's state on one line, "1=pass 2=pass 3=unknown …" --

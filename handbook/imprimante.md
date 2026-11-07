@@ -50,14 +50,27 @@ Le poste envoie la sonde de statut native (ENQ) et attend une réponse pendant 5
 la même sonde que lit le tableau de bord, interrogée une seule fois pour tout le
 diagnostic.
 
-**Le silence n'est pas un échec.** Une imprimante SATO au repos ne dit souvent rien de
-sa santé sur une interface USB : ce silence n'empêche pas d'imprimer, et il est
-courant. C'est pour cette raison précise que cette étape est classée **inconnu**
-plutôt qu'**en échec** — une classification volontaire, pas une faute à corriger. Vous
-n'avez rien à faire tant que l'étape 4 réussit : c'est elle qui vérifie réellement que
-l'imprimante travaille. Un état « en échec » à cette étape, lui, veut dire autre chose :
-l'imprimante a répondu et signale une vraie panne (bourrage, capot ouvert, rouleau
-épuisé) — levez-la avant de continuer.
+**Le silence n'est pas un échec.** Une imprimante qui ne renvoie rien en 500 ms est
+classée **inconnu**, jamais **en échec** : ce n'est pas une panne en soi, certains
+réglages de l'interface ne renvoient pas d'état, et le diagnostic continue — c'est
+l'étape 4 qui vérifie que l'étiquette part réellement. Ce silence reste pourtant un
+**indice** : une SATO en protocole standard, au repos et en bon état, répond à cette
+sonde (trame mesurée au banc, voir
+[`docs/04-parametrage-sato.md`](https://github.com/lostmind84/OpenScale/blob/main/docs/04-parametrage-sato.md),
+§ Protocole). Si l'étiquette ne sort pas non plus à l'étape 5, le réglage de protocole
+de l'interface de l'imprimante est le premier à vérifier.
+
+Un état « en échec » à cette étape, lui, veut dire autre chose : l'imprimante a répondu
+et signale une vraie panne (bourrage, capot ouvert, rouleau épuisé) — levez-la avant de
+continuer.
+
+**Sur une file Windows, cette étape est « sans objet », pas « inconnu ».** Le poste
+remet ses étiquettes au spouleur Windows, qui ne renvoie pas l'état de l'imprimante :
+la sonde n'est donc jamais posée, et il n'y a pas de silence à interpréter. C'est le
+cas par défaut d'un poste Windows. Sur ce poste, l'état de l'imprimante se lit dans la
+file d'attente de Windows (Panneau de configuration → Périphériques et imprimantes),
+pas dans ce diagnostic. Il en va de même pour un dossier du transport `file`, qui n'a
+pas d'état à demander.
 
 ## 4. Une étiquette de test est envoyée en entier {#etape-4}
 
@@ -77,9 +90,26 @@ n'a ni « observé » automatique ni classement avant d'être répondue : elle r
 
 Si la réponse est « Non », le champ libre qui suit (200 caractères au plus, une seule
 ligne) consigne ce que le bénévole a vu — un voyant qui clignote, un bip, rien du
-tout — tel qu'il l'a écrit : l'imprimante a tout reçu mais n'a pas fini le travail. À
-vérifier sur l'imprimante elle-même : le protocole de l'interface USB, puis la
-calibration du rouleau.
+tout — tel qu'il l'a écrit. Le remède affiché dépend de ce qui a reçu l'étiquette à
+l'étape 4 :
+
+- **Nœud USB** (transport « Nœud d'impression du système ») : l'imprimante a tout reçu
+  mais n'a pas fini le travail. À vérifier sur l'imprimante elle-même : le protocole de
+  l'interface USB, puis la calibration du rouleau.
+- **File Windows** : l'étape 4 a remis le travail en entier **au spouleur**, pas
+  directement à l'imprimante. Ouvrez la file d'attente de cette imprimante (Panneau de
+  configuration → Périphériques et imprimantes) et vérifiez qu'elle n'est ni
+  **suspendue** ni **hors connexion** ; puis, sur l'imprimante, la calibration du
+  rouleau.
+- **Adresse réseau** : l'imprimante a reçu tout le travail par le réseau mais ne l'a
+  pas fini. À vérifier sur l'imprimante : son réglage de protocole, puis la calibration
+  du rouleau.
+- **Dossier** (transport `file`) : rien ne s'imprime, chaque étiquette est déposée dans
+  le dossier de `printer.options.path` ; vérifiez qu'un nouveau fichier y est apparu.
+
+Avec le driver d'impression **aperçu** (`preview`), qui écrit l'étiquette dans un
+fichier sans rien envoyer à une imprimante, la question n'est pas posée : l'étape 5 est
+« sans objet », comme les étapes 1 à 3.
 
 ## L'USB et le réseau
 

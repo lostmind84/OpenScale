@@ -72,10 +72,10 @@ type Options struct {
 	Restart Restarter
 	// Reboot restarts the machine, after the countdown of rebootPlan. Nil answers 501.
 	Reboot Rebooter
-	// PrinterDiagnosis is the five-step printer diagnostic of page Matériel, AUCUN mot
-	// de passe (decision 7, Global Constraints) : a diagnostic nobody can run without
-	// the password they came here because they forgot would defeat its own purpose.
-	// Nil answers 501 on its two routes, and nothing else.
+	// PrinterDiagnosis is the five-step printer diagnostic of page Matériel, with NO
+	// password on either route (decision 7): the password guards what changes what the
+	// station sells or how it weighs (ADR-033), and testing the printer changes
+	// neither. Nil answers 501 on its two routes, and nothing else.
 	PrinterDiagnosis PrinterDiagnostician
 
 	// Assets is the built front end (internal/web/dist through //go:embed). Nil

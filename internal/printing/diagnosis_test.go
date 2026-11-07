@@ -127,6 +127,18 @@ func TestDiagnoseFiveSteps(t *testing.T) {
 				if !strings.Contains(steps[2].Remedy, "On continue") {
 					t.Errorf("Remedy de l'étape 3 = %q : doit dire qu'on continue", steps[2].Remedy)
 				}
+				// The validated maquette: a silence is a clue about a setting, not
+				// normal printer behaviour — docs/04 measured that a SATO at rest in
+				// standard protocol DOES answer the ENQ (final review, I1).
+				if !strings.Contains(steps[2].Remedy, "certains réglages de l'interface ne renvoient pas d'état") {
+					t.Errorf("Remedy de l'étape 3 = %q : doit porter l'indice de la maquette", steps[2].Remedy)
+				}
+				for _, invented := range []string{"SATO", "courant", "au repos"} {
+					if strings.Contains(steps[2].Observed, invented) || strings.Contains(steps[2].Remedy, invented) {
+						t.Errorf("étape 3, silence : %q affirme un comportement matériel (%q / %q)",
+							invented, steps[2].Observed, steps[2].Remedy)
+					}
+				}
 				want := "16 214 octets sur 16 214."
 				if steps[3].Observed != want {
 					t.Errorf("Observed de l'étape 4 = %q, attendu %q", steps[3].Observed, want)
@@ -217,6 +229,13 @@ func TestDiagnoseFiveSteps(t *testing.T) {
 			selfTestReceipt:   ports.PrintReceipt{Bytes: 100},
 			want:              [5]StepState{StepPass, StepNotApplicable, StepNotApplicable, StepPass, StepUnanswered},
 			wantSelfTestCalls: 1,
+			check: func(t *testing.T, steps []DiagnosisStep) {
+				// Spec, « Tranché en relecture »: not applicable, not unknown, « et le
+				// texte doit le dire ».
+				if !strings.Contains(steps[2].Observed, "file Windows") {
+					t.Errorf("Observed de l'étape 3 = %q : doit dire qu'une file Windows ne renvoie pas d'état", steps[2].Observed)
+				}
+			},
 		},
 		{
 			name:    "winspool : la file nommée n'existe pas",
@@ -259,10 +278,12 @@ func TestDiagnoseFiveSteps(t *testing.T) {
 			wantSelfTestCalls: 1,
 		},
 		{
-			name:              "transport vide : le profil neutre",
-			subject:           Subject{Transport: ""},
-			selfTestReceipt:   ports.PrintReceipt{Bytes: 100},
-			want:              [5]StepState{StepNotApplicable, StepNotApplicable, StepNotApplicable, StepPass, StepUnanswered},
+			name:            "transport vide : le profil neutre",
+			subject:         Subject{Transport: ""},
+			selfTestReceipt: ports.PrintReceipt{Bytes: 100},
+			// Nothing reaches a printer: step 5 has no question to ask (final
+			// review, I2).
+			want:              [5]StepState{StepNotApplicable, StepNotApplicable, StepNotApplicable, StepPass, StepNotApplicable},
 			wantSelfTestCalls: 1,
 		},
 		{
@@ -307,6 +328,10 @@ func TestDiagnoseFiveSteps(t *testing.T) {
 						t.Errorf("étape %d : Doc = %q, ancre absente de handbook/imprimante.md", i+1, step.Doc)
 					}
 				}
+				if step.State == StepNotApplicable && step.Observed == "" {
+					// A bare « sans objet » leaves the volunteer guessing why (I3).
+					t.Errorf("étape %d : sans objet, mais aucun observé ne dit pourquoi", i+1)
+				}
 				if step.State == StepPass || step.State == StepNotApplicable || step.State == StepUnanswered {
 					if step.Remedy != "" && step.State == StepNotApplicable {
 						// un pas sans objet ne remédie à rien.
@@ -328,23 +353,69 @@ func TestDiagnoseFiveSteps(t *testing.T) {
 }
 
 func TestAnswerStep(t *testing.T) {
-	printed := AnswerStep(true, "")
-	if printed.Number != 5 || printed.State != StepPass {
-		t.Errorf("AnswerStep(true, \"\") = %+v, attendu l'étape 5 à pass", printed)
+	for _, transport := range []string{domain.TransportDevfile, domain.TransportTCP, domain.TransportWinspool, domain.TransportFile} {
+		printed := AnswerStep(transport, true, "")
+		if printed.Number != 5 || printed.State != StepPass {
+			t.Errorf("AnswerStep(%q, true, \"\") = %+v, attendu l'étape 5 à pass", transport, printed)
+		}
+		if printed.Remedy != "" || printed.Doc != "" {
+			t.Errorf("AnswerStep(%q, true, \"\") = %+v : pass ne porte ni remède ni renvoi", transport, printed)
+		}
+
+		notPrinted := AnswerStep(transport, false, "le voyant 1 clignote")
+		if notPrinted.State != StepFail {
+			t.Errorf("AnswerStep(%q, false, …) = %q, attendu fail", transport, notPrinted.State)
+		}
+		if !strings.Contains(notPrinted.Observed, "le voyant 1 clignote") {
+			t.Errorf("AnswerStep(%q) : Observed = %q, doit porter ce que le bénévole a vu", transport, notPrinted.Observed)
+		}
+		if got := docAnchor(notPrinted.Doc); got != "etape-5" {
+			t.Errorf("AnswerStep(%q) : Doc = %q, attendu une ancre etape-5", transport, notPrinted.Doc)
+		}
 	}
-	if printed.Remedy != "" || printed.Doc != "" {
-		t.Errorf("AnswerStep(true, \"\") = %+v : pass ne porte ni remède ni renvoi", printed)
+}
+
+// TestAnswerStepNamesTheTransport is I2 of the final review: the remedy of a « Non »
+// must name what the bytes actually reached. Only devfile is an USB link; a Windows
+// queue hands them to the spooler, not to the printer.
+func TestAnswerStepNamesTheTransport(t *testing.T) {
+	cases := []struct {
+		transport string
+		mustSay   []string
+		mustNot   []string
+	}{
+		{domain.TransportDevfile, []string{"interface USB", "calibration du rouleau"}, nil},
+		{domain.TransportWinspool, []string{"file Windows", "suspendue", "hors connexion", "calibration du rouleau"},
+			[]string{"USB", "L'imprimante a tout reçu"}},
+		{domain.TransportTCP, []string{"réseau", "calibration du rouleau"}, []string{"USB"}},
+		{domain.TransportFile, []string{"dossier"}, []string{"USB", "rouleau"}},
+	}
+	for _, c := range cases {
+		t.Run(c.transport, func(t *testing.T) {
+			step := AnswerStep(c.transport, false, "rien")
+			for _, want := range c.mustSay {
+				if !strings.Contains(step.Remedy, want) {
+					t.Errorf("Remedy = %q : doit dire %q", step.Remedy, want)
+				}
+			}
+			for _, banned := range c.mustNot {
+				if strings.Contains(step.Remedy, banned) {
+					t.Errorf("Remedy = %q : ne doit pas dire %q sur ce transport", step.Remedy, banned)
+				}
+			}
+		})
 	}
 
-	notPrinted := AnswerStep(false, "le voyant 1 clignote")
-	if notPrinted.State != StepFail {
-		t.Errorf("AnswerStep(false, …) = %q, attendu fail", notPrinted.State)
-	}
-	if !strings.Contains(notPrinted.Observed, "le voyant 1 clignote") {
-		t.Errorf("Observed = %q : doit porter ce que le bénévole a vu", notPrinted.Observed)
-	}
-	if got := docAnchor(notPrinted.Doc); got != "etape-5" {
-		t.Errorf("Doc = %q, attendu une ancre etape-5", notPrinted.Doc)
+	// "" is the driver that sends nothing to a printer: whatever a fabricated client
+	// answers, there was no label to look at.
+	for _, printed := range []bool{true, false} {
+		step := AnswerStep("", printed, "rien")
+		if step.State != StepNotApplicable {
+			t.Errorf("AnswerStep(\"\", %v) = %q, attendu not_applicable", printed, step.State)
+		}
+		if step.Observed == "" || step.Remedy != "" || step.Doc != "" {
+			t.Errorf("AnswerStep(\"\", %v) = %+v : un observé, ni remède ni renvoi", printed, step)
+		}
 	}
 }
 

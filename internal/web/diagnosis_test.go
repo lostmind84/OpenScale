@@ -199,6 +199,39 @@ func TestAnAnswerIsJournalledOnce(t *testing.T) {
 			t.Fatalf("%d ligne(s) journalisée(s) pour une étape 5 sans objet, attendu 1", got)
 		}
 	})
+
+	// A driver with no printer behind it (preview, Transport "") leaves step 5
+	// "not_applicable" with nothing failed: the one line must say the run reached its
+	// end, not that it was cut short -- and it is no warning (final review, I2).
+	t.Run("un driver sans imprimante écrit une ligne info, pas une interruption", func(t *testing.T) {
+		steps := []DiagnosisStep{
+			{Number: 1, State: "not_applicable"},
+			{Number: 2, State: "not_applicable"},
+			{Number: 3, State: "not_applicable"},
+			{Number: 4, State: "pass"},
+			{Number: 5, State: "not_applicable"},
+		}
+		diag := &fakePrinterDiagnostician{diagnosis: PrinterDiagnosis{Target: "x", Steps: steps}}
+		b := newBench(t, func(o *benchOptions) { o.printerDiagnosis = diag })
+		before := len(b.technical.lines)
+
+		response := b.post("/admin/api/printer/diagnosis", `{}`)
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("statut %d, attendu 200", response.StatusCode)
+		}
+		response.Body.Close()
+
+		lines := b.technical.lines[before:]
+		if len(lines) != 1 {
+			t.Fatalf("%d ligne(s) journalisée(s), attendu 1 : %+v", len(lines), lines)
+		}
+		if lines[0].Level != domain.LevelInfo {
+			t.Errorf("niveau %q, attendu %q : rien n'a échoué", lines[0].Level, domain.LevelInfo)
+		}
+		if strings.Contains(lines[0].Message, "interrompu") {
+			t.Errorf("message %q : rien n'a interrompu ce parcours", lines[0].Message)
+		}
+	})
 }
 
 // TestAnAnswerIsRefusedWhenMalformed : none of the four malformed bodies may reach
