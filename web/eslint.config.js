@@ -151,6 +151,19 @@ export default tseslint.config(
       '@typescript-eslint/no-confusing-void-expression': 'off',
 
       /*
+       * 5 signalements depuis typescript-eslint 8.70, et pas un défaut parmi eux.
+       *
+       * `void resized` dans un `$effect` ou un `$derived.by` est une LECTURE : c'est ce
+       * qui abonne l'effet à une valeur qu'il n'utilise pas autrement (Catalog.svelte,
+       * Grid.svelte). Le `--fix` de la règle retire le `void` ; sans lui, l'expression
+       * nue tombe sous `no-unused-expressions`, et la supprimer couperait en silence la
+       * remesure qu'elle déclenche.
+       *
+       * Elle reste ACTIVE sur les `.ts`, où un `void` sur une valeur n'abonne rien.
+       */
+      '@typescript-eslint/no-meaningless-void-operator': 'off',
+
+      /*
        * 2 signalements, et la boucle sans clé est DÉLIBÉRÉE — le commentaire est dans
        * `FindingsPanel.svelte` : une ligne de CSV porte autant de signalements qu'elle a
        * de problèmes, donc `csv_line` n'est pas une clé, et un `each` clé dessus lèverait
