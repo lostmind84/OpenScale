@@ -10,7 +10,8 @@
 //
 // The sequence is the one of the local drop, spelled in HTTP: PROPFIND for the size
 // and the date, the same stability rule, GET to read, and DELETE as the
-// acknowledgement.
+// acknowledgement. With `after_read: keep` the DELETE is never sent: the acknowledgement
+// is the stamp of the file, remembered on disk.
 package webdav
 
 import (
@@ -22,6 +23,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"openscale/internal/catalog"
@@ -71,6 +73,8 @@ type Source struct {
 	fileName string
 	username string
 	password string
+	// afterRead is catalog.AfterReadDelete or catalog.AfterReadKeep.
+	afterRead string
 
 	interval   time.Duration
 	stability  *catalog.Stability
@@ -102,6 +106,21 @@ type Source struct {
 	closed bool
 
 	failures int
+
+	// watermark is the memory of the last file left on the share, and exists only in keep
+	// mode. It is touched by poll, refuse and Acknowledge, which run one after the other
+	// on the watch goroutine: never from Close, Wake or Describe.
+	watermark *catalog.Watermark
+	// observed is the stamp that passed the stability check for the file being read now,
+	// and so the one the watermark must retain when that read ends. Taken BEFORE the read
+	// so that a file rewritten meanwhile is not mistaken for the one that was parsed.
+	observed catalog.Stamp
+	// missing is true from the poll that found the file absent to the one that finds it
+	// again. Atomic because Describe reads it from the administration screen.
+	missing atomic.Bool
+	// rereadAsked is raised by Reread, from the administration screen, and consumed by the
+	// next poll, on the watch goroutine — the only one allowed to touch the watermark.
+	rereadAsked atomic.Bool
 }
 
 // New builds the source from what catalog.options declares.
@@ -115,11 +134,18 @@ func New(c catalog.SourceConfig) (*Source, error) {
 		return nil, fmt.Errorf("webdav : catalog.options.url vaut %q, "+
 			"attendu une URL http ou https complète (par exemple https://dav.example.org:8001/)", raw)
 	}
+	if strings.HasSuffix(strings.ToLower(folder.Path), ".csv") {
+		// Control 52, for a configuration that did not go through Config.Validate: the
+		// file name would be appended to a file, and the station would wait for ever on
+		// an address that can never list anything.
+		return nil, fmt.Errorf("webdav : catalog.options.url vaut %q et désigne un fichier : "+
+			"l'adresse est celle du dossier, et le nom du fichier se règle dans file_name", raw)
+	}
 	if !strings.HasSuffix(folder.Path, "/") {
 		folder.Path += "/"
 	}
 
-	fileName := catalog.FileName(c.StationNumber)
+	fileName := catalog.FileNameOf(c.Catalog.Options, c.StationNumber)
 	file := *folder
 	file.Path = folder.Path + fileName
 
@@ -127,6 +153,31 @@ func New(c catalog.SourceConfig) (*Source, error) {
 		option(c, "max_archives", defaultMaxArchives), option(c, "archive_days", defaultArchiveDays))
 	if err != nil {
 		return nil, fmt.Errorf("webdav : %w", err)
+	}
+
+	afterRead := catalog.AfterReadOf(c.Catalog.Options)
+	// Opened on the full URL: pointing the source at another share or another file name
+	// starts from an empty memory, and so reads the file once.
+	//
+	// The location is written to disk, so it never carries the credentials an address
+	// may hold (https://user:pass@host/): nothing refuses such a url, and a password has
+	// no business in a bookkeeping file.
+	located := file
+	located.User = nil
+	watermark, err := catalog.OpenWatermark(c.DataDir, located.String())
+	if err != nil {
+		return nil, fmt.Errorf("webdav : %w", err)
+	}
+	if afterRead != catalog.AfterReadKeep {
+		// Deleting does not consult the stamp, so the one a previous keep left behind is
+		// forgotten: it would otherwise come back the day the mode returns to keep and
+		// silently skip a NEW file of the same size and date. A failure to forget is told,
+		// and does not stop the station from starting.
+		if err := watermark.Forget(); err != nil {
+			logOf(c).Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
+				"Repère du catalogue non effacé.", err.Error())
+		}
+		watermark = nil
 	}
 
 	parse := csvodoo.OptionsFrom(c.Catalog)
@@ -143,6 +194,8 @@ func New(c catalog.SourceConfig) (*Source, error) {
 		fileName:  fileName,
 		username:  username,
 		password:  password,
+		afterRead: afterRead,
+		watermark: watermark,
 		interval:  time.Duration(option(c, "poll_interval_s", int(defaultPollInterval/time.Second))) * time.Second,
 		stability: catalog.NewStability(option(c, "stable_polls", defaultStablePolls)),
 		archive:   archive,
@@ -229,9 +282,11 @@ func Descriptor() catalog.Source {
 		ID:    domain.CatalogSourceWebDAV,
 		Label: Label,
 		Options: []domain.OptionSchema{
-			{Key: "url", Kind: domain.OptionURL, Required: true},
+			{Key: "url", Kind: domain.OptionURL, Required: true, Use: domain.UseCatalogFolderURL},
 			{Key: "username", Kind: domain.OptionText},
 			{Key: "password", Kind: domain.OptionText},
+			{Key: "file_name", Kind: domain.OptionText, Use: domain.UseCatalogFileName},
+			{Key: "after_read", Kind: domain.OptionEnum, Values: []string{catalog.AfterReadDelete, catalog.AfterReadKeep}},
 			{Key: "separator", Kind: domain.OptionText},
 			{Key: "poll_interval_s", Kind: domain.OptionInt, Min: 1, Max: 3600},
 			{Key: "stable_polls", Kind: domain.OptionInt, Min: 2, Max: 60},

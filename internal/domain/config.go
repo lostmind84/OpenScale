@@ -302,10 +302,6 @@ type BarcodeConfig struct {
 // CatalogConfig is where the products come from and how they are shelved.
 //
 // ABSENT ON PURPOSE (§11.2):
-//   - options.pattern: "flv_<n>.csv" is a constant of the exchange format, like the
-//     semicolon and the order of the seven columns. The name derives from
-//     station.number and from nothing else; two declarations of the same fact is
-//     the failure the legacy application died of;
 //   - mappings: F/L/V/A → fruits/vegetables/bulk/other is a constant of the Odoo
 //     adapter. No operator has a legitimate choice to make about "does L mean
 //     vegetables or fruits?".

@@ -133,8 +133,69 @@ func TestRegisteringRefusesEveryCompositionMistake(t *testing.T) {
 // TestTheWatchedFileNameDerivesFromTheStationNumber (§11.2).
 func TestTheWatchedFileNameDerivesFromTheStationNumber(t *testing.T) {
 	for number, want := range map[int]string{1: "flv_1.csv", 2: "flv_2.csv", 12: "flv_12.csv"} {
-		if got := catalog.FileName(number); got != want {
+		if got := catalog.FileName("", number); got != want {
 			t.Errorf("poste %d surveille %q, attendu %q", number, got, want)
+		}
+	}
+}
+
+// TestTheFileNameComesFromThePatternOfTheCooperative (ADR-061).
+func TestTheFileNameComesFromThePatternOfTheCooperative(t *testing.T) {
+	for _, testCase := range []struct {
+		pattern string
+		number  int
+		want    string
+	}{
+		{"", 2, "flv_2.csv"},
+		{"flv_{n}.csv", 3, "flv_3.csv"},
+		{"flv.csv", 1, "flv.csv"},
+		{"produits_poste{n}.csv", 4, "produits_poste4.csv"},
+		{"{n}_{n}.csv", 5, "5_5.csv"},
+	} {
+		if got := catalog.FileName(testCase.pattern, testCase.number); got != testCase.want {
+			t.Errorf("FileName(%q, %d) = %q, attendu %q",
+				testCase.pattern, testCase.number, got, testCase.want)
+		}
+	}
+	if catalog.DefaultFileName != "flv_{n}.csv" {
+		t.Errorf("le défaut est %q : c'est ADR-004 devenu un réglage", catalog.DefaultFileName)
+	}
+}
+
+// TestTheOptionsAreReadFromTheCatalogBlock (ADR-061).
+func TestTheOptionsAreReadFromTheCatalogBlock(t *testing.T) {
+	options := domain.DriverOptions{}
+	if got := catalog.FileNameOf(options, 2); got != "flv_2.csv" {
+		t.Errorf("sans file_name : %q", got)
+	}
+	if got := catalog.AfterReadOf(options); got != catalog.AfterReadDelete {
+		t.Errorf("sans after_read : %q, attendu %q", got, catalog.AfterReadDelete)
+	}
+	options["file_name"] = json.RawMessage(`"produits.csv"`)
+	options["after_read"] = json.RawMessage(`"keep"`)
+	if got := catalog.FileNameOf(options, 2); got != "produits.csv" {
+		t.Errorf("avec file_name : %q", got)
+	}
+	if got := catalog.AfterReadOf(options); got != catalog.AfterReadKeep {
+		t.Errorf("avec after_read : %q, attendu %q", got, catalog.AfterReadKeep)
+	}
+}
+
+// TestBothSourcesDeclareTheTwoOptions (ADR-061): control 9 would refuse them otherwise.
+func TestBothSourcesDeclareTheTwoOptions(t *testing.T) {
+	for _, descriptor := range shipped().Descriptors() {
+		var fileName, afterRead bool
+		for _, schema := range descriptor.Options {
+			switch schema.Key {
+			case "file_name":
+				fileName = schema.Kind == domain.OptionText && schema.Use == domain.UseCatalogFileName
+			case "after_read":
+				afterRead = schema.Kind == domain.OptionEnum &&
+					strings.Join(schema.Values, ",") == "delete,keep"
+			}
+		}
+		if !fileName || !afterRead {
+			t.Errorf("%s : file_name déclaré=%v, after_read déclaré=%v", descriptor.ID, fileName, afterRead)
 		}
 	}
 }

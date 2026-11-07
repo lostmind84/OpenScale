@@ -200,12 +200,13 @@ et prenez un second terminal.
       $env:TEMP\openscale-demo\catalog\incoming\flv_2.csv
     ```
 
-**Le nom du fichier n'est pas décoratif.** `flv_2` désigne le poste n° 2, celui que la
-configuration déclare ; un poste ne lit que le fichier qui porte son numéro. Renommez-le
-`flv_3.csv` et il ne se passera rien du tout.
+**Le nom du fichier n'est pas décoratif.** Par défaut, `flv_2` désigne le poste n° 2,
+celui que la configuration déclare ; un poste ne lit que le fichier qui porte son numéro.
+Renommez-le `flv_3.csv` et il ne se passera rien du tout. (Une coopérative dont le serveur
+publie un autre nom change ce défaut : voir [Catalogue](catalogue.md).)
 
-En trois à quatre secondes, la grille se remplit et **le fichier disparaît** : sa
-suppression *est* l'accusé de réception.
+En trois à quatre secondes, la grille se remplit et **le fichier disparaît** : par défaut,
+sa suppression *est* l'accusé de réception.
 
 ### 2. Une pesée sort
 
@@ -283,7 +284,8 @@ la pesée : le catalogue vit en mémoire.
 ??? failure "Le catalogue ne rentre pas, le fichier reste dans `incoming/`"
 
     Le nom ne correspond pas au numéro du poste. La configuration de démonstration
-    déclare `station.number: 2`, donc le fichier doit s'appeler `flv_2.csv`.
+    déclare `station.number: 2`, donc le fichier doit s'appeler `flv_2.csv` (le nom par
+    défaut, `flv_{n}.csv` : voir [Catalogue](catalogue.md) pour le changer).
 
 ??? failure "Le port 8085 est déjà pris"
 

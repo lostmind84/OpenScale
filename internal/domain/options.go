@@ -227,6 +227,12 @@ const (
 	// drive of the legacy application under another name, and a source that fetches from
 	// a share is a different source, with a different acknowledgement.
 	UseDropDirectory
+	// UseCatalogFileName is the name, never a path, of the catalog file a station
+	// watches: control 51 refuses a separator or a `..` in it (ADR-061).
+	UseCatalogFileName
+	// UseCatalogFolderURL is the address of the FOLDER a catalog is fetched from: control
+	// 52 refuses one that ends in a .csv, because the file name has its own setting.
+	UseCatalogFolderURL
 )
 
 // OptionSchema declares one option of a driver.

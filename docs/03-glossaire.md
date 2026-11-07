@@ -984,12 +984,22 @@ accents graves** — `ports.Batch`, `domain.Template`, `Finding`. C'est exacteme
 | lot | 101 | batch | 34 |
 | garde-fou, garde | 80 | guard | 48 |
 | repli | 67 | fallback | 33 |
+| repère | 58 | watermark | 27 |
 | rayon | 40 | shelf | 0 |
 | signalement | 39 | finding | 28 |
 | quarantaine | 36 | quarantine | 13 |
 | acquittement | 33 | acknowledgement | 21 |
 | veille | 27 | watcher | 2 |
 | scrutation | 22 | polling | 17 |
+
+**« repère »** (ajouté le 07/11/2026, mesuré ce jour-là par la même commande ; une partie des
+occurrences est le sens courant du mot) — `catalog.Watermark` : ce qu'une source de fichier
+retient, en `after_read: keep`, du dernier fichier qu'elle a acquitté **sans le supprimer** —
+sa taille et sa date, et pour `webdav` l'empreinte de son contenu —, écrit dans
+`<data>/catalog/watermark.json`. C'est lui qui tient lieu d'acquittement quand rien n'est
+supprimé : un fichier que le repère reconnaît n'est pas relu (ADR-061, §10.1). On écrit
+« le repère », jamais « le watermark » ni « le filigrane », et on ne le confond pas avec le
+**tampon** (`catalog.Stamp`, la taille et la date d'un fichier observé) qu'il retient.
 
 ### Deux mots français qu'il ne faut pas confondre
 

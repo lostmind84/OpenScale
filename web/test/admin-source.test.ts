@@ -218,3 +218,131 @@ describe('changer de source fait le ménage', () => {
     expect(Object.keys(options)).not.toContain('directory')
   })
 })
+
+/** Le bouton radio d'un mode d'acquittement. */
+function afterReadRadio(value: string): HTMLInputElement {
+  const found = host.querySelector<HTMLInputElement>(
+    `input[name="catalog-after-read"][value="${value}"]`,
+  )
+  if (found === null) throw new Error(`aucun choix après lecture « ${value} »`)
+  return found
+}
+
+/** Choisit un mode d'acquittement, exactement comme un exploitant le fait. */
+function chooseAfterRead(value: string): void {
+  const radio = afterReadRadio(value)
+  radio.checked = true
+  radio.dispatchEvent(new Event('change', { bubbles: true }))
+  flushSync()
+}
+
+describe('le nom du fichier attendu', () => {
+  it.each(['local_drop', 'webdav'])('montre le champ et le choix après lecture sous %s', (type) => {
+    const page = renderCatalog({ 'catalog.type': type })
+    expect(page.field('catalog.options.file_name')).not.toBeNull()
+    expect(afterReadRadio('delete')).not.toBeNull()
+    expect(afterReadRadio('keep')).not.toBeNull()
+    expect(page.text()).toContain('Nom du fichier')
+    expect(page.text()).toContain('{n} est remplacé par le numéro du poste')
+  })
+
+  it('dit le fichier par défaut, dérivé du numéro du poste', () => {
+    const page = renderCatalog({ 'catalog.type': 'local_drop' }, 3)
+    expect(page.text()).toContain('flv_3.csv')
+  })
+
+  it('dit le nom choisi, {n} remplacé', () => {
+    const page = renderCatalog(
+      { 'catalog.type': 'local_drop', 'catalog.options.file_name': 'p{n}.csv' },
+      3,
+    )
+    expect(page.text()).toContain('p3.csv')
+    expect(page.text()).not.toContain('flv_3.csv')
+  })
+
+  it('donne l’adresse complète sur WebDAV', () => {
+    const page = renderCatalog({
+      'catalog.type': 'webdav',
+      'catalog.options.url': 'https://dav.example.org/depot/',
+      'catalog.options.file_name': 'flv.csv',
+    })
+    expect(page.text()).toContain('https://dav.example.org/depot/flv.csv')
+  })
+
+  it('écrit le nom dans le brouillon', () => {
+    const page = renderCatalog({ 'catalog.type': 'local_drop' })
+    page.type('catalog.options.file_name', 'flv.csv')
+    expect(page.draft.value('catalog.options.file_name')).toBe('flv.csv')
+  })
+
+  it('retire la clé quand le champ est vidé, jamais une chaîne vide', () => {
+    const page = renderCatalog({
+      'catalog.type': 'local_drop',
+      'catalog.options.file_name': 'flv.csv',
+    })
+    page.type('catalog.options.file_name', '')
+    const options = page.draft.value('catalog.options') as Record<string, unknown>
+    expect(Object.keys(options)).not.toContain('file_name')
+  })
+})
+
+describe('après lecture', () => {
+  it('coche « supprimer » quand la clé est absente', () => {
+    renderCatalog({ 'catalog.type': 'local_drop' })
+    expect(afterReadRadio('delete').checked).toBe(true)
+    expect(afterReadRadio('keep').checked).toBe(false)
+  })
+
+  it('écrit keep, et retire la clé en revenant à delete', () => {
+    const page = renderCatalog({ 'catalog.type': 'webdav' })
+    chooseAfterRead('keep')
+    expect(page.draft.value('catalog.options.after_read')).toBe('keep')
+    chooseAfterRead('delete')
+    const options = page.draft.value('catalog.options') as Record<string, unknown>
+    expect(Object.keys(options)).not.toContain('after_read')
+  })
+
+  it('ne dit que le poste supprime le fichier qu’en mode delete', () => {
+    const page = renderCatalog({ 'catalog.type': 'local_drop' })
+    expect(page.text()).toContain('et le supprime une fois lu')
+    chooseAfterRead('keep')
+    expect(page.text()).not.toContain('et le supprime une fois lu')
+    expect(page.text()).toContain('ne supprime jamais le fichier')
+  })
+
+  it('avertit, sans bloquer, d’un fichier partagé qui sera supprimé', () => {
+    const page = renderCatalog({
+      'catalog.type': 'local_drop',
+      'catalog.options.file_name': 'flv.csv',
+    })
+    expect(host.querySelector('[data-shared-file-note]')).not.toBeNull()
+    expect(page.text()).toContain('Ce fichier sera supprimé par le premier poste qui le lit')
+    chooseAfterRead('keep')
+    expect(host.querySelector('[data-shared-file-note]')).toBeNull()
+  })
+
+  it('n’avertit pas quand le nom porte {n}, ni par défaut', () => {
+    renderCatalog({ 'catalog.type': 'local_drop' })
+    expect(host.querySelector('[data-shared-file-note]')).toBeNull()
+    unmount(component as Parameters<typeof unmount>[0])
+    component = undefined
+    renderCatalog({
+      'catalog.type': 'local_drop',
+      'catalog.options.file_name': 'flv_{n}.csv',
+    })
+    expect(host.querySelector('[data-shared-file-note]')).toBeNull()
+  })
+})
+
+describe('changer de source garde ce qui vaut pour les deux', () => {
+  it('conserve file_name et after_read', () => {
+    const page = renderCatalog({
+      'catalog.type': 'local_drop',
+      'catalog.options.file_name': 'flv.csv',
+      'catalog.options.after_read': 'keep',
+    })
+    page.choose('webdav')
+    expect(page.draft.value('catalog.options.file_name')).toBe('flv.csv')
+    expect(page.draft.value('catalog.options.after_read')).toBe('keep')
+  })
+})

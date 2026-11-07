@@ -10,6 +10,8 @@
 //
 // The acknowledgement IS the deletion, and it comes LAST: the file is still there
 // while the batch is being applied, so a crash in between loses nothing (ADR-004).
+// With `after_read: keep` the file is never deleted and the acknowledgement is the
+// stamp of the file, remembered on disk.
 package localdrop
 
 import (
@@ -19,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"openscale/internal/catalog"
@@ -75,6 +78,7 @@ type Source struct {
 	directory string
 	fileName  string
 	interval  time.Duration
+	afterRead string
 
 	stability  *catalog.Stability
 	archive    *catalog.Archive
@@ -106,6 +110,20 @@ type Source struct {
 	// leaves a half-written copy in the archive directory for ever — prune() skips
 	// those, deliberately, so nothing would ever tidy it away.
 	closed bool
+	// watermark is the memory of the last file left in place, and exists only in keep
+	// mode. It is touched by poll, refuse and Acknowledge, which run one after the other
+	// on the watch goroutine: never from Close, Wake or Describe.
+	watermark *catalog.Watermark
+	// observed is the stamp that passed the stability check for the file being read now,
+	// and so the one the watermark must retain when that read ends. Taken BEFORE the read
+	// so that a file rewritten meanwhile is not mistaken for the one that was parsed.
+	observed catalog.Stamp
+	// missing is true from the poll that found the file absent to the one that finds it
+	// again. Atomic because Describe reads it from the administration screen.
+	missing atomic.Bool
+	// rereadAsked is raised by Reread, from the administration screen, and consumed by the
+	// next poll, on the watch goroutine — the only one allowed to touch the watermark.
+	rereadAsked atomic.Bool
 	// remove is os.Remove, and it is a field for ONE reason: « the file could not be
 	// deleted » (ERR-CAT-05, failure test 11) is a real operating state that no
 	// portable test can produce — Windows lifts a read-only attribute by itself and
@@ -146,13 +164,34 @@ func New(c catalog.SourceConfig) (*Source, error) {
 
 	parse := csvodoo.OptionsFrom(c.Catalog)
 	parse.Source = domain.CatalogSourceLocalDrop
-	parse.FileName = catalog.FileName(c.StationNumber)
+	parse.FileName = catalog.FileNameOf(c.Catalog.Options, c.StationNumber)
 	parse.Images = c.Images
+
+	afterRead := catalog.AfterReadOf(c.Catalog.Options)
+	// Opened on the full path: pointing the source at another directory or another file
+	// name starts from an empty memory, and so reads the file once.
+	watermark, err := catalog.OpenWatermark(c.DataDir, filepath.Join(directory, parse.FileName))
+	if err != nil {
+		return nil, fmt.Errorf("localdrop : %w", err)
+	}
+	if afterRead != catalog.AfterReadKeep {
+		// Deleting does not consult the stamp, so the one a previous keep left behind is
+		// forgotten: it would otherwise come back the day the mode returns to keep and
+		// silently skip a NEW file of the same size and date. A failure to forget is told,
+		// and does not stop the station from starting.
+		if err := watermark.Forget(); err != nil {
+			logOf(c).Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
+				"Repère du catalogue non effacé.", err.Error())
+		}
+		watermark = nil
+	}
 
 	return &Source{
 		directory: directory,
 		fileName:  parse.FileName,
 		interval:  time.Duration(option(c, "poll_interval_s", int(defaultPollInterval/time.Second))) * time.Second,
+		afterRead: afterRead,
+		watermark: watermark,
 		stability: catalog.NewStability(option(c, "stable_polls", defaultStablePolls)),
 		archive:   archive,
 		quarantine: catalog.NewQuarantine(c.Quarantine,
@@ -197,6 +236,8 @@ func Descriptor() catalog.Source {
 		Label: Label,
 		Options: []domain.OptionSchema{
 			{Key: DirectoryOption, Kind: domain.OptionText, Use: domain.UseDropDirectory},
+			{Key: "file_name", Kind: domain.OptionText, Use: domain.UseCatalogFileName},
+			{Key: "after_read", Kind: domain.OptionEnum, Values: []string{catalog.AfterReadDelete, catalog.AfterReadKeep}},
 			{Key: "separator", Kind: domain.OptionText},
 			{Key: "poll_interval_s", Kind: domain.OptionInt, Min: 1, Max: 3600},
 			{Key: "stable_polls", Kind: domain.OptionInt, Min: 2, Max: 60},

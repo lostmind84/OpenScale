@@ -57,6 +57,7 @@ theme:
 nav:
   - Accueil: index.md
   - Démarrer: getting-started.md
+  - Catalogue: catalogue.md
   - Architecture: architecture.md
   - Décisions d'architecture:
       - odr/README.md

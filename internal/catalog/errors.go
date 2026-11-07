@@ -14,9 +14,10 @@ var (
 	// after three failures, quarantined.
 	ErrContent = errors.New("catalogue : le contenu du fichier n'est pas exploitable")
 	// ErrNotAcknowledged reports a file that was read and applied but could not be
-	// removed — a read-only directory, missing rights. Code ERR-CAT-05, amber, and it
+	// acknowledged: removed, or with after_read keep its stamp written — a read-only
+	// directory, missing rights. Code ERR-CAT-05, amber, and it
 	// NEVER increments the quarantine: the catalog it carried is in service.
-	ErrNotAcknowledged = errors.New("catalogue : le fichier n'a pas pu être supprimé après lecture")
+	ErrNotAcknowledged = errors.New("catalogue : le fichier lu n'a pas pu être acquitté")
 )
 
 // ContentError is a refused file that says WHICH CONTENT was refused.

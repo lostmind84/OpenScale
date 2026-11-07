@@ -326,7 +326,7 @@
       }}
     >
       <p>
-        Déposez ici le fichier <code>flv_{health.station}.csv</code>
+        Déposez ici le fichier <code>{health.state.catalog_file}</code>
         <span class="key" title="Demande le mot de passe">clé</span>
       </p>
       <label class="choose touch-target">

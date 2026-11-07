@@ -396,3 +396,28 @@ func TestTheDeliveredFileStillExportsAndFingerprints(t *testing.T) {
 		t.Errorf("l'export du fichier livré n'a rien écrit : %v", statErr)
 	}
 }
+
+// TestTheCatalogOptionsOfADR061LeaveTheFingerprintAlone: a station that never set
+// file_name or after_read carries neither key, and a round trip through the JSON of
+// PUT /admin/api/config must not invent them — or the fingerprint the volunteers compare
+// by eye would move on a file nobody touched.
+func TestTheCatalogOptionsOfADR061LeaveTheFingerprintAlone(t *testing.T) {
+	before := readJSONConfig(t, deliveredConfig(t))
+	raw, err := json.Marshal(before)
+	if err != nil {
+		t.Fatalf("encodage : %v", err)
+	}
+	var after domain.Config
+	if err := json.Unmarshal(raw, &after); err != nil {
+		t.Fatalf("décodage : %v", err)
+	}
+	for _, key := range []string{"file_name", "after_read"} {
+		if after.Catalog.Options.Has(key) {
+			t.Errorf("catalog.options.%s est apparu à l'aller-retour", key)
+		}
+	}
+	if after.Fingerprint() != before.Fingerprint() {
+		t.Errorf("empreinte %s puis %s : l'aller-retour la déplace",
+			before.Fingerprint(), after.Fingerprint())
+	}
+}

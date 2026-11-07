@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"openscale/internal/domain"
@@ -21,15 +22,52 @@ var ErrUnknownSource = errors.New("catalog : ce catalog.type ne correspond à au
 // it rather than being a third source (§10.1, A4).
 const DefaultSourceID = domain.CatalogSourceLocalDrop
 
-// FileName is the name a station watches for, and it derives from station.number and
-// from NOTHING else.
+// DefaultFileName is the pattern a cooperative that set nothing watches for.
 //
-// There is deliberately no `pattern` setting: "flv_<n>.csv" is a constant of the
-// exchange format, like the semicolon and the order of the seven columns. Two
-// declarations of the same fact is the failure the legacy application died of — 227
-// columns suffixed _Poste1 to _Poste4 (§11.2).
-func FileName(stationNumber int) string {
-	return fmt.Sprintf("flv_%d.csv", stationNumber)
+// It is ADR-004 turned into a default (ADR-061): "flv_{n}.csv" with {n} the station
+// number, which is what every station delivered so far has been reading.
+const DefaultFileName = "flv_{n}.csv"
+
+// stationPlaceholder is where FileName writes the station number.
+const stationPlaceholder = "{n}"
+
+const (
+	// AfterReadDelete removes the file once it is read: the deletion IS the
+	// acknowledgement (§10.1). It is the default.
+	AfterReadDelete = "delete"
+	// AfterReadKeep leaves the file where it is, which is what lets several stations
+	// read the same one (ADR-061).
+	AfterReadKeep = "keep"
+)
+
+// FileName is the name a station watches for, derived from the pattern a cooperative
+// chose and from the station number.
+//
+// An empty pattern is DefaultFileName. Every {n} becomes the number, so one setting can
+// be cloned onto four stations (§11.5) and still name four files — or, written without
+// {n}, name one file all four read.
+func FileName(pattern string, stationNumber int) string {
+	if pattern == "" {
+		pattern = DefaultFileName
+	}
+	return strings.ReplaceAll(pattern, stationPlaceholder, strconv.Itoa(stationNumber))
+}
+
+// FileNameOf is FileName reading the pattern from catalog.options.file_name, which is
+// what both sources do.
+func FileNameOf(options domain.DriverOptions, stationNumber int) string {
+	pattern, _ := options.Text("file_name")
+	return FileName(pattern, stationNumber)
+}
+
+// AfterReadOf reports what a source does with a file it has read, from
+// catalog.options.after_read. Anything but "keep" is the default, deletion: control 9
+// already refuses a value outside the two the schema declares.
+func AfterReadOf(options domain.DriverOptions) string {
+	if value, _ := options.Text("after_read"); value == AfterReadKeep {
+		return AfterReadKeep
+	}
+	return AfterReadDelete
 }
 
 // ImageSink is where the bytes of a decoded photo go.
@@ -55,8 +93,7 @@ type SourceConfig struct {
 	// Catalog is the whole catalog block: the driver options, the image source, the
 	// fallback category and the shelves of this station.
 	Catalog domain.CatalogConfig
-	// StationNumber is where the watched file name comes from, and its only real
-	// consumer (§11.2).
+	// StationNumber is what {n} stands for in the watched file name (ADR-061).
 	StationNumber int
 	// DataDir is <data>: the local drop lives in <data>/catalog/incoming and its
 	// archives in <data>/catalog/archives. A source that took an arbitrary path would

@@ -107,6 +107,25 @@ func TestAReloadOnASourceWithNoLocalFileClaimsNothingAboutOne(t *testing.T) {
 	}
 }
 
+// TestAReloadAsksAKeepingSourceToReadItsFileAgain: with `after_read: keep` an unchanged
+// file is « already taken » for the watch, so a mere wake would read nothing while the
+// sentence says « la veille le relit maintenant ». The adapter asks for the reread.
+func TestAReloadAsksAKeepingSourceToReadItsFileAgain(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "flv.csv")
+	if err := os.WriteFile(path, []byte("id;nom\n"), 0o600); err != nil {
+		t.Fatalf("écriture du fichier surveillé : %v", err)
+	}
+	source := &keptSource{watchedSource: watchedSource{path: path}}
+
+	if _, err := reloadOn(source).Reload(context.Background()); err != nil {
+		t.Fatalf("relecture = %v, attendu acceptée", err)
+	}
+	if !source.reread {
+		t.Fatal("la source n'a pas été priée de relire son fichier")
+	}
+}
+
 // reloadOn builds the adapter over one source, with the injected clock the budget needs.
 func reloadOn(source ports.CatalogSource) adminCatalog {
 	live := &liveCatalog{}
@@ -135,6 +154,14 @@ func (s *watchedSource) Acknowledge(context.Context, *ports.Batch, ports.BatchRe
 
 func (s *watchedSource) Close() error { return nil }
 
+// keptSource is a local drop that can be asked to read its file again.
+type keptSource struct {
+	watchedSource
+	reread bool
+}
+
+func (s *keptSource) Reread() { s.reread = true }
+
 // remoteSource is a share: wakeable, but with no file this machine can look at.
 type remoteSource struct{ woken bool }
 
@@ -155,4 +182,5 @@ func (s *remoteSource) Close() error { return nil }
 var (
 	_ ports.CatalogSource = (*watchedSource)(nil)
 	_ ports.CatalogSource = (*remoteSource)(nil)
+	_ ports.CatalogSource = (*keptSource)(nil)
 )

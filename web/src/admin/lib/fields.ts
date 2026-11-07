@@ -91,6 +91,8 @@ export const FIELD_LABELS: Readonly<Record<string, string>> = {
   'catalog.options.url': 'Adresse du serveur',
   'catalog.options.username': 'Compte',
   'catalog.options.password': 'Mot de passe',
+  'catalog.options.file_name': 'Nom du fichier',
+  'catalog.options.after_read': 'Après lecture',
   'catalog.options.separator': 'Séparateur du CSV',
   'catalog.options.poll_interval_s': 'Vérifier toutes les (secondes)',
   'catalog.options.stable_polls': 'Vérifications avant lecture',

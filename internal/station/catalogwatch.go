@@ -120,7 +120,7 @@ func (s *Station) offer(ctx context.Context, source ports.CatalogSource, batch *
 	}
 	if err := source.Acknowledge(ctx, batch, result); err != nil {
 		s.hub.logTechnical(domain.LevelWarn, "catalog", "ERR-CAT-05",
-			"Fichier de catalogue non supprimé.", err.Error())
+			"Fichier de catalogue non acquitté.", err.Error())
 	}
 }
 

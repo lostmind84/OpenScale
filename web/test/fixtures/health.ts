@@ -97,6 +97,7 @@ export function nominalState(overrides: Partial<StateDTO> = {}): StateDTO {
       observed_at: '2026-07-24T12:00:00.000Z',
     },
     degraded: null,
+    catalog_file: 'flv_2.csv',
     catalog_count: 331,
     // Figé, comme l'empreinte ci-dessous : seul son CHANGEMENT a un sens, et
     // `session.test.ts` est le banc qui le fait bouger.

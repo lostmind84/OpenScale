@@ -73,11 +73,14 @@
         hint: 'Le fichier est bien arrivé : prévenez un responsable, c’est un réglage de ce poste qui vide la grille.',
       }
     }
-    const station = snapshot?.station ?? 0
+    // The name comes from the service, which derives it from catalog.options.file_name:
+    // composing it here would name a file nobody reads as soon as a cooperative chose
+    // its own. Empty only before the first state, or against a service that predates it.
+    const file = snapshot?.catalog_file ?? ''
     return {
       message:
-        station > 0
-          ? `Catalogue vide. En attente du fichier flv_${station}.csv.`
+        file !== ''
+          ? `Catalogue vide. En attente du fichier ${file}.`
           : 'Catalogue vide. En attente du fichier du poste.',
       hint: 'Prévenez un responsable : aucun produit ne peut être pesé.',
     }

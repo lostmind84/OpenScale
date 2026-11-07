@@ -174,6 +174,40 @@ func TestAnEmptyCatalogNamesTheFileTheStationIsWaitingFor(t *testing.T) {
 	}
 }
 
+func TestAnEmptyCatalogNamesTheFileChosenByTheCooperative(t *testing.T) {
+	b := newBench(t)
+	b.service.health.State.CatalogCount = 0
+	b.service.health.Catalog = nil
+	b.tweak(func(cfg *domain.Config) {
+		cfg.Catalog.Options = domain.DriverOptions{
+			"file_name": json.RawMessage(`"produits_{n}.csv"`),
+		}
+	})
+
+	found := control(t, b.run(), ControlCatalogSource)
+	if !strings.Contains(found.Remedy, "produits_2.csv") {
+		t.Errorf("la consigne doit nommer le fichier réglé par la coopérative :\n%s", found.Remedy)
+	}
+	if strings.Contains(found.Remedy, "flv_2.csv") {
+		t.Errorf("la consigne cite encore le nom par défaut :\n%s", found.Remedy)
+	}
+}
+
+func TestAnEmptyCatalogNamesASharedFileEvenWithoutAStationNumber(t *testing.T) {
+	b := newBench(t)
+	b.service.health.State.CatalogCount = 0
+	b.service.health.Catalog = nil
+	b.tweak(func(cfg *domain.Config) {
+		cfg.Station.Number = 0
+		cfg.Catalog.Options = domain.DriverOptions{"file_name": json.RawMessage(`"flv.csv"`)}
+	})
+
+	found := control(t, b.run(), ControlCatalogSource)
+	if !strings.Contains(found.Remedy, "Faites déposer flv.csv par") {
+		t.Errorf("la consigne doit nommer flv.csv, le numéro de poste n'y change rien :\n%s", found.Remedy)
+	}
+}
+
 func TestARejectedCatalogSaysTheStationKeepsWeighing(t *testing.T) {
 	b := newBench(t)
 	b.service.health.Catalog.Result = domain.ImportRejected
