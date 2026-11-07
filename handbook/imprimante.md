@@ -89,8 +89,8 @@ seul le poste auquel le câble est branché peut lui parler. Ce diagnostic ne mo
 donc jamais d'adresse réseau ni de port pour une imprimante en USB : il n'y en a pas à
 montrer. (Une imprimante réseau — transport `tcp`, le port 9100 de l'imprimante de
 secours d'un poste voisin — a sa propre adresse IP, réglée sur le panneau de
-l'imprimante ; le diagnostic ne la montre pas non plus, par choix, pour rester le même
-écran simple dans les deux cas.)
+l'imprimante ; cette adresse apparaît en haut du rapport et dans l'observé de l'étape 1
+du diagnostic. Seul le conseil « vérifier le réseau du magasin » reste hors écran.)
 
 **Le RS232 (le port série) n'est pas une option proposée pour l'imprimante : il est
 refusé par construction.** Une étiquette encapsulée pèse environ 16 ko — le contrôle 42
