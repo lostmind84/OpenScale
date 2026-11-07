@@ -32,6 +32,7 @@ const hardware = readFileSync(resolve(ADMIN, 'pages/Hardware.svelte'), 'utf8')
 const label = readFileSync(resolve(ADMIN, 'pages/Label.svelte'), 'utf8')
 const catalog = readFileSync(resolve(ADMIN, 'pages/Catalog.svelte'), 'utf8')
 const troubleshooting = readFileSync(resolve(ADMIN, 'pages/Troubleshooting.svelte'), 'utf8')
+const printerDiagnosis = readFileSync(resolve(ADMIN, 'components/PrinterDiagnosis.svelte'), 'utf8')
 
 /** La pastille, telle que les trois pages qui la portent l'écrivent, au caractère près. */
 const KEY_BADGE = '<span class="key" title="Demande le mot de passe">clé</span>'
@@ -136,6 +137,17 @@ describe('la page Matériel dit AVANT le clic ce qui demandera le mot de passe',
   it('n’a aucune famille pleine : rien ici ne change ce que le poste vend', () => {
     expect(hardware).not.toContain('kind="write"')
     expect(hardware).not.toContain('kind="destructive"')
+  })
+})
+
+describe('le diagnostic pas à pas de l’imprimante ne demande AUCUN mot de passe (décision 7)', () => {
+  it('« Lancer le diagnostic » ne porte pas la clé', () => {
+    expect(guards(actSaying(printerDiagnosis, 'Lancer le diagnostic'))).toBe(false)
+  })
+
+  it('n’emploie `protected` ni `admin.protect` nulle part dans ce fichier', () => {
+    expect(printerDiagnosis).not.toContain('protected')
+    expect(printerDiagnosis).not.toContain('admin.protect')
   })
 })
 

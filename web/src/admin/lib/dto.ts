@@ -407,3 +407,32 @@ export interface UpdateDTO {
    */
   outcome: UpdateOutcomeDTO | null
 }
+
+/**
+ * Une des cinq étapes du diagnostic pas à pas de l'imprimante, page Matériel (§14.4).
+ *
+ * `state` porte un des cinq mots de `printing.StepState` (`internal/printing/diagnosis.go`) :
+ * `'pass' | 'fail' | 'unknown' | 'not_applicable' | 'unanswered'`, nommés ici en `string`
+ * plutôt qu'en `StepState` pour que ce fichier reste un DTO et non une dépendance vers
+ * `printer-report.ts`, qui détient ce type et le mot français de chacun.
+ */
+export interface DiagnosisStepDTO {
+  number: number
+  title: string
+  state: string
+  observed: string
+  remedy: string
+  doc: string
+}
+
+/**
+ * Un parcours entier du diagnostic, nommé par l'imprimante EN SERVICE.
+ *
+ * `target` est ce que le transport en service appelle lui-même (`Describe()`) : le
+ * rapport copiable le montre, pour qu'une réponse sur le forum des coopératives n'ait
+ * pas à demander quelle imprimante a répondu.
+ */
+export interface PrinterDiagnosisDTO {
+  target: string
+  steps: DiagnosisStepDTO[]
+}

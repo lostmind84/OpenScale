@@ -3,12 +3,14 @@ import type {
   ConfigDTO,
   ConfigVersionDTO,
   DetectionDTO,
+  DiagnosisStepDTO,
   FaultDTO,
   FindingDTO,
   HealthDTO,
   ImportDTO,
   PortDTO,
   PrinterDeviceDTO,
+  PrinterDiagnosisDTO,
   ProblemDTO,
   RebootDTO,
   ReloadDTO,
@@ -17,6 +19,7 @@ import type {
   UpdateDTO,
   WeighingDTO,
 } from './dto'
+import type { StepState } from './printer-report'
 
 /**
  * Les appels des écrans d'administration, et leurs routes exactes (§14.5).
@@ -185,6 +188,28 @@ export function testPrinter(): Promise<PrinterTestDTO> {
 /** « Imprimer une étiquette de test ». */
 export function testLabel(): Promise<ActionDTO> {
   return postJSON<ActionDTO>('/admin/api/troubleshooting/test-label', {})
+}
+
+/**
+ * « Lancer le diagnostic » : les étapes 1 à 4 du diagnostic pas à pas de l'imprimante,
+ * sur l'imprimante EN SERVICE (§14.4). Route libre, sans mot de passe (décision 7).
+ */
+export function diagnosePrinter(): Promise<PrinterDiagnosisDTO> {
+  return postJSON<PrinterDiagnosisDTO>('/admin/api/printer/diagnosis', {})
+}
+
+/**
+ * La réponse du bénévole à l'étape 5 — jamais mesurée par le poste, toujours demandée
+ * (décision 3). `steps` reprend les états des quatre premières étapes EXACTEMENT comme
+ * `diagnosePrinter` les a rendus : cette route ne garde aucun état entre les deux appels
+ * (`internal/web/diagnosis.go`).
+ */
+export function answerPrinterDiagnosis(body: {
+  steps: StepState[]
+  printed: boolean
+  seen: string
+}): Promise<{ step: DiagnosisStepDTO }> {
+  return postJSON<{ step: DiagnosisStepDTO }>('/admin/api/printer/diagnosis/answer', body)
 }
 
 /**
