@@ -151,6 +151,111 @@ func TestOffsetBoundsOnShippedTemplatesIsZeroAtTopAndLeft(t *testing.T) {
 	}
 }
 
+// syntheticLeftMarginTemplate is built, not measured, for exactly one property: its
+// text element and its symbol both start 1 000 um (8 dots at 8 dots/mm) in from the
+// left edge of the label -- the X mirror of topMarginTemplate(). Neither shipped
+// template ever has room to spare on this axis (both reach MaxX == 0, see
+// TestOffsetBoundsOnShippedTemplatesIsZeroAtTopAndLeft below), so building on top of
+// one of them would mean shrinking the module or every element's width just to make
+// space; a synthetic fixture says the same thing in four fields.
+func syntheticLeftMarginTemplate() Template {
+	return Template{
+		Name:              "gabarit_synthetique_marge_gauche",
+		Media:             Media{WidthUM: 40_000, HeightUM: 25_000, DotsPerMM: 8},
+		PrintableWidthUM:  40_000,
+		PrintableHeightUM: 25_000,
+		Elements: []Element{
+			{
+				Field: FieldProductName,
+				XUM:   1_000, YUM: 0, WidthUM: 10_000, HeightUM: 3_175,
+				FontSizeUM: 3_175, Align: AlignLeft,
+			},
+		},
+		Symbol: SymbolGeometry{
+			XUM: 1_000, YUM: 5_000,
+			// The same fractional module as weighing_identical: a known-GS1-legal value,
+			// so this fixture's own legality never has to be argued separately.
+			ModuleMilliDots: 2_344,
+			BarHeightUM:     11_375,
+			GuardDescentUM:  1_465,
+			HRIHeightUM:     2_700,
+		},
+	}
+}
+
+// syntheticSymbolLeftmostTemplate is syntheticLeftMarginTemplate() with its text
+// element pushed to 2 000 um instead of 1 000 -- twice the symbol's own margin --
+// so the SYMBOL, not the text, is the leftmost ink. OffsetBoundsOn answering -8 and
+// not -16 here is what an inkedOrigin that ignored the symbol (ADR-063's "symbole
+// compris") would get wrong.
+func syntheticSymbolLeftmostTemplate() Template {
+	template := syntheticLeftMarginTemplate()
+	template.Elements[0].XUM = 2_000
+	return template
+}
+
+// TestOffsetBoundsOnRecomputesTheLeftMarginOnTheTemplatesOwnGeometry is the X mirror
+// of TestOffsetBoundsOnRecomputesTheMarginOnTheTemplatesOwnGeometry: before this
+// test, every fixture in this package had MinX == 0, so a MinX forced to zero, or an
+// inkedOrigin that never looked at X at all, passed the whole package unnoticed.
+func TestOffsetBoundsOnRecomputesTheLeftMarginOnTheTemplatesOwnGeometry(t *testing.T) {
+	leftMargin := syntheticLeftMarginTemplate()
+	if faults := leftMargin.Validate(2); len(faults) != 0 {
+		t.Fatalf("le fixture lui-même devrait être légal, faults = %v", faults)
+	}
+
+	bounds := leftMargin.OffsetBoundsOn(ReferenceHead(), 2)
+	if bounds.MinX != -8 {
+		t.Errorf("MinX = %d, attendu -8 (1 000 µm = 8 dots à 8 dots/mm)", bounds.MinX)
+	}
+	if bounds.MinY != 0 {
+		t.Errorf("MinY = %d, attendu 0 : aucune marge n'a été ajoutée en haut", bounds.MinY)
+	}
+
+	atTheBound := syntheticLeftMarginTemplate()
+	atTheBound.OffsetXDots = bounds.MinX
+	if faults := atTheBound.Validate(2); len(faults) != 0 {
+		t.Errorf("OffsetXDots = %d (la borne elle-même) devrait valider, faults = %v", bounds.MinX, faults)
+	}
+
+	pastTheBound := syntheticLeftMarginTemplate()
+	pastTheBound.OffsetXDots = bounds.MinX - 1
+	if faults := pastTheBound.Validate(2); len(faults) == 0 {
+		t.Errorf("OffsetXDots = %d (un dot au-delà de la borne) devrait être refusé", bounds.MinX-1)
+	}
+}
+
+// TestOffsetBoundsOnCountsTheSymbolAsTheLeftmostInk is the Review Focus case the
+// plan names explicitly, "symbole compris" : the symbol sits closer to the left edge
+// than the text element, so the bound must follow the SYMBOL (-8) and not the text
+// (-16). An inkedOrigin that ignored symbolBox() here would silently answer -16,
+// which this package's other fixtures -- symbol and text always flush together --
+// could never catch.
+func TestOffsetBoundsOnCountsTheSymbolAsTheLeftmostInk(t *testing.T) {
+	symbolLeftmost := syntheticSymbolLeftmostTemplate()
+	if faults := symbolLeftmost.Validate(2); len(faults) != 0 {
+		t.Fatalf("le fixture lui-même devrait être légal, faults = %v", faults)
+	}
+
+	bounds := symbolLeftmost.OffsetBoundsOn(ReferenceHead(), 2)
+	if bounds.MinX != -8 {
+		t.Errorf("MinX = %d, attendu -8 (celle du symbole, le plus à gauche, pas -16 : "+
+			"le champ texte a deux fois sa marge)", bounds.MinX)
+	}
+
+	atTheBound := syntheticSymbolLeftmostTemplate()
+	atTheBound.OffsetXDots = -8
+	if faults := atTheBound.Validate(2); len(faults) != 0 {
+		t.Errorf("OffsetXDots = -8 (la borne du symbole) devrait valider, faults = %v", faults)
+	}
+
+	pastTheBound := syntheticSymbolLeftmostTemplate()
+	pastTheBound.OffsetXDots = -9
+	if faults := pastTheBound.Validate(2); len(faults) == 0 {
+		t.Error("OffsetXDots = -9 devrait être refusé : le symbole sortirait de l'étiquette")
+	}
+}
+
 // TestSymbolHeightUsesMaxAndNotASum is the definition of §7.4 that had to be settled
 // once: the HRI digits sit INSIDE the guard descent band, so the block height is
 // bars + max(descent, hri), never bars + descent + hri.

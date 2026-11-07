@@ -270,6 +270,52 @@ func TestControl38ReadsTheNegativeBoundOfACooperativesTopMargin(t *testing.T) {
 	}
 }
 
+// graoucoopLeftMargin is syntheticLeftMarginTemplate(), named and offset-zeroed like
+// a cooperative's own layout -- the X mirror of graoucoopTopMargin. Control 38's
+// offset_x line had never read a negative bounds.MinX before this fixture: every
+// custom-template test until now left MinX at 0, exactly where "offset < bounds.MinX"
+// and "offset < 0" agree.
+func graoucoopLeftMargin() Template {
+	t := syntheticLeftMarginTemplate()
+	t.Name = "graoucoop"
+	t.OffsetXDots, t.OffsetYDots = 0, 0
+	return t
+}
+
+// TestControl38ReadsTheNegativeXBoundOfACooperativesLeftMargin is the X-axis half of
+// the anti-objectif-1 test: TestControl38ReadsTheNegativeBoundOfACooperativesTopMargin
+// only ever moves offset_y, so a control 38 that compared offset_x against a bare 0
+// instead of bounds.MinX passed the whole package unnoticed.
+func TestControl38ReadsTheNegativeXBoundOfACooperativesLeftMargin(t *testing.T) {
+	custom := graoucoopLeftMargin()
+	config := loadDelivered(t)
+	config.Printer.CustomTemplate = &custom
+	config.Printer.Template = "graoucoop"
+
+	bounds, ok := config.OffsetBounds(testRegistries())
+	if !ok {
+		t.Fatal("OffsetBounds() ok = false, attendu true")
+	}
+	if bounds.MinX != -8 {
+		t.Fatalf("MinX = %d, attendu -8", bounds.MinX)
+	}
+
+	setOption(t, config.Printer.Options, "offset_x", -8)
+	if fault := findFault(config.Validate(testRegistries()), "printer.options.offset_x"); fault != nil {
+		t.Errorf("offset_x = -8 (la borne elle-même) ne doit pas être refusé : %s", fault.Message)
+	}
+
+	setOption(t, config.Printer.Options, "offset_x", -9)
+	fault := findFault(config.Validate(testRegistries()), "printer.options.offset_x")
+	if fault == nil {
+		t.Fatal("offset_x = -9 (un dot au-delà de la borne) doit être refusé")
+	}
+	want := fmt.Sprintf("-9 dots hors bornes [-8, %d] pour le gabarit \"graoucoop\"", bounds.MaxX)
+	if !strings.HasPrefix(fault.Message, want) {
+		t.Errorf("message = %q, attendu qu'il commence par %q", fault.Message, want)
+	}
+}
+
 // TestControl38MessageIsUnchangedForAShippedTemplate is the regression guard of the
 // Review Focus: La Coope's templates start at (0 ; 0), so the bound stays [0, max]
 // and the message must read EXACTLY what it read before ADR-063.
