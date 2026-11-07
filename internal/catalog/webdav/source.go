@@ -59,6 +59,39 @@ func (s *Source) Next(ctx context.Context) (*ports.Batch, error) {
 	}
 }
 
+// Reread asks the watch to read the watched file at its next poll EVEN WHEN keep mode has
+// already acknowledged it, and wakes it. It is what « Recharger le catalogue » calls
+// (§14.4).
+//
+// Decision 7 of ADR-061 stops the automatic polls from reading again a kept file that has
+// not changed, and it is right for them: a refusal read back every five seconds walks the
+// quarantine to its red light. It did not foresee a SETTING changing the verdict — a
+// first delivery refused for its separator or a guard, the setting fixed, the file
+// unchanged and still in place. Pressing the button is then a human asking for exactly
+// that read, and a station answering « déjà pris » while the screen says « relu
+// maintenant » would freeze the catalog in silence. The refusal read again is counted
+// once more: that is the price of the request, and it is a human's.
+//
+// Only a flag is set here. The watermark belongs to the watch goroutine (see Watermark),
+// and this runs on the HTTP one: the poll that consumes the flag does the forgetting.
+func (s *Source) Reread() {
+	s.rereadAsked.Store(true)
+	s.Wake()
+}
+
+// forgetIfAsked drops the watermark when Reread asked for it, on the watch goroutine that
+// owns it. The record on disk goes too: a restart before the read must not bring back the
+// « already taken » the volunteer asked to set aside.
+func (s *Source) forgetIfAsked() {
+	if !s.rereadAsked.Swap(false) || !s.keeping() {
+		return
+	}
+	if err := s.watermark.Forget(); err != nil {
+		s.log.Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
+			"Repère du catalogue non effacé.", err.Error())
+	}
+}
+
 // Wake asks the watch to poll NOW rather than at the next tick (§14.4).
 func (s *Source) Wake() {
 	select {
@@ -77,6 +110,7 @@ func (s *Source) poll(ctx context.Context) (*ports.Batch, error) {
 	if s.isClosed() {
 		return nil, nil
 	}
+	s.forgetIfAsked()
 	stamp, found, err := s.propfind(ctx)
 	switch {
 	case err != nil:
@@ -90,10 +124,15 @@ func (s *Source) poll(ctx context.Context) (*ports.Batch, error) {
 	}
 	s.failures = 0
 	s.sayPresent()
+	// Observed BEFORE the watermark is consulted, so that a kept file already taken still
+	// counts its immobility: when Reread sets the watermark aside, the poll it wakes reads
+	// at once instead of one interval later. A file that moves restarts its count all the
+	// same, so nothing still being written is read any sooner.
+	stable := s.stability.Observe(stamp)
 	if s.keeping() && s.watermark.Seen(stamp) {
 		return nil, nil
 	}
-	if !s.stability.Observe(stamp) {
+	if !stable {
 		return nil, nil
 	}
 	s.observed = stamp
@@ -189,10 +228,7 @@ func (s *Source) refuse(ctx context.Context, pending *catalog.Pending, cause err
 	if content, named := catalog.ContentOf(cause); named {
 		sha = content.SHA256
 	}
-	if s.keeping() && s.observed.Modified.IsZero() && s.watermark.HoldsContent(sha) {
-		// Only for a share that dates nothing, where the stamp cannot tell « unchanged »
-		// from « re-exported ». With a date, identical bytes under a NEW date are a new
-		// submission and are counted, exactly as local_drop counts them.
+	if s.alreadyAcknowledged(sha) {
 		pending.Discard()
 		return true
 	}
@@ -254,11 +290,22 @@ func (s *Source) Acknowledge(ctx context.Context, batch *ports.Batch, result por
 	return nil
 }
 
+// alreadyAcknowledged reports a content read again, unchanged, from a kept file on a share
+// that dates nothing: the content of the last acknowledgement, applied or refused.
+//
+// Only there, where the stamp cannot tell « unchanged » from « re-exported ». With a date,
+// identical bytes under a NEW date are a new submission and go the ordinary way — counted
+// when refused, exactly as local_drop counts them, and found identical by the importer
+// when applied (ADR-015).
+func (s *Source) alreadyAcknowledged(sha string) bool {
+	return s.keeping() && s.observed.Modified.IsZero() && s.watermark.HoldsContent(sha)
+}
+
 // rememberRefusal retains the stamp of the refused file and the digest of its content, in
 // one write. A failure to write is told (ERR-CAT-05) and changes nothing else:
 // Watermark keeps both in memory all the same.
 func (s *Source) rememberRefusal(sha string) {
-	if err := s.watermark.RememberRefusal(s.observed, sha); err != nil {
+	if err := s.watermark.RememberContent(s.observed, sha); err != nil {
 		s.log.Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
 			"Repère du catalogue refusé non écrit.", err.Error())
 	}
@@ -272,15 +319,19 @@ func (s *Source) refusedOutcome() string {
 	return "fichier mis de côté"
 }
 
-// acknowledgeInPlace is the acknowledgement of a kept file: the stamp, in place of the
-// DELETE.
+// acknowledgeInPlace is the acknowledgement of a kept file: the stamp and the digest of
+// the content, in place of the DELETE — whatever the importer decided.
 //
-// A stamp that cannot be written is the same failure as a file that cannot be deleted —
-// the catalog is in service, nothing is quarantined, and the operator is told
-// (ERR-CAT-05). Watermark.Remember keeps the stamp in memory all the same, so the file
+// The digest is what a share that dates nothing has instead of a stamp that matches:
+// without it the same file would be downloaded, offered and imported again at every
+// stable poll (see alreadyAcknowledged). A share that dates its files never consults it.
+//
+// A watermark that cannot be written is the same failure as a file that cannot be deleted
+// — the catalog is in service, nothing is quarantined, and the operator is told
+// (ERR-CAT-05). Watermark.RememberContent keeps both in memory all the same, so the file
 // is not applied again at every poll while the disk is unwritable.
 func (s *Source) acknowledgeInPlace(batch *ports.Batch, archived string) error {
-	if err := s.watermark.Remember(s.observed); err != nil {
+	if err := s.watermark.RememberContent(s.observed, batch.ID); err != nil {
 		s.log.Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
 			"Repère du catalogue non écrit.", err.Error())
 		return fmt.Errorf("%w : repère non écrit pour %s (lot %s) : %w",

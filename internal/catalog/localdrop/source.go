@@ -70,6 +70,39 @@ func (s *Source) Next(ctx context.Context) (*ports.Batch, error) {
 	}
 }
 
+// Reread asks the watch to read the watched file at its next poll EVEN WHEN keep mode has
+// already acknowledged it, and wakes it. It is what « Recharger le catalogue » calls
+// (§14.4).
+//
+// Decision 7 of ADR-061 stops the automatic polls from reading again a kept file that has
+// not changed, and it is right for them: a refusal read back every five seconds walks the
+// quarantine to its red light. It did not foresee a SETTING changing the verdict — a
+// first delivery refused for its separator or a guard, the setting fixed, the file
+// unchanged and still in place. Pressing the button is then a human asking for exactly
+// that read, and a station answering « déjà pris » while the screen says « relu
+// maintenant » would freeze the catalog in silence. The refusal read again is counted
+// once more: that is the price of the request, and it is a human's.
+//
+// Only a flag is set here. The watermark belongs to the watch goroutine (see Watermark),
+// and this runs on the HTTP one: the poll that consumes the flag does the forgetting.
+func (s *Source) Reread() {
+	s.rereadAsked.Store(true)
+	s.Wake()
+}
+
+// forgetIfAsked drops the watermark when Reread asked for it, on the watch goroutine that
+// owns it. The record on disk goes too: a restart before the read must not bring back the
+// « already taken » the volunteer asked to set aside.
+func (s *Source) forgetIfAsked() {
+	if !s.rereadAsked.Swap(false) || !s.keeping() {
+		return
+	}
+	if err := s.watermark.Forget(); err != nil {
+		s.log.Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
+			"Repère du catalogue non effacé.", err.Error())
+	}
+}
+
 // Wake asks the watch to poll NOW rather than at the next tick.
 //
 // It is what makes « Recharger le catalogue » (§14.4) do something on a station whose
@@ -88,6 +121,7 @@ func (s *Source) poll(ctx context.Context) (*ports.Batch, error) {
 	if s.isClosed() {
 		return nil, nil
 	}
+	s.forgetIfAsked()
 	info, err := os.Stat(s.Path())
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -104,10 +138,15 @@ func (s *Source) poll(ctx context.Context) (*ports.Batch, error) {
 	}
 	s.sayPresent()
 	stamp := catalog.Stamp{Size: info.Size(), Modified: info.ModTime()}
+	// Observed BEFORE the watermark is consulted, so that a kept file already taken still
+	// counts its immobility: when Reread sets the watermark aside, the poll it wakes reads
+	// at once instead of one interval later. A file that moves restarts its count all the
+	// same, so nothing still being written is read any sooner.
+	stable := s.stability.Observe(stamp)
 	if s.keeping() && s.watermark.Seen(stamp) {
 		return nil, nil
 	}
-	if !s.stability.Observe(stamp) {
+	if !stable {
 		return nil, nil
 	}
 	s.observed = stamp

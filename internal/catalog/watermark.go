@@ -28,7 +28,8 @@ type Watermark struct {
 	location string
 	stamp    Stamp
 	held     bool
-	// content is the sha256 of the refused content left in place, empty when none.
+	// content is the sha256 of the content last acknowledged in place, applied or refused,
+	// empty when none was retained.
 	content string
 }
 
@@ -38,9 +39,11 @@ type watermarkRecord struct {
 	Location string    `json:"location"`
 	Size     int64     `json:"size"`
 	Modified time.Time `json:"modified"`
-	// Content is the sha256 of a refused catalog left in place. It is what lets a share
-	// that dates nothing, and so never gives the stamp a chance to match, avoid
-	// quarantining the same refused file again at every stable poll.
+	// Content is the sha256 of the catalog last acknowledged in place, applied or refused.
+	// It is what lets a share that dates nothing, and so never gives the stamp a chance to
+	// match, avoid offering the same file again at every stable poll: an applied one would
+	// fill the import history, the journal and the archives, a refused one would walk the
+	// quarantine to its red light.
 	Content string `json:"content,omitempty"`
 }
 
@@ -89,30 +92,32 @@ func (w *Watermark) Seen(s Stamp) bool {
 // not make the same unchanged (or refused) file be read, applied or quarantined again
 // at every stable poll. The price is that a restart will read it once more.
 //
-// A stamp acknowledges a file that was APPLIED or whose refusal is already counted by
-// its date: the refused content RememberRefusal held, if any, is released.
+// A stamp alone is the acknowledgement of a source whose files are always dated: the
+// content RememberContent held, if any, is released.
 func (w *Watermark) Remember(s Stamp) error {
 	w.stamp, w.held, w.content = s, true, ""
 	return w.persist()
 }
 
-// RememberRefusal retains the stamp of a refused file AND the sha256 of its content, and
-// writes them to disk in ONE write.
+// RememberContent retains the stamp of an acknowledged file AND the sha256 of its content,
+// and writes them to disk in ONE write — whether the content was applied, found identical,
+// or refused.
 //
-// It is the second line of defence of a refused file left in place: the stamp stops it
-// being read again, but a stamp without a date never matches (see Seen), and the same
-// broken content would then be archived and counted at every stable poll until the
-// quarantine bans it — which is the red light a file merely LEFT in place must not turn
-// on. Both values are set in memory before the write and stay set when it fails, so an
+// It is the second line of defence of a file left in place: the stamp stops it being read
+// again, but a stamp without a date never matches (see Seen), and the same content would
+// then be offered at every stable poll. Refused, it would be archived and counted until the
+// quarantine bans it — the red light a file merely LEFT in place must not turn on; applied,
+// it would cost an import-history row, two journal lines and an archive every ten seconds.
+// Both values are set in memory before the write and stay set when it fails, so an
 // unwritable disk cannot bring the repetition back; they are one call, and not Remember
 // followed by another, because Remember releases the content and a failed write between
 // the two would leave it released.
-func (w *Watermark) RememberRefusal(s Stamp, sha string) error {
+func (w *Watermark) RememberContent(s Stamp, sha string) error {
 	w.stamp, w.held, w.content = s, true, sha
 	return w.persist()
 }
 
-// HoldsContent reports whether sha is the refused content already retained. An empty
+// HoldsContent reports whether sha is the content last acknowledged in place. An empty
 // digest is never held.
 func (w *Watermark) HoldsContent(sha string) bool {
 	return sha != "" && w.content == sha

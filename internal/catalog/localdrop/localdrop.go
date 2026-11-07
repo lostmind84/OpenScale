@@ -121,6 +121,9 @@ type Source struct {
 	// missing is true from the poll that found the file absent to the one that finds it
 	// again. Atomic because Describe reads it from the administration screen.
 	missing atomic.Bool
+	// rereadAsked is raised by Reread, from the administration screen, and consumed by the
+	// next poll, on the watch goroutine — the only one allowed to touch the watermark.
+	rereadAsked atomic.Bool
 	// remove is os.Remove, and it is a field for ONE reason: « the file could not be
 	// deleted » (ERR-CAT-05, failure test 11) is a real operating state that no
 	// portable test can produce — Windows lifts a read-only attribute by itself and

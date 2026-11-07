@@ -118,6 +118,9 @@ type Source struct {
 	// missing is true from the poll that found the file absent to the one that finds it
 	// again. Atomic because Describe reads it from the administration screen.
 	missing atomic.Bool
+	// rereadAsked is raised by Reread, from the administration screen, and consumed by the
+	// next poll, on the watch goroutine — the only one allowed to touch the watermark.
+	rereadAsked atomic.Bool
 }
 
 // New builds the source from what catalog.options declares.

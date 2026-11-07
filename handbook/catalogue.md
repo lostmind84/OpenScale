@@ -41,8 +41,10 @@ Ce que fait le poste en `keep` :
 
 - il **ne supprime jamais** le fichier, qu'il ait été appliqué ou refusé ;
 - il retient, dans `<data>/catalog/watermark.json`, de quoi reconnaître le dernier fichier
-  qu'il a pris (sa taille et sa date). Un fichier qui n'a pas changé n'est pas relu, même
-  après un redémarrage ; un fichier qui change est relu ;
+  qu'il a pris : sa taille et sa date et, pour WebDAV, l'empreinte de son contenu. Un
+  fichier qui n'a pas changé n'est pas relu, même après un redémarrage, qu'il ait été
+  appliqué ou refusé ; un fichier qui change est relu. Sur un serveur WebDAV qui ne donne
+  pas de date, voir plus bas ;
 - il oublie ce repère dès qu'il redémarre en `delete`, pour ne pas ignorer un fichier
   nouveau le jour où vous reviendrez à `keep` ;
 - il garde, comme avant, une copie de chaque fichier appliqué dans ses archives.
@@ -50,15 +52,34 @@ Ce que fait le poste en `keep` :
 Pour partager un fichier entre postes, `keep` et un nom sans `{n}` suffisent : il n'y a pas
 d'autre réglage.
 
+### Faire relire un fichier laissé en place
+
+En `keep`, un fichier refusé reste là, et le poste ne le relit pas tant qu'il ne change pas :
+c'est ce qui l'empêche de le refuser en boucle. Mais si le refus venait d'un **réglage** — un
+séparateur, un garde-fou trop serré —, corriger le réglage ne suffit pas : le fichier, lui,
+n'a pas changé. Appuyez alors sur **« Recharger le catalogue »** (page Catalogue) : le poste
+oublie ce qu'il savait du fichier et le relit, sans attendre qu'il change. La scrutation
+automatique et le redémarrage, eux, ne le relisent toujours pas. S'il est encore refusé, ce refus
+compte une fois de plus en quarantaine ; au troisième refus du même contenu, le feu passe au
+rouge et le contenu est écarté. Il faut alors **« Oublier la quarantaine »**, puis de nouveau
+**« Recharger le catalogue »** : en `keep`, oublier la quarantaine ne fait pas relire à lui
+seul un fichier qui n'a pas changé.
+
 ## Les trois symptômes
 
 ### Le tableau de bord écrit « en attente de `<nom>` »
 
-Le fichier n'est pas là où le poste le cherche. Le nom écrit est celui que le poste attend,
-le plus souvent pas celui que votre serveur publie. Comparez-le au nom réel, et corrigez
-le **Nom du fichier** ou ce que le serveur publie. Le poste le dit aussi une fois dans le
-journal quand le fichier disparaît, et une fois quand il revient ; avec `keep`, cette
-disparition est un avertissement, parce que ce n'est pas le poste qui a retiré le fichier.
+Le fichier n'est pas là où le poste le cherche. **Avec `delete`, c'est l'état normal entre
+deux livraisons** : le poste a supprimé le fichier après l'avoir lu, et il attend le suivant.
+Rien à corriger tant que les catalogues arrivent — l'historique des imports, page Catalogue,
+le montre.
+
+C'est un symptôme quand **aucun catalogue n'est jamais arrivé**, ou quand vous êtes en
+`keep` : le fichier aurait dû rester là. Le nom écrit est celui que le poste attend, le plus
+souvent pas celui que votre serveur publie. Comparez-le au nom réel, et corrigez le **Nom
+du fichier** ou ce que le serveur publie. Le poste le dit aussi une fois dans le journal
+quand le fichier disparaît, et une fois quand il revient ; avec `keep`, cette disparition
+est un avertissement, parce que ce n'est pas le poste qui a retiré le fichier.
 
 L'écran client, la page Dépannage et la zone de dépôt de la page Catalogue donnent le même
 nom : le service l'envoie, aucun écran ne le recompose.
@@ -81,14 +102,16 @@ en place »**.
 ## Un serveur WebDAV qui ne donne pas de date
 
 Certains serveurs n'envoient pas la date de modification du fichier (l'en-tête
-`getlastmodified`). Sans date, le poste ne peut pas savoir qu'un fichier a changé, et la
-taille seule ne suffit pas à le dire. En `keep`, il **relit donc le fichier à chaque
-scrutation**, toutes les quelques secondes. C'est sans conséquence sur le catalogue : un
-contenu identique à celui déjà appliqué ne change rien. Un fichier refusé n'est pas compté
-une deuxième fois en quarantaine tant que son contenu ne change pas.
+`getlastmodified`). Sans date, le poste ne peut pas savoir qu'un fichier a changé en le
+regardant de loin, et la taille seule ne suffit pas à le dire. En `keep`, il **retélécharge
+donc le fichier toutes les deux scrutations** (une dizaine de secondes avec les réglages
+livrés) et compare son **empreinte** à celle du dernier fichier qu'il a pris, appliqué ou
+refusé. Tant qu'elle n'a pas changé, il ne se passe rien d'autre : pas d'import, pas de
+ligne au journal, pas d'archive, rien en quarantaine — et cela tient aussi après un
+redémarrage. Dès que le contenu change, même d'un seul prix, il est lu.
 
-Si cette relecture permanente vous gêne, c'est le serveur qu'il faut régler pour qu'il
-envoie la date.
+Le seul coût est ce téléchargement répété. S'il vous gêne — un gros fichier, une connexion
+lente —, c'est le serveur qu'il faut régler pour qu'il envoie la date.
 
 ## Pour aller plus loin
 

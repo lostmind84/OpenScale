@@ -92,6 +92,17 @@ func (s *Source) get(ctx context.Context) (*ports.Batch, error) {
 		}
 		return nil, err
 	}
+	if s.alreadyAcknowledged(batch.ID) {
+		// The kept file of a share that dates nothing, downloaded again and unchanged: it
+		// was acknowledged already, applied or refused by the importer. Offering it would
+		// write one more import-history row, two journal lines and one archive at every
+		// stable poll — and, refused, count it again until the quarantine bans it. The
+		// download was the price of knowing; nothing else is spent, nothing is said, and
+		// the next look starts its own stability count.
+		pending.Discard()
+		s.stability.Forget()
+		return nil, nil
+	}
 	s.keep(pending)
 	return batch, nil
 }

@@ -445,26 +445,143 @@ func TestAFolderURLEndingInCSVIsRefused(t *testing.T) {
 	}
 }
 
-// TestAServerWithoutDateIsRereadInKeep: with no getlastmodified the stamp has no date and
-// never matches, so the file is offered again at the next stable poll — and never
-// deleted. The transaction downstream is what makes the second application harmless.
-func TestAServerWithoutDateIsRereadInKeep(t *testing.T) {
-	source, remote, _, _, _ := keeping(t, keepOptions, aCatalog)
-	remote.noDate = true
+// importing stands for the station and its importer over a source: every batch offered is
+// written to the import history, counted against its content when the verdict is a
+// refusal — what internal/catalog/importer does with an import guard — and acknowledged.
+// What it records is exactly what a batch offered for nothing would cost in service.
+type importing struct {
+	source  *Source
+	ledger  *book
+	verdict ports.BatchResult
+	history []string
+}
 
-	first, err := readStable(source)
-	if err != nil || first == nil {
-		t.Fatalf("première lecture : %v", err)
+// cycle runs one stable read and hands what it yields to the importer.
+func (i *importing) cycle(t *testing.T) {
+	t.Helper()
+	batch, err := readStable(i.source)
+	if err != nil {
+		t.Fatalf("lecture : %v", err)
 	}
-	applied(t, source, first)
-	second, err := readStable(source)
-	if err != nil || second == nil {
-		t.Fatalf("un partage sans date doit être relu : lot %v, erreur %v", second, err)
+	if batch == nil {
+		return
 	}
-	applied(t, source, second)
+	i.history = append(i.history, batch.ID)
+	if i.verdict.Result == domain.ImportRejected {
+		i.ledger.RecordContentFailure(context.Background(), batch.ID, i.verdict.Code, i.verdict.Reason)
+	}
+	if err := i.source.Acknowledge(context.Background(), batch, i.verdict); err != nil {
+		t.Fatalf("acquittement : %v", err)
+	}
+}
+
+// datelessImport builds a keep source on a share that dates nothing, with its importer.
+func datelessImport(t *testing.T, content string, verdict ports.BatchResult) (*importing, *share, *recorder) {
+	t.Helper()
+	source, remote, ledger, journal, _ := keeping(t, keepOptions, content)
+	remote.noDate = true
+	return &importing{source: source, ledger: ledger, verdict: verdict}, remote, journal
+}
+
+// TestADatelessShareDoesNotOfferAgainACatalogRejectedByAnImportGuard: the stamp of a share
+// that dates nothing never matches, so the digest of the content acknowledged is what
+// stops the station. Without it a catalog the importer refused — an empty one, or one cut
+// beyond max_weighable_drop — would be downloaded, offered, refused and counted at every
+// stable poll, and reach the quarantine's red light by itself in thirty seconds.
+func TestADatelessShareDoesNotOfferAgainACatalogRejectedByAnImportGuard(t *testing.T) {
+	station, remote, journal := datelessImport(t, aCatalog, ports.BatchResult{
+		Result: domain.ImportRejected, Code: "ERR-CAT-03", Reason: "garde-fou de l'import",
+	})
+	station.cycle(t)
+	if len(station.history) != 1 {
+		t.Fatalf("%d import(s), attendu le premier", len(station.history))
+	}
+	archived, said := len(archives(t, station.source)), len(journal.entries)
+
+	for cycle := 0; cycle < 6; cycle++ {
+		station.cycle(t)
+	}
+	if len(station.history) != 1 {
+		t.Errorf("%d imports, attendu 1 : le même contenu refusé a été offert de nouveau", len(station.history))
+	}
+	for _, count := range station.ledger.counted {
+		if count != 1 {
+			t.Errorf("quarantaine à %d, attendu 1", count)
+		}
+	}
+	if got := len(archives(t, station.source)); got != archived {
+		t.Errorf("%d archives, attendu %d : le même contenu a été archivé de nouveau", got, archived)
+	}
+	if got := len(journal.entries); got != said {
+		t.Errorf("%d lignes au journal, attendu %d : %+v", got, said, journal.entries[said:])
+	}
 	if remote.deletes != 0 || !remote.present {
 		t.Errorf("%d DELETE : le fichier a disparu en mode keep", remote.deletes)
 	}
+}
+
+// TestADatelessShareDoesNotOfferAgainAnAppliedCatalog: an identical batch is harmless to
+// the catalog in service, but not to what surrounds it — one line of import history, two
+// lines of journal and one archive every ten seconds, which drown the journal in three
+// hours and prune the archive a volunteer opens to understand a refusal.
+func TestADatelessShareDoesNotOfferAgainAnAppliedCatalog(t *testing.T) {
+	station, remote, journal := datelessImport(t, aCatalog, ports.BatchResult{Result: domain.ImportApplied})
+	station.cycle(t)
+	archived, said := len(archives(t, station.source)), len(journal.entries)
+
+	for cycle := 0; cycle < 6; cycle++ {
+		station.cycle(t)
+	}
+	if len(station.history) != 1 {
+		t.Errorf("%d imports, attendu 1 : le catalogue appliqué a été offert de nouveau", len(station.history))
+	}
+	if got := len(archives(t, station.source)); got != archived {
+		t.Errorf("%d archives, attendu %d", got, archived)
+	}
+	if got := len(journal.entries); got != said {
+		t.Errorf("%d lignes au journal, attendu %d : %+v", got, said, journal.entries[said:])
+	}
+	if remote.deletes != 0 || !remote.present {
+		t.Errorf("%d DELETE : le fichier a disparu en mode keep", remote.deletes)
+	}
+}
+
+// TestADatelessShareOffersAChangedContent: the digest decides, not the size — a producer
+// who corrects one price keeps the same number of bytes, and on a share that dates nothing
+// the stamp is then identical. The new content is offered all the same.
+func TestADatelessShareOffersAChangedContent(t *testing.T) {
+	station, remote, _ := datelessImport(t, aCatalog, ports.BatchResult{Result: domain.ImportApplied})
+	station.cycle(t)
+
+	remote.content = strings.Replace(aCatalog, "7.89", "7.99", 1)
+	if len(remote.content) != len(aCatalog) {
+		t.Fatal("le contenu corrigé doit garder la même taille")
+	}
+	station.cycle(t)
+	if len(station.history) != 2 || station.history[0] == station.history[1] {
+		t.Fatalf("imports %v, attendu le contenu corrigé après le premier", station.history)
+	}
+	station.cycle(t)
+	if len(station.history) != 2 {
+		t.Errorf("%d imports, attendu 2 : le contenu corrigé a été offert deux fois", len(station.history))
+	}
+}
+
+// TestADatelessShareRemembersTheAppliedContentAcrossARestart: the digest is on disk with
+// the stamp, so the station that reboots every morning does not import the same catalog
+// once per boot.
+func TestADatelessShareRemembersTheAppliedContentAcrossARestart(t *testing.T) {
+	remote := &share{content: aCatalog, present: true, modified: t0, noDate: true}
+	server := httptest.NewServer(remote)
+	defer server.Close()
+	dataDir := t.TempDir()
+	first, _ := keepStation(t, server, dataDir, keepOptions, newBook(), &recorder{})
+	batch, _ := readStable(first)
+	applied(t, first, batch)
+	first.Close()
+
+	second, _ := keepStation(t, server, dataDir, keepOptions, newBook(), &recorder{})
+	expectNoBatch(t, second, 10)
 }
 
 // TestARefusedFileOnADatelessServerIsCountedOnce: the stamp cannot silence a refused
@@ -622,5 +739,93 @@ func TestTheWatermarkNeverStoresTheCredentialsOfTheURL(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "s3cr3t-pw") || strings.Contains(string(raw), "balance") {
 		t.Errorf("le repère porte les identifiants de l'adresse : %s", raw)
+	}
+}
+
+// TestRereadReadsAKeptFileAgain: « Recharger le catalogue » is a human asking for the file
+// to be read, and the watermark would otherwise answer « already taken » — by its stamp on
+// a share that dates its files, by its digest on one that does not.
+func TestRereadReadsAKeptFileAgain(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		noDate bool
+	}{{"daté", false}, {"sans date", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			source, remote, _, _, _ := keeping(t, keepOptions, aCatalog)
+			remote.noDate = tc.noDate
+			batch, _ := readStable(source)
+			applied(t, source, batch)
+			expectNoBatch(t, source, 4)
+
+			source.Reread()
+			again, err := readStable(source)
+			if err != nil || again == nil {
+				t.Fatalf("lot %v, erreur %v, attendu le fichier inchangé relu sur demande", again, err)
+			}
+			applied(t, source, again)
+			expectNoBatch(t, source, 10)
+			if remote.deletes != 0 || !remote.present {
+				t.Errorf("%d DELETE : le fichier a disparu en mode keep", remote.deletes)
+			}
+		})
+	}
+}
+
+// TestRereadReadsARefusedFileAgainOnADatelessShare: the refusal is counted once more —
+// that is the price of a human asking — and then the digest silences it again.
+func TestRereadReadsARefusedFileAgainOnADatelessShare(t *testing.T) {
+	source, remote, ledger, _, _ := keeping(t, keepOptions, brokenCatalog)
+	remote.noDate = true
+	readStable(source)
+	expectNoBatch(t, source, 4)
+
+	source.Reread()
+	if _, err := readStable(source); !errors.Is(err, catalog.ErrContent) {
+		t.Fatalf("erreur %v, attendu le fichier relu et refusé de nouveau", err)
+	}
+	for _, count := range ledger.counted {
+		if count != 2 {
+			t.Errorf("quarantaine à %d, attendu 2", count)
+		}
+	}
+	expectNoBatch(t, source, 10)
+}
+
+// TestRereadWakesTheWatchFromAnotherGoroutine: the button runs on the HTTP goroutine and
+// the watermark belongs to the watch, so Reread only raises a flag the watch consumes.
+func TestRereadWakesTheWatchFromAnotherGoroutine(t *testing.T) {
+	source, _, _, _, _ := keeping(t, keepOptions, aCatalog)
+	batch, _ := readStable(source)
+	applied(t, source, batch)
+	source.poll(context.Background())
+	source.poll(context.Background())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	offered := make(chan *ports.Batch, 1)
+	go func() {
+		next, _ := source.Next(ctx)
+		offered <- next
+	}()
+	source.Reread()
+	select {
+	case next := <-offered:
+		if next == nil {
+			t.Fatal("Next est sorti sans lot après une relecture demandée")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Next n'a rien rendu après une relecture demandée")
+	}
+}
+
+// TestRereadInDeleteModeIsAWake: there is no watermark to forget when the file is deleted
+// after reading.
+func TestRereadInDeleteModeIsAWake(t *testing.T) {
+	source, _, _, _, _ := keeping(t, "{}", aCatalog)
+	source.poll(context.Background())
+
+	source.Reread()
+	if batch, err := source.poll(context.Background()); err != nil || batch == nil {
+		t.Fatalf("lot %v, erreur %v, attendu la lecture ordinaire", batch, err)
 	}
 }

@@ -43,6 +43,14 @@ type adminCatalog struct {
 // answered with a silent success.
 type waker interface{ Wake() }
 
+// rereader is a catalog source that can be asked to read its file again even when it has
+// already acknowledged it in place (`after_read: keep`), and wakes its watch to do so.
+//
+// Both shipped file sources are one. The button needs it because the watermark of keep
+// answers « already taken » to an unchanged file, which is right for the automatic polls
+// and wrong for a volunteer who has just fixed the setting that refused it (ADR-061).
+type rereader interface{ Reread() }
+
 // watchedFile is a source that watches a named file of this machine.
 //
 // Only a local drop has one: a share is watched over the network, and a CSV dropped on
@@ -85,6 +93,13 @@ func (c adminCatalog) Reload(ctx context.Context) (string, error) {
 	// The watch is woken WHATEVER the look saw, and in that order: the look is an
 	// observation, the wake is the act the button names. A file dropped between the two is
 	// then read at once instead of at the next tick.
+	//
+	// A source that keeps its file is asked to READ it again, not merely to look: without
+	// that, « la veille le relit maintenant » would be false for a file left in place.
+	if again, ok := source.(rereader); ok {
+		again.Reread()
+		return seen, nil
+	}
 	wake.Wake()
 	return seen, nil
 }

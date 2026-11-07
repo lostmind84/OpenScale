@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"openscale/internal/catalog"
 	"openscale/internal/domain"
@@ -377,5 +378,93 @@ func TestAMissingFileIsSaidOnceAndThenItsReturn(t *testing.T) {
 				t.Errorf("Describe %q attend toujours un fichier présent", source.Describe())
 			}
 		})
+	}
+}
+
+// TestRereadReadsAKeptFileAgain: « Recharger le catalogue » is a human asking for the file
+// to be read, and in keep mode the watermark would otherwise answer « already taken ». The
+// case it exists for is the first delivery of a cooperative: refused because a setting was
+// wrong, the setting fixed, and the same file — unchanged — still in place.
+func TestRereadReadsAKeptFileAgain(t *testing.T) {
+	t.Run("refused", func(t *testing.T) {
+		source, ledger, _ := counting(t, keepOptions)
+		drop(t, source, brokenCatalog)
+		readStable(source)
+		expectNoBatch(t, source, 4)
+
+		source.Reread()
+		if _, err := source.poll(context.Background()); !errors.Is(err, catalog.ErrContent) {
+			t.Fatalf("erreur %v, attendu le fichier relu (et refusé de nouveau) à la scrutation qui suit", err)
+		}
+		for _, count := range ledger.counted {
+			if count != 2 {
+				t.Errorf("quarantaine à %d, attendu 2 : la relecture demandée compte une fois", count)
+			}
+		}
+		// The watermark is written again by that refusal: the automatic polls are back to
+		// decision 7.
+		expectNoBatch(t, source, 10)
+	})
+	t.Run("applied", func(t *testing.T) {
+		source, _ := station(t, keepOptions)
+		drop(t, source, aCatalog)
+		batch, _ := readStable(source)
+		if err := source.Acknowledge(context.Background(), batch,
+			ports.BatchResult{Result: domain.ImportApplied}); err != nil {
+			t.Fatalf("acquittement : %v", err)
+		}
+		expectNoBatch(t, source, 4)
+
+		source.Reread()
+		again, err := source.poll(context.Background())
+		if err != nil || again == nil {
+			t.Fatalf("lot %v, erreur %v, attendu le fichier inchangé relu sur demande", again, err)
+		}
+		if again.ID != batch.ID {
+			t.Errorf("lot %s, attendu le même contenu %s", again.ID, batch.ID)
+		}
+	})
+}
+
+// TestRereadWakesTheWatchFromAnotherGoroutine: the button runs on the HTTP goroutine and
+// the watermark belongs to the watch, so Reread only raises a flag the watch consumes.
+// Under -race this is the test that says so.
+func TestRereadWakesTheWatchFromAnotherGoroutine(t *testing.T) {
+	source, _ := station(t, keepOptions)
+	drop(t, source, aCatalog)
+	batch, _ := readStable(source)
+	if err := source.Acknowledge(context.Background(), batch,
+		ports.BatchResult{Result: domain.ImportApplied}); err != nil {
+		t.Fatalf("acquittement : %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	offered := make(chan *ports.Batch, 1)
+	go func() {
+		next, _ := source.Next(ctx)
+		offered <- next
+	}()
+	source.Reread()
+	select {
+	case next := <-offered:
+		if next == nil {
+			t.Fatal("Next est sorti sans lot après une relecture demandée")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Next n'a rien rendu après une relecture demandée")
+	}
+}
+
+// TestRereadInDeleteModeIsAWake: there is no watermark to forget when the file is deleted
+// after reading, and asking for a reread must not reach for one.
+func TestRereadInDeleteModeIsAWake(t *testing.T) {
+	source, _ := station(t, "")
+	drop(t, source, aCatalog)
+	source.poll(context.Background())
+
+	source.Reread()
+	if batch, err := source.poll(context.Background()); err != nil || batch == nil {
+		t.Fatalf("lot %v, erreur %v, attendu la lecture ordinaire", batch, err)
 	}
 }
