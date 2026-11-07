@@ -15,14 +15,29 @@ la clé `printer.custom_template` de `config.json`, à côté de `printer.templa
 continue de nommer le gabarit **en service** — le vôtre ou l'un des deux livrés,
 indifféremment. **Un seul gabarit de coopérative par poste**, pas une liste.
 
-**Ne partez jamais d'une page blanche.** Sur la page Étiquette, le bouton **« Partir
-du gabarit livré »** écrit dans le brouillon une copie de `weighing_identical` sous
-`printer.custom_template`, sous le nom `cooperative`, et sélectionne ce nom. Vous
-ajustez ensuite cette copie — toujours dans le document JSON, l'écran n'ouvre aucun
-éditeur visuel — puis vous enregistrez comme pour tout autre réglage : le mot de passe
-et le compte à rebours de confirmation de 60 secondes s'appliquent, exactement comme
-pour un décalage ou une option d'imprimante. Le bouton est désarmé tant qu'un gabarit
-de coopérative est déjà présent dans le brouillon ; il ne l'écrase jamais.
+**Ne partez jamais d'une page blanche.** Le réglage se fait en trois temps, et l'écran
+Étiquette n'ouvre à aucun moment un éditeur de texte :
+
+1. Sur la page Étiquette, le bouton **« Partir du gabarit livré »** écrit dans le
+   brouillon une copie de `weighing_identical` sous `printer.custom_template`, sous le
+   nom `cooperative`, et sélectionne ce nom. Vous cliquez ensuite **Enregistrer** et
+   confirmez comme pour tout autre réglage : le mot de passe et le compte à rebours de
+   confirmation de 60 secondes s'appliquent, exactement comme pour un décalage ou une
+   option d'imprimante. Le bouton est désarmé tant qu'un gabarit de coopérative est
+   déjà présent dans le brouillon ; il ne l'écrase jamais.
+2. La copie vit maintenant dans le fichier de configuration du poste —
+   `C:\ProgramData\Balance\config.json` sous Windows, `/etc/openscale/config.json`
+   sous Linux (`docs/02-architecture.md` §11.1) — sous la clé
+   `printer.custom_template`. C'est là, dans ce document JSON, que vous ajustez le
+   gabarit : ouvrez-le avec un éditeur de texte, ou passez par **page Poste → panneau
+   « Exporter, importer » → Exporter**, modifiez le fichier téléchargé, puis
+   réimportez-le.
+3. Pour mettre le fichier modifié en service : **page Poste → panneau
+   « Maintenance » → « Relire le fichier »** (relit `config.json` depuis le disque
+   sans arrêter le poste), ou **page Poste → panneau « Exporter, importer » →
+   « Importer un fichier »** si vous êtes passé par l'export. Les deux chemins
+   repassent par les neuf règles dures ci-dessous et par le compte à rebours de
+   confirmation habituel.
 
 Le **média** se règle dans le même document (`media.width_um`, `height_um`,
 `dots_per_mm`, et `printable_width_um`/`printable_height_um` au niveau du gabarit) :
@@ -241,12 +256,12 @@ dépasse est refusé avec le message *« … dots hors bornes […, …] pour le
 
 ## Lire l'aperçu avant tout tirage réel
 
-L'image sous les flèches de décalage est rendue par le **même moteur** que
+L'image à côté des flèches de décalage est rendue par le **même moteur** que
 l'impression (pas un dessin séparé) : ce que vous voyez à l'écran est, dot pour dot,
-ce qui sortira de l'imprimante. L'aperçu de votre gabarit s'affiche **après
-l'enregistrement** — enregistrer arme le compte à rebours de confirmation de 60
-secondes habituel, et c'est seulement une fois confirmé que l'aperçu relit la
-géométrie en service et se redessine. Avant de coller la première étiquette, regardez
+ce qui sortira de l'imprimante. L'aperçu se redessine **dès l'enregistrement**, pendant
+le compte à rebours de confirmation de 60 secondes habituel : regardez-le, et ne
+confirmez que s'il est juste — sans confirmation, le poste revient seul à la version
+précédente. Avant de coller la première étiquette, regardez
 cette image à la taille réelle de votre rouleau : un chevauchement, un symbole trop
 près du bord ou un champ tronqué s'y voient sans gaspiller de papier.
 
