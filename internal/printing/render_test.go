@@ -87,6 +87,37 @@ func TestTheLabelMatchesItsGoldens(t *testing.T) {
 	}
 }
 
+// TestAnElementsFontChangesTheRenderedBitmap: domain.Element.Font exists to let a
+// field name its own family (§7.3's "font of the neutral templates" with nowhere to
+// say so), and the proof that it is READ rather than merely validated is a label that
+// comes out different ink when it is set.
+func TestAnElementsFontChangesTheRenderedBitmap(t *testing.T) {
+	r, _ := newTestRasterizer(t)
+	label := weighing(t, celeryRow, referenceMass, domain.LaCagetteRules())
+
+	reference := domain.IdenticalTemplate()
+	refImg, err := r.Rasterize(&reference, label, domain.LocaleFrench, RenderOptions{})
+	if err != nil {
+		t.Fatalf("Rasterize (référence) : %v", err)
+	}
+
+	withFont := domain.IdenticalTemplate()
+	for i := range withFont.Elements {
+		if withFont.Elements[i].Field == domain.FieldProductName {
+			withFont.Elements[i].Font = domain.FontDejaVuSansCondensed
+		}
+	}
+	gotImg, err := r.Rasterize(&withFont, label, domain.LocaleFrench, RenderOptions{})
+	if err != nil {
+		t.Fatalf("Rasterize (dejavu-sans-condensed) : %v", err)
+	}
+
+	if bytes.Equal(refImg.Pix, gotImg.Pix) {
+		t.Fatal("le même libellé rend un bitmap identique en Carlito et en DejaVu Sans Condensed : " +
+			"elementFont n'est pas lu, ou la police par défaut n'a pas changé")
+	}
+}
+
 // compareGolden checks an image against its recorded PNG, or rewrites it under
 // -update.
 func compareGolden(t *testing.T, name string, img *image.Gray) {

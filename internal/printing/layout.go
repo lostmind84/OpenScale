@@ -51,15 +51,28 @@ const (
 	ellipsis = "…"
 )
 
-// labelFont is the family every field of every template is drawn in.
+// labelFont is the family a field renders in when its element names none.
 //
-// ADR-020 chose it for the production label because it is metrically Calibri. §7.3
-// also announces DejaVu Sans Condensed as "the font of the NEUTRAL templates", but
-// domain.Element carries no font key to say so with: the closed list of §7.5 rule 7
-// covers fields, conditions and alignments, and nothing names a family. Until an
-// element can declare one, every template renders in Carlito -- which is the right
-// default, since it is the only one A1 has an opinion about.
+// ADR-020 chose it for the production label because it is metrically Calibri, and it
+// stays the DEFAULT for every field that does not say otherwise -- which is the right
+// one, since it is the only family A1 has an opinion about. §7.3 also calls DejaVu
+// Sans Condensed "the font of the NEUTRAL templates": that element.Font is what lets a
+// gabarit SAY so now, through elementFont below, rather than only receiving it as the
+// fallback that draws what Carlito cannot (fallbackFont).
 const labelFont = Carlito
+
+// elementFont reports the family e is drawn in: labelFont when the element names
+// none, the family it names otherwise.
+//
+// domain's rule 7 is what makes the cast here safe -- a template that named a font
+// outside printing.Carlito/DejaVuSansCondensed, or any font at all on the barcode
+// element, never loads, so this function never has to refuse anything itself.
+func elementFont(e domain.Element) Font {
+	if e.Font == "" {
+		return labelFont
+	}
+	return Font(e.Font)
+}
 
 // fallbackFont draws what Carlito cannot, and that is not a theoretical case.
 //

@@ -430,3 +430,106 @@ func TestNegativeCoordinatesAreRefused(t *testing.T) {
 		t.Errorf("faults = %v, want a fault naming the element as being off the label", faults)
 	}
 }
+
+// TestRuleSevenClosesTheFontList: the font a template names for an element is a
+// closed list, same reasoning as the field and the condition -- a template naming a
+// font the binary does not carry would be caught at RENDER time otherwise, not at
+// load time.
+func TestRuleSevenClosesTheFontList(t *testing.T) {
+	template := IdenticalTemplate()
+	template.Elements[0].Font = "comic-sans"
+
+	faults := template.Validate(2)
+	if !hasFault(faults, "elements[0].font") {
+		t.Fatalf("faults = %v, want elements[0].font", faultFields(faults))
+	}
+	for _, f := range faults {
+		if f.Field != "elements[0].font" {
+			continue
+		}
+		if !strings.Contains(f.Message, `police inconnue "comic-sans"`) {
+			t.Errorf("message = %q, want it to name the unknown font", f.Message)
+		}
+		if len(f.Values) != 2 || f.Values[0] != FontCarlito || f.Values[1] != FontDejaVuSansCondensed {
+			t.Errorf("Values = %v, want KnownFonts()", f.Values)
+		}
+	}
+}
+
+// TestRuleSevenAcceptsAKnownFontOnATextElement: naming the one font §7.3 already
+// calls "the font of the neutral templates" must validate, now that an element has
+// somewhere to say so.
+func TestRuleSevenAcceptsAKnownFontOnATextElement(t *testing.T) {
+	template := IdenticalTemplate()
+	template.Elements[0].Font = FontDejaVuSansCondensed
+
+	if faults := template.Validate(2); len(faults) != 0 {
+		t.Errorf("une police connue sur un champ texte doit être admise : %v", faults)
+	}
+}
+
+// TestRuleSevenRefusesAFontOnTheBarcodeElement: the symbol carries no type size of
+// its own (rule 9 skips it for the same reason), and its HRI digits are drawn by the
+// engine in labelFont -- not something a gabarit can override field by field.
+func TestRuleSevenRefusesAFontOnTheBarcodeElement(t *testing.T) {
+	template := IdenticalTemplate()
+	for i := range template.Elements {
+		if template.Elements[i].Field == FieldBarcode {
+			template.Elements[i].Font = FontCarlito
+		}
+	}
+
+	faults := template.Validate(2)
+	if !hasFault(faults, "elements[5].font") {
+		t.Fatalf("faults = %v, want elements[5].font", faultFields(faults))
+	}
+}
+
+// TestRuleNineRefusesANonPositiveSymbolGeometry: bar height and HRI height exist on
+// a compiled gabarit only because they were measured positive. A gabarit supplied as
+// a document is not bound by that, and a zero or negative value here would either
+// draw nothing (A1) or, for guard_descent, invert HeightUM's max() silently.
+func TestRuleNineRefusesANonPositiveSymbolGeometry(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		mutate func(*Template)
+		field  string
+	}{
+		{"barres nulles", func(t *Template) { t.Symbol.BarHeightUM = 0 }, "symbol.bar_height_um"},
+		{"barres négatives", func(t *Template) { t.Symbol.BarHeightUM = -1 }, "symbol.bar_height_um"},
+		// ADR-051: la HRI est imprimée, jamais nulle (A1).
+		{"HRI nulle", func(t *Template) { t.Symbol.HRIHeightUM = 0 }, "symbol.hri_height_um"},
+		{"descente des gardes négative", func(t *Template) { t.Symbol.GuardDescentUM = -1 }, "symbol.guard_descent_um"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			template := NeutralSingleTemplate()
+			c.mutate(&template)
+			if faults := template.Validate(2); !hasFault(faults, c.field) {
+				t.Errorf("faults = %v, want %s", faultFields(faults), c.field)
+			}
+		})
+	}
+
+	// A descent of exactly zero is legal: only a NEGATIVE one is nonsensical (it
+	// would make HeightUM's max() favour whichever of the two happens to be
+	// negative less).
+	template := NeutralSingleTemplate()
+	template.Symbol.GuardDescentUM = 0
+	if faults := template.Validate(2); hasFault(faults, "symbol.guard_descent_um") {
+		t.Errorf("une descente nulle doit être admise : %v", faults)
+	}
+}
+
+// TestTheShippedTemplatesCarryNoFontFaultAndNoSymbolGuardFault: the two guards above
+// judge what a SUPPLIED gabarit could get wrong; they must stay silent on what is
+// already compiled in, on every tier count either rule reads.
+func TestTheShippedTemplatesCarryNoFontFaultAndNoSymbolGuardFault(t *testing.T) {
+	identical := IdenticalTemplate()
+	if faults := identical.Validate(2); len(faults) != 0 {
+		t.Errorf("weighing_identical : %v", faults)
+	}
+	neutral := NeutralSingleTemplate()
+	if faults := neutral.Validate(1); len(faults) != 0 {
+		t.Errorf("weighing_neutral_single : %v", faults)
+	}
+}

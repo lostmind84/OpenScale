@@ -88,6 +88,24 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
 				shifted.Symbol.Magnification(head.DotsPerMM)*100, GS1MinModuleUM, GS1MaxModuleUM)
 		}
 	}
+	// A SUPPLIED gabarit is not bound by the fact that every compiled one happens
+	// to measure positive here: a zero bar height would ink nothing (A1), and a
+	// negative guard descent would make HeightUM's max() favour whichever of the
+	// two operands happens to be negative less -- silently, since max() itself
+	// never refuses anything.
+	if shifted.Symbol.BarHeightUM <= 0 {
+		fail("symbol.bar_height_um", "%d µm : les barres du symbole doivent avoir une hauteur strictement positive",
+			shifted.Symbol.BarHeightUM)
+	}
+	if shifted.Symbol.GuardDescentUM < 0 {
+		fail("symbol.guard_descent_um", "%d µm : la descente des gardes ne peut pas être négative",
+			shifted.Symbol.GuardDescentUM)
+	}
+	if shifted.Symbol.HRIHeightUM <= 0 {
+		fail("symbol.hri_height_um", "%d µm : la bande HRI est imprimée depuis toujours (ADR-051), elle ne peut pas être nulle",
+			shifted.Symbol.HRIHeightUM)
+	}
+
 	for i, e := range shifted.Elements {
 		if e.Field == FieldBarcode {
 			continue // the symbol carries no type size of its own
@@ -122,6 +140,15 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
 		if e.Field != FieldBarcode && !known(knownAlignments, e.Align) {
 			fail(fmt.Sprintf("elements[%d].align", i), "alignement inconnu %q", e.Align)
 			faults[len(faults)-1].Values = knownAlignments
+		}
+		if e.Field == FieldBarcode {
+			if e.Font != "" {
+				fail(fmt.Sprintf("elements[%d].font", i),
+					"le symbole ne prend pas de police : ses chiffres sont dessinés par le moteur, bornés par la bande HRI")
+			}
+		} else if e.Font != "" && !known(knownFonts, e.Font) {
+			fail(fmt.Sprintf("elements[%d].font", i), "police inconnue %q", e.Font)
+			faults[len(faults)-1].Values = knownFonts
 		}
 		if seen[e.Field] {
 			fail(fmt.Sprintf("elements[%d].field", i), "le champ %q est placé deux fois", e.Field)

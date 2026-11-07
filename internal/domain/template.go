@@ -49,6 +49,29 @@ const (
 
 var knownAlignments = []string{AlignLeft, AlignRight}
 
+// The CLOSED list of fonts an element may name (rule 7). An empty Element.Font means
+// the engine's own default -- printing.labelFont, Carlito -- so every template that
+// predates this field renders exactly as it did before.
+//
+// §7.3 already called DejaVu Sans Condensed "the font of the neutral templates" and
+// had no field on Element to say so with; this is that field's closed list, read on
+// the domain side because rule 7 is where a template is refused for naming something
+// that does not exist, not inside the rendering engine.
+const (
+	FontCarlito             = "carlito"
+	FontDejaVuSansCondensed = "dejavu-sans-condensed"
+)
+
+// knownFonts is the closed list itself, Carlito first: it is the font an empty
+// Element.Font falls back to, and KnownFonts() -- what rule 7 offers in Fault.Values
+// -- names it first for the same reason.
+var knownFonts = []string{FontCarlito, FontDejaVuSansCondensed}
+
+// KnownFonts reports the fonts an element may name, Carlito first.
+func KnownFonts() []string {
+	return append([]string(nil), knownFonts...)
+}
+
 // Geometry bounds of rule 9, and the reason each one exists.
 const (
 	// GS1MinModuleUM and GS1MaxModuleUM bound the barcode module: they are the
@@ -261,6 +284,11 @@ type Element struct {
 	Framed   bool   `json:"framed"`
 	Align    string `json:"align"`
 	When     string `json:"when"`
+	// Font names the type face this element is drawn in, from the closed list
+	// above. Empty means the engine's own default (printing.labelFont, Carlito);
+	// the barcode element takes none at all (rule 7) -- its HRI digits are drawn
+	// by the engine, bounded by the HRI band, never by a per-element choice.
+	Font string `json:"font,omitempty"`
 }
 
 // Right and Bottom report the far edges of the element box.
