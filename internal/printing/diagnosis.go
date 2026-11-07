@@ -186,6 +186,14 @@ func Diagnose(ctx context.Context, s Subject, p DiagnosisProbes) []DiagnosisStep
 		steps[0].State, steps[1].State, steps[2].State = StepNotApplicable, StepNotApplicable, StepNotApplicable
 	}
 
+	// Step 3 reads the SAME probe steps 1 and 2 already read, but only devfile and tcp
+	// read step 1/2 from that probe's Cause: when that Cause could not be placed,
+	// step 3 cannot trust it either, hence fillUnknownStep3. winspool and file decide
+	// step 1 from Queues/Stat instead, a call this probe never made, so an unknown
+	// there says nothing about step 3: classifyStep3 reads the probe's own verdict
+	// directly, which answers "not_applicable" for the ErrUnsupported every spooler
+	// and file sink returns (spec, "Tranché en relecture", winspool).
+	spreadsUnknown := s.Transport == domain.TransportDevfile || s.Transport == domain.TransportTCP
 	switch {
 	case !interrogated:
 		// steps[2] was already set to not_applicable above.
@@ -194,7 +202,7 @@ func Diagnose(ctx context.Context, s Subject, p DiagnosisProbes) []DiagnosisStep
 		steps[3].State = StepNotApplicable
 		steps[4].State = StepNotApplicable
 		return steps
-	case steps[0].State == StepUnknown || steps[1].State == StepUnknown:
+	case spreadsUnknown && (steps[0].State == StepUnknown || steps[1].State == StepUnknown):
 		fillUnknownStep3(&steps[2])
 	default:
 		classifyStep3(&steps[2], status)
@@ -216,7 +224,7 @@ func Diagnose(ctx context.Context, s Subject, p DiagnosisProbes) []DiagnosisStep
 // negative.
 func classifyDevfile(steps []DiagnosisStep, device string, status ports.PrinterStatus) {
 	cause := status.Cause
-	if cause == nil || errors.Is(cause, ports.ErrUnsupported) {
+	if cause == nil {
 		steps[0].State, steps[1].State = StepPass, StepPass
 		steps[0].Observed = fmt.Sprintf("« %s » existe et a pu être ouvert.", device)
 		steps[1].Observed = "l'ouverture en écriture a réussi."
@@ -230,9 +238,10 @@ func classifyDevfile(steps []DiagnosisStep, device string, status ports.PrinterS
 			steps[0].State = StepFail
 			steps[1].State = StepNotApplicable
 			steps[0].Observed = fmt.Sprintf("« %s » n'existe pas sur ce poste : %v.", device, cause)
-			steps[0].Remedy = "Vérifier que le câble USB est bien branché, et que le poste a redémarré " +
-				"depuis le branchement : la règle udev de l'installation donne un nom stable au " +
-				"nœud d'impression, et ce nom n'apparaît qu'après ce redémarrage."
+			steps[0].Remedy = "Vérifier que le câble USB est bien branché et que l'imprimante est sous " +
+				"tension, puis comparer le nœud réellement présent (« ls /dev/usb/ ») avec celui que " +
+				"printer.options.path déclare : la règle udev de l'imprimante n'est pas activée sur ce " +
+				"parc, et le nœud change de nom après un rebranchement."
 			steps[0].Doc = anchor(1)
 			return
 		case pe.Op == "open" && errors.Is(cause, fs.ErrPermission):
@@ -240,8 +249,9 @@ func classifyDevfile(steps []DiagnosisStep, device string, status ports.PrinterS
 			steps[0].Observed = fmt.Sprintf("« %s » existe.", device)
 			steps[1].State = StepFail
 			steps[1].Observed = fmt.Sprintf("le poste n'a pas le droit d'écrire sur « %s » : %v.", device, cause)
-			steps[1].Remedy = "Ajouter le compte du poste au groupe lp, puis redémarrer la session : " +
-				"c'est ce groupe qui donne le droit d'écrire sur le nœud d'impression (§15.3)."
+			steps[1].Remedy = "Ajouter le compte du poste au groupe lp, puis redémarrer le service " +
+				"openscale (ou le poste) : c'est ce groupe qui donne le droit d'écrire sur le nœud " +
+				"d'impression, et le service doit relire ses groupes pour en profiter."
 			steps[1].Doc = anchor(2)
 			return
 		case pe.Op != "open":
@@ -271,7 +281,7 @@ func classifyTCP(steps []DiagnosisStep, device string, status ports.PrinterStatu
 	steps[1].State = StepNotApplicable
 
 	cause := status.Cause
-	if cause == nil || errors.Is(cause, ports.ErrUnsupported) {
+	if cause == nil {
 		steps[0].State = StepPass
 		steps[0].Observed = fmt.Sprintf("connexion établie vers %s.", device)
 		return
@@ -283,8 +293,8 @@ func classifyTCP(steps []DiagnosisStep, device string, status ports.PrinterStatu
 			steps[0].State = StepFail
 			steps[0].Observed = fmt.Sprintf("connexion impossible vers %s : %v.", device, cause)
 			steps[0].Remedy = "Vérifier que l'imprimante est allumée, que son adresse réseau n'a pas " +
-				"changé (§8.4 : l'adresse est fixe, écrite sur une étiquette collée sur l'imprimante) " +
-				"et que le poste et l'imprimante sont sur le même réseau."
+				"changé (§8.4 : l'adresse IP fixe est posée sur le panneau de l'imprimante) et que le " +
+				"poste et l'imprimante sont sur le même réseau."
 			steps[0].Doc = anchor(1)
 			return
 		}
@@ -441,8 +451,8 @@ func AnswerStep(printed bool, seen string) DiagnosisStep {
 	}
 	step.State = StepFail
 	step.Observed = seen
-	step.Remedy = "Lire la page Dépannage : les voyants et les bips de la SATO WS408 y sont " +
-		"décrits un par un, avec ce que chacun signifie."
+	step.Remedy = "L'imprimante a tout reçu mais n'a pas fini le travail. À vérifier sur " +
+		"l'imprimante : le protocole de l'interface USB, puis la calibration du rouleau."
 	step.Doc = anchor(5)
 	return step
 }

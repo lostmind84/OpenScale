@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 
 	"openscale/internal/domain"
@@ -141,6 +142,29 @@ func TestDiagnoseFiveSteps(t *testing.T) {
 			wantSelfTestCalls: 1,
 		},
 		{
+			// Un open qui échoue pour un errno autre qu'absent/permission (CUPS tient
+			// déjà le nœud, imprimante éteinte…) n'est NI une preuve d'ouverture NI un
+			// échec nommé : Review Focus interdit de lire ça comme "pass". C'est le cas
+			// réaliste que les mutants m1/m3 de la revue font passer inaperçu.
+			name:              "devfile : open échoue pour un autre errno, jamais pass",
+			subject:           Subject{Transport: domain.TransportDevfile, Device: "/dev/usb/lp0"},
+			status:            ports.PrinterStatus{Health: ports.PrinterFaulted, Cause: &fs.PathError{Op: "open", Path: "/dev/usb/lp0", Err: syscall.EBUSY}},
+			selfTestReceipt:   ports.PrintReceipt{Bytes: 100},
+			want:              [5]StepState{StepUnknown, StepUnknown, StepUnknown, StepPass, StepUnanswered},
+			wantSelfTestCalls: 1,
+		},
+		{
+			// ErrUnsupported ne veut dire qu'une chose pour devfile : le transport n'a
+			// RIEN ouvert ni demandé. Ce n'est donc pas la preuve positive que steps 1
+			// et 2 exigent (mutant m3 de la revue).
+			name:              "devfile : ErrUnsupported n'est pas une preuve d'ouverture",
+			subject:           Subject{Transport: domain.TransportDevfile, Device: "/dev/usb/lp0"},
+			status:            ports.PrinterStatus{Health: ports.PrinterUnknown, Cause: ports.ErrUnsupported},
+			selfTestReceipt:   ports.PrintReceipt{Bytes: 100},
+			want:              [5]StepState{StepUnknown, StepUnknown, StepUnknown, StepPass, StepUnanswered},
+			wantSelfTestCalls: 1,
+		},
+		{
 			name:              "devfile : échec après ouverture",
 			subject:           Subject{Transport: domain.TransportDevfile, Device: "/dev/usb/lp0"},
 			status:            ports.PrinterStatus{Health: ports.PrinterFaulted, Cause: readFailed, Detail: "bourrage papier"},
@@ -176,6 +200,16 @@ func TestDiagnoseFiveSteps(t *testing.T) {
 			},
 		},
 		{
+			// Une cause tcp que ce fichier ne sait pas classer (ni nil, ni
+			// *net.OpError) n'est pas non plus une preuve de connexion (mutant m2).
+			name:              "tcp : cause non classée, jamais pass",
+			subject:           Subject{Transport: domain.TransportTCP, Device: "192.168.1.50:9100"},
+			status:            ports.PrinterStatus{Health: ports.PrinterUnknown, Cause: closedLike},
+			selfTestReceipt:   ports.PrintReceipt{Bytes: 100},
+			want:              [5]StepState{StepUnknown, StepNotApplicable, StepUnknown, StepPass, StepUnanswered},
+			wantSelfTestCalls: 1,
+		},
+		{
 			name:              "winspool : la file nommée existe",
 			subject:           Subject{Transport: domain.TransportWinspool, Device: "SATO WS408_2"},
 			status:            ports.PrinterStatus{Health: ports.PrinterUnknown, Cause: ports.ErrUnsupported},
@@ -197,12 +231,15 @@ func TestDiagnoseFiveSteps(t *testing.T) {
 			},
 		},
 		{
-			name:              "winspool : l'énumération échoue",
-			subject:           Subject{Transport: domain.TransportWinspool, Device: "SATO WS408_2"},
-			status:            ports.PrinterStatus{Health: ports.PrinterUnknown, Cause: ports.ErrUnsupported},
-			queues:            func(context.Context) ([]string, error) { return nil, errors.New("WMI indisponible") },
+			name:    "winspool : l'énumération échoue",
+			subject: Subject{Transport: domain.TransportWinspool, Device: "SATO WS408_2"},
+			status:  ports.PrinterStatus{Health: ports.PrinterUnknown, Cause: ports.ErrUnsupported},
+			queues:  func(context.Context) ([]string, error) { return nil, errors.New("WMI indisponible") },
+			// L'étape 1 n'a rien pu dire (Queues en erreur), mais l'étape 3 lit la
+			// SONDE elle-même, pas l'étape 1 : un spooler renvoie ErrUnsupported et
+			// l'étape 3 est donc "sans objet", pas "inconnue" (spec, winspool).
 			selfTestReceipt:   ports.PrintReceipt{Bytes: 100},
-			want:              [5]StepState{StepUnknown, StepNotApplicable, StepUnknown, StepPass, StepUnanswered},
+			want:              [5]StepState{StepUnknown, StepNotApplicable, StepNotApplicable, StepPass, StepUnanswered},
 			wantSelfTestCalls: 1,
 		},
 		{
