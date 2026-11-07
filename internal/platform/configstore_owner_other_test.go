@@ -75,3 +75,34 @@ func TestASaveRunByRootKeepsTheOwnerOfTheFileItReplaces(t *testing.T) {
 		}
 	}
 }
+
+// TestASaveDoesNotTakeAfterTheTargetOfASymbolicLink is the other side of the same
+// property: the service account owns the directory and can put a link where config.json
+// was. The file written in its place must not inherit the mode — nor, under root, the
+// owner — of whatever the link points at.
+func TestASaveDoesNotTakeAfterTheTargetOfASymbolicLink(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "config.json")
+	target := filepath.Join(directory, "elsewhere.json")
+	cfg := writeStation(t, target, 1)
+	if err := os.Chmod(target, 0o644); err != nil {
+		t.Fatalf("chmod : %v", err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatalf("symlink : %v", err)
+	}
+
+	cfg.Station.Number = 2
+	if err := newStore(t, path).Save(context.Background(), cfg); err != nil {
+		t.Fatalf("enregistrement : %v", err)
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("lstat : %v", err)
+	}
+	if got := info.Mode().Perm(); got == 0o644 {
+		t.Fatalf("%s a pris le mode 644 de la cible du lien : un lien posé par le compte "+
+			"du service décide des droits d'un fichier écrit par root", path)
+	}
+}

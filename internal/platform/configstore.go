@@ -274,13 +274,22 @@ func writeTemporary(directory string, content []byte, like string) (string, erro
 // takeAfter gives file the permission bits and the owner of the file at like. A like
 // that does not exist yet — the first save of a station — leaves file as CreateTemp made
 // it: there is nobody to take after, and inventing an owner would be a guess.
+//
+// like is read with Lstat and only a REGULAR file is taken after. The directory belongs
+// to the service account, so that account can swap config.json for a symbolic link; root
+// running `config password` would then copy the owner and the mode of whatever the link
+// names. Refusing to follow it keeps the old behaviour — root's own 0600 — for a file
+// that is not what this store writes.
 func takeAfter(file *os.File, like string) error {
-	info, err := os.Stat(like)
+	info, err := os.Lstat(like)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
+	}
+	if !info.Mode().IsRegular() {
+		return nil
 	}
 	if err := file.Chmod(info.Mode().Perm()); err != nil {
 		return err
