@@ -18,8 +18,20 @@ import (
 // be opened falls back on manual entry, and a printer that cannot be built says so, in
 // French, on every button of the troubleshooting screen.
 
-// templatesFor resolves the label layouts this station runs on, with the operator's
-// offset RECOMPOSED into the geometry.
+// templatesFor resolves the label layouts this station runs on: the registry's own
+// (reg.templates(), shipped unless a driver adds its own) PLUS the cooperative's, if
+// this configuration declares one, with the operator's offset RECOMPOSED into every
+// one of them (cfg.Templates(reg), task 1).
+//
+// It used to read domain.ShippedTemplates() DIRECTLY, bypassing reg entirely: a
+// cooperative's own gabarit, already accepted by Config.Validate, was invisible to
+// this binary at boot — the exact silent gap the design doc's anti-objectives warn
+// against. cfg.Templates(reg) is the one place the whole domain already resolves
+// "the gabarit in service" from (control 29, control 38, the admin screen); this
+// function exists only to turn an unknown printer.template into the refusal a
+// station starting up is allowed to make (guiding principle 7 — never over the
+// scale or the printer themselves, but a name nobody declared is a configuration
+// fault, caught before anything is built on it).
 //
 // THE OFFSET IS CARRIED BY THE TEMPLATE AND BY NOTHING ELSE. printer.options.offset_x
 // looks like the <A3> command of the printer language and it is not: the template is
@@ -28,20 +40,11 @@ import (
 // would move it twice, and internal/printing/raster refuses such a job outright — see
 // the godoc of checkTheOffsetIsAppliedOnce.
 func templatesFor(cfg domain.Config, reg domain.Registries) (map[string]domain.Template, error) {
-	offsetX, _ := cfg.Printer.Options.Int(optionOffsetX)
-	offsetY, _ := cfg.Printer.Options.Int(optionOffsetY)
-
-	shipped := domain.ShippedTemplates()
-	out := make(map[string]domain.Template, len(shipped))
-	for name, template := range shipped {
-		template.OffsetXDots = int(offsetX)
-		template.OffsetYDots = int(offsetY)
-		out[name] = template
-	}
+	out := cfg.Templates(reg)
 	if _, ok := out[cfg.Printer.Template]; !ok {
 		return nil, &serviceFailure{Exit: exitFailure, Message: fmt.Sprintf(
 			"printer.template : gabarit inconnu %q ; gabarits disponibles : %s",
-			cfg.Printer.Template, strings.Join(reg.TemplateNames(), ", "))}
+			cfg.Printer.Template, strings.Join(cfg.TemplateNames(reg), ", "))}
 	}
 	return out, nil
 }

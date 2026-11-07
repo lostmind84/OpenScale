@@ -207,6 +207,43 @@ func TestTheOffsetIsCarriedByTheTemplateAndNotByTheHead(t *testing.T) {
 	}
 }
 
+// TestTemplatesForCarriesTheCooperativeTemplate closes the gap the design doc names:
+// templatesFor read domain.ShippedTemplates() directly, never cfg.Templates(reg) (task
+// 1), so a station whose configuration carries printer.custom_template started as if
+// it had none — the gabarit the Graoucoop declares would be invisible at boot even
+// though Config.Validate had already accepted it.
+func TestTemplatesForCarriesTheCooperativeTemplate(t *testing.T) {
+	cfg := shippedConfig(t)
+	custom := domain.StarterTemplate()
+	custom.Name = "graoucoop"
+	cfg.Printer.CustomTemplate = &custom
+	cfg.Printer.Template = "graoucoop"
+	cfg.Printer.Options = mustOptions(t, cfg.Printer.Options, map[string]any{"offset_x": 1})
+
+	templates, err := templatesFor(cfg, registriesOfThisBinary())
+	if err != nil {
+		t.Fatalf("templatesFor : %v", err)
+	}
+	if len(templates) != 3 {
+		t.Fatalf("%d gabarits, attendu 3 (les deux livrés et celui de la coopérative) : %v",
+			len(templates), templates)
+	}
+	if got := templates["graoucoop"].OffsetXDots; got != 1 {
+		t.Fatalf("décalage du gabarit de la coopérative = %d, attendu 1 : le décalage du poste "+
+			"s'applique à n'importe quel gabarit en service (décision 15)", got)
+	}
+	if _, ok := templates["weighing_identical"]; !ok {
+		t.Fatal("le gabarit livré weighing_identical a disparu quand la coopérative en déclare un")
+	}
+
+	cfg.Printer.Template = "inconnu"
+	if _, err := templatesFor(cfg, registriesOfThisBinary()); err == nil {
+		t.Fatal("printer.template inconnu n'a pas été refusé")
+	} else if !strings.Contains(err.Error(), "graoucoop") {
+		t.Fatalf("le refus ne nomme pas le gabarit de la coopérative parmi les disponibles : %v", err)
+	}
+}
+
 // TestLeProfilNeutreEstApplicableParCeBinaire.
 //
 // The neutral profile is what a station RUNS when its own file is unusable (§11.3), and its

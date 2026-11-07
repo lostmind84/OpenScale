@@ -35,8 +35,11 @@ func (h adminHardware) LabelPreview(_ context.Context, q web.PreviewQuery) ([]by
 	}
 	template, known := templates[name]
 	if !known {
+		// cfg.TemplateNames, not h.registries.TemplateNames: the latter never sees
+		// the cooperative's own layout, so an aperçu asked by name for it would be
+		// told "inconnu" against a list that does not even mention it.
 		return nil, fmt.Errorf("gabarit %q inconnu ; gabarits disponibles : %s",
-			name, strings.Join(h.registries.TemplateNames(), ", "))
+			name, strings.Join(cfg.TemplateNames(h.registries), ", "))
 	}
 
 	image, err := h.previewImage(cfg, template, q)

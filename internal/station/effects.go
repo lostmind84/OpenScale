@@ -64,7 +64,7 @@ func (h *Hub) print(e domain.PrintEffect) domain.Event {
 	cfg := h.cfg.Load()
 	j := job{
 		Label:    e.Label,
-		Template: h.template(cfg.Printer.Template),
+		Template: h.template(cfg),
 		Locale:   cfg.UI.Language,
 		Copies:   copies(cfg),
 		Reprint:  e.Reprint,
@@ -79,14 +79,25 @@ func (h *Hub) print(e domain.PrintEffect) domain.Event {
 	}
 }
 
-// template resolves printer.template against the templates the station was given.
+// template resolves "the gabarit in service" against the CONFIGURATION IN SERVICE,
+// not against a map frozen at station.New.
+//
+// Before this resolution existed, h.templates was built once by the composition
+// root and never touched again: a cooperative's own layout registered from the
+// admin screen, or an offset the ±1 dot arrows wrote, reached printer.options and
+// printer.custom_template through the hot reload of §11.4 but never reached what
+// actually prints, because nothing recomputed the map a reload had just made stale.
+// cfg.SelectedTemplate redoes that recomposition on EVERY call -- the registry
+// (h.templates) merged with the cooperative's layout and the station's offset,
+// both read off cfg -- so the label a reload just enabled is what prints next,
+// with no restart.
 //
 // A name that resolves to nothing yields the zero template rather than a panic: a
 // configuration control refuses an unknown template long before a customer stands
 // at the scale (§11.3), and a station that has got past that control must keep
 // serving.
-func (h *Hub) template(name string) domain.Template {
-	if t, ok := h.templates[name]; ok {
+func (h *Hub) template(cfg *domain.Config) domain.Template {
+	if t, ok := cfg.SelectedTemplate(domain.Registries{Templates: h.templates}); ok {
 		return t
 	}
 	return domain.Template{}

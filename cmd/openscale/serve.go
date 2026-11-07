@@ -301,8 +301,17 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		OutOfService: outOfService,
 		// The same registries that decided the station was out of service decide when it
 		// stops being: the answer must not depend on which of the two moments asked.
-		Registries:    registries,
-		Templates:     templates,
+		Registries: registries,
+		// Templates is the REGISTRY only — registries.Templates, nil here unless a
+		// driver adds its own — not the offset-recomposed, custom-template-merged
+		// map `templates` built above for the FIRST printer. The Hub resolves the
+		// gabarit in service itself, on every print, off the configuration it is
+		// CURRENTLY running (cfg.SelectedTemplate, internal/station/effects.go):
+		// handing it the already-baked `templates` here would freeze the
+		// cooperative's layout and the station's offset at THIS instant, exactly
+		// the gap TestAReloadedCooperativeTemplateIsWhatPrints and
+		// TestAReloadedOffsetIsWhatPrints exist to close.
+		Templates:     registries.Templates,
 		Poller:        newUpdatePoller(updateService),
 		Scale:         weigher,
 		Printer:       printer,
@@ -312,8 +321,19 @@ func serve(ctx context.Context, o serveOptions, out io.Writer) error {
 		// The two factories HOLD what they built, and only on success: the station keeps
 		// the printer that works when a new one cannot be built (§11.4), so a holder
 		// filled before that decision would name a printer nobody prints on.
+		//
+		// templatesFor is called again on `next`, not on the `templates` this
+		// closure captured at start-up: a reload that changes printer.template,
+		// printer.custom_template or the offset must rebuild THIS printer against
+		// the configuration that is actually being put in service, or a driver
+		// whose geometry it validates at construction (the raster one, control 29
+		// re-run here) would build against stale geometry.
 		NewPrinter: func(next domain.Config) (ports.Printer, error) {
-			rebuilt, err := newPrinter(next, printers, templates, clock, log, o.dataDir)
+			nextTemplates, err := templatesFor(next, registries)
+			if err != nil {
+				return nil, err
+			}
+			rebuilt, err := newPrinter(next, printers, nextTemplates, clock, log, o.dataDir)
 			if err != nil {
 				return nil, err
 			}

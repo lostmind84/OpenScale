@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"openscale/internal/domain"
 )
 
 // The hot reload of §11.4 seen from outside: a block that applies with no gap in
@@ -12,6 +14,68 @@ import (
 // nobody confirms it. The DEVICES a change rebuilds are in devices_test.go, the
 // comparison that decides a block moved in fingerprint_test.go, and the catalog watch
 // in catalogwatch_test.go.
+
+// TestAReloadedCooperativeTemplateIsWhatPrints is the gap the design doc names:
+// Hub.templates was frozen at station.New (hub.go:190) and Hub.template only looked
+// up a NAME in it (effects.go, before this task); a cooperative's own gabarit
+// registered from the admin screen -- a hot reload, by ADR-027 -- would print the
+// zero domain.Template until the process restarted, even though printer.template
+// changed through the instant, no-restart block of §11.4.
+func TestAReloadedCooperativeTemplateIsWhatPrints(t *testing.T) {
+	b := newBench(t)
+
+	custom := domain.StarterTemplate()
+	custom.Name = "graoucoop"
+	custom.Elements[0].FontSizeUM = 2_500
+
+	next := b.hub.Config()
+	next.Printer.CustomTemplate = &custom
+	next.Printer.Template = "graoucoop"
+
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
+		t.Fatalf("Reload : %v", err)
+	}
+
+	b.weigh("graoucoop-template", 1236)
+	b.awaitPrint()
+
+	jobs := b.printer.Jobs()
+	printed := jobs[len(jobs)-1].Template
+	if printed.Name != "graoucoop" {
+		t.Fatalf("étiquette imprimée avec le gabarit %q, attendu %q : le poste a imprimé "+
+			"celui du démarrage, pas celui de la configuration en service",
+			printed.Name, "graoucoop")
+	}
+	if printed.Elements[0].FontSizeUM != 2_500 {
+		t.Fatalf("corps de police du premier élément = %d, attendu 2500 : la géométrie "+
+			"imprimée n'est pas celle que le rechargement a posée", printed.Elements[0].FontSizeUM)
+	}
+}
+
+// TestAReloadedOffsetIsWhatPrints is the other half of the same gap: the operator's
+// offset is recomposed into the gabarit at print time (decision 15), and a reload
+// that changes printer.options.offset_y must reach the label without a restart,
+// exactly as the instant block of §11.4 promises for printer.template.
+func TestAReloadedOffsetIsWhatPrints(t *testing.T) {
+	b := newBench(t)
+
+	next := b.hub.Config()
+	next.Printer.Options = mustOptions(t, `{"offset_y":1}`)
+
+	if _, err := b.station.Reload(ReloadRequest{Next: next}); err != nil {
+		t.Fatalf("Reload : %v", err)
+	}
+
+	b.weigh("offset-reload", 1236)
+	b.awaitPrint()
+
+	jobs := b.printer.Jobs()
+	printed := jobs[len(jobs)-1].Template
+	if printed.OffsetYDots != 1 {
+		t.Fatalf("décalage Y imprimé = %d, attendu 1 : le rechargement n'a pas atteint "+
+			"l'étiquette avant un redémarrage", printed.OffsetYDots)
+	}
+}
 
 // TestAnInstantBlockNeverCutsAnything is the first line of the table of §11.4:
 // limits, tiers, template, UI and journal apply through an atomic store, with no
