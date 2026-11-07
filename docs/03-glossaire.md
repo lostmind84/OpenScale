@@ -877,6 +877,7 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 
 | Identifiant | Ce qu'il désigne |
 | --- | --- |
+| `Diagnose` · `DiagnosisStep` · `StepState` · `Subject` · `Prober` · `AnswerStep` · `DiagnosisGuide` | Le diagnostic pas à pas de l'imprimante, page Matériel (ADR-065) : `Diagnose` ordonne les cinq étapes et écrit tous leurs textes ; `Subject` nomme le transport en service sans y toucher ; `Prober` est ce que `Diagnose` demande à `*Service` (`Interrogate`, `SelfTest`) ; `AnswerStep` transforme la réponse du bénévole en l'étape 5, qui n'est jamais mesurée. |
 | `Library` · `NewLibrary` | Les polices embarquées analysées une fois, et les faces qui en dérivent, mémoïsées. |
 | `(Library).Face` · `Parsed` · `FaceCount` · `Close` | Une face à une taille donnée ; la police analysée ; combien de faces sont mémoïsées (pour qu'un test puisse le vérifier) ; la libération. |
 | `Font` · `Carlito` · `DejaVuSansCondensed` | La famille avec laquelle le moteur sait rendre — la valeur de la clé `font` d'un gabarit. `Carlito` est le clone métrique de Calibri retenu par ADR-020 ; `DejaVuSansCondensed` sert les gabarits neutres et le repli. |
