@@ -4366,6 +4366,16 @@ POST /admin/api/troubleshooting/test-scale · /test-printer · /test-label
          ils lisent un port, interrogent un statut, sortent une étiquette de
          démonstration. Un bénévole seul devant un poste muet doit pouvoir tester la
          balance et l'imprimante — c'est le premier geste du dépannage.
+POST /admin/api/printer/diagnosis · /diagnosis/answer
+       ← le diagnostic en cinq étapes de la page Matériel, bloc Imprimante, libre lui
+         aussi (ADR-033 : tester ne change ni ce que le poste vend ni la façon dont il
+         pèse). La première route rend les étapes 1 à 4, sur l'imprimante EN SERVICE,
+         bornée sur `deviceBudget` ; la seconde reçoit la réponse du bénévole à
+         l'étape 5 — AUCUN capteur ne la mesure (décision 3) — et porte les quatre
+         états déjà rendus (le serveur ne garde aucun état entre les deux appels). Une
+         seule ligne de journal technique par parcours : par la route de réponse quand
+         l'étape 5 est posée, par celle des étapes 1-4 quand le parcours s'arrête
+         avant (étape 5 « sans objet ») — jamais les deux.
 GET  /admin/api/config            ← EXPURGÉ des deux empreintes admin ET du mot de passe
                                     WebDAV du catalogue (§11.2) : un mot de passe n'y
                                     gardait rien, et il coûtait à qui ne l'avait pas sous

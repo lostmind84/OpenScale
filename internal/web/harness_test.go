@@ -98,8 +98,12 @@ type benchOptions struct {
 	diagnostician   Diagnostician
 	printer         SelfTester
 	troubleshooting Troubleshooting
-	dashboard       Dashboard
-	update          Updater
+	// printerDiagnosis is the printer diagnostic of page Matériel. Nil is the default,
+	// and it is what a bench wiring no collaborator honestly is : both its routes then
+	// answer 501, exactly as an unwired station would.
+	printerDiagnosis PrinterDiagnostician
+	dashboard        Dashboard
+	update           Updater
 	// restarter is what stops the station on demand. Nil is the default, and it is what
 	// an unsupervised station honestly is: the route then answers 501 rather than
 	// stopping a process nobody would relaunch.
@@ -214,6 +218,7 @@ func newBench(t *testing.T, tweak ...func(*benchOptions)) *bench {
 		Assets: o.assets, Images: o.images,
 		Config: o.configStore, Catalog: o.catalogAdmin, Hardware: o.hardware,
 		Printer: o.printer, Troubleshooting: o.troubleshooting,
+		PrinterDiagnosis: o.printerDiagnosis,
 		// The archive is its OWN collaborator (§15.4): it is not a platform question and
 		// its route carries no password, so one nil must not disable both.
 		Diagnostic: o.diagnostician,
