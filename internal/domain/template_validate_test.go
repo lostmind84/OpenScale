@@ -487,8 +487,9 @@ func TestRuleSevenRefusesAFontOnTheBarcodeElement(t *testing.T) {
 
 // TestRuleNineRefusesANonPositiveSymbolGeometry: bar height and HRI height exist on
 // a compiled gabarit only because they were measured positive. A gabarit supplied as
-// a document is not bound by that, and a zero or negative value here would either
-// draw nothing (A1) or, for guard_descent, invert HeightUM's max() silently.
+// a document was previously refused only at print time, by SymbolOptions.validate: a
+// zero or negative bar height would draw nothing (A1), and a negative guard_descent
+// is refused by DrawEAN13 itself, since guards run lower than the bars, never higher.
 func TestRuleNineRefusesANonPositiveSymbolGeometry(t *testing.T) {
 	for _, c := range []struct {
 		name   string
@@ -510,9 +511,9 @@ func TestRuleNineRefusesANonPositiveSymbolGeometry(t *testing.T) {
 		})
 	}
 
-	// A descent of exactly zero is legal: only a NEGATIVE one is nonsensical (it
-	// would make HeightUM's max() favour whichever of the two happens to be
-	// negative less).
+	// A descent of exactly zero is legal: only a NEGATIVE one is nonsensical, since
+	// guards run lower than the bars, never higher (DrawEAN13 already refuses it at
+	// print time, symbol.go:226).
 	template := NeutralSingleTemplate()
 	template.Symbol.GuardDescentUM = 0
 	if faults := template.Validate(2); hasFault(faults, "symbol.guard_descent_um") {

@@ -88,11 +88,11 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
 				shifted.Symbol.Magnification(head.DotsPerMM)*100, GS1MinModuleUM, GS1MaxModuleUM)
 		}
 	}
-	// A SUPPLIED gabarit is not bound by the fact that every compiled one happens
-	// to measure positive here: a zero bar height would ink nothing (A1), and a
-	// negative guard descent would make HeightUM's max() favour whichever of the
-	// two operands happens to be negative less -- silently, since max() itself
-	// never refuses anything.
+	// A SUPPLIED gabarit was previously refused only at print time, by
+	// SymbolOptions.validate: a zero bar height would ink nothing (A1), and guards
+	// run lower than the bars, never higher -- DrawEAN13 already refuses a negative
+	// descent there (symbol.go:226). These three guards move that refusal to save
+	// time, before a customer ever weighs anything.
 	if shifted.Symbol.BarHeightUM <= 0 {
 		fail("symbol.bar_height_um", "%d µm : les barres du symbole doivent avoir une hauteur strictement positive",
 			shifted.Symbol.BarHeightUM)
