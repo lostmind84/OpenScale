@@ -27,6 +27,20 @@ export const STATE_WORDS: Record<StepState, string> = {
 }
 
 /**
+ * Le remède d'une étape tel que l'écran et le rapport le montrent.
+ *
+ * « À faire : » ne le précède que sur une étape en échec : le remède d'une étape
+ * inconnue — le silence de l'étape 3 — dit qu'on continue, et l'annoncer comme une
+ * action le ferait lire comme une panne à corriger (décision 2).
+ *
+ * @param state - l'état de l'étape, tel que le service l'a rendu.
+ * @param remedy - le remède, non vide.
+ */
+export function remedyLine(state: string, remedy: string): string {
+  return state === 'fail' ? `À faire : ${remedy}` : remedy
+}
+
+/**
  * Construit le texte brut que « Copier le rapport » dépose dans le presse-papiers.
  *
  * Texte brut, sans balise ni mise en forme (décision 4) : c'est ce qu'un bénévole colle
@@ -42,7 +56,7 @@ export function diagnosisReport(d: PrinterDiagnosisDTO): string {
     const word = STATE_WORDS[step.state as StepState] ?? step.state
     lines.push('', `${String(step.number)}. ${step.title} : ${word}`)
     if (step.observed !== '') lines.push(`   Observé : ${step.observed}`)
-    if (step.remedy !== '') lines.push(`   À faire : ${step.remedy}`)
+    if (step.remedy !== '') lines.push(`   ${remedyLine(step.state, step.remedy)}`)
     if (step.doc !== '') lines.push(`   Documentation : ${step.doc}`)
   }
   return lines.join('\n')

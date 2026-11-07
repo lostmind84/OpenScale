@@ -3,7 +3,7 @@
   import { AdminError } from '../lib/api'
   import * as api from '../lib/api'
   import type { PrinterDiagnosisDTO } from '../lib/dto'
-  import { diagnosisReport, STATE_WORDS, type StepState } from '../lib/printer-report'
+  import { diagnosisReport, remedyLine, STATE_WORDS, type StepState } from '../lib/printer-report'
 
   /**
    * Le diagnostic pas à pas de l'imprimante, bloc « Imprimante » de la page Matériel
@@ -50,14 +50,22 @@
     }
   })
 
-  /** « Lancer le diagnostic » : les étapes 1 à 4, lues dans l'imprimante EN SERVICE. */
+  /**
+   * « Lancer le diagnostic » : les étapes 1 à 4, lues dans l'imprimante EN SERVICE.
+   *
+   * L'ancien parcours disparaît dès le clic, pas au retour : une relance imprime une
+   * étiquette, donc dure plusieurs secondes, et une question restée visible pendant ce
+   * temps recevrait une réponse que rien ne rattache plus au parcours affiché ensuite
+   * (revue finale, T6 m2).
+   */
   async function run(): Promise<void> {
     error = ''
     copyFallback = false
     copyNotice = ''
+    diagnosis = null
+    seen = ''
     try {
       diagnosis = await api.diagnosePrinter()
-      seen = ''
     } catch (err) {
       error = err instanceof AdminError ? err.message : 'Le diagnostic n’a pas pu être mené.'
     }
@@ -67,14 +75,22 @@
     onrun(run)
   }
 
-  /** « Oui » / « Non » : la seule mesure de l'étape 5 est celle du bénévole (décision 3). */
+  /**
+   * « Oui » / « Non » : la seule mesure de l'étape 5 est celle du bénévole (décision 3).
+   *
+   * La réponse n'est greffée que sur le parcours auquel elle répondait : si une relance
+   * l'a remplacé entre-temps, l'étape 5 rendue appartient à l'ancien, et la poser sur le
+   * nouveau mélangerait deux parcours dans le rapport copié (revue finale, T6 m3).
+   */
   async function answer(printed: boolean): Promise<void> {
-    if (diagnosis === null || answering) return
+    const asked = diagnosis
+    if (asked === null || answering) return
     answering = true
     try {
-      const firstFour = diagnosis.steps.slice(0, 4).map((s) => s.state as StepState)
+      const firstFour = asked.steps.slice(0, 4).map((s) => s.state as StepState)
       const { step } = await api.answerPrinterDiagnosis({ steps: firstFour, printed, seen })
-      diagnosis = { target: diagnosis.target, steps: [...diagnosis.steps.slice(0, 4), step] }
+      if (diagnosis !== asked) return
+      diagnosis = { target: asked.target, steps: [...asked.steps.slice(0, 4), step] }
     } catch (err) {
       error = err instanceof AdminError ? err.message : 'La réponse n’a pas pu être envoyée.'
     } finally {
@@ -139,11 +155,19 @@
           {#if step.observed !== ''}
             <p class="observed" data-observed>{step.observed}</p>
           {/if}
+          <!--
+            « À faire » sur une étape en échec SEULEMENT : le remède d'un silence (étape 3,
+            inconnu) dit qu'on continue, et le présenter comme une action en ferait une
+            panne à corriger (décision 2).
+          -->
           {#if step.remedy !== ''}
-            <p class="remedy">À faire : {step.remedy}</p>
+            <p class="remedy">{remedyLine(step.state, step.remedy)}</p>
           {/if}
+          <!-- Un nouvel onglet : revenir ici sinon coûterait une nouvelle étiquette imprimée. -->
           {#if step.doc !== ''}
-            <p class="doc"><a href={step.doc}>Documentation</a></p>
+            <p class="doc">
+              <a href={step.doc} target="_blank" rel="noreferrer noopener">Documentation</a>
+            </p>
           {/if}
         </li>
       {/each}
@@ -153,8 +177,16 @@
       <div class="ask" data-ask>
         <p class="question">L’étiquette est-elle sortie ?</p>
         <div class="actions">
-          <Act label="Oui" disabled={answering} onrun={() => void answer(true)} />
-          <Act label="Non" disabled={answering} onrun={() => void answer(false)} />
+          <Act
+            label="Oui"
+            disabled={answering || busy || disabled}
+            onrun={() => void answer(true)}
+          />
+          <Act
+            label="Non"
+            disabled={answering || busy || disabled}
+            onrun={() => void answer(false)}
+          />
         </div>
         <label class="seen">
           Ce que vous voyez sur l’imprimante

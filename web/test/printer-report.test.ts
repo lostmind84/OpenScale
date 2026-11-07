@@ -33,6 +33,9 @@ const RUN: PrinterDiagnosisDTO = {
       number: 3,
       title: "L'imprimante répond quand on lui demande son état",
       state: 'unknown',
+      observed: 'aucune réponse à la sonde de statut en 500 ms.',
+      remedy:
+        "Ce n'est pas une panne en soi : certains réglages de l'interface ne renvoient pas d'état. On continue.",
     }),
     step({ number: 4, title: 'Une étiquette de test est envoyée en entier', state: 'pass' }),
     step({ number: 5, title: 'L’étiquette est-elle sortie ?', state: 'unanswered' }),
@@ -86,6 +89,14 @@ describe('diagnosisReport', () => {
     expect(report).toContain('   À faire : Vérifier que le câble USB est bien branché.')
     expect(report).toContain(
       '   Documentation : https://lostmind84.github.io/OpenScale/imprimante/#etape-1',
+    )
+  })
+
+  it('ne présente pas le silence de l’étape 3 comme une chose à faire', () => {
+    const report = diagnosisReport(RUN)
+    expect(report).not.toContain('À faire')
+    expect(report).toContain(
+      "   Ce n'est pas une panne en soi : certains réglages de l'interface ne renvoient pas d'état. On continue.",
     )
   })
 

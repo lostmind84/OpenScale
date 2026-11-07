@@ -898,6 +898,31 @@ describe('les destinations listées, et la clé où chacune va', () => {
     expect(text()).toContain('Imprimante réseau, port 9100')
   })
 
+  it('garde la liste des destinations collée à « Lister les files », avant le diagnostic', async () => {
+    // Revue finale, T6 m6 : le diagnostic s'était intercalé entre les deux boutons et
+    // leurs résultats — l'écran de La Coope avait changé sous ses yeux.
+    printers = [
+      { name: 'SATO WS408_2', key: 'queue', detail: '', default: true },
+      { name: '192.168.0.43:9100', key: 'address', detail: 'répond', default: false },
+    ]
+    await open()
+    button('Lister les files').click()
+    await waitFor(
+      () =>
+        host.querySelector('[data-printers-count]') !== null &&
+        host.querySelector('[data-unreachable]') !== null,
+    )
+
+    const diagnosis = host.querySelector('[data-diagnosis]')
+    expect(diagnosis).not.toBeNull()
+    for (const selector of ['[data-printers-count]', '[data-unreachable]']) {
+      const result = host.querySelector(selector) as Node
+      expect(
+        result.compareDocumentPosition(diagnosis as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).not.toBe(0)
+    }
+  })
+
   it('écrit un nœud d’impression dans le chemin', async () => {
     printers = [
       { name: '/dev/usb/lp0', key: 'path', detail: 'nœud d’impression', default: false },

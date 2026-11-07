@@ -847,12 +847,6 @@
       </p>
     {/if}
 
-    <PrinterDiagnosis
-      disabled={acting !== ''}
-      busy={acting === 'diagnosis'}
-      onrun={(job) => void act('diagnosis', job)}
-    />
-
     {#if reachable.length > 0}
       <p class="count" data-printers-count>
         {census('destination', 'destinations', reachable.length, ROWS_SHOWN)}
@@ -885,6 +879,16 @@
     {#if unreachable > 0}
       <p class="note" data-unreachable>{reachElsewhere(printers, transports, deviceKey)}</p>
     {/if}
+
+    <!--
+      Le diagnostic vient APRÈS la liste des destinations et la note des injoignables :
+      « Lister les files » et « Rechercher l'imprimante » restent collés à leurs résultats.
+    -->
+    <PrinterDiagnosis
+      disabled={acting !== ''}
+      busy={acting === 'diagnosis'}
+      onrun={(job) => void act('diagnosis', job)}
+    />
 
     <!-- Même règle que le volet de la balance : l'ouverture est LIÉE, jamais poussée. -->
     <details class="folded" bind:open={printerSettingsOpen}>

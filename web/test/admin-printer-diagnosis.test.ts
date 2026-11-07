@@ -19,7 +19,11 @@ import type { PrinterDiagnosisDTO } from '../src/admin/lib/dto'
  *    remplace l'étape 5 par la réponse du service ;
  *  - « Copier le rapport » est actif avant toute réponse à l'étape 5 ;
  *  - `navigator.clipboard` simulé reçoit le texte de `diagnosisReport` ; absent, un
- *    repli visible montre le même texte, déjà sélectionné (Review Focus).
+ *    repli visible montre le même texte, déjà sélectionné (Review Focus) ;
+ *  - une relance efface l'ancien parcours, et une réponse arrivée après une relance
+ *    n'est pas greffée sur le nouveau (revue finale, T6 m2 + m3) ;
+ *  - « À faire » ne précède que le remède d'une étape en échec (T6 m4) ;
+ *  - le lien « Documentation » s'ouvre dans un nouvel onglet (T6 m5).
  */
 
 /** Le parcours que « Lancer le diagnostic » rend : rien à l'étape 3 (silence, décision 2). */
@@ -46,8 +50,9 @@ const DIAGNOSIS: PrinterDiagnosisDTO = {
       number: 3,
       title: "L'imprimante répond quand on lui demande son état",
       state: 'unknown',
-      observed: 'aucune réponse dans le délai.',
-      remedy: '',
+      observed: 'aucune réponse à la sonde de statut en 500 ms.',
+      remedy:
+        "Ce n'est pas une panne en soi : certains réglages de l'interface ne renvoient pas d'état. On continue.",
       doc: '',
     },
     {
@@ -73,9 +78,26 @@ let host: HTMLElement
 let component: unknown
 /** Tous les appels passés, dans l'ordre : « méthode route ». */
 let calls: { method: string; route: string; body: unknown }[] = []
+/** Ce que la prochaine route de diagnostic rend : un test de relance le change. */
+let nextDiagnosis: PrinterDiagnosisDTO = DIAGNOSIS
+/** Posées par un test, ces barrières retiennent la réponse de leur route jusqu'à `release`. */
+let diagnosisGate: Promise<void> | null = null
+let answerGate: Promise<void> | null = null
+
+/** Une barrière, et la fonction qui la lève. */
+function gate(): { held: Promise<void>; release: () => void } {
+  let release = (): void => {}
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return { held, release }
+}
 
 beforeEach(() => {
   calls = []
+  nextDiagnosis = DIAGNOSIS
+  diagnosisGate = null
+  answerGate = null
   host = document.createElement('div')
   document.body.appendChild(host)
   vi.stubGlobal('fetch', fakeFetch)
@@ -94,9 +116,12 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   const body = JSON.parse(String(init?.body ?? '{}')) as { seen?: string }
   calls.push({ method, route, body })
   if (route === '/admin/api/printer/diagnosis' && method === 'POST') {
-    return json(DIAGNOSIS)
+    const answer = nextDiagnosis
+    if (diagnosisGate !== null) await diagnosisGate
+    return json(answer)
   }
   if (route === '/admin/api/printer/diagnosis/answer' && method === 'POST') {
+    if (answerGate !== null) await answerGate
     return json({
       step: {
         number: 5,
@@ -160,7 +185,7 @@ describe('le diagnostic pas à pas de l’imprimante', () => {
     expect(host.textContent).toContain("L'imprimante répond quand on lui demande son état")
     const observed = host.querySelector<HTMLElement>('[data-state="unknown"] [data-observed]')
     expect(observed).not.toBeNull()
-    expect(observed?.textContent).toContain('aucune réponse dans le délai.')
+    expect(observed?.textContent).toContain('aucune réponse à la sonde de statut en 500 ms.')
     expect(getComputedStyle(observed as HTMLElement).fontFamily).toMatch(/monospace/u)
   })
 
@@ -232,5 +257,66 @@ describe('le diagnostic pas à pas de l’imprimante', () => {
     expect(area?.value).toBe(diagnosisReport(DIAGNOSIS))
     expect(area?.selectionStart).toBe(0)
     expect(area?.selectionEnd).toBe((area?.value ?? '').length)
+  })
+
+  it('une relance efface l’ancien parcours : plus de question à laquelle répondre', async () => {
+    await launch()
+    expect(host.querySelector('[data-ask]')).not.toBeNull()
+
+    const { held, release } = gate()
+    diagnosisGate = held
+    button('Lancer le diagnostic').click()
+    flushSync()
+
+    // Pendant que l'étiquette de la relance s'imprime, rien de l'ancien parcours ne
+    // reste cliquable.
+    expect(host.querySelector('[data-ask]')).toBeNull()
+    expect(host.querySelector('[data-diagnosis-steps]')).toBeNull()
+
+    release()
+    await waitFor(() => host.querySelector('[data-ask]') !== null)
+  })
+
+  it('une réponse revenue après une relance n’est pas greffée sur le nouveau parcours', async () => {
+    await launch()
+
+    const { held, release } = gate()
+    answerGate = held
+    button('Non').click()
+    await waitFor(() => calls.some((call) => call.route === '/admin/api/printer/diagnosis/answer'))
+
+    nextDiagnosis = { ...DIAGNOSIS, target: 'file Windows « SATO WS408_2 »' }
+    button('Lancer le diagnostic').click()
+    await waitFor(
+      () => (host.textContent ?? '').length > 0 && host.querySelector('[data-ask]') !== null,
+    )
+
+    release()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    flushSync()
+
+    // L'étape 5 du nouveau parcours attend toujours sa propre réponse.
+    expect(host.querySelector('[data-state="fail"]')).toBeNull()
+    expect(host.querySelector('[data-ask]')).not.toBeNull()
+  })
+
+  it('« À faire » ne précède que le remède d’une étape en échec', async () => {
+    await launch()
+    const step3 = host.querySelector('[data-state="unknown"] .remedy')
+    expect(step3?.textContent).toContain("certains réglages de l'interface")
+    expect(step3?.textContent).not.toContain('À faire')
+
+    button('Non').click()
+    await waitFor(() => host.querySelector('[data-state="fail"]') !== null)
+    expect(host.querySelector('[data-state="fail"] .remedy')?.textContent).toContain('À faire :')
+  })
+
+  it('ouvre la documentation dans un nouvel onglet : le parcours reste à l’écran', async () => {
+    await launch()
+    button('Non').click()
+    await waitFor(() => host.querySelector('[data-state="fail"] a') !== null)
+    const link = host.querySelector<HTMLAnchorElement>('[data-state="fail"] a')
+    expect(link?.target).toBe('_blank')
+    expect(link?.rel).toBe('noreferrer noopener')
   })
 })
