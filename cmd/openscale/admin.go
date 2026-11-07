@@ -296,37 +296,58 @@ func (l *livePrinter) SelfTest(ctx context.Context, what string) error {
 	return err
 }
 
-// printService reports the print service, or says in French why there is none.
+// errNoPrintService is the refusal every reader of l.wrapper gives when it is nil: a
+// station whose printer.options name a queue this binary cannot open runs on the
+// stand-in of serve.go, and the honest answer to « change the roll » — or to diagnose
+// the printer — there is that there is no printer to act on.
 //
-// A nil service is not a bug: a station whose printer.options name a queue this binary
-// cannot open runs on the stand-in of serve.go, and the honest answer to « change the
-// roll » there is that there is no printer to change it on.
+// The refusal names a PAGE and no configuration key, for the reason the twin refusal of
+// catalogadmin.go gives: whoever reads it has the administration screen in front of
+// them, and the « réglages avancés » it used to point at were removed on 27/07/2026.
+// « Pilote d'impression » is the French name the screen itself gives printer.type, so
+// the sentence and the field it blames read the same. It is a shared value, not a
+// sentence repeated at each call site, so printService and diagnosisTarget can never
+// drift into naming the fault two different ways.
+var errNoPrintService = errors.New("l'imprimante de ce poste n'a pas pu être construite : " +
+	"reprenez le pilote d'impression et ses réglages sur la page Matériel")
+
+// printService reports the print service, or says in French why there is none.
 func (l *livePrinter) printService() (*printing.Service, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	if l.wrapper == nil {
-		// The refusal names a PAGE and no configuration key, for the reason the twin refusal
-		// of catalogadmin.go gives: whoever reads it has the administration screen in front
-		// of them, and the « réglages avancés » it used to point at were removed on
-		// 27/07/2026. « Pilote d'impression » is the French name the screen itself gives
-		// printer.type, so the sentence and the field it blames read the same.
-		return nil, errors.New("l'imprimante de ce poste n'a pas pu être construite : " +
-			"reprenez le pilote d'impression et ses réglages sur la page Matériel")
+		return nil, errNoPrintService
 	}
 	return l.wrapper, nil
+}
+
+// diagnosisTarget reads the wrapper and the Subject that describes it to the
+// diagnostic under the SAME RLock, for the guarantee hold's godoc states: a reader
+// must never see a wrapper paired with the Subject of the printer it replaced. Reading
+// them through two separate locks — one via printService, one of its own — would open
+// exactly that window across a reload landing between the two.
+func (l *livePrinter) diagnosisTarget() (*printing.Service, printing.Subject, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if l.wrapper == nil {
+		return nil, printing.Subject{}, errNoPrintService
+	}
+	return l.wrapper, l.subject, nil
 }
 
 // DiagnosePrinter runs the printer diagnostic of page Matériel on the printer IN
 // SERVICE, never on a second handle opened for the occasion (anti-objectif n°4):
 // printing.Diagnose only ever calls l.wrapper.Interrogate and l.wrapper.SelfTest, the
-// same two calls §8.5 and §8.6 already make on this same object.
+// same two calls §8.5 and §8.6 already make on this same object. wrapper and subject
+// come from diagnosisTarget's single RLock, so a reload cannot land between the two
+// reads and pair the Subject it just built with the wrapper it just replaced.
 //
 // It refuses in the same two cases printService and UseFallback already name in
 // French: no printer at all (same sentence as printService, admin.go) and the station
 // on its fallback printer — diagnosing the neighbour's printer through THIS station's
 // Subject would name the wrong device in every sentence steps 1 to 4 produce.
 func (l *livePrinter) DiagnosePrinter(ctx context.Context) (web.PrinterDiagnosis, error) {
-	wrapper, err := l.printService()
+	wrapper, subject, err := l.diagnosisTarget()
 	if err != nil {
 		return web.PrinterDiagnosis{}, err
 	}
@@ -335,10 +356,6 @@ func (l *livePrinter) DiagnosePrinter(ctx context.Context) (web.PrinterDiagnosis
 		return web.PrinterDiagnosis{}, errors.New("les étiquettes partent sur l'imprimante de secours : " +
 			"repassez sur l'imprimante du poste, page Dépannage, avant de la diagnostiquer")
 	}
-
-	l.mu.RLock()
-	subject := l.subject
-	l.mu.RUnlock()
 	subject.Target = routing.Name
 
 	steps := printing.Diagnose(ctx, subject, printing.DiagnosisProbes{

@@ -449,8 +449,9 @@ func TestAReloadRebuildsThePrinterOnTheCooperativeTemplate(t *testing.T) {
 // concrete: the diagnostic must run on the transport the SERVICE opened, not on one the
 // test builds for the occasion. printerRebuilder puts the printer in service exactly as
 // serve.go does, and DiagnosePrinter is asked without touching l.printer or l.subject
-// directly — if it read the wrong Subject, step 4 would write to a directory this test
-// never inspects, and the assertion on `dir` below would catch it.
+// directly — step 4 writes through the wrapper hold put in service, so the assertion on
+// `dir` below catches a wrong WRAPPER, not a stale Subject (that is
+// TestTheDiagnosisFollowsAReload's job, on step 1's Observed).
 func TestTheDiagnosisRunsOnThePrinterInService(t *testing.T) {
 	cfg := shippedConfig(t)
 	dir := t.TempDir()
@@ -493,9 +494,11 @@ func TestTheDiagnosisRunsOnThePrinterInService(t *testing.T) {
 
 // TestTheDiagnosisFollowsAReload holds the diagnostic to the SAME rule §11.4 holds the
 // roll counter and the fallback routing to: it must act on the printer a reload just put
-// in service, never on the one the process started with. A diagnostic reading a stale
-// Subject would write step 4's test label into the directory the first configuration
-// named, which this test's `first` catches empty.
+// in service, never on the one the process started with. Step 4 writes through the
+// wrapper hold put in service, which the `first`/`second` directory assertions below
+// cover; a STALE SUBJECT is a different failure — one that leaves step 4 untouched and
+// only renames step 1's Observed back to `first` — so this test also asserts on
+// diagnosis.Steps[0].Observed, the one field that actually carries the Subject.
 func TestTheDiagnosisFollowsAReload(t *testing.T) {
 	first, second := t.TempDir(), t.TempDir()
 	live := &livePrinter{}
@@ -516,8 +519,13 @@ func TestTheDiagnosisFollowsAReload(t *testing.T) {
 	}
 	defer printer2.Close()
 
-	if _, err := live.DiagnosePrinter(context.Background()); err != nil {
+	diagnosis, err := live.DiagnosePrinter(context.Background())
+	if err != nil {
 		t.Fatalf("DiagnosePrinter : %v", err)
+	}
+	if !strings.Contains(diagnosis.Steps[0].Observed, second) {
+		t.Errorf("étape 1 Observed = %q, attendu qu'il contienne le dossier mis en service %q : "+
+			"un Subject périmé nommerait encore %q", diagnosis.Steps[0].Observed, second, first)
 	}
 
 	firstEntries, err := os.ReadDir(first)
