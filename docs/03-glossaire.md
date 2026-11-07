@@ -717,6 +717,7 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `InkedWidthDots` · `InkedHeightDots` | La géométrie **encrée** de l'étiquette de production, en dots à 8 dots/mm. C'est contre elle que la règle dure n° 3 mesure un gabarit — le contenu encré, jamais la boîte du contrôle Access (§7.2, ADR-029). |
 | `SuccessMessageDuration` · `RejectMessageDuration` | Combien de temps un message de bandeau survit quand rien ne le retire. Constantes du CODE et non réglages : elles remplacent `success_delay_ms` et `reject_delay_ms` (ADR-025). |
 | `DefaultTemplateName` | Le gabarit que `config-lacagette.json` sélectionne. |
+| `StarterTemplateName` | Le nom (`"cooperative"`) sous lequel `StarterTemplate()` se présente — ne recouvre jamais un nom livré, donc toujours accepté par le contrôle 53. |
 
 ### `internal/domain` — fonctions et méthodes
 
@@ -740,6 +741,9 @@ sentinelles, familles de constantes préfixées par leur type, unités portées 
 | `NewWeightLatch` · `(WeightLatch).Reset` | Construction du figeur, et oubli de son ancre quand la balance est rouverte. |
 | `(RateMeter).Reset` · `Observations` · `RateIsTooSlow` | Idem pour le cadencemètre, plus le nombre d'intervalles connus et **l'unique** condition d'alerte partagée par le tableau de bord et le journal. |
 | `IdenticalTemplate` · `IntegerModuleTemplate` · `NeutralSingleTemplate` · `ShippedTemplates` | Les trois gabarits livrés, et leur table par nom. `IdenticalTemplate` est **la source de vérité de la géométrie** — pas les tables de §7.2, qui décrivent l'existant et sont amendées par ADR-029. |
+| `StarterTemplate` | Copie d'`IdenticalTemplate()`, renommée `StarterTemplateName` et décalages remis à zéro — le point de départ unique (ADR-062) que le bouton « Partir du gabarit livré » de l'écran Étiquette copie, pour ne jamais tenir une seconde version de cette géométrie côté TypeScript. |
+| `(Config).Templates` · `TemplateNames` · `SelectedTemplate` | Le gabarit en service d'une configuration : les gabarits livrés plus celui de la coopérative (`printer.custom_template`), décalage du poste recomposé dans chacun — un nom qui recouvre un gabarit livré n'y figure jamais (décision 9 de la conception du 07/11/2026, ADR-062). Lu par les contrôles 21, 29 et 38, par `templatesFor` et par le Hub à chaque impression. |
+| `(Config).OffsetBounds` · `(Template).OffsetBoundsOn` | Les quatre bornes `MinX`/`MaxX`/`MinY`/`MaxY` du décalage pour le gabarit en service, sur la géométrie **décalée** — `Min* = 0` pour un gabarit qui commence au bord (les deux gabarits livrés), négatif pour un gabarit **fourni** qui laisse une marge en haut ou à gauche (ADR-063). |
 | `(Media).MilliDots` | Convertit une longueur en micromètres en milli-dots entiers. |
 | `(SymbolGeometry).HeightUM` · `TotalWidthMilliDots` | Où le bloc du symbole finit, et son hors-tout zones de silence comprises. Une seule définition de chacun, et c'est ici. |
 | `(Template).MaxOffsetDots` | Jusqu'où le réglage de décalage d'un bénévole peut aller dans chaque direction. |
@@ -1085,6 +1089,11 @@ Le mot a DEUX sens et ils ne doivent JAMAIS partager un nom.
 
 1. **Gabarit d'étiquette** (mise en page, `pesee_identique`) → `Template` / `template` : type
    `domain.Template`, config `printer.template`, erreur `KindTemplate`, `weighing_identical`.
+   **Le gabarit de coopérative** (ADR-062, 07/11/2026) en est un cas particulier, pas un
+   troisième sens : `printer.custom_template` (`PrinterConfig.CustomTemplate *domain.Template`)
+   porte la géométrie qu'une coopérative déclare elle-même, et `printer.template` continue de
+   nommer le gabarit en service, qu'il soit livré ou celui de la coopérative — jamais une
+   nouvelle clé de sélection.
 2. **Gabarit d'un EAN-13** — la référence 13 chiffres dont la charge utile est à zéro, argument
    de `Generer` → `pattern` : `Generate(pattern EAN13, payload int64, width int)`, erreur
    `ErrPatternNotZeroed`.
