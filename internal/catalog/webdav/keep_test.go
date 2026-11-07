@@ -122,37 +122,20 @@ func applied(t *testing.T, source *Source, batch *ports.Batch) {
 	}
 }
 
-// expectNoBatch runs Next while the fake clock advances two hundred polling intervals and
-// fails when it offers anything: the only acceptable end is the expiry of a budget
-// measured by that same clock, which cancels the context. No wall-clock wait is involved;
-// the real-time deadline below is only the guard against a hang.
-func expectNoBatch(t *testing.T, source *Source, clock *fake.Clock) {
+// expectNoBatch polls the source directly, `polls` times, and fails at the first batch
+// it offers.
+//
+// Direct polls and not Next under a budget: Next runs on its own goroutine, and the budget
+// could expire after one or two polls, before the stability rule had the two observations
+// it needs to read anything. The test then passed whatever the watermark did (final review,
+// M-1). A poll called here has run to its end when it returns, so `polls` polls are
+// `polls` looks at the file.
+func expectNoBatch(t *testing.T, source *Source, polls int) {
 	t.Helper()
-	const interval = 5 * time.Second
-	ctx, cancel := ports.WithBudget(context.Background(), clock, 200*interval)
-	defer cancel()
-	type outcome struct {
-		batch *ports.Batch
-		err   error
-	}
-	done := make(chan outcome, 1)
-	go func() {
-		batch, err := source.Next(ctx)
-		done <- outcome{batch, err}
-	}()
-	guard := time.After(5 * time.Second)
-	for {
-		select {
-		case got := <-done:
-			if got.batch != nil || !errors.Is(got.err, context.Canceled) {
-				t.Fatalf("Next a rendu %v / %v, attendu context.Canceled et aucun lot "+
-					"puisque le fichier n'a pas changé", got.batch, got.err)
-			}
-			return
-		case <-guard:
-			t.Fatal("Next n'est pas sorti à l'expiration du budget de l'horloge injectée")
-		default:
-			clock.Advance(interval)
+	for i := 0; i < polls; i++ {
+		if batch, err := source.poll(context.Background()); batch != nil || err != nil {
+			t.Fatalf("scrutation %d : lot %v, erreur %v, attendu aucun lot puisque le fichier "+
+				"n'a pas changé", i, batch, err)
 		}
 	}
 }
@@ -245,14 +228,15 @@ func TestKeepDoesNotRereadARefusedFile(t *testing.T) {
 	}
 }
 
-// TestKeepDoesNotRereadAnUnchangedFile: after the acknowledgement, two hundred intervals
-// later, there is still nothing to offer.
+// TestKeepDoesNotRereadAnUnchangedFile: after the acknowledgement, ten polls later — five
+// times what the stability rule needs to read — there is still nothing to offer, and
+// nothing was downloaded again.
 func TestKeepDoesNotRereadAnUnchangedFile(t *testing.T) {
-	source, remote, _, _, clock := keeping(t, keepOptions, aCatalog)
+	source, remote, _, _, _ := keeping(t, keepOptions, aCatalog)
 	batch, _ := readStable(source)
 	applied(t, source, batch)
 
-	expectNoBatch(t, source, clock)
+	expectNoBatch(t, source, 10)
 	if remote.gets != 1 {
 		t.Errorf("%d GET, attendu 1", remote.gets)
 	}
