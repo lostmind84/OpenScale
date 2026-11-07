@@ -29,8 +29,15 @@ func (s *Source) Name() string { return domain.CatalogSourceLocalDrop }
 // Describe reports the wording the administration screen shows permanently: the
 // active source and the path it watches (§10.1).
 func (s *Source) Describe() string {
-	return fmt.Sprintf("dépôt local, %s dans %s", s.fileName, s.directory)
+	described := fmt.Sprintf("dépôt local, %s dans %s", s.fileName, s.directory)
+	if s.missing.Load() {
+		described += " — en attente de " + s.fileName
+	}
+	return described
 }
+
+// keeping reports whether the file stays where it is once it has been read.
+func (s *Source) keeping() bool { return s.afterRead == catalog.AfterReadKeep }
 
 // Path reports the file this station watches for.
 func (s *Source) Path() string { return filepath.Join(s.directory, s.fileName) }
@@ -85,6 +92,7 @@ func (s *Source) poll(ctx context.Context) (*ports.Batch, error) {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		s.stability.Forget()
+		s.sayAbsent()
 		return nil, nil
 	case err != nil:
 		// A share that blinks is not a reason to stop watching: the loop keeps
@@ -94,10 +102,42 @@ func (s *Source) poll(ctx context.Context) (*ports.Batch, error) {
 		s.stability.Forget()
 		return nil, nil
 	}
-	if !s.stability.Observe(catalog.Stamp{Size: info.Size(), Modified: info.ModTime()}) {
+	s.sayPresent()
+	stamp := catalog.Stamp{Size: info.Size(), Modified: info.ModTime()}
+	if s.keeping() && s.watermark.Seen(stamp) {
 		return nil, nil
 	}
+	if !s.stability.Observe(stamp) {
+		return nil, nil
+	}
+	s.observed = stamp
 	return s.read(ctx)
+}
+
+// sayAbsent journals the disappearance of the file ONCE, not at every poll.
+//
+// Deleting after the read makes the absence the ordinary state, so it is only Info. When
+// the file is kept, its disappearance is not something this source did: it is a producer
+// whose export stopped arriving, and an operator wants to hear of it.
+func (s *Source) sayAbsent() {
+	if s.missing.Swap(true) {
+		return
+	}
+	level := domain.LevelInfo
+	if s.keeping() {
+		level = domain.LevelWarn
+	}
+	s.log.Technical(level, "catalog", "",
+		fmt.Sprintf("Fichier de catalogue %s absent du dossier de dépôt.", s.fileName), s.directory)
+}
+
+// sayPresent journals the return of a file that was said to be absent.
+func (s *Source) sayPresent() {
+	if !s.missing.Swap(false) {
+		return
+	}
+	s.log.Technical(domain.LevelInfo, "catalog", "",
+		fmt.Sprintf("Fichier de catalogue %s de nouveau présent.", s.fileName), s.directory)
 }
 
 // read parses the file and keeps a copy of the very bytes it parsed.
@@ -173,7 +213,9 @@ func (s *Source) isClosed() bool {
 // failure against its CONTENT, and removes it from the drop directory.
 //
 // The removal is what stops the watcher re-reading the same broken file every five
-// seconds for ever; the count is what turns the third refusal of the same content into
+// seconds for ever — and in keep mode the file stays, so the stamp takes its place: the
+// same refused content is neither read nor counted again until the file changes. The
+// count is what turns the third refusal of the same content into
 // the red light of §10.5, and the copy plus its .reason.txt are what a volunteer opens
 // afterwards to find out what happened without a database.
 func (s *Source) refuse(ctx context.Context, pending *catalog.Pending, cause error) {
@@ -188,7 +230,12 @@ func (s *Source) refuse(ctx context.Context, pending *catalog.Pending, cause err
 			"Motif du refus non écrit.", err.Error())
 	}
 	entry, counted := s.quarantine.Count(ctx, cause)
-	if err := s.remove(s.Path()); err != nil {
+	if s.keeping() {
+		if err := s.watermark.Remember(s.observed); err != nil {
+			s.log.Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
+				"Repère du catalogue refusé non écrit.", err.Error())
+		}
+	} else if err := s.remove(s.Path()); err != nil {
 		s.log.Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
 			"Fichier de catalogue refusé non supprimé.", err.Error())
 		return
@@ -201,10 +248,19 @@ func (s *Source) refuse(ctx context.Context, pending *catalog.Pending, cause err
 		level = domain.LevelError
 	}
 	s.log.Technical(level, "catalog", "ERR-CAT-03",
-		"Catalogue refusé, fichier mis de côté.", archived)
+		"Catalogue refusé, "+s.refusedOutcome()+".", archived)
 }
 
-// Acknowledge names the archived copy and THEN removes the source file.
+// refusedOutcome says in the journal what became of a refused file.
+func (s *Source) refusedOutcome() string {
+	if s.keeping() {
+		return "fichier laissé en place"
+	}
+	return "fichier mis de côté"
+}
+
+// Acknowledge names the archived copy and THEN removes the source file, or, with
+// `after_read: keep`, remembers its stamp and leaves it where it is.
 //
 // The removal is the acknowledgement (ADR-004). It is a copy followed by a remove and
 // never an os.Rename: between a network share and the local disk, Rename fails with
@@ -226,6 +282,9 @@ func (s *Source) Acknowledge(_ context.Context, batch *ports.Batch, result ports
 		}
 	}
 
+	if s.keeping() {
+		return s.acknowledgeInPlace(batch, archived)
+	}
 	if err := s.remove(s.Path()); err != nil {
 		// ERR-CAT-05, amber, and it quarantines NOTHING: the catalog this file
 		// carried is in service. Naming the account is what makes the message
@@ -235,6 +294,25 @@ func (s *Source) Acknowledge(_ context.Context, batch *ports.Batch, result ports
 	}
 	s.log.Technical(domain.LevelInfo, "catalog", "",
 		"Catalogue acquitté, fichier supprimé.", archived)
+	return nil
+}
+
+// acknowledgeInPlace is the acknowledgement of a kept file: the stamp, in place of the
+// removal.
+//
+// A stamp that cannot be written is the same failure as a file that cannot be deleted —
+// the catalog is in service, nothing is quarantined, and the operator is told
+// (ERR-CAT-05). Watermark.Remember keeps the stamp in memory all the same, so the file
+// is not applied again at every poll while the disk is unwritable.
+func (s *Source) acknowledgeInPlace(batch *ports.Batch, archived string) error {
+	if err := s.watermark.Remember(s.observed); err != nil {
+		s.log.Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
+			"Repère du catalogue non écrit.", err.Error())
+		return fmt.Errorf("%w : repère non écrit pour %s (lot %s) : %w",
+			catalog.ErrNotAcknowledged, s.Path(), batch.ID, err)
+	}
+	s.log.Technical(domain.LevelInfo, "catalog", "",
+		"Catalogue acquitté, fichier laissé en place.", archived)
 	return nil
 }
 
