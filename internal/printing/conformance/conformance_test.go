@@ -82,6 +82,7 @@ func TestSuiteRejectsEveryBrokenPrinter(t *testing.T) {
 		{"a Close that panics on the second call", "CloseIsIdempotent", brokenSubject(func(s *stubPrinter) { s.panicsOnSecondClose = true })},
 
 		{"a declared self-test the driver turns down", "EverySelfTestAnswersAsDeclared", brokenSubject(func(s *stubPrinter) { s.refusesADeclaredSelfTest = true })},
+		{"a self-test that succeeds and reports no byte", "EverySelfTestAnswersAsDeclared", brokenSubject(func(s *stubPrinter) { s.selfTestReportsNoBytes = true })},
 		{"« auto-test inconnu » about a name the catalogue carries", "EverySelfTestAnswersAsDeclared", undeclaredSubject(func(s *stubPrinter) { s.unknownOnACatalogueName = true })},
 		{"a pattern printed by a driver that never declared it", "EverySelfTestAnswersAsDeclared", undeclaredSubject(func(*stubPrinter) {})},
 		{"a self-test that answers to any name", "AnUnknownSelfTestNamesTheOnesThatExist", brokenSubject(func(s *stubPrinter) { s.acceptsAnySelfTest = true })},

@@ -253,25 +253,30 @@ func labelsOf(job ports.PrintJob) int64 {
 // that the two patterns A2 deleted get an answer that says why they are gone.
 //
 // A self-test burns a label like any other print, so it counts against the roll.
-func (s *Service) SelfTest(ctx context.Context, what string) error {
+//
+// It returns the receipt for the bytes the driver handed to the transport (ADR-065),
+// so that a caller such as the printer diagnostic can report « n octets sur N »
+// instead of a bare success.
+func (s *Service) SelfTest(ctx context.Context, what string) (ports.PrintReceipt, error) {
 	test, err := LookupSelfTest(what)
 	if err != nil {
-		return err
+		return ports.PrintReceipt{}, err
 	}
 	s.printMu.Lock()
 	defer s.printMu.Unlock()
 	if s.isClosed() {
-		return errors.New("l'imprimante a été fermée : ce poste ne peut plus imprimer sans redémarrer")
+		return ports.PrintReceipt{}, errors.New("l'imprimante a été fermée : ce poste ne peut plus imprimer sans redémarrer")
 	}
 
 	target, name := s.target(), s.routedName()
-	if err := target.SelfTest(ctx, string(test.ID)); err != nil {
+	receipt, err := target.SelfTest(ctx, string(test.ID))
+	if err != nil {
 		s.observeWrite(&WriteOutcome{Detail: fmt.Sprintf("%s : %v", name, err)})
-		return err
+		return ports.PrintReceipt{}, err
 	}
 	s.observeWrite(&WriteOutcome{OK: true, Detail: name})
 	s.roll.Printed(ctx, 1)
-	return nil
+	return receipt, nil
 }
 
 // Status reports what the station may say about its printer, in the shape the Hub

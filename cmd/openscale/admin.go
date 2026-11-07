@@ -272,6 +272,9 @@ func (l *livePrinter) hold(printer ports.Printer) {
 // It satisfies web.SelfTester, which is one method wide on purpose: that is all the
 // three self-test routes need, and a station whose printer could not be built still
 // answers — with the reason the driver gives, which names the offending key.
+// web.SelfTester stays at `error` (ADR-065, écart 1) — its one consumer, this method's
+// caller, has no use for the receipt — so the receipt ports.Printer.SelfTest now
+// returns is adapted away here, not threaded through.
 func (l *livePrinter) SelfTest(ctx context.Context, what string) error {
 	l.mu.RLock()
 	printer := l.printer
@@ -279,7 +282,8 @@ func (l *livePrinter) SelfTest(ctx context.Context, what string) error {
 	if printer == nil {
 		return errors.New("aucune imprimante n'est en service sur ce poste")
 	}
-	return printer.SelfTest(ctx, what)
+	_, err := printer.SelfTest(ctx, what)
+	return err
 }
 
 // printService reports the print service, or says in French why there is none.

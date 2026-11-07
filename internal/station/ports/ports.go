@@ -228,8 +228,9 @@ type Printer interface {
 	Print(ctx context.Context, job PrintJob) (PrintReceipt, error)
 	// Status reports what the device says about itself, or an unknown status.
 	Status(ctx context.Context) PrinterStatus
-	// SelfTest prints one built-in pattern: "label", "alignment" or "ruler".
-	SelfTest(ctx context.Context, what string) error
+	// SelfTest prints one built-in pattern: "label", "alignment" or "ruler", and
+	// returns the receipt for the bytes handed to the transport (ADR-065).
+	SelfTest(ctx context.Context, what string) (PrintReceipt, error)
 	// Close releases the device.
 	Close() error
 }

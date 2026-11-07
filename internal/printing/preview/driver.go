@@ -437,38 +437,37 @@ func (p *Printer) Status(context.Context) ports.PrinterStatus {
 // cannot reach this refusal by pressing anything. What can still reach it is
 // POST /admin/api/printer/test?what=alignment, typed by hand or replayed from a script,
 // and a route that is reachable is a route that gets an answer.
-func (p *Printer) SelfTest(ctx context.Context, what string) error {
+func (p *Printer) SelfTest(ctx context.Context, what string) (ports.PrintReceipt, error) {
 	switch printing.SelfTest(what) {
 	case printing.SelfTestLabel:
 		return p.writeDemoLabel(ctx)
 	case printing.SelfTestAlignment, printing.SelfTestRuler:
-		return &ports.PrintError{Kind: ports.KindConfig, Op: "preview.SelfTest",
+		return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindConfig, Op: "preview.SelfTest",
 			Message: fmt.Sprintf("l'auto-test « %s » se lit sur une étiquette imprimée : il "+
 				"règle la tête d'impression, et ce poste écrit un fichier sans rien imprimer. "+
 				"Choisissez le pilote « %s » sur une vraie imprimante.", what, domain.PrinterRaster)}
 	}
-	return &ports.PrintError{Kind: ports.KindConfig, Op: "preview.SelfTest",
+	return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindConfig, Op: "preview.SelfTest",
 		Message: fmt.Sprintf("auto-test inconnu %q : les auto-tests disponibles sont %s, %s et %s",
 			what, printing.SelfTestLabel, printing.SelfTestAlignment, printing.SelfTestRuler)}
 }
 
 // writeDemoLabel writes the demonstration label of the `label` self-test.
-func (p *Printer) writeDemoLabel(ctx context.Context) error {
+func (p *Printer) writeDemoLabel(ctx context.Context) (ports.PrintReceipt, error) {
 	if p.demoLabel == nil {
-		return &ports.PrintError{Kind: ports.KindConfig, Op: "preview.SelfTest.label",
+		return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindConfig, Op: "preview.SelfTest.label",
 			Message: "aucune étiquette de démonstration n'a été fournie à l'aperçu : " +
 				"l'étiquette de test porte un produit et des prix, qui viennent du catalogue et de la " +
 				"configuration du poste, jamais du driver"}
 	}
 	label, err := p.demoLabel()
 	if err != nil {
-		return &ports.PrintError{Kind: ports.KindData, Op: "preview.SelfTest.label", Err: err,
+		return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindData, Op: "preview.SelfTest.label", Err: err,
 			Message: fmt.Sprintf("l'étiquette de démonstration n'a pas pu être préparée : %v", err)}
 	}
-	_, err = p.Print(ctx, ports.PrintJob{
+	return p.Print(ctx, ports.PrintJob{
 		Label: label, Template: p.template, Locale: string(domain.LocaleFrench), Copies: 1,
 	})
-	return err
 }
 
 // Close releases the font faces the renderer memoised, and nothing else.

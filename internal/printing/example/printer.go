@@ -313,39 +313,38 @@ func (p *Printer) Status(context.Context) ports.PrinterStatus {
 // why, because the route stays reachable outside the screen. What it may never answer about
 // a name the catalogue carries is « auto-test inconnu » — that wording sends a volunteer
 // hunting for a typo they did not make.
-func (p *Printer) SelfTest(ctx context.Context, what string) error {
+func (p *Printer) SelfTest(ctx context.Context, what string) (ports.PrintReceipt, error) {
 	switch printing.SelfTest(what) {
 	case printing.SelfTestLabel:
 		return p.printDemoLabel(ctx)
 	case printing.SelfTestAlignment, printing.SelfTestRuler:
-		return &ports.PrintError{Kind: ports.KindConfig, Op: "example.SelfTest",
+		return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindConfig, Op: "example.SelfTest",
 			Message: fmt.Sprintf("l'auto-test « %s » n'est pas produit par ce driver "+
 				"d'exemple : la mire et la règle se lisent sur une étiquette imprimée, et "+
 				"celui-ci ne dessine que l'étiquette de démonstration.", what)}
 	}
-	return &ports.PrintError{Kind: ports.KindConfig, Op: "example.SelfTest",
+	return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindConfig, Op: "example.SelfTest",
 		Message: fmt.Sprintf("auto-test inconnu %q : les auto-tests disponibles sont %s, %s et %s",
 			what, printing.SelfTestLabel, printing.SelfTestAlignment, printing.SelfTestRuler)}
 }
 
 // printDemoLabel prints the demonstration label of the `label` self-test, and INVENTS NO
 // PRICE when it was given none.
-func (p *Printer) printDemoLabel(ctx context.Context) error {
+func (p *Printer) printDemoLabel(ctx context.Context) (ports.PrintReceipt, error) {
 	if p.demoLabel == nil {
-		return &ports.PrintError{Kind: ports.KindConfig, Op: "example.SelfTest.label",
+		return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindConfig, Op: "example.SelfTest.label",
 			Message: "aucune étiquette de démonstration n'a été fournie à ce driver : " +
 				"l'étiquette de test porte un produit et des prix, qui viennent du catalogue " +
 				"et de la configuration du poste, jamais du driver"}
 	}
 	label, err := p.demoLabel()
 	if err != nil {
-		return &ports.PrintError{Kind: ports.KindData, Op: "example.SelfTest.label", Err: err,
+		return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindData, Op: "example.SelfTest.label", Err: err,
 			Message: fmt.Sprintf("l'étiquette de démonstration n'a pas pu être préparée : %v", err)}
 	}
-	_, err = p.Print(ctx, ports.PrintJob{
+	return p.Print(ctx, ports.PrintJob{
 		Label: label, Template: p.template, Locale: string(domain.LocaleFrench), Copies: 1,
 	})
-	return err
 }
 
 // Buffered reports a COPY of what this driver wrote into its own buffer.

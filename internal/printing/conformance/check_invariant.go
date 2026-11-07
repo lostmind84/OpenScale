@@ -119,7 +119,7 @@ func checkNoGoroutineLeaks(t *testing.T, r reporter, subject Subject) {
 	if _, panicked := statusQuietly(p, context.Background()); panicked != nil {
 		r.Fatalf("Status PANICKED: %v", panicked)
 	}
-	if _, panicked := selfTestQuietly(p, context.Background(), string(printing.SelfTestLabel)); panicked != nil {
+	if _, _, panicked := selfTestQuietly(p, context.Background(), string(printing.SelfTestLabel)); panicked != nil {
 		r.Fatalf("SelfTest PANICKED: %v", panicked)
 	}
 	closeAndForget(p)
@@ -158,7 +158,7 @@ func checkOperatorMessagesAreFrench(t *testing.T, r reporter, subject Subject) {
 			read("the refusal of an unusable barcode", fault.Message)
 		}
 	}
-	if err, _ := selfTestQuietly(p, context.Background(), "mire"); err != nil {
+	if _, err, _ := selfTestQuietly(p, context.Background(), "mire"); err != nil {
 		if fault, ok := printErrorOf(r, "SelfTest", err); ok {
 			read("the refusal of an unknown self-test", fault.Message)
 		}

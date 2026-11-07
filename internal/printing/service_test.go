@@ -412,21 +412,46 @@ func TestSelfTestsGoThroughTheCatalogueAndBurnALabel(t *testing.T) {
 	s := newService(t, false)
 
 	for _, test := range SelfTests() {
-		if err := s.SelfTest(ctx, string(test.ID)); err != nil {
+		if _, err := s.SelfTest(ctx, string(test.ID)); err != nil {
 			t.Fatalf("auto-test %q : %v", test.ID, err)
 		}
 	}
 	if got := s.Roll().State().Printed; got != 3 {
 		t.Errorf("compteur = %d, attendu 3 : un auto-test consomme une étiquette comme un autre", got)
 	}
-	if err := s.SelfTest(ctx, "barcode-frame"); err == nil {
+	if _, err := s.SelfTest(ctx, "barcode-frame"); err == nil {
 		t.Error("l'auto-test supprimé par A2 a été lancé")
 	}
-	if err := s.SelfTest(ctx, "reglette"); err == nil {
+	if _, err := s.SelfTest(ctx, "reglette"); err == nil {
 		t.Error("un nom français a été accepté : le glossaire fixe label|alignment|ruler")
 	}
 	if got := s.Roll().State().Printed; got != 3 {
 		t.Errorf("compteur = %d : un auto-test refusé n'imprime rien", got)
+	}
+}
+
+// TestTheServiceSelfTestPassesTheReceiptOn covers ADR-065: Service.SelfTest hands
+// back the driver's receipt unchanged on success, and a bare, empty one on failure —
+// never a receipt borrowed from a previous attempt.
+func TestTheServiceSelfTestPassesTheReceiptOn(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t, false)
+
+	receipt, err := s.SelfTest(ctx, string(SelfTestLabel))
+	if err != nil {
+		t.Fatalf("auto-test : %v", err)
+	}
+	if receipt.Bytes != 16310 {
+		t.Errorf("receipt.Bytes = %d, attendu 16310", receipt.Bytes)
+	}
+
+	s.main.failures = []error{permanentError("hors ligne")}
+	receipt, err = s.SelfTest(ctx, string(SelfTestLabel))
+	if err == nil {
+		t.Fatal("l'auto-test a été rendu comme un succès")
+	}
+	if receipt != (ports.PrintReceipt{}) {
+		t.Errorf("receipt = %+v sur un échec, attendu la valeur nulle", receipt)
 	}
 }
 
@@ -435,7 +460,7 @@ func TestASelfTestThatFailsIsReportedAtLevelN1(t *testing.T) {
 	s := newService(t, false)
 	s.main.failures = []error{permanentError("hors ligne")}
 
-	if err := s.SelfTest(context.Background(), string(SelfTestAlignment)); err == nil {
+	if _, err := s.SelfTest(context.Background(), string(SelfTestAlignment)); err == nil {
 		t.Fatal("l'auto-test a été rendu comme un succès")
 	}
 	if report := s.Report(); report.Health != ports.PrinterFaulted {
@@ -465,7 +490,7 @@ func TestCloseReleasesBothPrintersAndIsIdempotent(t *testing.T) {
 	if _, err := s.Print(ctx, aJob()); err == nil {
 		t.Error("une impression a été acceptée après la fermeture")
 	}
-	if err := s.SelfTest(ctx, string(SelfTestLabel)); err == nil {
+	if _, err := s.SelfTest(ctx, string(SelfTestLabel)); err == nil {
 		t.Error("un auto-test a été accepté après la fermeture")
 	}
 }

@@ -247,8 +247,10 @@ type CatalogSourceState struct {
 	Label string
 }
 
-// SelfTester prints one of the three built-in patterns (§8.6). ports.Printer
-// satisfies it, and that is the only reason it is one method wide.
+// SelfTester prints one of the three built-in patterns (§8.6). It is one method wide
+// because its only consumer, the self-test handler, has no use for the receipt
+// ports.Printer.SelfTest now returns (ADR-065, écart 1) — *cmd/openscale.livePrinter
+// adapts it away rather than widening this interface for a reader that would ignore it.
 type SelfTester interface {
 	// SelfTest prints "label", "alignment" or "ruler".
 	SelfTest(ctx context.Context, what string) error

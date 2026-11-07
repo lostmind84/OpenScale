@@ -27,7 +27,7 @@ import (
 // that much.
 func TestTheAlignmentPatternCarriesItsSquareAndItsFourCrosses(t *testing.T) {
 	printer, transport, _ := newPrinter(t, nil)
-	if err := printer.SelfTest(context.Background(), string(printing.SelfTestAlignment)); err != nil {
+	if _, err := printer.SelfTest(context.Background(), string(printing.SelfTestAlignment)); err != nil {
 		t.Fatalf("auto-test alignment : %v", err)
 	}
 	pattern := readFrame(t, transport.last(t)).graphic
@@ -103,7 +103,7 @@ func TestTheAlignmentPatternCarriesItsSquareAndItsFourCrosses(t *testing.T) {
 // turns « l'étiquette a l'air un peu courte » into a number.
 func TestTheRulerPatternFramesTheAreaAndTicksEveryMillimetre(t *testing.T) {
 	printer, transport, _ := newPrinter(t, nil)
-	if err := printer.SelfTest(context.Background(), string(printing.SelfTestRuler)); err != nil {
+	if _, err := printer.SelfTest(context.Background(), string(printing.SelfTestRuler)); err != nil {
 		t.Fatalf("auto-test ruler : %v", err)
 	}
 	pattern := readFrame(t, transport.last(t)).graphic
@@ -139,7 +139,7 @@ func TestTheRulerPatternFramesTheAreaAndTicksEveryMillimetre(t *testing.T) {
 func TestTheLabelSelfTestNeedsALabelSomebodyElseBuilt(t *testing.T) {
 	printer, transport, _ := newPrinter(t, nil)
 
-	err := printer.SelfTest(context.Background(), string(printing.SelfTestLabel))
+	_, err := printer.SelfTest(context.Background(), string(printing.SelfTestLabel))
 	printError(t, err, ports.KindConfig, "aucune étiquette de démonstration")
 	if len(transport.frames) != 0 {
 		t.Error("une trame est partie sans étiquette de démonstration")
@@ -154,11 +154,37 @@ func TestTheLabelSelfTestPrintsWhatItWasGiven(t *testing.T) {
 		o.DemoLabel = func() (domain.Label, error) { return demo, nil }
 	})
 
-	if err := printer.SelfTest(context.Background(), string(printing.SelfTestLabel)); err != nil {
+	if _, err := printer.SelfTest(context.Background(), string(printing.SelfTestLabel)); err != nil {
 		t.Fatalf("auto-test label : %v", err)
 	}
 	_, rendered := productionLabel(t)
 	compareDots(t, rendered, readFrame(t, transport.last(t)).graphic)
+}
+
+// TestTheLabelSelfTestReportsTheBytesItHandedOver covers ADR-065: the receipt a
+// self-test returns is the one the diagnostic will later report as « n octets sur
+// N », and until now the count was computed by p.send and p.Print and then thrown
+// away.
+func TestTheLabelSelfTestReportsTheBytesItHandedOver(t *testing.T) {
+	demo := job(t).Label
+	for _, what := range []string{
+		string(printing.SelfTestLabel), string(printing.SelfTestAlignment), string(printing.SelfTestRuler),
+	} {
+		printer, transport, _ := newPrinter(t, func(o *Options) {
+			o.DemoLabel = func() (domain.Label, error) { return demo, nil }
+		})
+		receipt, err := printer.SelfTest(context.Background(), what)
+		if err != nil {
+			t.Fatalf("auto-test %s : %v", what, err)
+		}
+		want := len(transport.last(t))
+		if receipt.Bytes != want {
+			t.Errorf("auto-test %s : receipt.Bytes = %d, la trame remise au transport en fait %d", what, receipt.Bytes, want)
+		}
+		if receipt.Bytes <= 0 {
+			t.Errorf("auto-test %s : receipt.Bytes = %d, attendu strictement positif", what, receipt.Bytes)
+		}
+	}
 }
 
 // TestASelfTestThatCannotBePreparedIsARefusalAboutTheDATA keeps the taxonomy honest
@@ -169,7 +195,7 @@ func TestASelfTestThatCannotBePreparedIsARefusalAboutTheData(t *testing.T) {
 			return domain.Label{}, errors.New("aucun produit dans le catalogue")
 		}
 	})
-	err := printer.SelfTest(context.Background(), string(printing.SelfTestLabel))
+	_, err := printer.SelfTest(context.Background(), string(printing.SelfTestLabel))
 	printError(t, err, ports.KindData, "démonstration")
 }
 
@@ -181,7 +207,7 @@ func TestAnUnknownSelfTestIsRefusedAndListsTheRealOnes(t *testing.T) {
 	// barcode-frame and character-table are the two self-tests A2 removed: without a
 	// <BD> command and without native text they have no object left (§8.6).
 	for _, gone := range []string{"barcode-frame", "character-table", "mire"} {
-		err := printer.SelfTest(context.Background(), gone)
+		_, err := printer.SelfTest(context.Background(), gone)
 		printError(t, err, ports.KindConfig, "auto-test inconnu")
 		var printErr *ports.PrintError
 		errors.As(err, &printErr)
@@ -200,7 +226,7 @@ func TestASelfTestOnAClosedPrinterIsRefused(t *testing.T) {
 	if err := printer.Close(); err != nil {
 		t.Fatalf("Close : %v", err)
 	}
-	if err := printer.SelfTest(context.Background(), string(printing.SelfTestRuler)); err == nil {
+	if _, err := printer.SelfTest(context.Background(), string(printing.SelfTestRuler)); err == nil {
 		t.Error("un auto-test a été accepté après Close")
 	}
 }
@@ -227,7 +253,7 @@ func TestAPatternIsAlwaysTheSizeOfTheMedia(t *testing.T) {
 func TestTheSelfTestsGoThroughTheTransportLikeALabel(t *testing.T) {
 	printer, transport, _ := newPrinter(t, nil)
 	for _, what := range []string{string(printing.SelfTestAlignment), string(printing.SelfTestRuler)} {
-		if err := printer.SelfTest(context.Background(), what); err != nil {
+		if _, err := printer.SelfTest(context.Background(), what); err != nil {
 			t.Fatalf("auto-test %s : %v", what, err)
 		}
 	}
@@ -248,7 +274,7 @@ func TestASelfTestFailureCarriesTheTransportFailure(t *testing.T) {
 	printer, transport, _ := newPrinter(t, nil)
 	transport.writeErr = errors.New("file inconnue")
 
-	err := printer.SelfTest(context.Background(), string(printing.SelfTestAlignment))
+	_, err := printer.SelfTest(context.Background(), string(printing.SelfTestAlignment))
 	printError(t, err, ports.KindTransient, "ne répond pas")
 }
 

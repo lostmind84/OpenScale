@@ -193,7 +193,7 @@ func TestUnApercuRefuseLesDeuxAutoTestsQuiPortentSurLaTete(t *testing.T) {
 	defer printer.Close()
 
 	for _, what := range []string{"alignment", "ruler"} {
-		err := printer.SelfTest(context.Background(), what)
+		_, err := printer.SelfTest(context.Background(), what)
 		if err == nil {
 			t.Fatalf("l'auto-test %q a produit un fichier : il porte sur la tête d'impression", what)
 		}
@@ -212,7 +212,7 @@ func TestLAutoTestEtiquetteDUnApercuEcritLesDeuxFichiers(t *testing.T) {
 	printer := newPreview(t, dir)
 	defer printer.Close()
 
-	if err := printer.SelfTest(context.Background(), "label"); err != nil {
+	if _, err := printer.SelfTest(context.Background(), "label"); err != nil {
 		t.Fatalf("auto-test « label » : %v", err)
 	}
 	if got := len(filesWithSuffix(t, dir, ".pdf")); got != 1 {

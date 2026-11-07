@@ -240,7 +240,9 @@ func (p unbuiltPrinter) Status(context.Context) ports.PrinterStatus {
 }
 
 // SelfTest refuses, for the same reason Print does.
-func (p unbuiltPrinter) SelfTest(context.Context, string) error { return p.refuse("printer.SelfTest") }
+func (p unbuiltPrinter) SelfTest(context.Context, string) (ports.PrintReceipt, error) {
+	return ports.PrintReceipt{}, p.refuse("printer.SelfTest")
+}
 
 // Close has nothing to release.
 func (p unbuiltPrinter) Close() error { return nil }

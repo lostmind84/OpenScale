@@ -22,7 +22,11 @@ import (
 // service: they carry no business data, so nothing has to be injected for them to
 // exist. `label` is a real label and therefore needs a real Label, which only the
 // station can build.
-func (p *Printer) SelfTest(ctx context.Context, what string) error {
+//
+// It returns the receipt for the bytes handed to the transport (ADR-065): the
+// printer diagnostic reports it as « n octets sur N », and until now it was computed
+// by p.send and p.Print and then thrown away.
+func (p *Printer) SelfTest(ctx context.Context, what string) (ports.PrintReceipt, error) {
 	switch printing.SelfTest(what) {
 	case printing.SelfTestLabel:
 		return p.printDemoLabel(ctx)
@@ -31,41 +35,39 @@ func (p *Printer) SelfTest(ctx context.Context, what string) error {
 	case printing.SelfTestRuler:
 		return p.printPattern(ctx, "raster.SelfTest.ruler", rulerPattern(p.template))
 	}
-	return &ports.PrintError{Kind: ports.KindConfig, Op: "raster.SelfTest",
+	return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindConfig, Op: "raster.SelfTest",
 		Message: fmt.Sprintf("auto-test inconnu %q : les auto-tests disponibles sont %s, %s et %s",
 			what, printing.SelfTestLabel, printing.SelfTestAlignment, printing.SelfTestRuler)}
 }
 
 // printDemoLabel prints the demonstration label of the `label` self-test.
-func (p *Printer) printDemoLabel(ctx context.Context) error {
+func (p *Printer) printDemoLabel(ctx context.Context) (ports.PrintReceipt, error) {
 	if p.demoLabel == nil {
-		return &ports.PrintError{Kind: ports.KindConfig, Op: "raster.SelfTest.label",
+		return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindConfig, Op: "raster.SelfTest.label",
 			Message: "aucune étiquette de démonstration n'a été fournie à l'imprimante : " +
 				"l'étiquette de test porte un produit et des prix, qui viennent du catalogue et de la " +
 				"configuration du poste, jamais du driver"}
 	}
 	label, err := p.demoLabel()
 	if err != nil {
-		return &ports.PrintError{Kind: ports.KindData, Op: "raster.SelfTest.label", Err: err,
+		return ports.PrintReceipt{}, &ports.PrintError{Kind: ports.KindData, Op: "raster.SelfTest.label", Err: err,
 			Message: fmt.Sprintf("l'étiquette de démonstration n'a pas pu être préparée : %v", err)}
 	}
-	_, err = p.Print(ctx, ports.PrintJob{
+	return p.Print(ctx, ports.PrintJob{
 		Label:    label,
 		Template: p.template,
 		Locale:   string(domain.LocaleFrench),
 		Copies:   1,
 	})
-	return err
 }
 
 // printPattern encapsulates one built-in pattern and sends it.
-func (p *Printer) printPattern(ctx context.Context, op string, img *image.Gray) error {
+func (p *Printer) printPattern(ctx context.Context, op string, img *image.Gray) (ports.PrintReceipt, error) {
 	frame, err := encodeLabel(img, p.template, p.settings, p.head, 1)
 	if err != nil {
-		return err
+		return ports.PrintReceipt{}, err
 	}
-	_, err = p.send(ctx, op, op, frame)
-	return err
+	return p.send(ctx, op, op, frame)
 }
 
 // The two patterns this driver draws itself (§8.6). They carry no product, no price

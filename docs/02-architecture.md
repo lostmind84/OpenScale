@@ -6077,6 +6077,24 @@ Le contrôle **53** garde ce que les neuf règles dures ne jugent pas — l'iden
 
 ---
 
+### ADR-065 — L'auto-test rend son reçu, et le statut garde la cause de son échec
+
+**Statut** : accepté · **Date** : 07/11/2026 · **Portée** : §8.5, §8.6, `ports.Printer`, `ports.PrinterStatus`
+
+**Contexte.** Le diagnostic pas à pas de l'imprimante (étape 4) doit annoncer « n octets sur N », le chiffre qui dit qu'une étiquette de test est bien partie en entier — et classer l'erreur d'ouverture des étapes 1 à 3 (absente / refusée / connexion impossible). Les deux chiffres existaient déjà, et les deux étaient jetés. `SelfTest` imprime comme `Print` — `p.send` ou `p.Print` calcule un `ports.PrintReceipt` (`raster/selftest.go:51`) — mais ne le rend pas : l'appelant n'a qu'un `error`. Et l'erreur d'ouverture du transport est réduite par `raster.Status` à un `Detail` déjà formaté en français (`status.go:47-49`) avant même d'atteindre `Service.Status`, qui passe par `Observe` et la perd une seconde fois (`status.go:386`) : rien ne reste à classer par `errors.Is`/`errors.As`.
+
+**Options envisagées.**
+
+1. **Une méthode nouvelle sur `ports.Transport`**, dédiée au diagnostic. Rejetée par la conception : elle ouvrirait une seconde façon de parler au transport, à côté de `Query`.
+2. **Le diagnostic appelle `Transport.Query` directement**, en contournant le driver. Rejetée : `Query` est protégé par le verrou de `raster.Printer` (`raster.go:327`, `status.go:35`) ; l'appeler à côté ouvre le nœud en concurrence avec le superviseur — l'anti-objectif n° 2 de la conception.
+3. **Élargir `SelfTest` pour qu'il rende le reçu, et donner à `ports.PrinterStatus` un champ `Cause error` pour l'erreur d'ouverture intacte** — retenue.
+
+**Décision.** `ports.Printer.SelfTest` devient `SelfTest(ctx context.Context, what string) (ports.PrintReceipt, error)` : chaque driver (`raster`, `preview`, `example`, `fake`, `unbuiltPrinter`) rend désormais le reçu qu'il calculait déjà pour `Print`, au lieu de le jeter. `ports.PrinterStatus` gagne un champ `Cause error`, porteur de l'erreur d'ouverture non reformatée ; `printing.Service` gagne une méthode `Interrogate`, qui est la seule à l'y déposer (codée en tâche 2 de ce lot). `web.SelfTester` ne change pas : son seul consommateur, le handler du bouton d'auto-test existant, n'a pas l'usage du reçu, et en Go l'interface se déclare côté consommateur — `cmd/openscale.livePrinter.SelfTest` adapte (`_, err := printer.SelfTest(…)`).
+
+**Conséquences.** (a) Tout driver du contrat rend son reçu ; le banc de conformité (`EverySelfTestAnswersAsDeclared`) l'exige désormais : un succès déclaré avec `receipt.Bytes == 0` alors que quelque chose a atteint la destination est une betrayal, au même titre qu'un succès sans rien délivré. (b) `web.SelfTester` reste à un seul `error` (décision 9 du plan du diagnostic) : la largeur de l'interface suit son unique consommateur, pas ce que le driver peut désormais offrir. (c) Le commentaire de `internal/web/contracts.go` qui disait « `ports.Printer` satisfait `SelfTester` » est faux depuis cette décision — les deux signatures divergent — et est corrigé pour dire pourquoi l'interface reste étroite. (d) Rien ne change pour `internal/web/admin_test.go` : son faux `b2Printer` n'implémente que `web.SelfTester`, inchangé, et compile sans y être touché.
+
+---
+
 ## 21. Inconnues à lever sur site
 
 Chacune est une inconnue **matérielle** ou **organisationnelle** que l'analyse documentaire ne peut pas lever. Pour chacune : quoi mesurer, comment, en combien de temps, et **ce qui est bloqué tant qu'elle n'est pas levée**.
