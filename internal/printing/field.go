@@ -85,7 +85,7 @@ func (r *Rasterizer) place(g *domain.Template, e domain.Element, text string, ma
 // compose measures one field at one body, in the weight that body implies.
 func (r *Rasterizer) compose(g *domain.Template, e domain.Element, text string, sizeUM domain.Micrometers) (placement, error) {
 	bold := isBold(g.Media, e, sizeUM)
-	primary, err := r.fonts.Face(labelFont, int(sizeUM), g.Media.DotsPerMM, bold)
+	primary, err := r.fonts.Face(elementFont(e), int(sizeUM), g.Media.DotsPerMM, bold)
 	if err != nil {
 		return placement{}, err
 	}

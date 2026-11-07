@@ -60,6 +60,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /admin/api/printers", s.listPrinters)
 	mux.HandleFunc("GET /admin/api/update", s.updateStatus)
 	mux.HandleFunc("GET /admin/api/label/preview.png", s.labelPreview)
+	mux.HandleFunc("GET /admin/api/label/geometry", s.labelGeometry)
 	// The journal is open, EXPORT INCLUDED: the page already shows the 200 weighings,
 	// and diagnostic.zip — open — carries them too. A lock on the third door is not one.
 	mux.HandleFunc("GET /admin/api/journal", s.journal)

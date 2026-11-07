@@ -11,6 +11,25 @@ import (
 // character no embedded font carries is JOURNALLED rather than rendered silently as an
 // empty box.
 
+// TestKnownFontsAndFontFileNamesAgree is a guard against the drift of two lists that
+// have to say the same thing by hand: domain.KnownFonts() is what rule 7 of §7.5
+// accepts in an element's font field, fontFileNames is what this package can actually
+// parse a face from. A font known on one side and missing on the other would either
+// let a template validate and then fail to render, or refuse a template this binary
+// could in fact draw.
+func TestKnownFontsAndFontFileNamesAgree(t *testing.T) {
+	known := domain.KnownFonts()
+	if len(known) != len(fontFileNames) {
+		t.Fatalf("domain.KnownFonts() porte %d polices, fontFileNames en porte %d : %v contre %v",
+			len(known), len(fontFileNames), known, fontFileNames)
+	}
+	for _, name := range known {
+		if _, ok := fontFileNames[Font(name)]; !ok {
+			t.Errorf("%q est dans domain.KnownFonts() mais pas dans fontFileNames", name)
+		}
+	}
+}
+
 // --- The fallback font -----------------------------------------------------
 
 // TestTheFallbackDrawsWhatCarlitoCannot is not a theoretical case: 127 of the 355

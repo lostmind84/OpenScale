@@ -207,6 +207,43 @@ func TestTheOffsetIsCarriedByTheTemplateAndNotByTheHead(t *testing.T) {
 	}
 }
 
+// TestTemplatesForCarriesTheCooperativeTemplate closes the gap the design doc names:
+// templatesFor read domain.ShippedTemplates() directly, never cfg.Templates(reg) (task
+// 1), so a station whose configuration carries printer.custom_template started as if
+// it had none — the gabarit the Graoucoop declares would be invisible at boot even
+// though Config.Validate had already accepted it.
+func TestTemplatesForCarriesTheCooperativeTemplate(t *testing.T) {
+	cfg := shippedConfig(t)
+	custom := domain.StarterTemplate()
+	custom.Name = "graoucoop"
+	cfg.Printer.CustomTemplate = &custom
+	cfg.Printer.Template = "graoucoop"
+	cfg.Printer.Options = mustOptions(t, cfg.Printer.Options, map[string]any{"offset_x": 1})
+
+	templates, err := templatesFor(cfg, registriesOfThisBinary())
+	if err != nil {
+		t.Fatalf("templatesFor : %v", err)
+	}
+	if len(templates) != 3 {
+		t.Fatalf("%d gabarits, attendu 3 (les deux livrés et celui de la coopérative) : %v",
+			len(templates), templates)
+	}
+	if got := templates["graoucoop"].OffsetXDots; got != 1 {
+		t.Fatalf("décalage du gabarit de la coopérative = %d, attendu 1 : le décalage du poste "+
+			"s'applique à n'importe quel gabarit en service (décision 15)", got)
+	}
+	if _, ok := templates["weighing_identical"]; !ok {
+		t.Fatal("le gabarit livré weighing_identical a disparu quand la coopérative en déclare un")
+	}
+
+	cfg.Printer.Template = "inconnu"
+	if _, err := templatesFor(cfg, registriesOfThisBinary()); err == nil {
+		t.Fatal("printer.template inconnu n'a pas été refusé")
+	} else if !strings.Contains(err.Error(), "graoucoop") {
+		t.Fatalf("le refus ne nomme pas le gabarit de la coopérative parmi les disponibles : %v", err)
+	}
+}
+
 // TestLeProfilNeutreEstApplicableParCeBinaire.
 //
 // The neutral profile is what a station RUNS when its own file is unusable (§11.3), and its
@@ -359,6 +396,63 @@ func TestUnDriverQuiDeclareUnTransportEnRecoitUn(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAReloadRebuildsThePrinterOnTheCooperativeTemplate holds printerRebuilder to the
+// configuration being put in service. The raster driver keeps DriverConfig.Template for
+// its head check and for the alignment and ruler self-tests: a factory that reused the
+// start-up map would print the calibration pattern on weighing_identical after the
+// cooperative switched to its own gabarit — and nothing else in this package noticed
+// when the factory was pointed back at that map.
+func TestAReloadRebuildsThePrinterOnTheCooperativeTemplate(t *testing.T) {
+	var handed printing.DriverConfig
+	preview := descriptorOf(t, "preview")
+	spy := printing.NewRegistry()
+	spy.Register(printing.Driver{
+		Descriptor: domain.PrinterDescriptor{
+			ID: preview.ID, Label: preview.Label, Capabilities: preview.Capabilities,
+		},
+		Options: preview.Options,
+		New: func(c printing.DriverConfig) (ports.Printer, error) {
+			handed = c
+			return fake.NewPrinter(), nil
+		},
+	})
+
+	next := shippedConfig(t)
+	next.Printer.Type = preview.ID
+	cooperative := domain.StarterTemplate()
+	cooperative.Name = "graoucoop"
+	next.Printer.CustomTemplate = &cooperative
+	next.Printer.Template = cooperative.Name
+
+	live := &livePrinter{}
+	rebuild := printerRebuilder(registries(), spy, fake.NewClock(captureStart), nopLog{}, t.TempDir(), live)
+	printer, err := rebuild(next)
+	if err != nil {
+		t.Fatalf("l'imprimante n'a pas pu être reconstruite : %v", err)
+	}
+	defer printer.Close()
+
+	if handed.Template.Name != "graoucoop" {
+		t.Fatalf("l'imprimante reconstruite porte le gabarit %q, attendu %q : celui de la "+
+			"configuration mise en service", handed.Template.Name, "graoucoop")
+	}
+	if live.printer != printer {
+		t.Error("l'imprimante reconstruite n'est pas celle que le poste tient en service")
+	}
+}
+
+// descriptorOf returns the descriptor printerRegistry() registers under id.
+func descriptorOf(t *testing.T, id string) domain.DriverDescriptor {
+	t.Helper()
+	for _, descriptor := range printerRegistry().Descriptors() {
+		if descriptor.ID == id {
+			return descriptor
+		}
+	}
+	t.Fatalf("aucun driver %q dans le registre", id)
+	return domain.DriverDescriptor{}
 }
 
 // schemaDeclares reports whether a driver's own schema carries a key at its top level.

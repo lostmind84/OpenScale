@@ -341,6 +341,33 @@ export function previewURL(template: string, demo: boolean, dual: boolean, nonce
   return '/admin/api/label/preview.png?' + query.toString()
 }
 
+/** Ce que `GET /admin/api/label/geometry` répond (`internal/web/labelgeometry.go`). */
+export interface LabelGeometryDTO {
+  /**
+   * Le gabarit livré que « Partir du gabarit livré » (décision 12) copie dans
+   * `printer.custom_template` : `domain.StarterTemplate()`, sous son nom `cooperative`.
+   */
+  starter: Record<string, unknown> & { name: string }
+  /**
+   * La borne du décalage sur les quatre côtés, pour le gabarit EN SERVICE (ADR-063) —
+   * `null` exactement quand le contrôle 38 se tait déjà : gabarit inconnu, résolution
+   * inutilisable, ou tête qui ne compte pas les dots au même pas.
+   */
+  offset_bounds: { min_x: number; max_x: number; min_y: number; max_y: number } | null
+}
+
+/**
+ * Le point de départ du bouton « Partir du gabarit livré » et les bornes des flèches
+ * ±1 dot (§11.4), lus sur la configuration EN SERVICE.
+ *
+ * Ouverte (ADR-033) : elle ne lit rien d'autre que ce que le poste applique déjà, et
+ * c'est exactement pourquoi la page Étiquette la redemande à l'ouverture et après
+ * chaque enregistrement, comme elle le fait déjà de l'aperçu.
+ */
+export function fetchLabelGeometry(): Promise<LabelGeometryDTO> {
+  return getJSON<LabelGeometryDTO>('/admin/api/label/geometry')
+}
+
 /** Le journal des pesées : les 200 dernières, filtrées. */
 export async function fetchJournal(filters: Record<string, string>): Promise<WeighingDTO[]> {
   const query = new URLSearchParams(filters)

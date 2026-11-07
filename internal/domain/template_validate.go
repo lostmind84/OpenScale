@@ -26,7 +26,9 @@ func (t *Template) Validate(tierCount int) []Fault {
 //
 // Rules 3 and 4 are the two that need one: they bound the ink by what the head can
 // print, and holding that bound as a constant of the core made every station whose
-// printer is not the WS408 of the parc fail its own validation at start-up.
+// printer is not the WS408 of the parc fail its own validation at start-up. They bound
+// it by the label as well (inkableExtent): a roll narrower than the head leaves less
+// room than the head does, and the renderer sizes its image on the media.
 //
 // A head that declares nothing is measured against ReferenceHead, so a caller with no
 // descriptor in hand — a test, a preview — validates exactly what it validated before.
@@ -67,8 +69,7 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
 			t.Media.DotsPerMM, head.DotsPerMM)
 	}
 
-	inkedWidth := int64(head.InkedWidthDots) * 1000
-	inkedHeight := int64(head.InkedHeightDots) * 1000
+	inkedWidth, inkedHeight := t.inkableExtent(head)
 
 	// Rule 9, checked first: a template with an absurd module or an unreadable type
 	// size produces cascades of geometric faults, and naming the cause is kinder
@@ -88,6 +89,24 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
 				shifted.Symbol.Magnification(head.DotsPerMM)*100, GS1MinModuleUM, GS1MaxModuleUM)
 		}
 	}
+	// A SUPPLIED gabarit was previously refused only at print time, by
+	// SymbolOptions.validate: a zero bar height would ink nothing (A1), and guards
+	// run lower than the bars, never higher -- DrawEAN13 already refuses a negative
+	// descent there (symbol.go:226). These three guards move that refusal to save
+	// time, before a customer ever weighs anything.
+	if shifted.Symbol.BarHeightUM <= 0 {
+		fail("symbol.bar_height_um", "%d µm : les barres du symbole doivent avoir une hauteur strictement positive",
+			shifted.Symbol.BarHeightUM)
+	}
+	if shifted.Symbol.GuardDescentUM < 0 {
+		fail("symbol.guard_descent_um", "%d µm : la descente des gardes ne peut pas être négative",
+			shifted.Symbol.GuardDescentUM)
+	}
+	if shifted.Symbol.HRIHeightUM <= 0 {
+		fail("symbol.hri_height_um", "%d µm : la bande HRI est imprimée depuis toujours (ADR-051), elle ne peut pas être nulle",
+			shifted.Symbol.HRIHeightUM)
+	}
+
 	for i, e := range shifted.Elements {
 		if e.Field == FieldBarcode {
 			continue // the symbol carries no type size of its own
@@ -122,6 +141,15 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
 		if e.Field != FieldBarcode && !known(knownAlignments, e.Align) {
 			fail(fmt.Sprintf("elements[%d].align", i), "alignement inconnu %q", e.Align)
 			faults[len(faults)-1].Values = knownAlignments
+		}
+		if e.Field == FieldBarcode {
+			if e.Font != "" {
+				fail(fmt.Sprintf("elements[%d].font", i),
+					"le symbole ne prend pas de police : ses chiffres sont dessinés par le moteur, bornés par la bande HRI")
+			}
+		} else if e.Font != "" && !known(knownFonts, e.Font) {
+			fail(fmt.Sprintf("elements[%d].font", i), "police inconnue %q", e.Font)
+			faults[len(faults)-1].Values = knownFonts
 		}
 		if seen[e.Field] {
 			fail(fmt.Sprintf("elements[%d].field", i), "le champ %q est placé deux fois", e.Field)
@@ -169,18 +197,30 @@ func (t *Template) ValidateOn(head PrinterCapabilities, tierCount int) []Fault {
 		bottom, right := shifted.inkedExtent(tierCount)
 		if bottom > inkedHeight {
 			fail("inked_content", "le contenu encré descend à %s dots, au-delà des %d dots de hauteur encrée de l'étiquette",
-				formatMilliDots(bottom), head.InkedHeightDots)
+				formatMilliDots(bottom), inkedHeight/1000)
 		}
 		if right > inkedWidth {
 			fail("inked_content", "le contenu encré s'étend à %s dots, au-delà des %d dots de largeur encrée de l'étiquette",
-				formatMilliDots(right), head.InkedWidthDots)
+				formatMilliDots(right), inkedWidth/1000)
+		}
+
+		// Rule 3, the other direction: no compiled template ever placed the symbol
+		// above or left of the label, so this never fired until a SUPPLIED gabarit
+		// could declare a margin and ADR-063 let the offset go negative into it. A
+		// negative origin here is exactly what an offset at MinY-1 or MinX-1
+		// produces, and it is caught by name rather than left to the renderer.
+		symbolOrigin := shifted.symbolBox()
+		if symbolOrigin.top < 0 || symbolOrigin.left < 0 {
+			fail("inked_content",
+				"le symbole commence en (%s ; %s) dots, au-dessus ou à gauche du bord de l'étiquette",
+				formatMilliDots(symbolOrigin.left), formatMilliDots(symbolOrigin.top))
 		}
 
 		// Rule 4: the over-all width of the symbol, quiet zones included.
 		if width := shifted.Symbol.TotalWidthMilliDots(); width > inkedWidth {
 			fail("symbol.module_milli_dots",
 				"le hors-tout du symbole (113 modules = %s dots) dépasse les %d dots de largeur encrée",
-				formatMilliDots(width), head.InkedWidthDots)
+				formatMilliDots(width), inkedWidth/1000)
 		}
 	}
 

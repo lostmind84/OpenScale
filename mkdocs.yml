@@ -58,6 +58,7 @@ nav:
   - Accueil: index.md
   - Démarrer: getting-started.md
   - Catalogue: catalogue.md
+  - Gabarit d'étiquette: gabarit.md
   - Architecture: architecture.md
   - Décisions d'architecture:
       - odr/README.md

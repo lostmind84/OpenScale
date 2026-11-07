@@ -42,6 +42,16 @@ const CONFIG = {
   },
 }
 
+/**
+ * Le gabarit livré que la route de géométrie renvoie comme point de départ (décision
+ * 12). Un fragment suffit : cette page ne lit que `name`, et copie le reste tel quel.
+ */
+const STARTER_TEMPLATE: Record<string, unknown> & { name: string } = {
+  name: 'cooperative',
+  media: { width_um: 40_000, height_um: 25_000 },
+  elements: [],
+}
+
 let host: HTMLElement
 let admin: Admin
 let draft: Draft
@@ -58,6 +68,15 @@ let printerTest: { status: number; body: string } = {
 let holdPrinterTest: Promise<void> | null = null
 /** Vrai quand la relecture de la configuration EN SERVICE échoue. */
 let configUnreadable = false
+/** Les bornes de décalage que `GET /admin/api/label/geometry` répond. */
+let geometryBounds: { min_x: number; max_x: number; min_y: number; max_y: number } | null = {
+  min_x: 0,
+  max_x: 40,
+  min_y: 0,
+  max_y: 16,
+}
+/** Vrai quand la route de géométrie échoue. */
+let geometryFails = false
 let component: unknown
 
 beforeEach(() => {
@@ -66,6 +85,8 @@ beforeEach(() => {
   printerTest = { status: 200, body: JSON.stringify({ message: 'Mire imprimée.' }) }
   holdPrinterTest = null
   configUnreadable = false
+  geometryBounds = { min_x: 0, max_x: 40, min_y: 0, max_y: 16 }
+  geometryFails = false
   host = document.createElement('div')
   document.body.appendChild(host)
   vi.stubGlobal('fetch', fakeFetch)
@@ -93,6 +114,10 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   if (route.startsWith('/admin/api/printer/test')) {
     if (holdPrinterTest !== null) await holdPrinterTest
     return new Response(printerTest.body, { status: printerTest.status })
+  }
+  if (route === '/admin/api/label/geometry') {
+    if (geometryFails) return new Response('', { status: 500 })
+    return json({ starter: STARTER_TEMPLATE, offset_bounds: geometryBounds })
   }
   if (route === '/admin/api/config' && method === 'PUT') {
     // Ce que le service renvoie est ce qu'il vient d'appliquer : le document envoyé.
@@ -286,6 +311,96 @@ describe('les flèches ±1 dot, et ce que l’aperçu montre vraiment', () => {
 
     expect(button('1 dot →').disabled).toBe(true)
     expect(text()).toContain('Lecture de la configuration')
+  })
+})
+
+describe('le plancher du décalage, calculé sur la géométrie du gabarit (ADR-063)', () => {
+  it('arme la flèche verticale et écrit -1 quand le gabarit laisse une marge en haut', async () => {
+    geometryBounds = { min_x: 0, max_x: 40, min_y: -16, max_y: 16 }
+    await open()
+
+    // La marge de 16 dots en haut rend -16 recevable au contrôle 38 : la flèche n'est
+    // désarmée qu'à CETTE borne, plus basse que zéro.
+    expect(button('↑ 1 dot').disabled).toBe(false)
+
+    button('↑ 1 dot').click()
+    flushSync()
+
+    expect(draft.value('printer.options.offset_y')).toBe(-1)
+    expect(text()).toContain('16 dots')
+  })
+
+  it('relit la géométrie au remontage même sur un brouillon sale, et garde la flèche armée', async () => {
+    geometryBounds = { min_x: 0, max_x: 40, min_y: -16, max_y: 16 }
+    await open()
+
+    button('↑ 1 dot').click()
+    flushSync()
+    expect(draft.value('printer.options.offset_y')).toBe(-1)
+
+    await remount()
+
+    // Le brouillon reste SALE au remontage — document commun aux six pages, qu'App.svelte
+    // démonte à chaque navigation — et la route de géométrie lit la configuration EN
+    // SERVICE, pas le brouillon : elle doit donc être relue quel que soit `dirty`, sans
+    // quoi la flèche se désarmait et le texte annonçait « jusqu'à 0 dot » à côté d'un
+    // décalage déjà à -1.
+    expect(button('↑ 1 dot').disabled).toBe(false)
+    expect(text()).toContain('16 dots')
+  })
+
+  it('le plus prudent reste zéro quand la route de géométrie échoue, sans rien annoncer', async () => {
+    geometryFails = true
+    await open()
+
+    // Aucune marge connue : les deux flèches qui descendraient sous zéro restent
+    // désarmées, exactement comme sur le gabarit livré, et rien ne dit que la route a
+    // échoué — ce n'est pas un refus à afficher, c'est l'absence prudente d'une marge.
+    expect(button('← 1 dot').disabled).toBe(true)
+    expect(button('↑ 1 dot').disabled).toBe(true)
+    expect(host.querySelector('[data-preview-refused]')).toBeNull()
+    expect(host.querySelector('[data-preview-stale]')).toBeNull()
+  })
+})
+
+describe('le bouton « Partir du gabarit livré » (décision 12)', () => {
+  it('copie le gabarit livré dans le brouillon et le sélectionne, sans PUT', async () => {
+    await open()
+
+    button('Partir du gabarit livré').click()
+    flushSync()
+
+    expect(draft.value('printer.custom_template')).toEqual(STARTER_TEMPLATE)
+    expect(draft.value('printer.template')).toBe('cooperative')
+    expect(draft.dirty).toBe(true)
+    expect(calls.some((call) => call.startsWith('PUT'))).toBe(false)
+  })
+
+  it('reste désarmé quand le brouillon porte déjà un gabarit de coopérative', async () => {
+    await open()
+    draft.set('printer.custom_template', { name: 'cooperative', media: {}, elements: [] })
+    flushSync()
+
+    expect(button('Partir du gabarit livré').disabled).toBe(true)
+    expect(text()).toContain('ne l’écrase pas')
+  })
+
+  it('redemande l’image après le bouton puis l’enregistrement', async () => {
+    await open()
+
+    // Le bouton pose `printer.template = cooperative` et demande déjà l'image une
+    // première fois, pour un gabarit qui n'est pas encore en service (422 « gabarit
+    // inconnu » côté moteur). Sans redemander l'image une seconde fois après
+    // l'enregistrement, ce refus restait affiché alors que le gabarit est désormais en
+    // service — le paragraphe du bouton promet exactement le contraire.
+    button('Partir du gabarit livré').click()
+    flushSync()
+    const beforeSave = source()
+
+    await draft.save()
+    await settle()
+
+    expect(source()).not.toBe(beforeSave)
   })
 })
 

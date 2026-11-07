@@ -284,6 +284,14 @@ type PrinterConfig struct {
 	// address, fallback, darkness, speed, offsets, invert_bits, copies and the roll
 	// capacity.
 	Options DriverOptions `json:"options"`
+	// CustomTemplate is the cooperative's OWN label layout -- media, printable area,
+	// elements, symbol -- validated like any shipped one (template_validate.go, the
+	// nine hard rules) and NEVER substituted for a shipped name (control 53): the
+	// Graoucoop's roll, 35 x 25 mm against La Coope's 38 x 25, crops a printed label
+	// in a way control 38 could never have bounded on a layout it had never measured
+	// (ADR-062). Nil for a station that never declared one, so the key never appears
+	// in a file that does not need it and La Coope's fingerprint never moves.
+	CustomTemplate *Template `json:"custom_template,omitempty"`
 }
 
 // BarcodeConfig is what is left of the barcode block once the numbering plan

@@ -289,3 +289,25 @@ func TestTheFollowedRepositorySurvivesAnExportWithoutHardware(t *testing.T) {
 		t.Fatalf("dépôt après export sans matériel = %q", got)
 	}
 }
+
+// TestExportClonesTheCooperativesTemplate: Export does `out := *c`, a struct copy
+// that leaves out.Printer.CustomTemplate pointing at the SAME Template as the
+// configuration the station is running on. §11.5's diff preview edits an export
+// freely; it must never be editing the live configuration through a shared pointer.
+func TestExportClonesTheCooperativesTemplate(t *testing.T) {
+	custom := StarterTemplate()
+	custom.Name = "graoucoop"
+	config := loadDelivered(t)
+	config.Printer.CustomTemplate = &custom
+
+	for _, withHardware := range []bool{false, true} {
+		exported := config.Export(withHardware)
+		if exported.Printer.CustomTemplate == config.Printer.CustomTemplate {
+			t.Fatalf("Export(%v) : le même pointeur de gabarit a voyagé, ce n'est pas une copie", withHardware)
+		}
+		exported.Printer.CustomTemplate.Elements[0].FontSizeUM = 1
+		if config.Printer.CustomTemplate.Elements[0].FontSizeUM == 1 {
+			t.Fatalf("Export(%v) : modifier l'export a modifié la configuration en service", withHardware)
+		}
+	}
+}

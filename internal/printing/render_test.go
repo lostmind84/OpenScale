@@ -87,6 +87,37 @@ func TestTheLabelMatchesItsGoldens(t *testing.T) {
 	}
 }
 
+// TestAnElementsFontChangesTheRenderedBitmap: domain.Element.Font exists to let a
+// field name its own family (§7.3's "font of the neutral templates" with nowhere to
+// say so), and the proof that it is READ rather than merely validated is a label that
+// comes out different ink when it is set.
+func TestAnElementsFontChangesTheRenderedBitmap(t *testing.T) {
+	r, _ := newTestRasterizer(t)
+	label := weighing(t, celeryRow, referenceMass, domain.LaCagetteRules())
+
+	reference := domain.IdenticalTemplate()
+	refImg, err := r.Rasterize(&reference, label, domain.LocaleFrench, RenderOptions{})
+	if err != nil {
+		t.Fatalf("Rasterize (référence) : %v", err)
+	}
+
+	withFont := domain.IdenticalTemplate()
+	for i := range withFont.Elements {
+		if withFont.Elements[i].Field == domain.FieldProductName {
+			withFont.Elements[i].Font = domain.FontDejaVuSansCondensed
+		}
+	}
+	gotImg, err := r.Rasterize(&withFont, label, domain.LocaleFrench, RenderOptions{})
+	if err != nil {
+		t.Fatalf("Rasterize (dejavu-sans-condensed) : %v", err)
+	}
+
+	if bytes.Equal(refImg.Pix, gotImg.Pix) {
+		t.Fatal("le même libellé rend un bitmap identique en Carlito et en DejaVu Sans Condensed : " +
+			"elementFont n'est pas lu, ou la police par défaut n'a pas changé")
+	}
+}
+
 // compareGolden checks an image against its recorded PNG, or rewrites it under
 // -update.
 func compareGolden(t *testing.T, name string, img *image.Gray) {
@@ -401,5 +432,36 @@ func TestTheFreeRasterizeRendersAndStaysAudible(t *testing.T) {
 	if !strings.Contains(captured.String(), codeFieldTruncated) {
 		t.Errorf("le journal ne porte pas %s après une troncature : le point d'entrée de "+
 			"§7.3 sort en silence.\nJournal : %s", codeFieldTruncated, captured.String())
+	}
+}
+
+// TestATemplateOnARollSmallerThanTheHeadPrintsAtEveryOffsetItsBoundsAdmit closes the
+// loop the domain rules open: a cooperative's gabarit on a 34 × 24.9 mm roll, text
+// kept inside 30 mm, is pushed to the largest offset OffsetBounds admits and must
+// still RENDER. Measured against the 280 × 200 dots of the head alone, the bound said
+// 15 and 1, Validate agreed, and DrawEAN13 then refused every label because the image
+// is sized on the media -- anti-objectif 1 of the lot.
+func TestATemplateOnARollSmallerThanTheHeadPrintsAtEveryOffsetItsBoundsAdmit(t *testing.T) {
+	template := domain.StarterTemplate()
+	template.Media.WidthUM, template.Media.HeightUM = 34_000, 24_900
+	template.PrintableWidthUM, template.PrintableHeightUM = 34_000, 24_900
+	template.Elements = append([]domain.Element(nil), template.Elements...)
+	for i := range template.Elements {
+		if right := template.Elements[i].Right(); right > 30_000 {
+			template.Elements[i].WidthUM -= right - 30_000
+		}
+	}
+
+	bounds := template.OffsetBounds(2)
+	template.OffsetXDots, template.OffsetYDots = bounds.MaxX, bounds.MaxY
+	if faults := template.Validate(2); len(faults) != 0 {
+		t.Fatalf("le gabarit à sa borne (%d ; %d) devrait valider : %v", bounds.MaxX, bounds.MaxY, faults)
+	}
+
+	r, _ := newTestRasterizer(t)
+	label := weighing(t, celeryRow, referenceMass, domain.LaCagetteRules())
+	if _, err := r.Rasterize(&template, label, domain.LocaleFrench, RenderOptions{}); err != nil {
+		t.Errorf("un décalage que les bornes admettent (%d ; %d) est refusé au rendu : %v",
+			bounds.MaxX, bounds.MaxY, err)
 	}
 }

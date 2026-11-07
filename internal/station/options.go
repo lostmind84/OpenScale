@@ -106,7 +106,16 @@ type Options struct {
 	// worker at all, which is what a binary that cannot update itself honestly is
 	// -- a development build, or a platform with no swap.
 	Poller Poller
-	// Templates resolves printer.template. It defaults to the shipped ones.
+	// Templates is the REGISTRY of named label layouts -- what the binary ships
+	// with, and whatever a printer driver's own registry adds to it (reg.templates()
+	// in cmd/openscale). It defaults to the shipped ones.
+	//
+	// It is deliberately NOT where the gabarit in service or the station's offset
+	// come from: those live in the configuration itself (printer.custom_template,
+	// printer.options.offset_x/_y) and are read FRESH, on every print, off the
+	// atomic pointer Reload stores into (Hub.template(cfg), effects.go) -- so a
+	// cooperative's own layout and a reloaded offset reach the label without a
+	// restart, which a map frozen here at construction could never do.
 	Templates map[string]domain.Template
 	// NominalRate is the cadence the scale driver DECLARES, used until the rate
 	// meter has eight intervals of its own.

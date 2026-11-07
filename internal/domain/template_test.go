@@ -69,6 +69,237 @@ func TestMaxOffsetDotsAnswersForTheHeadInService(t *testing.T) {
 	}
 }
 
+// topMarginTemplate is IdenticalTemplate() with every active element, and the
+// symbol, pushed 2 mm (16 dots at 8 dots/mm) down from the top of the label —
+// a layout a cooperative could plausibly supply, with a margin ADR-063 exists to
+// let the volunteer give back as a negative offset.
+//
+// The barcode element's height is reduced by the same 2 000 um its YUM gains, and
+// the symbol's bar height by the same amount, so the BOTTOM of the inked content —
+// what MaxOffsetDotsOn already bounds — lands exactly where it did in
+// IdenticalTemplate(): this fixture exercises the new top margin alone, not a
+// change at the bottom.
+func topMarginTemplate() Template {
+	template := IdenticalTemplate()
+	template.Elements = append([]Element(nil), template.Elements...)
+	for i := range template.Elements {
+		template.Elements[i].YUM += 2_000
+	}
+	for i := range template.Elements {
+		if template.Elements[i].Field == FieldBarcode {
+			template.Elements[i].HeightUM -= 2_000
+		}
+	}
+	template.Symbol.YUM += 2_000
+	template.Symbol.BarHeightUM = 9_375
+	return template
+}
+
+// TestOffsetBoundsOnRecomputesTheMarginOnTheTemplatesOwnGeometry is ADR-063: a
+// gabarit that already carries a margin at its top lets the offset go negative by
+// exactly that margin, on the SHIFTED geometry (symbol included), never further —
+// that is anti-objectif 1 of the design: an offset that passes on paper must not
+// crop the label at print time.
+func TestOffsetBoundsOnRecomputesTheMarginOnTheTemplatesOwnGeometry(t *testing.T) {
+	topMargin := topMarginTemplate()
+	if faults := topMargin.Validate(2); len(faults) != 0 {
+		t.Fatalf("le fixture lui-même devrait être légal, faults = %v", faults)
+	}
+
+	bounds := topMargin.OffsetBoundsOn(ReferenceHead(), 2)
+	if bounds.MinY != -16 {
+		t.Errorf("MinY = %d, attendu -16", bounds.MinY)
+	}
+	if bounds.MinX != 0 {
+		t.Errorf("MinX = %d, attendu 0 : aucune marge n'a été ajoutée à gauche", bounds.MinX)
+	}
+	identical := IdenticalTemplate()
+	wantMaxY := identical.OffsetBoundsOn(ReferenceHead(), 2).MaxY
+	if bounds.MaxY != wantMaxY {
+		t.Errorf("MaxY = %d, attendu %d (celui d'IdenticalTemplate(), le bas de l'encre n'a pas bougé)",
+			bounds.MaxY, wantMaxY)
+	}
+
+	atTheBound := topMarginTemplate()
+	atTheBound.OffsetYDots = bounds.MinY
+	if faults := atTheBound.Validate(2); len(faults) != 0 {
+		t.Errorf("OffsetYDots = %d (la borne elle-même) devrait valider, faults = %v", bounds.MinY, faults)
+	}
+
+	pastTheBound := topMarginTemplate()
+	pastTheBound.OffsetYDots = bounds.MinY - 1
+	if faults := pastTheBound.Validate(2); len(faults) == 0 {
+		t.Errorf("OffsetYDots = %d (un dot au-delà de la borne) devrait être refusé", bounds.MinY-1)
+	}
+}
+
+// TestOffsetBoundsOnShippedTemplatesIsZeroAtTopAndLeft: weighing_identical and
+// weighing_neutral_single both start their ink at the very edge of the label, so
+// they must keep exactly the [0, max] bound that already shipped — the regression
+// guard of the Review Focus: La Coope's templates do not move.
+func TestOffsetBoundsOnShippedTemplatesIsZeroAtTopAndLeft(t *testing.T) {
+	for _, template := range []Template{IdenticalTemplate(), NeutralSingleTemplate()} {
+		bounds := template.OffsetBoundsOn(ReferenceHead(), 2)
+		if bounds.MinX != 0 || bounds.MinY != 0 {
+			t.Errorf("%s : MinX, MinY = %d, %d, attendu 0, 0", template.Name, bounds.MinX, bounds.MinY)
+		}
+		maxX, maxY := template.MaxOffsetDots(2)
+		if bounds.MaxX != maxX || bounds.MaxY != maxY {
+			t.Errorf("%s : MaxX, MaxY = %d, %d, attendu ce que rend MaxOffsetDots : %d, %d",
+				template.Name, bounds.MaxX, bounds.MaxY, maxX, maxY)
+		}
+	}
+}
+
+// syntheticLeftMarginTemplate is built, not measured, for exactly one property: its
+// text element and its symbol both start 1 000 um (8 dots at 8 dots/mm) in from the
+// left edge of the label -- the X mirror of topMarginTemplate(). Neither shipped
+// template ever has room to spare on this axis (both reach MaxX == 0, see
+// TestOffsetBoundsOnShippedTemplatesIsZeroAtTopAndLeft below), so building on top of
+// one of them would mean shrinking the module or every element's width just to make
+// space; a synthetic fixture says the same thing in four fields.
+func syntheticLeftMarginTemplate() Template {
+	return Template{
+		Name:              "gabarit_synthetique_marge_gauche",
+		Media:             Media{WidthUM: 40_000, HeightUM: 25_000, DotsPerMM: 8},
+		PrintableWidthUM:  40_000,
+		PrintableHeightUM: 25_000,
+		Elements: []Element{
+			{
+				Field: FieldProductName,
+				XUM:   1_000, YUM: 0, WidthUM: 10_000, HeightUM: 3_175,
+				FontSizeUM: 3_175, Align: AlignLeft,
+			},
+		},
+		Symbol: SymbolGeometry{
+			XUM: 1_000, YUM: 5_000,
+			// The same fractional module as weighing_identical: a known-GS1-legal value,
+			// so this fixture's own legality never has to be argued separately.
+			ModuleMilliDots: 2_344,
+			BarHeightUM:     11_375,
+			GuardDescentUM:  1_465,
+			HRIHeightUM:     2_700,
+		},
+	}
+}
+
+// syntheticSymbolLeftmostTemplate is syntheticLeftMarginTemplate() with its text
+// element pushed to 2 000 um instead of 1 000 -- twice the symbol's own margin --
+// so the SYMBOL, not the text, is the leftmost ink. OffsetBoundsOn answering -8 and
+// not -16 here is what an inkedOrigin that ignored the symbol (ADR-063's "symbole
+// compris") would get wrong.
+func syntheticSymbolLeftmostTemplate() Template {
+	template := syntheticLeftMarginTemplate()
+	template.Elements[0].XUM = 2_000
+	return template
+}
+
+// TestOffsetBoundsOnRecomputesTheLeftMarginOnTheTemplatesOwnGeometry is the X mirror
+// of TestOffsetBoundsOnRecomputesTheMarginOnTheTemplatesOwnGeometry: before this
+// test, every fixture in this package had MinX == 0, so a MinX forced to zero, or an
+// inkedOrigin that never looked at X at all, passed the whole package unnoticed.
+func TestOffsetBoundsOnRecomputesTheLeftMarginOnTheTemplatesOwnGeometry(t *testing.T) {
+	leftMargin := syntheticLeftMarginTemplate()
+	if faults := leftMargin.Validate(2); len(faults) != 0 {
+		t.Fatalf("le fixture lui-même devrait être légal, faults = %v", faults)
+	}
+
+	bounds := leftMargin.OffsetBoundsOn(ReferenceHead(), 2)
+	if bounds.MinX != -8 {
+		t.Errorf("MinX = %d, attendu -8 (1 000 µm = 8 dots à 8 dots/mm)", bounds.MinX)
+	}
+	if bounds.MinY != 0 {
+		t.Errorf("MinY = %d, attendu 0 : aucune marge n'a été ajoutée en haut", bounds.MinY)
+	}
+
+	atTheBound := syntheticLeftMarginTemplate()
+	atTheBound.OffsetXDots = bounds.MinX
+	if faults := atTheBound.Validate(2); len(faults) != 0 {
+		t.Errorf("OffsetXDots = %d (la borne elle-même) devrait valider, faults = %v", bounds.MinX, faults)
+	}
+
+	pastTheBound := syntheticLeftMarginTemplate()
+	pastTheBound.OffsetXDots = bounds.MinX - 1
+	if faults := pastTheBound.Validate(2); len(faults) == 0 {
+		t.Errorf("OffsetXDots = %d (un dot au-delà de la borne) devrait être refusé", bounds.MinX-1)
+	}
+}
+
+// TestOffsetBoundsOnCountsTheSymbolAsTheLeftmostInk is the Review Focus case the
+// plan names explicitly, "symbole compris" : the symbol sits closer to the left edge
+// than the text element, so the bound must follow the SYMBOL (-8) and not the text
+// (-16). An inkedOrigin that ignored symbolBox() here would silently answer -16,
+// which this package's other fixtures -- symbol and text always flush together --
+// could never catch.
+func TestOffsetBoundsOnCountsTheSymbolAsTheLeftmostInk(t *testing.T) {
+	symbolLeftmost := syntheticSymbolLeftmostTemplate()
+	if faults := symbolLeftmost.Validate(2); len(faults) != 0 {
+		t.Fatalf("le fixture lui-même devrait être légal, faults = %v", faults)
+	}
+
+	bounds := symbolLeftmost.OffsetBoundsOn(ReferenceHead(), 2)
+	if bounds.MinX != -8 {
+		t.Errorf("MinX = %d, attendu -8 (celle du symbole, le plus à gauche, pas -16 : "+
+			"le champ texte a deux fois sa marge)", bounds.MinX)
+	}
+
+	atTheBound := syntheticSymbolLeftmostTemplate()
+	atTheBound.OffsetXDots = -8
+	if faults := atTheBound.Validate(2); len(faults) != 0 {
+		t.Errorf("OffsetXDots = -8 (la borne du symbole) devrait valider, faults = %v", faults)
+	}
+
+	pastTheBound := syntheticSymbolLeftmostTemplate()
+	pastTheBound.OffsetXDots = -9
+	if faults := pastTheBound.Validate(2); len(faults) == 0 {
+		t.Error("OffsetXDots = -9 devrait être refusé : le symbole sortirait de l'étiquette")
+	}
+}
+
+// TestOffsetBoundsOnStopsAtTheMediaAndNotOnlyAtTheHead: MaxX and MaxY are the margin
+// the LABEL leaves, and a label narrower or shorter than the head leaves less. Measured
+// against the head alone, a 34 × 24.9 mm roll whose text stops at 30 mm answered
+// MaxX = 15 and MaxY = 1, and every arrow press past 7 or 0 printed a symbol the
+// renderer refuses -- the bound said "dans les clous" while the label came out
+// refused, which is anti-objectif 1 of the lot.
+func TestOffsetBoundsOnStopsAtTheMediaAndNotOnlyAtTheHead(t *testing.T) {
+	build := func() Template {
+		template := starterOnMedia(34_000, 24_900)
+		for i := range template.Elements {
+			if right := template.Elements[i].Right(); right > 30_000 {
+				template.Elements[i].WidthUM -= right - 30_000
+			}
+		}
+		return template
+	}
+	template := build()
+	if faults := template.Validate(2); len(faults) != 0 {
+		t.Fatalf("le fixture lui-même devrait être légal, faults = %v", faults)
+	}
+
+	// 34 mm = 272 dots, symbol right edge 264.872 dots -> 7. 24.9 mm = 199.2 dots,
+	// floored to the 199 the renderer allocates, symbol bottom 198.104 dots -> 0.
+	bounds := template.OffsetBoundsOn(ReferenceHead(), 2)
+	if bounds.MaxX != 7 || bounds.MaxY != 0 {
+		t.Fatalf("MaxX, MaxY = %d, %d, attendu 7, 0 (la marge du média, pas celle de la tête)",
+			bounds.MaxX, bounds.MaxY)
+	}
+
+	atTheBound := build()
+	atTheBound.OffsetXDots, atTheBound.OffsetYDots = bounds.MaxX, bounds.MaxY
+	if faults := atTheBound.Validate(2); len(faults) != 0 {
+		t.Errorf("le décalage à la borne (%d ; %d) devrait valider, faults = %v",
+			bounds.MaxX, bounds.MaxY, faults)
+	}
+	for _, past := range []struct{ x, y int }{{bounds.MaxX + 1, 0}, {0, bounds.MaxY + 1}} {
+		pastTheBound := build()
+		pastTheBound.OffsetXDots, pastTheBound.OffsetYDots = past.x, past.y
+		if faults := pastTheBound.Validate(2); len(faults) == 0 {
+			t.Errorf("le décalage (%d ; %d), un dot au-delà de la borne, devrait être refusé", past.x, past.y)
+		}
+	}
+}
+
 // TestSymbolHeightUsesMaxAndNotASum is the definition of §7.4 that had to be settled
 // once: the HRI digits sit INSIDE the guard descent band, so the block height is
 // bars + max(descent, hri), never bars + descent + hri.

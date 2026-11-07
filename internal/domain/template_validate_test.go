@@ -129,6 +129,28 @@ func TestRuleThreeRefusesContentBelowTheInkedHeight(t *testing.T) {
 	}
 }
 
+// TestRuleThreeRefusesASymbolThatStartsAboveOrLeftOfTheLabel: rule 3 used to bear
+// only on the LOWER and RIGHT edges, because no compiled template ever placed a
+// symbol off the top or the left -- a supplied gabarit can (ADR-063). A negative
+// origin is caught here rather than left to the renderer, the same guard that
+// already exists for a text element (rule 1/2's "hors de l'étiquette"), extended to
+// the symbol block.
+func TestRuleThreeRefusesASymbolThatStartsAboveOrLeftOfTheLabel(t *testing.T) {
+	template := NeutralSingleTemplate()
+	// One dot above the label at 8 dots/mm: 125 um.
+	template.Symbol.YUM = -125
+
+	faults := template.Validate(2)
+	if !hasFault(faults, "inked_content") {
+		t.Fatalf("faults = %v, want inked_content", faultFields(faults))
+	}
+	for _, f := range faults {
+		if f.Field == "inked_content" && !strings.Contains(f.Message, "au-dessus") {
+			t.Errorf("message = %q, want \"au-dessus\" named", f.Message)
+		}
+	}
+}
+
 // TestRuleFourRefusesASymbolWiderThanTheLabel: the over-all width, quiet zones
 // included.
 func TestRuleFourRefusesASymbolWiderThanTheLabel(t *testing.T) {
@@ -140,6 +162,97 @@ func TestRuleFourRefusesASymbolWiderThanTheLabel(t *testing.T) {
 	faults := template.Validate(2)
 	if !hasFault(faults, "symbol.module_milli_dots") {
 		t.Fatalf("faults = %v, want symbol.module_milli_dots", faultFields(faults))
+	}
+}
+
+// starterOnMedia is StarterTemplate() on a media of widthUM × heightUM whose printable
+// area is the whole media, every element box clipped to fit it, so rules 1 and 2 hold
+// and what is left to judge is the INK -- the symbol above all, which no box binds.
+//
+// Built on the starter on purpose: it is the copy a cooperative edits, and changing
+// media.width_um is the first thing a cooperative with another roll would do.
+func starterOnMedia(widthUM, heightUM Micrometers) Template {
+	template := StarterTemplate()
+	template.Media.WidthUM, template.Media.HeightUM = widthUM, heightUM
+	template.PrintableWidthUM, template.PrintableHeightUM = widthUM, heightUM
+	template.Elements = append([]Element(nil), template.Elements...)
+	for i := range template.Elements {
+		if right := template.Elements[i].Right(); right > widthUM {
+			template.Elements[i].WidthUM -= right - widthUM
+		}
+		if bottom := template.Elements[i].Bottom(); bottom > heightUM {
+			template.Elements[i].HeightUM -= bottom - heightUM
+		}
+	}
+	return template
+}
+
+// hasMessage reports whether one fault of field names fragment in its message.
+func hasMessage(faults []Fault, field, fragment string) bool {
+	for _, fault := range faults {
+		if fault.Field == field && strings.Contains(fault.Message, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRulesThreeAndFourMeasureTheInkAgainstANarrowerMedia: a 30 mm roll on the 280-dot
+// head of the parc. Every box fits the declared area, but the symbol is 264.872 dots
+// wide and the label 240: the renderer sizes its image on the MEDIA and refuses that
+// symbol on every label. Rules 3 and 4 measured the ink against the head alone, so the
+// template was accepted at save time and then refused at print time -- anti-objectif 1
+// of the lot, met by a narrower roll rather than by an offset.
+func TestRulesThreeAndFourMeasureTheInkAgainstANarrowerMedia(t *testing.T) {
+	narrow := starterOnMedia(30_000, 25_000)
+
+	faults := narrow.Validate(2)
+	if !hasMessage(faults, "symbol.module_milli_dots", "240 dots") {
+		t.Errorf("règle 4 : aucun refus du hors-tout du symbole qui nomme les 240 dots du média :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+	if !hasMessage(faults, "inked_content", "240 dots") {
+		t.Errorf("règle 3 : aucun refus de l'encre qui nomme les 240 dots du média :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
+// TestRuleThreeMeasuresTheInkAgainstAShorterMedia is the vertical twin: a 22 mm roll
+// (176 dots) under a symbol that ends at 198.104 dots.
+func TestRuleThreeMeasuresTheInkAgainstAShorterMedia(t *testing.T) {
+	short := starterOnMedia(35_000, 22_000)
+
+	faults := short.Validate(2)
+	if !hasMessage(faults, "inked_content", "176 dots") {
+		t.Errorf("règle 3 : aucun refus de l'encre qui nomme les 176 dots du média :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
+// TestRuleThreeMeasuresTheInkAgainstThePrintableAreaAndNotTheMedia: the printable
+// area is the operator's statement of where the printer accepts ink, and rule 2 holds
+// it inside the media. A symbol past it is refused even when the media would still
+// carry it.
+func TestRuleThreeMeasuresTheInkAgainstThePrintableAreaAndNotTheMedia(t *testing.T) {
+	template := starterOnMedia(30_000, 25_000)
+	template.Media.WidthUM = 35_000
+
+	if faults := template.Validate(2); !hasMessage(faults, "symbol.module_milli_dots", "240 dots") {
+		t.Errorf("le symbole déborde la zone imprimable de 30 mm et passe :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
+	}
+}
+
+// TestRulesThreeAndFourStillAnswerForTheHeadOnALargerMedia: the head stays a bound of
+// its own. A 40 mm roll on a 280-dot head inks 280 dots, not 320.
+func TestRulesThreeAndFourStillAnswerForTheHeadOnALargerMedia(t *testing.T) {
+	template := NeutralSingleTemplate()
+	template.Media.WidthUM, template.PrintableWidthUM = 40_000, 40_000
+	template.Symbol.ModuleMilliDots = 2_600 // 293.8 dots: past the head, inside the media
+
+	if faults := template.Validate(2); !hasMessage(faults, "symbol.module_milli_dots", "280 dots") {
+		t.Errorf("un symbole plus large que la tête passe sur un média plus large qu'elle :\n%s",
+			strings.Join(fieldsOf(faults), "\n"))
 	}
 }
 
@@ -428,5 +541,109 @@ func TestNegativeCoordinatesAreRefused(t *testing.T) {
 	}
 	if !named {
 		t.Errorf("faults = %v, want a fault naming the element as being off the label", faults)
+	}
+}
+
+// TestRuleSevenClosesTheFontList: the font a template names for an element is a
+// closed list, same reasoning as the field and the condition -- a template naming a
+// font the binary does not carry would be caught at RENDER time otherwise, not at
+// load time.
+func TestRuleSevenClosesTheFontList(t *testing.T) {
+	template := IdenticalTemplate()
+	template.Elements[0].Font = "comic-sans"
+
+	faults := template.Validate(2)
+	if !hasFault(faults, "elements[0].font") {
+		t.Fatalf("faults = %v, want elements[0].font", faultFields(faults))
+	}
+	for _, f := range faults {
+		if f.Field != "elements[0].font" {
+			continue
+		}
+		if !strings.Contains(f.Message, `police inconnue "comic-sans"`) {
+			t.Errorf("message = %q, want it to name the unknown font", f.Message)
+		}
+		if len(f.Values) != 2 || f.Values[0] != FontCarlito || f.Values[1] != FontDejaVuSansCondensed {
+			t.Errorf("Values = %v, want KnownFonts()", f.Values)
+		}
+	}
+}
+
+// TestRuleSevenAcceptsAKnownFontOnATextElement: naming the one font §7.3 already
+// calls "the font of the neutral templates" must validate, now that an element has
+// somewhere to say so.
+func TestRuleSevenAcceptsAKnownFontOnATextElement(t *testing.T) {
+	template := IdenticalTemplate()
+	template.Elements[0].Font = FontDejaVuSansCondensed
+
+	if faults := template.Validate(2); len(faults) != 0 {
+		t.Errorf("une police connue sur un champ texte doit être admise : %v", faults)
+	}
+}
+
+// TestRuleSevenRefusesAFontOnTheBarcodeElement: the symbol carries no type size of
+// its own (rule 9 skips it for the same reason), and its HRI digits are drawn by the
+// engine in labelFont -- not something a gabarit can override field by field.
+func TestRuleSevenRefusesAFontOnTheBarcodeElement(t *testing.T) {
+	template := IdenticalTemplate()
+	for i := range template.Elements {
+		if template.Elements[i].Field == FieldBarcode {
+			template.Elements[i].Font = FontCarlito
+		}
+	}
+
+	faults := template.Validate(2)
+	if !hasFault(faults, "elements[5].font") {
+		t.Fatalf("faults = %v, want elements[5].font", faultFields(faults))
+	}
+}
+
+// TestRuleNineRefusesANonPositiveSymbolGeometry: bar height and HRI height exist on
+// a compiled gabarit only because they were measured positive. A gabarit supplied as
+// a document was previously refused only at print time, by SymbolOptions.validate: a
+// zero or negative bar height would draw nothing (A1), and a negative guard_descent
+// is refused by DrawEAN13 itself, since guards run lower than the bars, never higher.
+func TestRuleNineRefusesANonPositiveSymbolGeometry(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		mutate func(*Template)
+		field  string
+	}{
+		{"barres nulles", func(t *Template) { t.Symbol.BarHeightUM = 0 }, "symbol.bar_height_um"},
+		{"barres négatives", func(t *Template) { t.Symbol.BarHeightUM = -1 }, "symbol.bar_height_um"},
+		// ADR-051: la HRI est imprimée, jamais nulle (A1).
+		{"HRI nulle", func(t *Template) { t.Symbol.HRIHeightUM = 0 }, "symbol.hri_height_um"},
+		{"descente des gardes négative", func(t *Template) { t.Symbol.GuardDescentUM = -1 }, "symbol.guard_descent_um"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			template := NeutralSingleTemplate()
+			c.mutate(&template)
+			if faults := template.Validate(2); !hasFault(faults, c.field) {
+				t.Errorf("faults = %v, want %s", faultFields(faults), c.field)
+			}
+		})
+	}
+
+	// A descent of exactly zero is legal: only a NEGATIVE one is nonsensical, since
+	// guards run lower than the bars, never higher (DrawEAN13 already refuses it at
+	// print time, symbol.go:226).
+	template := NeutralSingleTemplate()
+	template.Symbol.GuardDescentUM = 0
+	if faults := template.Validate(2); hasFault(faults, "symbol.guard_descent_um") {
+		t.Errorf("une descente nulle doit être admise : %v", faults)
+	}
+}
+
+// TestTheShippedTemplatesCarryNoFontFaultAndNoSymbolGuardFault: the two guards above
+// judge what a SUPPLIED gabarit could get wrong; they must stay silent on what is
+// already compiled in, on every tier count either rule reads.
+func TestTheShippedTemplatesCarryNoFontFaultAndNoSymbolGuardFault(t *testing.T) {
+	identical := IdenticalTemplate()
+	if faults := identical.Validate(2); len(faults) != 0 {
+		t.Errorf("weighing_identical : %v", faults)
+	}
+	neutral := NeutralSingleTemplate()
+	if faults := neutral.Validate(1); len(faults) != 0 {
+		t.Errorf("weighing_neutral_single : %v", faults)
 	}
 }
