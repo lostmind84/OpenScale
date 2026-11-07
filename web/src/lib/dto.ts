@@ -168,6 +168,15 @@ export interface StateDTO {
   scale: ScaleDTO
   printer: PrinterDTO
   degraded: DegradationDTO | null
+  /**
+   * Le nom du fichier de catalogue que le poste attend, tel que le service le dérive de
+   * `catalog.options.file_name` et du numéro du poste.
+   *
+   * Calculé côté Go, par la fonction même que les sources utilisent pour chercher le
+   * fichier : aucun écran ne le recompose. « En attente du fichier flv_2.csv » nommerait
+   * sinon un fichier que personne ne lit dès qu'une coopérative a choisi son propre nom.
+   */
+  catalog_file: string
   /** Combien de tuiles la grille porte — les tuiles, elles, viennent du catalogue. */
   catalog_count: number
   /**

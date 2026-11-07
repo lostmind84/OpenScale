@@ -193,6 +193,21 @@ func TestAnEmptyCatalogNamesTheFileChosenByTheCooperative(t *testing.T) {
 	}
 }
 
+func TestAnEmptyCatalogNamesASharedFileEvenWithoutAStationNumber(t *testing.T) {
+	b := newBench(t)
+	b.service.health.State.CatalogCount = 0
+	b.service.health.Catalog = nil
+	b.tweak(func(cfg *domain.Config) {
+		cfg.Station.Number = 0
+		cfg.Catalog.Options = domain.DriverOptions{"file_name": json.RawMessage(`"flv.csv"`)}
+	})
+
+	found := control(t, b.run(), ControlCatalogSource)
+	if !strings.Contains(found.Remedy, "Faites déposer flv.csv par") {
+		t.Errorf("la consigne doit nommer flv.csv, le numéro de poste n'y change rien :\n%s", found.Remedy)
+	}
+}
+
 func TestARejectedCatalogSaysTheStationKeepsWeighing(t *testing.T) {
 	b := newBench(t)
 	b.service.health.Catalog.Result = domain.ImportRejected

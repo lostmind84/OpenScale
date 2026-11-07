@@ -106,6 +106,7 @@ function restingState(overrides: Partial<StateDTO> = {}): StateDTO {
     },
     printer: { health: 'ready', detail: '', pending_jobs_count: 0, observed_at: '' },
     degraded: null,
+    catalog_file: 'flv_2.csv',
     catalog_count: catalog.product_count,
     // Celui du catalogue servi, pour la même raison que l'empreinte ci-dessous : un
     // instant qui différerait ferait redemander le catalogue à chaque état poussé.
@@ -371,6 +372,22 @@ describe('les produits vendus à l’unité, masqués sur ce poste', () => {
     await openWithNoTile(restingState({ catalog_count: 0 }))
 
     expect(emptyGrid().message).toBe('Catalogue vide. En attente du fichier flv_2.csv.')
+  })
+
+  it('dit le fichier que le service annonce, et ne le recompose pas', async () => {
+    // Une coopérative qui a réglé `catalog.options.file_name` : « flv_2.csv » nommerait
+    // un fichier que personne ne lit, devant un bénévole qui n'a que cet écran.
+    served = { ...seenWithByUnit(false), products: [], product_count: 0 }
+    await openWithNoTile(restingState({ catalog_count: 0, catalog_file: 'flv.csv' }))
+
+    expect(emptyGrid().message).toBe('Catalogue vide. En attente du fichier flv.csv.')
+  })
+
+  it('ne nomme aucun fichier quand le service n’en a annoncé aucun', async () => {
+    served = { ...seenWithByUnit(false), products: [], product_count: 0 }
+    await openWithNoTile(restingState({ catalog_count: 0, catalog_file: '' }))
+
+    expect(emptyGrid().message).toBe('Catalogue vide. En attente du fichier du poste.')
   })
 })
 

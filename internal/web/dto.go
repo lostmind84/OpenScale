@@ -3,6 +3,7 @@ package web
 import (
 	"time"
 
+	"openscale/internal/catalog"
 	"openscale/internal/domain"
 	"openscale/internal/station"
 	"openscale/internal/station/ports"
@@ -69,6 +70,14 @@ type stateDTO struct {
 	Scale    scaleDTO        `json:"scale"`
 	Printer  printerDTO      `json:"printer"`
 	Degraded *degradationDTO `json:"degraded"`
+
+	// CatalogFile is the name of the catalog file this station waits for, from
+	// catalog.options.file_name and the station number. It is derived in Go, by the same
+	// function the sources use to look for the file, so that no screen ever spells the
+	// name on its own: « En attente du fichier flv_2.csv » naming a file nobody reads is
+	// what a cooperative with its own file_name would otherwise see on the empty-catalog
+	// screen, in front of a volunteer who has only that screen to go by.
+	CatalogFile string `json:"catalog_file"`
 
 	// CatalogCount is how many tiles the grid holds. The tiles themselves come from
 	// GET /api/v1/catalog, which the browser keeps: a snapshot at 10 Hz has no
@@ -236,6 +245,7 @@ type degradationDTO struct {
 // It is total: every field of station.Snapshot is either carried or deliberately
 // dropped, and the golden test of this file is what keeps that true.
 func (s *Server) stateOf(snap station.Snapshot) stateDTO {
+	cfg := s.hub.Config()
 	out := stateDTO{
 		Revision:        snap.Revision,
 		At:              stamp(snap.At),
@@ -254,8 +264,11 @@ func (s *Server) stateOf(snap station.Snapshot) stateDTO {
 		Scale:           scaleOf(snap.Scale),
 		Printer:         printerOf(snap.Printer),
 		Degraded:        degradationOf(snap.Degraded),
-		CatalogCount:    snap.Catalog.WeighableCount(),
-		UnloggedCount:   snap.UnloggedWeighings,
+		// Read from the configuration, like the digest below: the pattern reloads hot
+		// (§11.4) and a snapshot never carries a setting.
+		CatalogFile:   catalog.FileNameOf(cfg.Catalog.Options, cfg.Station.Number),
+		CatalogCount:  snap.Catalog.WeighableCount(),
+		UnloggedCount: snap.UnloggedWeighings,
 		// Read from the Hub and not from the snapshot, like the digest below: the Hub
 		// stamps the import that produced the catalog it swaps in (§10.8), and a
 		// snapshot describes a plate, a product and a printer -- never an import.
@@ -263,7 +276,7 @@ func (s *Server) stateOf(snap station.Snapshot) stateDTO {
 		// Read from the Hub and not from the snapshot: the presentation is a
 		// configuration that reloads hot (§11.4), and a snapshot describes a plate, a
 		// product and a printer -- never a screen setting.
-		PresentationDigest: presentationDigest(presentationOf(s.hub.Config().UI)),
+		PresentationDigest: presentationDigest(presentationOf(cfg.UI)),
 	}
 	return out
 }

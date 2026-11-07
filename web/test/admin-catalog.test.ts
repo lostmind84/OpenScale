@@ -14,7 +14,7 @@ import {
 } from '../src/admin/lib/inventory'
 import { Admin } from '../src/admin/lib/session.svelte'
 import { GRID_COLUMNS_AUTO, gridTemplateColumns } from '../src/lib/grid'
-import { FLV_1_IMPORT, FLV_IMPORT, nominalHealth } from './fixtures/health'
+import { FLV_1_IMPORT, FLV_IMPORT, nominalHealth, nominalState } from './fixtures/health'
 
 /**
  * La page Catalogue dit-elle la vérité, et le mot de passe est-il demandé au bon moment ?
@@ -416,6 +416,15 @@ function decision(overrides: Partial<DecisionDTO> = {}): DecisionDTO {
     ...overrides,
   }
 }
+
+describe('la zone de dépôt du catalogue', () => {
+  it('nomme le fichier que le service annonce, pas flv_<numéro>.csv', async () => {
+    open(nominalHealth({ state: nominalState({ catalog_file: 'flv.csv' }) }))
+    await settle()
+    const zone = host.querySelector('[aria-label="Zone de dépôt du catalogue"]')
+    expect(collapse(zone?.textContent ?? '')).toContain('Déposez ici le fichier flv.csv')
+  })
+})
 
 describe('aucune liste sans plafond, et aucun plafond muet', () => {
   it('annonce ce que la troncature des anomalies cache', async () => {

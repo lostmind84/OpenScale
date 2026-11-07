@@ -24,7 +24,6 @@
   import Panel from '../components/Panel.svelte'
   import Toggle from '../components/Toggle.svelte'
   import * as api from '../lib/api'
-  import { expectedCatalogFile } from '../lib/catalog-file'
   import { decisionActs, decisionSentence, waiverTyped } from '../lib/decisions'
   import type { Draft } from '../lib/draft.svelte'
   import type { FindingDTO, HealthDTO, ImportDTO, ReloadDTO } from '../lib/dto'
@@ -179,11 +178,6 @@
 
   const byUnitSaid = $derived(
     byUnitSentence(namesState, byUnitCount, draft.flag('ui.show_by_unit_products')),
-  )
-
-  /** The file this station waits for, from the pattern in the draft and its own number. */
-  const expectedFile = $derived(
-    expectedCatalogFile(draft.text('catalog.options.file_name') || undefined, health.station),
   )
 
   /** The column setting AS DRAFTED, `0` for as long as nobody has pinned one. */
@@ -969,7 +963,7 @@
       ondrop={dropCSV}
     >
       <p>
-        Déposez ici le fichier <code>{expectedFile}</code>
+        Déposez ici le fichier <code>{health.state.catalog_file}</code>
         <span class="key" title="Demande le mot de passe">clé</span>
       </p>
       <label class="choose touch-target">

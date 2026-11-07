@@ -299,8 +299,12 @@ func (d *Doctor) declaredSourceSentence(loaded loadedConfig) string {
 // legacy application died of.
 func catalogArrivalRemedy(loaded loadedConfig) string {
 	expected := "flv_<numéro de poste>.csv"
-	if loaded.Config.Station.Number > 0 {
-		expected = catalog.FileNameOf(loaded.Config.Catalog.Options, loaded.Config.Station.Number)
+	options, number := loaded.Config.Catalog.Options, loaded.Config.Station.Number
+	// Without a station number only a pattern that never uses it can still be named: for
+	// flv.csv the number is irrelevant, and « flv_<numéro de poste>.csv » would be wrong.
+	pattern, _ := options.Text("file_name")
+	if number > 0 || (pattern != "" && !strings.Contains(pattern, "{n}")) {
+		expected = catalog.FileNameOf(options, number)
 	}
 	return "La grille du client est vide et affiche « Catalogue vide ». Faites déposer " + expected +
 		" par le producteur, ou glissez un CSV dans l'écran de dépannage → « Importer un " +

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Troubleshooting from '../src/admin/pages/Troubleshooting.svelte'
 import type { HealthDTO } from '../src/admin/lib/dto'
 import { Admin } from '../src/admin/lib/session.svelte'
-import { FLV_1_IMPORT, FLV_IMPORT, nominalHealth } from './fixtures/health'
+import { FLV_1_IMPORT, FLV_IMPORT, nominalHealth, nominalState } from './fixtures/health'
 
 /**
  * Les neuf gros boutons du Dépannage sont-ils toujours GROS ?
@@ -299,6 +299,15 @@ describe('« Recharger le catalogue » rend compte de ce qu’il a déclenché',
 
     expect(pageText()).toContain('journal')
     expect(pageText()).not.toContain('Aucun nouvel import enregistré')
+  })
+})
+
+describe('la zone de dépôt du dépannage', () => {
+  it('nomme le fichier que le service annonce, pas flv_<numéro>.csv', async () => {
+    openLive(nominalHealth({ state: nominalState({ catalog_file: 'flv.csv' }) }))
+    await settle()
+    const zone = host.querySelector('[aria-label="Zone de dépôt du catalogue"]')
+    expect(collapse(zone?.textContent ?? '')).toContain('Déposez ici le fichier flv.csv')
   })
 })
 
