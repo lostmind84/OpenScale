@@ -38,6 +38,21 @@ export class Draft {
   async load(): Promise<void> {
     const body = await this.admin.load(() => api.fetchConfig())
     if (body === null) return
+    this.adopt(body)
+  }
+
+  /**
+   * Repart d'une configuration que le service vient de servir, compte à rebours compris.
+   *
+   * Tout acte qui met un document en service sans passer par {@link save} -- la relecture
+   * du fichier en tête -- doit finir ici. Sinon le brouillon garde l'ancien document, et
+   * le prochain « Enregistrer » le renvoie par-dessus celui qu'on vient de relire ; et le
+   * bandeau de confirmation, qui ne lit que {@link pending}, ne s'affiche pas : le poste
+   * revient seul à la version précédente sans que personne l'ait vu venir.
+   *
+   * @param body - la réponse du service, document et confirmation attendue.
+   */
+  adopt(body: ConfigDTO): void {
     this.config = body.config
     this.fingerprint = body.config_fingerprint
     // `?? []` bien que le service ne serve plus `null` : ce poste peut tourner un binaire
@@ -151,13 +166,7 @@ export class Draft {
       return false
     }
 
-    this.config = body.config
-    this.fingerprint = body.config_fingerprint
-    // `?? []` bien que le service ne serve plus `null` : ce poste peut tourner un binaire
-    // plus ancien, et c'est exactement ce `null` qui rendait l'administration inatteignable.
-    this.retired = body.retired_keys ?? []
-    this.pending = body.pending_confirmation
-    this.dirty = false
+    this.adopt(body)
     return true
   }
 

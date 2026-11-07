@@ -1,6 +1,7 @@
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Maintenance from '../src/admin/components/Maintenance.svelte'
+import { Draft } from '../src/admin/lib/draft.svelte'
 import { Admin, type Admin as AdminType } from '../src/admin/lib/session.svelte'
 import * as api from '../src/admin/lib/api'
 import { AdminError } from '../src/admin/lib/api'
@@ -17,7 +18,10 @@ import { AdminError } from '../src/admin/lib/api'
  *  4. le redémarrage du poste RACONTE son attente — ce qui se passe, depuis quand, et
  *     quoi faire quand ça dure — au lieu de laisser « En cours… » cinq minutes ;
  *  5. un 422 sur la relecture affiche TOUTES les fautes, pas la première ;
- *  6. aucun renvoi §X.Y ni ADR-0XX n'est visible.
+ *  6. aucun renvoi §X.Y ni ADR-0XX n'est visible ;
+ *  7. une relecture qui arme le compte à rebours le MONTRE, et le brouillon repart du
+ *     fichier relu : sans quoi le poste revenait seul en arrière au bout de 60 s, et le
+ *     prochain « Enregistrer » renvoyait l'ancien brouillon par-dessus le fichier.
  */
 
 let host: HTMLElement
@@ -36,11 +40,12 @@ afterEach(() => {
 })
 
 /** Monte la rubrique et rend de quoi la démonter. */
-function show(): { admin: AdminType; close: () => void } {
+function show(): { admin: AdminType; draft: Draft; close: () => void } {
   const admin = new Admin()
-  const panel = mount(Maintenance, { target: host, props: { admin } })
+  const draft = new Draft(admin)
+  const panel = mount(Maintenance, { target: host, props: { admin, draft } })
   flushSync()
-  return { admin, close: () => unmount(panel) }
+  return { admin, draft, close: () => unmount(panel) }
 }
 
 /** Le bouton d'un acte, par son nom stable. */
@@ -179,6 +184,35 @@ describe('la rubrique Maintenance', () => {
 
     act('reload-config')?.click()
     await vi.waitFor(() => expect(host.textContent).toContain('a1b2c3d4'))
+    close()
+  })
+
+  it('montre le compte à rebours qu’une relecture arme, et repart du fichier relu', async () => {
+    // Retoucher le gabarit dans config.json change le bloc printer : la relecture arme les
+    // 60 s. Le bandeau de confirmation de l'administration ne lit que `draft.pending`.
+    const pending = {
+      changed_blocks: ['printer'],
+      confirm_before: '2026-11-07T10:01:00Z',
+      seconds_left: 60,
+    }
+    const reread = { printer: { template: 'graoucoop', custom_template: { name: 'graoucoop' } } }
+    vi.spyOn(api, 'reloadConfigFromDisk').mockResolvedValue({
+      config: reread,
+      config_fingerprint: 'e5f6a7b8',
+      retired_keys: [],
+      pending_confirmation: pending,
+    })
+    const { draft, close } = show()
+    // Un brouillon lu AVANT la retouche, et touché depuis : c'est lui qui écrasait le
+    // fichier au prochain enregistrement.
+    draft.config = { printer: { template: 'weighing_identical' } }
+    draft.dirty = true
+
+    act('reload-config')?.click()
+    await vi.waitFor(() => expect(draft.pending).toEqual(pending))
+    expect(draft.config).toEqual(reread)
+    expect(draft.fingerprint).toBe('e5f6a7b8')
+    expect(draft.dirty).toBe(false)
     close()
   })
 

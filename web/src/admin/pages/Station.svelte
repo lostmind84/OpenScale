@@ -581,7 +581,7 @@
     {/if}
   </Panel>
 
-  <Maintenance {admin} />
+  <Maintenance {admin} {draft} />
 </div>
 
 <style>

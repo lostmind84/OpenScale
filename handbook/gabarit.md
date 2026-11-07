@@ -30,14 +30,17 @@ indifféremment. **Un seul gabarit de coopérative par poste**, pas une liste.
    sous Linux (`docs/02-architecture.md` §11.1) — sous la clé
    `printer.custom_template`. C'est là, dans ce document JSON, que vous ajustez le
    gabarit : ouvrez-le avec un éditeur de texte, ou passez par **page Poste → panneau
-   « Exporter, importer » → Exporter**, modifiez le fichier téléchargé, puis
+   « Exporter, importer » → « Exporter tout »**, modifiez le fichier téléchargé, puis
    réimportez-le.
 3. Pour mettre le fichier modifié en service : **page Poste → panneau
    « Maintenance » → « Relire le fichier »** (relit `config.json` depuis le disque
    sans arrêter le poste), ou **page Poste → panneau « Exporter, importer » →
-   « Importer un fichier »** si vous êtes passé par l'export. Les deux chemins
-   repassent par les neuf règles dures ci-dessous et par le compte à rebours de
-   confirmation habituel.
+   « Importer un fichier »**, puis **Enregistrer**, si vous êtes passé par l'export —
+   l'import ne fait que remplir le brouillon. Les deux chemins repassent par les neuf
+   règles dures ci-dessous et par le compte à rebours de confirmation habituel : le
+   bandeau « Configuration appliquée mais NON CONFIRMÉE » s'affiche en haut de
+   l'écran, et sans **« Tout fonctionne : confirmer »** dans les 60 secondes, le poste
+   revient seul à la version précédente.
 
 Le **média** se règle dans le même document (`media.width_um`, `height_um`,
 `dots_per_mm`, et `printable_width_um`/`printable_height_um` au niveau du gabarit) :

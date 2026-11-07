@@ -78,6 +78,7 @@
   import Panel from './Panel.svelte'
   import * as api from '../lib/api'
   import { isCredentialRefusal } from '../lib/api'
+  import type { Draft } from '../lib/draft.svelte'
   import type { Admin } from '../lib/session.svelte'
 
   /**
@@ -95,9 +96,11 @@
    */
   interface Props {
     admin: Admin
+    /** Le brouillon des pages de réglage, qui repart du fichier relu. */
+    draft: Draft
   }
 
-  const { admin }: Props = $props()
+  const { admin, draft }: Props = $props()
 
   /** L'acte en vol, pour désarmer le bouton qui travaille. */
   let working = $state('')
@@ -150,6 +153,12 @@
    * Le refus d'AUTHENTIFICATION remonte jusqu'à `Admin.protect`, qui demande le mot de
    * passe puis rejoue ; tout le reste — un 422 et ses fautes en tête — s'affiche ici,
    * parce qu'il se règle en corrigeant le fichier et non en s'authentifiant.
+   *
+   * Le brouillon repart de la réponse, compte à rebours compris : un fichier retouché à la
+   * main — le gabarit d'une coopérative, typiquement — change un bloc qui arme les 60 s de
+   * confirmation, et le bandeau qui les montre ne lit que le brouillon. Laissé tel quel, le
+   * poste revenait seul en arrière, et le brouillon d'avant la retouche repartait au
+   * prochain « Enregistrer » par-dessus le fichier.
    */
   async function reloadConfig(): Promise<void> {
     working = 'reload-config'
@@ -167,6 +176,7 @@
         }
       })
       if (served === null) return
+      draft.adopt(served)
       said = `Le fichier est en service. Empreinte ${served.config_fingerprint}.`
     } finally {
       working = ''
