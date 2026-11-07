@@ -54,15 +54,8 @@
   const OFFSET_X = 'printer.options.offset_x'
   const OFFSET_Y = 'printer.options.offset_y'
 
-  /**
-   * The lowest offset control 38 accepts, in dots.
-   *
-   * The control refuses `offset < 0` WHATEVER the template (`internal/domain/config.go`):
-   * the floor is the one bound this screen knows without knowing the geometry, and §14.4
-   * asks for arrows « bornées par la géométrie ». Below it, the arrow disarms instead of
-   * writing a value the save is certain to reject.
-   */
-  const FLOOR_DOTS = 0
+  /** The one key a cooperative's own gabarit lives under. */
+  const CUSTOM_TEMPLATE = 'printer.custom_template'
 
   /** Which self-test to print (§8.6). */
   type SelfTest = 'alignment' | 'ruler'
@@ -89,6 +82,20 @@
   let served = $state<Offset | null>(null)
   /** Which self-test is printing right now, or an empty string. */
   let printing = $state<SelfTest | ''>('')
+  /**
+   * The shipped gabarit « Partir du gabarit livré » (decision 12) copies, or null before
+   * `GET /admin/api/label/geometry` has answered.
+   */
+  let starter = $state<Record<string, unknown> | null>(null)
+  /**
+   * The bound control 38 leaves on all four sides of the template IN SERVICE
+   * (ADR-063), or null exactly when the route does not know it either — a station that
+   * has not answered yet, or a template whose geometry is unusable. The safest floor in
+   * that case is zero, never a negative number this screen made up.
+   */
+  let bounds = $state<{ min_x: number; max_x: number; min_y: number; max_y: number } | null>(
+    null,
+  )
 
   /**
    * The same value as {@link served}, OUTSIDE reactivity.
@@ -100,6 +107,13 @@
   let lastServed: Offset | null = null
   /** True while the station is being asked what the image carries. Outside reactivity too. */
   let asking = false
+
+  /**
+   * The same role as {@link lastServed}, for {@link bounds}/{@link starter}: the
+   * config object last asked for, OUTSIDE reactivity so the effect that fetches it does
+   * not depend on what it is about to overwrite.
+   */
+  let lastGeometryConfig: unknown = null
 
   const template = $derived(draft.text(TEMPLATE))
   const source = $derived(api.previewURL(template, demo, dual, nonce))
@@ -118,6 +132,19 @@
   const staleSentence = $derived(staleSentenceOf())
   /** True while an act of this page is in flight: the print buttons disarm. */
   const busy = $derived(admin.busy || printing !== '')
+  /**
+   * The lowest offset each axis accepts, in dots.
+   *
+   * Control 38 refuses `offset < bounds.min_*` WHATEVER the template
+   * (`internal/domain/config.go`) — ZERO only on a template whose geometry leaves no
+   * margin, weighing_identical among them (Review Focus: la Coope ne bouge pas). Falling
+   * back to zero while {@link bounds} is unknown is the SAFEST floor: a negative one
+   * invented here would arm an arrow this screen cannot be sure control 38 accepts.
+   */
+  const floorX = $derived(bounds?.min_x ?? 0)
+  const floorY = $derived(bounds?.min_y ?? 0)
+  /** Whether the document already carries a cooperative's own gabarit. */
+  const hasCustomTemplate = $derived(draft.value(CUSTOM_TEMPLATE) !== undefined)
 
   /**
    * Reads the offsets the preview actually renders, and refreshes the image when they
@@ -183,6 +210,55 @@
   }
 
   /**
+   * Reads the starting point and the bound, at the SAME moment as the image and for the
+   * same reason: both describe the configuration IN SERVICE, so both are read at the
+   * opening of this page and after every save (`draft.config` is then a fresh object),
+   * never more often — a template chosen but not yet saved does not move this bound.
+   */
+  $effect(() => {
+    if (draft.config === null || draft.dirty) return
+    if (draft.config === lastGeometryConfig) return
+    lastGeometryConfig = draft.config
+    void fetchGeometry()
+  })
+
+  /**
+   * Asks the station for the shipped gabarit and the bound of the template in service,
+   * and says NOTHING when it does not answer.
+   *
+   * A station that cannot be read leaves {@link starter} and {@link bounds} null: the
+   * floor then falls back to zero (the safest one, never a negative number this screen
+   * invented) and the button that copies {@link starter} stays disarmed — there is
+   * nothing to copy. Unlike {@link askWhatTheImageCarries}, this failure is not worth a
+   * banner: it changes nothing an operator was looking at a moment ago.
+   */
+  async function fetchGeometry(): Promise<void> {
+    try {
+      const body = await api.fetchLabelGeometry()
+      starter = body.starter
+      bounds = body.offset_bounds
+    } catch {
+      // Le plancher le plus prudent reste zéro ; rien à annoncer, voir ci-dessus.
+    }
+  }
+
+  /**
+   * Copies the shipped gabarit into the draft, under its own name, and selects it
+   * (decision 12). It writes into the DOCUMENT, like every other field of this page: the
+   * copy goes through the save and its 47 controls like any setting (ADR-033), it does
+   * not reach the station on its own.
+   *
+   * Disarmed while the document already carries a cooperative's own gabarit: this button
+   * never overwrites it (Review Focus).
+   */
+  function applyStarterTemplate(): void {
+    if (starter === null || hasCustomTemplate) return
+    draft.set(CUSTOM_TEMPLATE, starter)
+    draft.set(TEMPLATE, String(starter.name))
+    refresh()
+  }
+
+  /**
    * Moves one offset by one dot, and never below the floor.
    *
    * It does NOT ask for the image again, and that is the whole point of this page's
@@ -190,19 +266,21 @@
    * round trip to redraw the very same bitmap — which is what made four arrows look
    * broken. What changes on screen is the announced gap; the image follows on save.
    *
-   * Of the two bounds of control 38, only the floor is knowable from here: the ceiling is
-   * `MaxOffsetDots` of the template GEOMETRY, which no route serves. It comes back as a
-   * fault of §11.3 on `PUT /admin/api/config`, with the admissible maximum written in its
-   * sentence, and that sentence is displayed beside the arrow that caused it. The preview
-   * cannot carry it: it renders the offsets IN SERVICE, which have already passed control
+   * Of the two bounds of control 38, this page disarms the arrow only at the FLOOR
+   * ({@link floorX}/{@link floorY}, read from `GET /admin/api/label/geometry`,
+   * ADR-063): the ceiling still comes back as a fault of §11.3 on
+   * `PUT /admin/api/config`, with the admissible maximum written in its sentence, and
+   * that sentence is displayed beside the arrow that caused it. The preview cannot carry
+   * it either: it renders the offsets IN SERVICE, which have already passed control
    * 38, so it has nothing to refuse about the draft.
    *
    * @param path - the key to move, `printer.options.offset_x` or `…offset_y`.
    * @param step - the number of dots, +1 or -1.
+   * @param floor - the lowest value this axis accepts, {@link floorX} or {@link floorY}.
    */
-  function nudge(path: string, step: number): void {
+  function nudge(path: string, step: number, floor: number): void {
     const next = draft.number(path) + step
-    if (next < FLOOR_DOTS) return
+    if (next < floor) return
     draft.set(path, next)
   }
 
@@ -335,10 +413,14 @@
         <div class="pair">
           <Act
             label="← 1 dot"
-            disabled={!configRead || offsetX <= FLOOR_DOTS}
-            onrun={() => nudge(OFFSET_X, -1)}
+            disabled={!configRead || offsetX <= floorX}
+            onrun={() => nudge(OFFSET_X, -1, floorX)}
           />
-          <Act label="1 dot →" disabled={!configRead} onrun={() => nudge(OFFSET_X, 1)} />
+          <Act
+            label="1 dot →"
+            disabled={!configRead}
+            onrun={() => nudge(OFFSET_X, 1, floorX)}
+          />
         </div>
         {#if faultX !== ''}
           <p class="fault" data-fault-offset-x>{faultX}</p>
@@ -351,19 +433,23 @@
         <div class="pair">
           <Act
             label="↑ 1 dot"
-            disabled={!configRead || offsetY <= FLOOR_DOTS}
-            onrun={() => nudge(OFFSET_Y, -1)}
+            disabled={!configRead || offsetY <= floorY}
+            onrun={() => nudge(OFFSET_Y, -1, floorY)}
           />
-          <Act label="1 dot ↓" disabled={!configRead} onrun={() => nudge(OFFSET_Y, 1)} />
+          <Act
+            label="1 dot ↓"
+            disabled={!configRead}
+            onrun={() => nudge(OFFSET_Y, 1, floorY)}
+          />
         </div>
         {#if faultY !== ''}
           <p class="fault" data-fault-offset-y>{faultY}</p>
         {/if}
 
         <p class="bound">
-          Le décalage ne descend pas sous zéro : le poste refuse un décalage négatif quel que
-          soit le gabarit. Le maximum, lui, dépend de la géométrie du gabarit ; il est annoncé
-          ici si l’enregistrement le dépasse.
+          Le décalage descend sous zéro seulement si le gabarit laisse de la marge en haut
+          ou à gauche : ici jusqu’à {dots(-floorX)} en horizontal, {dots(-floorY)} en
+          vertical. Le maximum est annoncé si l’enregistrement le dépasse.
         </p>
 
         <label class="check">
@@ -404,7 +490,7 @@
       label="Gabarit"
       path={TEMPLATE}
       value={template}
-      hint="Le gabarit reproduit à l’identique s’appelle weighing_identical (A1)."
+      hint="weighing_identical est le gabarit de production ; le gabarit de la coopérative porte le nom écrit dans printer.custom_template."
       fault={faultOf(draft, TEMPLATE)}
       disabled={!configRead}
       onchange={(value) => {
@@ -412,6 +498,19 @@
         refresh()
       }}
     />
+    <div class="starter">
+      <Act
+        label="Partir du gabarit livré"
+        kind="write"
+        disabled={!configRead || starter === null || hasCustomTemplate}
+        onrun={applyStarterTemplate}
+      />
+      <p class="starter-help">
+        {hasCustomTemplate
+          ? 'Un gabarit de coopérative est déjà présent dans la configuration : ce bouton ne l’écrase pas. Retirez-le du document avant de repartir du gabarit livré.'
+          : 'Copie le gabarit livré dans la configuration, sous le nom cooperative, et le choisit. Ajustez-le ensuite dans le document, puis enregistrez : l’aperçu le montre après l’enregistrement.'}
+      </p>
+    </div>
     <Field
       label="Noircissement"
       path="printer.options.darkness"
@@ -591,7 +690,8 @@
   .absent,
   .waiting,
   .bound,
-  .cost {
+  .cost,
+  .starter-help {
     margin: 1rem 0 0;
     font-size: 1rem;
     color: var(--ink-muted);
@@ -606,6 +706,16 @@
   }
 
   .cost {
+    margin-top: 0.5rem;
+  }
+
+  /* Le bouton de la décision 12, et l'explication de ce qu'il fait — ou de pourquoi il
+     reste désarmé — juste sous le champ Gabarit. */
+  .starter {
+    margin-top: 0.75rem;
+  }
+
+  .starter-help {
     margin-top: 0.5rem;
   }
 
