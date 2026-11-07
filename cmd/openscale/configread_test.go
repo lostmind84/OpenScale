@@ -421,3 +421,35 @@ func TestTheCatalogOptionsOfADR061LeaveTheFingerprintAlone(t *testing.T) {
 			before.Fingerprint(), after.Fingerprint())
 	}
 }
+
+// TestACooperativeThatDeclaresNoTemplateLeavesTheFingerprintAlone (ADR-062): La
+// Coope never set printer.custom_template, so the key must neither appear in the
+// delivered file's JSON nor survive a round trip as an empty object — either would
+// move the eight characters four volunteers compare by eye on a file nobody touched.
+func TestACooperativeThatDeclaresNoTemplateLeavesTheFingerprintAlone(t *testing.T) {
+	before := readJSONConfig(t, deliveredConfig(t))
+
+	raw, err := os.ReadFile(deliveredConfig(t))
+	if err != nil {
+		t.Fatalf("lecture du fichier livré : %v", err)
+	}
+	if strings.Contains(string(raw), "custom_template") {
+		t.Error("custom_template figure dans le fichier livré, alors qu'aucune coopérative ne l'a réglé")
+	}
+
+	round, err := json.Marshal(before)
+	if err != nil {
+		t.Fatalf("encodage : %v", err)
+	}
+	var after domain.Config
+	if err := json.Unmarshal(round, &after); err != nil {
+		t.Fatalf("décodage : %v", err)
+	}
+	if after.Printer.CustomTemplate != nil {
+		t.Error("custom_template est apparu à l'aller-retour, alors que la clé était absente")
+	}
+	if after.Fingerprint() != before.Fingerprint() {
+		t.Errorf("empreinte %s puis %s : l'aller-retour la déplace",
+			before.Fingerprint(), after.Fingerprint())
+	}
+}

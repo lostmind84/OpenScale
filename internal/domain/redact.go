@@ -224,6 +224,15 @@ func (c *Config) Export(includeHardware bool) Config {
 	out.Pricing.SecondaryCodes = append([]string(nil), c.Pricing.SecondaryCodes...)
 	out.Catalog.Categories = append([]Category(nil), c.Catalog.Categories...)
 
+	// The cooperative's own label layout, if any, is cloned rather than aliased: the
+	// shallow `out := *c` above left out.Printer.CustomTemplate pointing at the SAME
+	// Template as the running configuration, Elements slice included, and a caller
+	// editing the export (§11.5's diff preview) would otherwise reach back into it.
+	if custom := c.Printer.CustomTemplate; custom != nil {
+		cloned := custom.clone()
+		out.Printer.CustomTemplate = &cloned
+	}
+
 	if includeHardware {
 		return out
 	}

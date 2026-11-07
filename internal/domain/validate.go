@@ -102,6 +102,7 @@ func (c *Config) Validate(reg Registries) []Fault {
 	faults = append(faults, c.validateUpdate()...)                                        // 48
 	faults = append(faults, c.validateGrid()...)                                          // 49
 	faults = append(faults, c.validateChipThreshold()...)                                 // 50
+	faults = append(faults, c.validateCustomTemplate(reg)...)                             // 53
 	return faults
 }
 
@@ -124,7 +125,7 @@ type labelGeometry struct {
 }
 
 func (c *Config) labelGeometry(reg Registries) labelGeometry {
-	template, exists := reg.Template(c.Printer.Template)
+	template, exists := c.SelectedTemplate(reg)
 	return labelGeometry{
 		template:         template,
 		exists:           exists,
@@ -293,7 +294,7 @@ func (c *Config) validateResolution(label labelGeometry) []Fault {
 func (c *Config) validateTemplate(reg Registries, label labelGeometry) []Fault {
 	var faults faultList
 	if !label.exists {
-		faults.addChoice("printer.template", reg.TemplateNames(), "gabarit inconnu %q", c.Printer.Template)
+		faults.addChoice("printer.template", c.TemplateNames(reg), "gabarit inconnu %q", c.Printer.Template)
 	} else if label.resolutionUsable {
 		shifted := label.template
 		shifted.OffsetXDots, _ = intOption(c.Printer.Options, "offset_x")
