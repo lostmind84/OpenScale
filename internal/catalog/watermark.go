@@ -90,22 +90,25 @@ func (w *Watermark) Seen(s Stamp) bool {
 // at every stable poll. The price is that a restart will read it once more.
 //
 // A stamp acknowledges a file that was APPLIED or whose refusal is already counted by
-// its date: the refused content RememberContent held, if any, is released.
+// its date: the refused content RememberRefusal held, if any, is released.
 func (w *Watermark) Remember(s Stamp) error {
 	w.stamp, w.held, w.content = s, true, ""
 	return w.persist()
 }
 
-// RememberContent retains the sha256 of a refused catalog left in place, on top of the
-// stamp already held, and writes it to disk.
+// RememberRefusal retains the stamp of a refused file AND the sha256 of its content, and
+// writes them to disk in ONE write.
 //
-// It is the second line of defence of a refused file: the stamp stops it being read
-// again, but a stamp without a date never matches (see Seen), and the same broken
-// content would then be archived and counted at every stable poll until the quarantine
-// bans it — which is the red light a file merely LEFT in place must not turn on. Same
-// rule as Remember: kept in memory first, and kept when the write fails.
-func (w *Watermark) RememberContent(sha string) error {
-	w.content = sha
+// It is the second line of defence of a refused file left in place: the stamp stops it
+// being read again, but a stamp without a date never matches (see Seen), and the same
+// broken content would then be archived and counted at every stable poll until the
+// quarantine bans it — which is the red light a file merely LEFT in place must not turn
+// on. Both values are set in memory before the write and stay set when it fails, so an
+// unwritable disk cannot bring the repetition back; they are one call, and not Remember
+// followed by another, because Remember releases the content and a failed write between
+// the two would leave it released.
+func (w *Watermark) RememberRefusal(s Stamp, sha string) error {
+	w.stamp, w.held, w.content = s, true, sha
 	return w.persist()
 }
 

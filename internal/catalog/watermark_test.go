@@ -162,8 +162,8 @@ func TestAWatermarkRemembersARefusedContentAcrossReopening(t *testing.T) {
 	if first.HoldsContent(refusedDigest) {
 		t.Fatal("un repère neuf ne retient aucun contenu")
 	}
-	if err := first.RememberContent(refusedDigest); err != nil {
-		t.Fatalf("RememberContent : %v", err)
+	if err := first.RememberRefusal(watermarkStamp, refusedDigest); err != nil {
+		t.Fatalf("RememberRefusal : %v", err)
 	}
 	if !first.HoldsContent(refusedDigest) {
 		t.Error("le contenu retenu n'est pas retenu en mémoire")
@@ -197,8 +197,8 @@ func TestAnEmptyDigestIsNeverHeld(t *testing.T) {
 func TestRememberingAStampReleasesTheHeldContent(t *testing.T) {
 	dataDir := t.TempDir()
 	watermark := openWatermark(t, dataDir, "https://a/flv.csv")
-	if err := watermark.RememberContent(refusedDigest); err != nil {
-		t.Fatalf("RememberContent : %v", err)
+	if err := watermark.RememberRefusal(watermarkStamp, refusedDigest); err != nil {
+		t.Fatalf("RememberRefusal : %v", err)
 	}
 	if err := watermark.Remember(watermarkStamp); err != nil {
 		t.Fatalf("Remember : %v", err)
@@ -211,26 +211,29 @@ func TestRememberingAStampReleasesTheHeldContent(t *testing.T) {
 	}
 }
 
-func TestAContentThatCannotBeWrittenStillIsHeldInMemory(t *testing.T) {
+func TestARefusalThatCannotBeWrittenStillIsHeldInMemory(t *testing.T) {
 	dataDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dataDir, "catalog"), []byte("not a directory"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	watermark := openWatermark(t, dataDir, "https://a/flv.csv")
 
-	if err := watermark.RememberContent(refusedDigest); err == nil {
-		t.Fatal("RememberContent doit signaler l'échec de l'écriture")
+	if err := watermark.RememberRefusal(watermarkStamp, refusedDigest); err == nil {
+		t.Fatal("RememberRefusal doit signaler l'échec de l'écriture")
 	}
 	if !watermark.HoldsContent(refusedDigest) {
 		t.Error("après un échec d'écriture, le contenu doit rester retenu en mémoire")
+	}
+	if !watermark.Seen(watermarkStamp) {
+		t.Error("après un échec d'écriture, le tampon doit rester retenu en mémoire avec le contenu")
 	}
 }
 
 func TestForgettingAlsoForgetsTheHeldContent(t *testing.T) {
 	dataDir := t.TempDir()
 	watermark := openWatermark(t, dataDir, "https://a/flv.csv")
-	if err := watermark.RememberContent(refusedDigest); err != nil {
-		t.Fatalf("RememberContent : %v", err)
+	if err := watermark.RememberRefusal(watermarkStamp, refusedDigest); err != nil {
+		t.Fatalf("RememberRefusal : %v", err)
 	}
 	if err := watermark.Forget(); err != nil {
 		t.Fatalf("Forget : %v", err)
@@ -240,5 +243,16 @@ func TestForgettingAlsoForgetsTheHeldContent(t *testing.T) {
 	}
 	if openWatermark(t, dataDir, "https://a/flv.csv").HoldsContent(refusedDigest) {
 		t.Error("le contenu oublié est revenu depuis le disque")
+	}
+}
+
+func TestARefusalIsOneRecordHoldingTheStampAndTheContent(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := openWatermark(t, dataDir, "https://a/flv.csv").RememberRefusal(watermarkStamp, refusedDigest); err != nil {
+		t.Fatalf("RememberRefusal : %v", err)
+	}
+	reopened := openWatermark(t, dataDir, "https://a/flv.csv")
+	if !reopened.Seen(watermarkStamp) || !reopened.HoldsContent(refusedDigest) {
+		t.Error("l'enregistrement d'un refus doit porter le tampon ET le contenu")
 	}
 }

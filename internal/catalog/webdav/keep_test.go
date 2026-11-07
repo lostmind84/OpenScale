@@ -64,7 +64,9 @@ func keepStation(t *testing.T, server *httptest.Server, dataDir, options string,
 	if err := json.Unmarshal([]byte(options), &bag); err != nil {
 		t.Fatalf("options : %v", err)
 	}
-	bag["url"] = server.URL + "/catalogue/"
+	if _, declared := bag["url"]; !declared {
+		bag["url"] = server.URL + "/catalogue/"
+	}
 	raw, err := json.Marshal(bag)
 	if err != nil {
 		t.Fatalf("options : %v", err)
@@ -372,19 +374,9 @@ func TestAnUnwritableWatermarkIsAnUnacknowledgedBatch(t *testing.T) {
 	source, remote, _, journal, _ := keeping(t, keepOptions, aCatalog)
 	batch, _ := readStable(source)
 
-	// A regular file where the watermark's directory should be makes the write fail on
-	// every platform, without depending on permissions.
-	blocked := t.TempDir()
-	if err := os.WriteFile(filepath.Join(blocked, "catalog"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	watermark, err := catalog.OpenWatermark(blocked, source.file.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	source.watermark = watermark
+	unwritableWatermark(t, source)
 
-	err = source.Acknowledge(context.Background(), batch, ports.BatchResult{Result: domain.ImportApplied})
+	err := source.Acknowledge(context.Background(), batch, ports.BatchResult{Result: domain.ImportApplied})
 	if !errors.Is(err, catalog.ErrNotAcknowledged) {
 		t.Fatalf("erreur %v, attendu ERR-CAT-05", err)
 	}
@@ -551,5 +543,100 @@ func TestARefusedFileOnADatelessServerSurvivesARestart(t *testing.T) {
 		if count != 1 {
 			t.Errorf("quarantaine à %d après redémarrage, attendu 1", count)
 		}
+	}
+}
+
+// unwritableWatermark points the source at a watermark whose write always fails: a regular
+// file where the directory should be, which fails on every platform whoever runs the test.
+func unwritableWatermark(t *testing.T, source *Source) {
+	t.Helper()
+	blocked := t.TempDir()
+	if err := os.WriteFile(filepath.Join(blocked, "catalog"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	watermark, err := catalog.OpenWatermark(blocked, source.file.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.watermark = watermark
+}
+
+// TestARefusedFileOnADatelessServerIsCountedOnceEvenWhenTheWatermarkCannotBeWritten: the
+// digest is held in memory when the write fails, so an unwritable data directory does not
+// bring back the archive-and-count at every stable poll.
+func TestARefusedFileOnADatelessServerIsCountedOnceEvenWhenTheWatermarkCannotBeWritten(t *testing.T) {
+	source, remote, ledger, _, _ := keeping(t, keepOptions, brokenCatalog)
+	remote.noDate = true
+	unwritableWatermark(t, source)
+
+	if _, err := readStable(source); !errors.Is(err, catalog.ErrContent) {
+		t.Fatalf("première lecture : erreur %v, attendu ERR-CAT-03", err)
+	}
+	for cycle := 0; cycle < 6; cycle++ {
+		if batch, err := readStable(source); batch != nil || err != nil {
+			t.Fatalf("cycle %d : lot %v, erreur %v", cycle, batch, err)
+		}
+	}
+	for _, count := range ledger.counted {
+		if count != 1 {
+			t.Errorf("quarantaine à %d, attendu 1", count)
+		}
+	}
+	if len(ledger.counted) != 1 {
+		t.Errorf("%d contenu(s) comptés, attendu 1", len(ledger.counted))
+	}
+	if remote.deletes != 0 || !remote.present {
+		t.Errorf("%d DELETE : le fichier refusé a disparu", remote.deletes)
+	}
+}
+
+// TestIdenticalBrokenBytesReexportedUnderANewDateAreCounted: on a share that dates its
+// files, a re-export is a new submission and walks the quarantine exactly as local_drop
+// does; only the dateless share, where « unchanged » cannot be told from « re-exported »,
+// is spared by the digest.
+func TestIdenticalBrokenBytesReexportedUnderANewDateAreCounted(t *testing.T) {
+	source, remote, ledger, _, _ := keeping(t, keepOptions, brokenCatalog)
+
+	for export := 1; export <= 3; export++ {
+		remote.modified = t0.Add(time.Duration(export) * time.Hour)
+		if _, err := readStable(source); !errors.Is(err, catalog.ErrContent) {
+			t.Fatalf("export %d : erreur %v, attendu ERR-CAT-03", export, err)
+		}
+		for _, count := range ledger.counted {
+			if count != export {
+				t.Errorf("après l'export %d : quarantaine à %d", export, count)
+			}
+		}
+	}
+	if len(ledger.counted) != 1 {
+		t.Errorf("%d contenu(s) comptés, attendu 1 (les mêmes octets)", len(ledger.counted))
+	}
+	if remote.deletes != 0 || !remote.present {
+		t.Errorf("%d DELETE : le fichier refusé a disparu", remote.deletes)
+	}
+}
+
+// TestTheWatermarkNeverStoresTheCredentialsOfTheURL: nothing refuses an address that
+// carries user:password@, and the watermark is written to disk.
+func TestTheWatermarkNeverStoresTheCredentialsOfTheURL(t *testing.T) {
+	remote := &share{content: aCatalog, present: true, modified: t0}
+	server := httptest.NewServer(remote)
+	defer server.Close()
+	dataDir := t.TempDir()
+	address := strings.Replace(server.URL, "http://", "http://balance:s3cr3t-pw@", 1) + "/catalogue/"
+	source, _ := keepStation(t, server, dataDir, `{"after_read": "keep", "url": "`+address+`"}`, newBook(), &recorder{})
+
+	batch, err := readStable(source)
+	if err != nil || batch == nil {
+		t.Fatalf("lecture : %v", err)
+	}
+	applied(t, source, batch)
+
+	raw, err := os.ReadFile(filepath.Join(dataDir, "catalog", "watermark.json"))
+	if err != nil {
+		t.Fatalf("lecture du repère : %v", err)
+	}
+	if strings.Contains(string(raw), "s3cr3t-pw") || strings.Contains(string(raw), "balance") {
+		t.Errorf("le repère porte les identifiants de l'adresse : %s", raw)
 	}
 }

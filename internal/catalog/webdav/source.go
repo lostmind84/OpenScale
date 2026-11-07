@@ -189,13 +189,11 @@ func (s *Source) refuse(ctx context.Context, pending *catalog.Pending, cause err
 	if content, named := catalog.ContentOf(cause); named {
 		sha = content.SHA256
 	}
-	if s.keeping() && s.watermark.HoldsContent(sha) {
+	if s.keeping() && s.observed.Modified.IsZero() && s.watermark.HoldsContent(sha) {
+		// Only for a share that dates nothing, where the stamp cannot tell « unchanged »
+		// from « re-exported ». With a date, identical bytes under a NEW date are a new
+		// submission and are counted, exactly as local_drop counts them.
 		pending.Discard()
-		if !s.observed.Modified.IsZero() {
-			// Same bytes under a new date: the stamp follows, so the file is not read
-			// again. Without a date there is nothing new to write.
-			s.rememberRefusal(sha)
-		}
 		return true
 	}
 	archived, err := pending.Commit()
@@ -256,15 +254,11 @@ func (s *Source) Acknowledge(ctx context.Context, batch *ports.Batch, result por
 	return nil
 }
 
-// rememberRefusal retains the stamp of the refused file and the digest of its content. A
-// failure to write is told (ERR-CAT-05) and changes nothing else: Watermark keeps both in
-// memory all the same.
+// rememberRefusal retains the stamp of the refused file and the digest of its content, in
+// one write. A failure to write is told (ERR-CAT-05) and changes nothing else:
+// Watermark keeps both in memory all the same.
 func (s *Source) rememberRefusal(sha string) {
-	err := s.watermark.Remember(s.observed)
-	if err == nil && sha != "" {
-		err = s.watermark.RememberContent(sha)
-	}
-	if err != nil {
+	if err := s.watermark.RememberRefusal(s.observed, sha); err != nil {
 		s.log.Technical(domain.LevelWarn, "catalog", "ERR-CAT-05",
 			"Repère du catalogue refusé non écrit.", err.Error())
 	}

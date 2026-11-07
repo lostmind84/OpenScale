@@ -155,7 +155,13 @@ func New(c catalog.SourceConfig) (*Source, error) {
 	afterRead := catalog.AfterReadOf(c.Catalog.Options)
 	// Opened on the full URL: pointing the source at another share or another file name
 	// starts from an empty memory, and so reads the file once.
-	watermark, err := catalog.OpenWatermark(c.DataDir, file.String())
+	//
+	// The location is written to disk, so it never carries the credentials an address
+	// may hold (https://user:pass@host/): nothing refuses such a url, and a password has
+	// no business in a bookkeeping file.
+	located := file
+	located.User = nil
+	watermark, err := catalog.OpenWatermark(c.DataDir, located.String())
 	if err != nil {
 		return nil, fmt.Errorf("webdav : %w", err)
 	}
