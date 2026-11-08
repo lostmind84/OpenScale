@@ -211,8 +211,6 @@
    * @param frame - the raw frame, exactly as the journal recorded it.
    */
   async function replay(frame: string): Promise<void> {
-    admin.notice = ''
-    admin.actionError = ''
     replaying = true
     try {
       const done = await admin.protect(() => api.replayFrame(frame))

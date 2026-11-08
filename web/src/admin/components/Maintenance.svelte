@@ -105,7 +105,11 @@
   /** L'acte en vol, pour désarmer le bouton qui travaille. */
   let working = $state('')
 
-  /** Ce que le dernier acte a répondu, phrase du service comprise. */
+  /**
+   * Ce que le dernier acte a à dire QUE LE BANDEAU NE DIT PAS : un poste qui n'est pas
+   * revenu n'est ni une réussite à annoncer en vert, ni un refus du service à annoncer en
+   * rouge, c'est une consigne.
+   */
   let said = $state('')
 
   /** Les fautes d'un 422, TOUTES : une seule à la fois est un écran qu'on abandonne. */
@@ -177,7 +181,7 @@
       })
       if (served === null) return
       draft.adopt(served)
-      said = `Le fichier est en service. Empreinte ${served.config_fingerprint}.`
+      admin.notice = `Le fichier est en service. Empreinte ${served.config_fingerprint}.`
     } finally {
       working = ''
     }
@@ -199,7 +203,8 @@
       if (started === null) return
       restartingFor = 0
       restartingSince = Date.now()
-      said = (await waitForTheStationToComeBack()) ? 'Le poste est revenu.' : RESTART_GIVEN_UP
+      if (await waitForTheStationToComeBack()) admin.notice = 'Le poste est revenu.'
+      else said = RESTART_GIVEN_UP
     } finally {
       working = ''
       restartingSince = 0
@@ -220,6 +225,8 @@
       if (armed === null) return
       rebootAt = Date.parse(armed.at)
       secondsLeft = armed.seconds_left
+      admin.notice =
+        'Le redémarrage de l’ordinateur est armé. Le bouton « Annuler » le défait tant que le décompte court.'
     } finally {
       working = ''
       rebootAsked = false
@@ -229,11 +236,13 @@
   /** Annule le redémarrage armé. */
   async function cancelReboot(): Promise<void> {
     working = 'cancel-reboot'
+    said = ''
+    faults = []
     try {
       const cancelled = await admin.protect(() => api.cancelReboot())
       if (cancelled === null) return
       rebootAt = 0
-      said = cancelled.message
+      admin.notice = cancelled.message
     } finally {
       working = ''
     }

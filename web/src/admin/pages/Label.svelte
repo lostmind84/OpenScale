@@ -379,11 +379,6 @@
   async function selfTest(what: SelfTest): Promise<void> {
     if (busy) return
     printing = what
-    // What an act leaves on screen lives until ANOTHER act replaces it: `protect` does not
-    // clear it by itself, and a refusal from a minute ago would sit above the sentence
-    // this one is about to write.
-    admin.actionError = ''
-    admin.notice = ''
     try {
       const done = await admin.protect(() => api.printerSelfTest(what))
       if (done === null) return

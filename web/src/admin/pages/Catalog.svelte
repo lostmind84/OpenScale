@@ -579,11 +579,8 @@
     action: () => Promise<T>,
   ): Promise<T | null> {
     working = label
-    // What an act leaves on screen lives until ANOTHER act replaces it (§5.1), and
-    // starting this one is that replacement: `protect` does not clear it by itself, so a
-    // refusal from a minute ago would sit above the sentence this act is about to write.
-    admin.actionError = ''
-    admin.notice = ''
+    // What an act leaves on screen lives until ANOTHER act replaces it (§5.1): `protect`
+    // clears the banners itself, and only the watch of the previous reload is left here.
     reloadWatch.forget()
     try {
       const done = await admin.protect(action)
@@ -689,12 +686,6 @@
     dropping = false
     if (file === null || file === undefined) return
     report = ''
-    // What an act leaves on screen lives until ANOTHER act replaces it (§5.1), and starting
-    // this one is that replacement — the rule `guarded` follows, and which this act did
-    // not: a green « La décision est enregistrée. » sat above the drop, and above its
-    // refusal.
-    admin.actionError = ''
-    admin.notice = ''
     working = 'import'
     try {
       // A protected act (ADR-033): it replaces the whole grid with a file somebody brought.
@@ -713,6 +704,9 @@
         (record.reason === ''
           ? 'Le fichier est déposé ; son résultat s’inscrira dans l’historique des imports.'
           : record.reason)
+      // The banner says the act succeeded — the station took the file — and the line above
+      // keeps the detail only that file has: how many rows were read, and what happens next.
+      admin.notice = `${file.name} est déposé sur le poste.`
       // No read of the findings here: the import this drop is about does not exist yet. The
       // effect above reads them when the station changes import, which is the only instant
       // at which there is something new to read.

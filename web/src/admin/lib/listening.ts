@@ -142,3 +142,17 @@ export function detectLabel(scan: Scan): string {
   if (scan.toScan === 0) return 'Détection : énumération des ports…'
   return `Détection : port ${frenchInteger(scan.scanned)} sur ${frenchInteger(scan.toScan)}…`
 }
+
+/**
+ * Ce qu'une capture manuelle a entendu, pour la phrase de succès : « aucune trame reçue »,
+ * « 1 trame reçue », « 3 trames reçues ».
+ *
+ * Zéro y est dit tel quel plutôt que passé sous silence : un port ouvert qui ne parle pas est un
+ * renseignement, et le bandeau vert qui annonce la capture ne doit pas le cacher.
+ *
+ * @param count - combien de trames la manche a rendues.
+ */
+export function framesHeard(count: number): string {
+  if (count === 0) return 'aucune trame reçue'
+  return `${String(count)} ${count > 1 ? 'trames reçues' : 'trame reçue'}`
+}

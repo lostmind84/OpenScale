@@ -140,7 +140,7 @@ describe('la rubrique Maintenance', () => {
       message: 'Le poste redémarre. L’écran revient tout seul.',
     })
     vi.stubGlobal('fetch', async () => new Response('', { status: 200 }))
-    const { close } = show()
+    const { admin, close } = show()
 
     act('restart')?.click()
     // Tout de suite, et pas au bout de la première sonde : entre le clic et la réponse,
@@ -148,7 +148,7 @@ describe('la rubrique Maintenance', () => {
     await vi.waitFor(() => expect(host.querySelector('[data-restarting]')).not.toBeNull())
     expect(host.textContent).toContain('Le poste redémarre depuis')
 
-    await vi.waitFor(() => expect(host.textContent).toContain('Le poste est revenu.'), {
+    await vi.waitFor(() => expect(admin.notice).toBe('Le poste est revenu.'), {
       timeout: 5000,
       interval: 50,
     })
@@ -173,17 +173,82 @@ describe('la rubrique Maintenance', () => {
     close()
   })
 
-  it('dit ce que la relecture a mis en service', async () => {
+  it('dit, dans le bandeau vert, ce que la relecture a mis en service', async () => {
     vi.spyOn(api, 'reloadConfigFromDisk').mockResolvedValue({
       config: {},
       config_fingerprint: 'a1b2c3d4',
       retired_keys: [],
       pending_confirmation: null,
     })
-    const { close } = show()
+    const { admin, close } = show()
 
     act('reload-config')?.click()
-    await vi.waitFor(() => expect(host.textContent).toContain('a1b2c3d4'))
+    // La phrase est CELLE DU BANDEAU de l'administration, et la rubrique ne la recopie pas.
+    await vi.waitFor(() => expect(admin.notice).toContain('a1b2c3d4'))
+    expect(host.textContent).not.toContain('a1b2c3d4')
+    close()
+  })
+
+  /**
+   * La séquence que le propriétaire a vue : « Relire le fichier » refusé, le fichier
+   * corrigé, « Relire le fichier » de nouveau.
+   *
+   * Le bandeau rouge du premier essai restait au-dessus d'une réussite que rien ne
+   * confirmait en vert : `protect` n'effaçait pas, et la phrase de succès n'était qu'une
+   * ligne locale de la rubrique.
+   */
+  it('remplace le bandeau rouge par un bandeau vert quand la relecture réussit au second essai', async () => {
+    const reload = vi
+      .spyOn(api, 'reloadConfigFromDisk')
+      .mockRejectedValueOnce(
+        new AdminError(422, 'Cette configuration ne peut pas être appliquée.', 'ERR-CFG-01', [
+          { field: 'journal.max_rows', message: '3 est sous le plancher de 100' },
+        ]),
+      )
+      .mockResolvedValueOnce({
+        config: {},
+        config_fingerprint: 'a1b2c3d4',
+        retired_keys: [],
+        pending_confirmation: null,
+      })
+    const { admin, close } = show()
+
+    act('reload-config')?.click()
+    await vi.waitFor(() => expect(admin.actionError).toContain('ne peut pas être appliquée'))
+    expect(admin.notice).toBe('')
+
+    act('reload-config')?.click()
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() =>
+      expect(admin.notice).toBe('Le fichier est en service. Empreinte a1b2c3d4.'),
+    )
+    expect(admin.actionError).toBe('')
+    expect(admin.lastFaults).toEqual([])
+    flushSync()
+    // Les fautes du refus s'en vont avec lui.
+    expect(host.textContent).not.toContain('journal.max_rows')
+    close()
+  })
+
+  it('dit en vert que le redémarrage de l’ordinateur est armé, puis qu’il est annulé', async () => {
+    vi.spyOn(api, 'armReboot').mockResolvedValue({
+      at: new Date(Date.now() + 30_000).toISOString(),
+      seconds_left: 30,
+    })
+    vi.spyOn(api, 'cancelReboot').mockResolvedValue({
+      done: true,
+      message: 'Le redémarrage est annulé.',
+    })
+    const { admin, close } = show()
+
+    act('reboot')?.click()
+    flushSync()
+    act('reboot')?.click()
+    await vi.waitFor(() => expect(admin.notice).toContain('redémarrage de l’ordinateur est armé'))
+
+    act('cancel-reboot')?.click()
+    await vi.waitFor(() => expect(admin.notice).toBe('Le redémarrage est annulé.'))
+    expect(admin.actionError).toBe('')
     close()
   })
 

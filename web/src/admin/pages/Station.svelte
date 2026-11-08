@@ -227,8 +227,6 @@
    */
   async function exportConfig(withHardware: boolean): Promise<void> {
     working = withHardware ? 'export-all' : 'export-clone'
-    admin.notice = ''
-    admin.actionError = ''
     try {
       const file = await admin.protect(() => readExport(health.station, withHardware))
       if (file === null) return
@@ -257,6 +255,8 @@
    */
   async function inspect(file: File | null | undefined): Promise<void> {
     if (file === null || file === undefined) return
+    // Kept here although `protect` clears too: an unreadable file refuses BEFORE `protect`
+    // is reached, and its refusal must not sit beside the sentence of the previous act.
     admin.notice = ''
     admin.actionError = ''
     let parsed: unknown
@@ -332,8 +332,6 @@
    */
   async function restore(version: number): Promise<void> {
     working = `restore-${String(version)}`
-    admin.notice = ''
-    admin.actionError = ''
     try {
       const done = await admin.protect(() => api.restoreVersion(version))
       if (done === null) return

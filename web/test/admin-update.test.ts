@@ -122,6 +122,23 @@ describe('la page Mise à jour', () => {
     expect(said.size).toBe(4)
   })
 
+  it('dit en vert le résultat de « Vérifier maintenant », et efface un refus ancien', async () => {
+    vi.spyOn(api, 'fetchUpdate').mockResolvedValue(NOMINAL)
+    vi.spyOn(api, 'checkForUpdate').mockResolvedValue({ ...NOMINAL, available: false })
+    const admin = new Admin()
+    const page = mount(Update, { target: host, props: { admin } })
+    await vi.waitFor(() => expect(host.textContent).toContain(NOMINAL.running))
+    flushSync()
+    admin.actionError = 'Le dépôt ne répond pas.'
+
+    host.querySelector<HTMLButtonElement>('[data-act="check"]')?.click()
+    await vi.waitFor(() =>
+      expect(admin.notice).toBe('La vérification est faite : ce poste est à jour.'),
+    )
+    expect(admin.actionError).toBe('')
+    unmount(page)
+  })
+
   it('n’annonce aucune tentative sur un poste qui n’a jamais basculé', async () => {
     const close = await show(NOMINAL)
     expect(host.querySelector('[data-outcome]')).toBeNull()

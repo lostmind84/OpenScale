@@ -163,6 +163,55 @@ describe('un acte protégé demande le mot de passe, puis se rejoue', () => {
     expect(admin.actionError).toBe('Cette configuration ne peut pas être appliquée.')
   })
 
+  /**
+   * Ouvrir un acte efface ce que le précédent a laissé à l'écran, SANS que chaque page le
+   * fasse à la main.
+   *
+   * `run` et `load` le faisaient ; `protect` non, et c'est ce qui laissait « Le poste n'a
+   * pas répondu » en rouge au-dessus de la réussite du même geste, sur toutes les pages qui
+   * ne s'étaient pas souvenues de le faire elles-mêmes.
+   */
+  it('efface le refus, la phrase et les fautes de l’acte précédent en s’ouvrant', async () => {
+    serviceAcceptingSession()
+    const admin = new Admin(60_000)
+    admin.actionError = 'Le fichier est illisible.'
+    admin.notice = 'Une phrase de succès plus ancienne.'
+    admin.lastFaults = [{ field: 'journal.max_rows', message: '3 est sous le plancher de 100' }]
+    admin.needsFirstPassword = true
+
+    const done = await admin.protect(async () => 'fait')
+
+    expect(done).toBe('fait')
+    expect(admin.actionError).toBe('')
+    expect(admin.notice).toBe('')
+    expect(admin.lastFaults).toEqual([])
+    expect(admin.needsFirstPassword).toBe(false)
+  })
+
+  it('remplace l’ancien refus par le nouveau quand le second acte échoue aussi', async () => {
+    serviceAcceptingSession()
+    const admin = new Admin(60_000)
+    admin.actionError = 'Le premier refus.'
+
+    await admin.protect(async () => {
+      throw new AdminError(422, 'Le second refus.')
+    })
+
+    expect(admin.actionError).toBe('Le second refus.')
+  })
+
+  it('ne touche pas à `busy` : c’est `run` qui désarme les boutons, pas `protect`', async () => {
+    serviceAcceptingSession()
+    const admin = new Admin(60_000)
+
+    await admin.protect(async () => {
+      expect(admin.busy).toBe(false)
+      return 'fait'
+    })
+
+    expect(admin.busy).toBe(false)
+  })
+
   it('annonce le plancher du mot de passe que le poste applique, sans le recopier de tête', () => {
     // Le plancher vit dans `internal/web/argon2id.go` — c'est le 422 de la route de secours
     // qui refuse, et « openscale config password » qui refuse pareil. L'écran n'en est qu'un

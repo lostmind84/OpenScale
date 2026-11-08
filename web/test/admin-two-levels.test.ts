@@ -289,6 +289,40 @@ describe('les six pages de réglages : ouvertes en lecture, protégées à l’�
     expect(host.querySelector('input[type="password"]')).not.toBeNull()
   })
 
+  /**
+   * Un enregistrement refusé, puis le même qui réussit : le rouge ne doit pas rester.
+   *
+   * `protect` n'effaçait pas le refus du premier essai, et `App.svelte` posait la phrase
+   * verte à côté sans le retirer : les deux bandeaux s'affichaient ensemble, ou le rouge
+   * seul quand rien ne le remplaçait.
+   */
+  it('retire le bandeau rouge d’un enregistrement refusé quand le suivant réussit', async () => {
+    await open()
+    await press('Matériel')
+    session = true
+    await changeAField()
+
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/admin/api/config' && init?.method === 'PUT') {
+        return refusal(422, 'Cette configuration ne peut pas être appliquée.', 'ERR-CFG-01')
+      }
+      return fakeFetch(input, init)
+    })
+    await press('Enregistrer la configuration')
+    expect(host.querySelector('[data-failure]')?.textContent).toBe(
+      'Cette configuration ne peut pas être appliquée.',
+    )
+    expect(host.querySelector('[data-notice]')).toBeNull()
+
+    vi.stubGlobal('fetch', fakeFetch)
+    await press('Enregistrer la configuration')
+
+    expect(host.querySelector('[data-failure]')).toBeNull()
+    expect(host.querySelector('[data-notice]')?.textContent).toBe(
+      'La configuration est enregistrée et appliquée.',
+    )
+  })
+
   it('propose le code de secours, parce qu’un poste en kiosque n’a pas d’invite de commande', async () => {
     await open()
     await press('Matériel')

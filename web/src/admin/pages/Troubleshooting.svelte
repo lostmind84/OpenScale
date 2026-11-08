@@ -186,12 +186,14 @@
       // Un fichier REFUSÉ était annoncé comme appliqué : « la veille l'appliquera dans la
       // seconde » se lisait sous un import que le service venait d'écarter, et le
       // bénévole repartait en croyant son catalogue à jour.
-      report =
-        record.result === 'rejected' || record.result === 'failed'
-          ? `${file.name} : REFUSÉ${record.reason === '' ? '' : ' — ' + record.reason}. ` +
-            'Le catalogue en service n’a pas changé.'
-          : `${file.name} : ${String(record.rows_read_count)} lignes lues, ` +
-            `${String(record.weighable_count)} pesables. La veille l’appliquera dans la seconde.`
+      const discarded = record.result === 'rejected' || record.result === 'failed'
+      report = discarded
+        ? `${file.name} : REFUSÉ${record.reason === '' ? '' : ' — ' + record.reason}. ` +
+          'Le catalogue en service n’a pas changé.'
+        : `${file.name} : ${String(record.rows_read_count)} lignes lues, ` +
+          `${String(record.weighable_count)} pesables. La veille l’appliquera dans la seconde.`
+      // Green only when the station took the file: a refused one is no success to announce.
+      if (!discarded) admin.notice = `${file.name} est déposé sur le poste.`
       await admin.refresh()
     } finally {
       working = ''
