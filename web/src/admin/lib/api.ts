@@ -360,8 +360,8 @@ export function printerSelfTest(what: 'label' | 'alignment' | 'ruler'): Promise<
  * à redemander l'image à chaque frappe, ce que `Cache-Control: no-store` obtient déjà du
  * cache HTTP mais pas d'une balise `<img>` dont l'URL n'a pas changé.
  */
-export function previewURL(template: string, demo: boolean, dual: boolean, nonce: number): string {
-  const query = new URLSearchParams({ template, demo: demo ? '1' : '0', dual: dual ? '1' : '0' })
+export function previewURL(template: string, demo: boolean, nonce: number): string {
+  const query = new URLSearchParams({ template, demo: demo ? '1' : '0' })
   query.set('t', String(nonce))
   return '/admin/api/label/preview.png?' + query.toString()
 }

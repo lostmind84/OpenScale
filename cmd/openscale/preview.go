@@ -61,12 +61,10 @@ func (h adminHardware) LabelPreview(_ context.Context, q web.PreviewQuery) ([]by
 func (h adminHardware) previewImage(cfg domain.Config, template domain.Template,
 	q web.PreviewQuery) (*image.Gray, error) {
 	if q.Demo {
+		// The station's OWN pricing grid, always. A « two tiers » switch used to swap in
+		// LaCagetteRules here; it showed La Coope's grid on every station and misled the
+		// cooperatives that do not have it (removed 08/11/2026).
 		rules := cfg.Pricing
-		if q.Dual {
-			// The two-tier grid of the document, so that an operator sees the crowded case
-			// — the one where a field can overflow — without having to configure it first.
-			rules = domain.LaCagetteRules()
-		}
 		image, _, err := renderDemo(template, rules, printing.RenderOptions{})
 		return image, err
 	}

@@ -59,9 +59,6 @@ type PreviewQuery struct {
 	// Demo asks for the demonstration values rather than the weighing in flight,
 	// which is what the settings screen shows while nobody is weighing.
 	Demo bool
-	// Dual asks for the two-tier layout, so that an operator sees the crowded case
-	// without having to configure it first.
-	Dual bool
 }
 
 // listPorts is GET /admin/api/ports.
@@ -217,7 +214,6 @@ func (s *Server) labelPreview(w http.ResponseWriter, r *http.Request) {
 	png, err := s.hardware.LabelPreview(r.Context(), PreviewQuery{
 		Template: r.URL.Query().Get("template"),
 		Demo:     r.URL.Query().Get("demo") == "1",
-		Dual:     r.URL.Query().Get("dual") == "1",
 	})
 	if err != nil {
 		writeProblem(w, http.StatusUnprocessableEntity, "", err.Error())
