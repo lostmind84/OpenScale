@@ -146,11 +146,15 @@ fetch() {
     wget -qO- --header="User-Agent: $USER_AGENT" "$1"
   fi
 }
+# download sert les fichiers d'une release par leur adresse d'API : sans
+# « Accept: application/octet-stream », cette adresse rend la description JSON du
+# fichier au lieu du fichier. L'adresse publique (browser_download_url) n'est plus
+# employée : github.com la refusait aux téléchargements anonymes (504, 08/11/2026).
 download() {
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -H "User-Agent: $USER_AGENT" -o "$2" "$1"
+    curl -fsSL -H "User-Agent: $USER_AGENT" -H 'Accept: application/octet-stream' -o "$2" "$1"
   else
-    wget -qO "$2" --header="User-Agent: $USER_AGENT" "$1"
+    wget -qO "$2" --header="User-Agent: $USER_AGENT" --header='Accept: application/octet-stream' "$1"
   fi
 }
 
@@ -268,11 +272,26 @@ json_strings() { printf '%s' "$RELEASE" | tr ',' '\n' | sed -n "s/.*\"$1\"[[:spa
 TAG=$(json_strings 'tag_name' | head -n 1)
 [ -n "$TAG" ] || fail "la réponse de $API_HOST ne porte aucun tag : la release demandée existe-t-elle ?"
 
-ARCHIVE_URL=$(json_strings 'browser_download_url' | grep -- "-linux-$ARCH\.zip$" | head -n 1)
-CHECKSUM_URL=$(json_strings 'browser_download_url' | grep -- "/$CHECKSUM_ASSET$" | head -n 1)
+# asset_url NOM rend l'adresse d'API du fichier NOM : dans chaque objet de « assets »,
+# « url » (…/releases/assets/<id>) précède « name », et c'est la dernière vue avant le
+# nom cherché. L'adresse ne porte pas le nom du fichier, d'où ce couplage.
+asset_url() {
+  printf '%s' "$RELEASE" | tr ',' '\n' | awk -v want="$1" '
+    /"url"[[:space:]]*:[[:space:]]*"[^"]*\/releases\/assets\/[0-9]+"/ {
+      last = $0; sub(/.*"url"[[:space:]]*:[[:space:]]*"/, "", last); sub(/".*/, "", last)
+    }
+    /"name"[[:space:]]*:[[:space:]]*"/ {
+      name = $0; sub(/.*"name"[[:space:]]*:[[:space:]]*"/, "", name); sub(/".*/, "", name)
+      if (name == want && last != "") { print last; exit }
+    }'
+}
+
+ARCHIVE_NAME=$(json_strings 'name' | grep -- "-linux-$ARCH\.zip$" | head -n 1)
+[ -n "$ARCHIVE_NAME" ] || fail "la release $TAG ne publie aucune archive pour linux-$ARCH"
+ARCHIVE_URL=$(asset_url "$ARCHIVE_NAME")
+CHECKSUM_URL=$(asset_url "$CHECKSUM_ASSET")
 [ -n "$ARCHIVE_URL" ] || fail "la release $TAG ne publie aucune archive pour linux-$ARCH"
 [ -n "$CHECKSUM_URL" ] || fail "la release $TAG ne publie pas $CHECKSUM_ASSET : il n'y a rien à quoi comparer ce qui va être téléchargé, et rien ne sera installé"
-ARCHIVE_NAME=${ARCHIVE_URL##*/}
 log "version $TAG — $ARCHIVE_NAME"
 
 # --- 3. Le poste est-il déjà à jour ? ------------------------------------------------

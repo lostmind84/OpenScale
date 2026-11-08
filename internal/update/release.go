@@ -22,8 +22,9 @@ var ErrUnreachable = errors.New("update: release server unreachable")
 // Asset is one file attached to a release.
 type Asset struct {
 	Name string
-	// URL is browser_download_url and never the API handle: the latter answers
-	// JSON describing the asset rather than the asset itself.
+	// URL is the API handle of the asset (the payload's `url`), downloaded with
+	// AssetClient: github.com refused anonymous downloads of browser_download_url
+	// (504, 08/11/2026) while the API handle served the same bytes.
 	URL  string
 	Size int64
 }
