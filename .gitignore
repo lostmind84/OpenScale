@@ -66,3 +66,5 @@ desktop.ini
 /agentdb.rvf.lock
 # Cache et mémoires de Serena (serveur de langage MCP) — propres à un poste.
 /.serena/
+# Espace de travail des skills superpowers (maquettes, journaux d'exécution) — propre à un poste.
+/.superpowers/
