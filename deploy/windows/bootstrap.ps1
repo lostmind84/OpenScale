@@ -334,8 +334,13 @@ Write-Progression "telechargement ($([math]::Round($archiveAsset.size / 1MB, 1))
 $previousProgress = $ProgressPreference
 $ProgressPreference = 'SilentlyContinue'
 try {
-  Invoke-WebRequest -Uri $archiveAsset.browser_download_url -OutFile $archive -UseBasicParsing
-  Invoke-WebRequest -Uri $checksumAsset.browser_download_url -OutFile $checksums -UseBasicParsing
+  # L'adresse d'API du fichier ($_.url) et non browser_download_url : github.com
+  # refusait cette dernière aux téléchargements anonymes (504, 08/11/2026). Sans
+  # « Accept: application/octet-stream », l'adresse d'API rend la description JSON du
+  # fichier au lieu du fichier.
+  $assetHeaders = @{ 'User-Agent' = $script:UserAgent; 'Accept' = 'application/octet-stream' }
+  Invoke-WebRequest -Uri $archiveAsset.url -Headers $assetHeaders -OutFile $archive -UseBasicParsing
+  Invoke-WebRequest -Uri $checksumAsset.url -Headers $assetHeaders -OutFile $checksums -UseBasicParsing
 }
 finally { $ProgressPreference = $previousProgress }
 
