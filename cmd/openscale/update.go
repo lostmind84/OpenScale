@@ -53,7 +53,7 @@ func newUpdateService(clock ports.Clock, guard update.Guard, dataDir string) *up
 	return &update.Service{
 		Clock:     clock,
 		State:     update.State{Dir: updatesDir},
-		Stager:    update.Stager{Dir: updatesDir, Platform: releasePlatform()},
+		Stager:    update.Stager{Dir: updatesDir, Platform: releasePlatform(), Client: update.AssetClient()},
 		Guard:     guard,
 		Running:   running,
 		Supported: true,

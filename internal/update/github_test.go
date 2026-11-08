@@ -61,10 +61,12 @@ func TestLatestReadsTheRealPayloadOfTheAPI(t *testing.T) {
 	if !ok {
 		t.Fatal("l'archive Windows n'est pas trouvée")
 	}
-	// The URL read is browser_download_url and NOT url: the latter is the API
-	// handle, which answers JSON describing the asset rather than the asset.
-	if !strings.HasPrefix(asset.URL, "https://github.com/") {
-		t.Errorf("adresse de téléchargement = %q : ce n'est pas browser_download_url", asset.URL)
+	// The URL read is the API handle `url` and NOT browser_download_url: on
+	// 08/11/2026 github.com answered 504 to every ANONYMOUS download of a release
+	// file while api.github.com served the same bytes, given AssetClient's
+	// Accept header.
+	if !strings.HasPrefix(asset.URL, "https://api.github.com/repos/lostmind84/OpenScale/releases/assets/") {
+		t.Errorf("adresse de téléchargement = %q : ce n'est pas l'adresse d'API de l'asset", asset.URL)
 	}
 	if asset.Size == 0 {
 		t.Error("l'archive n'annonce pas sa taille")
@@ -142,5 +144,29 @@ func TestAnUnreachableHostIsRefusedWithoutPanicking(t *testing.T) {
 	}.Latest(context.Background())
 	if !errors.Is(err, ErrUnreachable) {
 		t.Fatalf("erreur = %v, attendu ErrUnreachable", err)
+	}
+}
+
+// TestTheAssetClientAsksForTheBytesAndNotTheirDescription: the API handle of an
+// asset answers its JSON description unless the request asks for
+// application/octet-stream — a station would then « verify » a JSON document.
+func TestTheAssetClientAsksForTheBytesAndNotTheirDescription(t *testing.T) {
+	var accept string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		accept = r.Header.Get("Accept")
+		_, _ = w.Write([]byte("octets"))
+	}))
+	defer server.Close()
+
+	response, err := AssetClient().Get(server.URL)
+	if err != nil {
+		t.Fatalf("GET : %v", err)
+	}
+	_ = response.Body.Close()
+	if accept != "application/octet-stream" {
+		t.Errorf("Accept = %q, attendu application/octet-stream", accept)
+	}
+	if AssetClient().Timeout != downloadTimeout {
+		t.Errorf("délai = %v, attendu %v : une archive de dizaines de mégaoctets", AssetClient().Timeout, downloadTimeout)
 	}
 }

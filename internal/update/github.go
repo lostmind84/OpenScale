@@ -48,7 +48,11 @@ type latestPayload struct {
 	Assets      []struct {
 		Name string `json:"name"`
 		Size int64  `json:"size"`
-		URL  string `json:"browser_download_url"`
+		// URL is the API handle of the asset, not browser_download_url: on
+		// 08/11/2026 github.com answered 504 to every anonymous download of a
+		// release file while api.github.com served the same bytes. It answers the
+		// bytes only to a request that asks for them — see AssetClient.
+		URL string `json:"url"`
 	} `json:"assets"`
 }
 
@@ -104,4 +108,23 @@ func (g GitHubSource) Latest(ctx context.Context) (Release, error) {
 			Asset{Name: asset.Name, URL: asset.URL, Size: asset.Size})
 	}
 	return release, nil
+}
+
+// AssetClient is the HTTP client a Stager downloads release files with.
+//
+// It asks every request for application/octet-stream, because the API handle of
+// an asset (latestPayload's URL) answers the asset's JSON DESCRIPTION otherwise,
+// and the digest check would then reject a JSON document instead of an archive.
+func AssetClient() *http.Client {
+	return &http.Client{Timeout: downloadTimeout, Transport: octetStream{http.DefaultTransport}}
+}
+
+// octetStream adds the Accept header the asset API needs, to the first request and
+// to the redirect GitHub answers it with.
+type octetStream struct{ next http.RoundTripper }
+
+func (o octetStream) RoundTrip(request *http.Request) (*http.Response, error) {
+	request = request.Clone(request.Context())
+	request.Header.Set("Accept", "application/octet-stream")
+	return o.next.RoundTrip(request)
 }
