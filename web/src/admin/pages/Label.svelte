@@ -20,7 +20,9 @@
    * inside the die-cut.
    *
    * What the route takes, exactly. `GET /admin/api/label/preview.png` reads `template`,
-   * `demo` and `dual` (`internal/web/admin.go`) and nothing else. The template is
+   * `template` and `demo` (`internal/web/devices.go`) and nothing else — the pricing grid is
+   * always the station's own: a « two tiers » switch rendered La Coope's grid on every
+   * station and was removed on 08/11/2026 (neutrality). The template is
    * therefore the one being EDITED here — it travels in the address — while the offsets
    * are those of the configuration IN SERVICE, recomposed into the geometry by
    * `templatesFor` (`cmd/openscale/serve.go`). The ±1 dot arrows write into the draft, so
@@ -75,7 +77,6 @@
   /** Forces the browser to ask for the image again: the URL has to change to do so. */
   let nonce = $state(1)
   let demo = $state(true)
-  let dual = $state(false)
   /** Why the preview is missing, in French. Empty while the image is on screen. */
   let refusal = $state('')
   /** The offsets the image on screen carries, or null while they are not known. */
@@ -116,7 +117,7 @@
   let lastGeometryConfig: unknown = null
 
   const template = $derived(draft.text(TEMPLATE))
-  const source = $derived(api.previewURL(template, demo, dual, nonce))
+  const source = $derived(api.previewURL(template, demo, nonce))
   /**
    * Has the configuration arrived?
    *
@@ -462,10 +463,6 @@
         <label class="check">
           <input type="checkbox" bind:checked={demo} onchange={() => refresh()} />
           <span>Valeurs de démonstration</span>
-        </label>
-        <label class="check">
-          <input type="checkbox" bind:checked={dual} onchange={() => refresh()} />
-          <span>Deux tarifs — le cas le plus chargé</span>
         </label>
 
         {#if !configRead}

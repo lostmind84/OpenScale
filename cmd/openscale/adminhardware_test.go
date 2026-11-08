@@ -166,12 +166,13 @@ func TestTheLabelPreviewIsThePNGOfTheRenderer(t *testing.T) {
 		t.Fatalf("le corps n'est pas un PNG : %q", body[:min(16, len(body))])
 	}
 
-	// The dual grid is the crowded case, and it must render too: that is what the flag is
-	// for — seeing the two-tier layout without having to configure it first.
+	// The aperçu always draws the station's OWN pricing grid: the « two tiers » switch that
+	// swapped in La Coope's grid is gone (08/11/2026), and an old address still carrying
+	// dual=1 must not bring it back.
 	dual := bench.get("/admin/api/label/preview.png?demo=1&dual=1")
 	defer dual.Body.Close()
-	if dual.StatusCode != http.StatusOK {
-		t.Fatalf("aperçu bi-tarif = %d : %s", dual.StatusCode, readBody(t, dual))
+	if got := []byte(readBody(t, dual)); !bytes.Equal(got, body) {
+		t.Fatal("dual=1 change encore l'aperçu : la grille de La Coope reviendrait sur tous les postes")
 	}
 
 	// And without a weighing in flight, the aperçu of the LIVE label says so in French

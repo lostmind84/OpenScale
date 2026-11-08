@@ -4397,7 +4397,7 @@ GET  /admin/api/config            ← EXPURGÉ des deux empreintes admin ET du m
                                     publier. Le champ de l'écran est donc en ÉCRITURE
                                     SEULE : laissé vide, PUT reprend celui du fichier.
 GET  /admin/api/config/versions · GET /admin/api/ports · GET /admin/api/printers
-GET  /admin/api/label/preview.png?template=…&demo=1&dual=1
+GET  /admin/api/label/preview.png?template=…&demo=1
 GET  /admin/api/label/geometry     ← sert le point de départ du bouton « Partir du
        gabarit livré » (décision 12) et les bornes des flèches ±1 point du contrôle 38
        (ADR-063), lues sur la configuration EN SERVICE ; `offset_bounds` vaut `null`
