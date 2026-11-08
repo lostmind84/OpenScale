@@ -80,6 +80,15 @@ func TestExpiredMeasurementRejectsWeighing(t *testing.T) {
 				t.Fatalf("pesée refusée à 1 199 ms d'âge : %+v", accepted)
 			}
 			b.awaitPrint()
+			// The device having the label is NOT the station knowing it: the print
+			// worker hands the result back on its own goroutine, after Print returned.
+			// A bag that leaves before the loop has taken that result leaves a station
+			// still Printing, which only folds the empty plate, and the cycle then ends
+			// on a Succeeded that never saw the bag go — the next tap is refused with no
+			// code at all. The journal row only exists once the loop has taken the
+			// result — the record is an effect of that very turn — so it is the barrier.
+			// One CI run fell on it before 08/11/2026.
+			settle(t, func() bool { return b.store.weighingCount() == 1 })
 
 			// --- The bag leaves, another one settles, and the scale goes silent --
 			b.push(0, domain.Stable)
