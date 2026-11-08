@@ -21,12 +21,15 @@ import (
 
 // bench is one supervisor under test, with its fake browser and its fake clock.
 type bench struct {
-	clock    *fake.Clock
+	clock    *benchClock
 	profile  string
 	launched chan *fakeBrowser
 	targets  chan string
-	alive    atomic.Bool
-	awakes   atomic.Int64
+	// current is the browser launched last, so that the test knows whether the supervisor
+	// is watching a live one or has a death still to notice.
+	current atomic.Pointer[fakeBrowser]
+	alive   atomic.Bool
+	awakes  atomic.Int64
 	// attached is how many client screens the station reports. Zero is the default, and
 	// it is harmless: the presence watch only ever fires on a screen it has SEEN, so a
 	// test that never attaches one never meets it.
@@ -81,6 +84,75 @@ func (f *fakeBrowser) Kill() error {
 // die makes Wait return, once.
 func (f *fakeBrowser) die() { f.once.Do(func() { close(f.exit) }) }
 
+// dead reports whether this browser has exited, by the test's hand or by a Kill.
+func (f *fakeBrowser) dead() bool {
+	select {
+	case <-f.exit:
+		return true
+	default:
+		return false
+	}
+}
+
+// benchClock is the fake clock, plus the one thing the bench must know about it: which of
+// its one-shot waiters are the supervisor WAITING, and which are probe budgets nobody
+// waits on any more.
+//
+// Every liveness question goes through ports.WithBudget, which registers an After of
+// ProbeBudget. The question returns at once — Alive and Attached are synchronous here —
+// and its cancel ends the goroutine that watched the budget, but a fake clock has no way
+// to unregister an After: the waiter stays counted until two seconds of fake time have
+// gone by. Counted as « the supervisor is parked », it let the fix of 07/08/2026 advance
+// the clock while the supervisor had simply not been scheduled yet, which is the fault
+// that fix was about; see nextLaunch.
+type benchClock struct {
+	*fake.Clock
+	// mu orders After against Advance, so that a budget's deadline is computed on the
+	// instant the fake clock registered it at.
+	mu sync.Mutex
+	// budgets are the deadlines of the probe budgets not yet come due.
+	budgets []time.Time
+}
+
+// After registers a waiter on the fake clock and remembers it when it is a probe budget.
+//
+// A budget is recognised by its duration alone. That holds because the supervisor's own
+// waits are RelaunchDelay and StartGrace, and both differ from ProbeBudget — which
+// TestTheBenchTellsABudgetFromAWait keeps true.
+func (c *benchClock) After(d time.Duration) <-chan time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if d == ProbeBudget {
+		c.budgets = append(c.budgets, c.Clock.Now().Add(d))
+	}
+	return c.Clock.After(d)
+}
+
+// Advance moves the fake clock, never in the middle of an After.
+func (c *benchClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Clock.Advance(d)
+}
+
+// supervisorWaiters is how many one-shot waiters are the supervisor's own waits: the
+// relaunch pause, the start grace.
+func (c *benchClock) supervisorWaiters() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.Clock.Now()
+	live := c.budgets[:0]
+	for _, at := range c.budgets {
+		// The fake clock fires and drops a waiter whose instant is not after now.
+		if at.After(now) {
+			live = append(live, at)
+		}
+	}
+	c.budgets = live
+	waiters, _ := c.Clock.Pending()
+	return waiters - len(c.budgets)
+}
+
 // newBench starts a supervisor whose browser and clock the test drives.
 func newBench(t *testing.T) *bench {
 	t.Helper()
@@ -112,7 +184,7 @@ const (
 func startBench(t *testing.T, answering bool) *bench {
 	t.Helper()
 	b := &bench{
-		clock:     fake.NewClock(start),
+		clock:     &benchClock{Clock: fake.NewClock(start)},
 		profile:   filepath.Join(t.TempDir(), "profile"),
 		launched:  make(chan *fakeBrowser, 64),
 		targets:   make(chan string, 64),
@@ -140,6 +212,7 @@ func startBench(t *testing.T, answering bool) *bench {
 		Awake: func() error { b.awakes.Add(1); return nil },
 		Launch: func(_ context.Context, browser Browser, arguments []string) (Process, error) {
 			process := &fakeBrowser{exit: make(chan struct{})}
+			b.current.Store(process)
 			b.targets <- targetOf(arguments)
 			b.launched <- process
 			return process, nil
@@ -182,7 +255,7 @@ func (b *bench) waitUntilParked(t *testing.T) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if waiters, _ := b.clock.Pending(); waiters > 0 {
+		if b.clock.supervisorWaiters() > 0 {
 			return
 		}
 		if time.Now().After(deadline) {
@@ -248,10 +321,42 @@ func (b *bench) nextLaunch(t *testing.T) (*fakeBrowser, string) {
 		// franchi deux fois en une semaine l'assertion des deux secondes de §15.2, en
 		// accusant le délai de grâce d'avoir été resservi alors qu'awaitStation ne tourne
 		// qu'une fois.
-		if waiters, _ := b.clock.Pending(); waiters > 0 {
+		//
+		// What « somebody waits on it » means is the fix of 08/11/2026: that one counted
+		// every one-shot waiter, and every liveness probe leaves one behind for two
+		// seconds of fake time — the ProbeBudget it no longer needs (see benchClock). So
+		// the count was never zero after the first probe, and a browser that died while
+		// the supervisor was descheduled still saw the clock run: « page d'attente revenue
+		// après 2s », on the CI on 08/11/2026, by the same mechanism the 07/08 fix named.
+		// The clock now moves for one of two reasons only: the supervisor is parked on a
+		// wait of its own, or it is watching a browser that is still alive — the only
+		// state in which its recheck ticker is what it waits for. A browser that died and
+		// whose death has not yet been noticed is neither, and time stands still.
+		if b.supervisorIsWaitingOnTheClock() {
 			b.clock.Advance(50 * time.Millisecond)
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+// supervisorIsWaitingOnTheClock reports whether advancing the fake clock now gives the
+// supervisor something it is waiting for, rather than charging it time it has not yet
+// been scheduled to see.
+func (b *bench) supervisorIsWaitingOnTheClock() bool {
+	if b.clock.supervisorWaiters() > 0 {
+		return true
+	}
+	browser := b.current.Load()
+	return browser != nil && !browser.dead()
+}
+
+// TestTheBenchTellsABudgetFromAWait keeps benchClock honest: it recognises a probe budget
+// by its duration, which only works while no wait of the supervisor lasts as long.
+func TestTheBenchTellsABudgetFromAWait(t *testing.T) {
+	for _, wait := range []time.Duration{RelaunchDelay, StartGrace} {
+		if wait == ProbeBudget {
+			t.Fatalf("une attente du superviseur dure ProbeBudget (%s) : le banc la prendrait pour un budget de sonde", ProbeBudget)
+		}
 	}
 }
 
