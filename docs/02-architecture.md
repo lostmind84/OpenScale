@@ -98,7 +98,7 @@ flowchart TB
       JOURW["worker JOURNAL<br/>chan cap 64"]
       PRINTING["internal/printing<br/>Rasterize · sbpl · transports"]
       STORE["internal/store<br/>SQLite WAL"]
-      DB[("balance.db<br/>+ images/")]
+      DB[("openscale.db<br/>+ images/")]
       WEB["internal/web<br/>routes /api/v1 · DTO · diffuseur SSE · embed.FS<br/>127.0.0.1:8085"]
 
       SCALE -->|"trames série"| LOOP
@@ -2625,9 +2625,9 @@ Un produit absent du fichier n'est pas effacé : il est **marqué retiré**, à 
 
 | | Windows | Linux |
 |---|---|---|
-| Configuration | `C:\ProgramData\Balance\config.json` | `/etc/openscale/config.json` |
+| Configuration | `C:\ProgramData\OpenScale\config.json` | `/etc/openscale/config.json` |
 | Versions précédentes | `config.json.1` … `.5` | idem |
-| Base | `C:\ProgramData\Balance\data\balance.db` | `/var/lib/openscale/balance.db` |
+| Base | `C:\ProgramData\OpenScale\data\openscale.db` | `/var/lib/openscale/openscale.db` |
 | Images | `…\data\images\<xx>\<sha>.<jpg\|png\|gif\|bmp>` | `/var/lib/openscale/images/` |
 | Étiquettes capturées | `…\data\labels\` (30 dernières) | `/var/lib/openscale/labels/` |
 | Archives / rejets CSV | `…\data\catalog\{archives,rejected}\` | idem |

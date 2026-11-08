@@ -26,7 +26,7 @@ indifféremment. **Un seul gabarit de coopérative par poste**, pas une liste.
    option d'imprimante. Le bouton est désarmé tant qu'un gabarit de coopérative est
    déjà présent dans le brouillon ; il ne l'écrase jamais.
 2. La copie vit maintenant dans le fichier de configuration du poste —
-   `C:\ProgramData\Balance\config.json` sous Windows, `/etc/openscale/config.json`
+   `C:\ProgramData\OpenScale\config.json` sous Windows, `/etc/openscale/config.json`
    sous Linux (`docs/02-architecture.md` §11.1) — sous la clé
    `printer.custom_template`. C'est là, dans ce document JSON, que vous ajustez le
    gabarit : ouvrez-le avec un éditeur de texte, ou passez par **page Poste → panneau
