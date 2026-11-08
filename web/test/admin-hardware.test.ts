@@ -665,6 +665,22 @@ describe('les actes protégés de l’imprimante', () => {
     expect(countOf('/admin/api/printers/discover')).toBe(2)
   })
 
+  it('« Rechercher l’imprimante » dit en vert ce qu’elle a trouvé, et efface un refus ancien', async () => {
+    discovered = [{ name: '10.0.0.9:9100', key: 'address', detail: 'répond', default: false }]
+    await open()
+    await tap(folded('Réglages de l’imprimante'))
+    await pick('printer.options.transport', 'tcp')
+    // Le refus d'un acte précédent : sans l'effacement de `protect`, il restait au-dessus
+    // d'une recherche réussie.
+    admin.actionError = 'Le poste n’a pas répondu.'
+
+    button('Rechercher l’imprimante').click()
+    await waitFor(() => text().includes('10.0.0.9:9100'))
+
+    expect(admin.notice).toBe('La recherche est terminée : 1 destination trouvée.')
+    expect(admin.actionError).toBe('')
+  })
+
   it('les auto-tests demandent le mot de passe et sortent l’étiquette une fois rejoués', async () => {
     guarded = true
     await open()

@@ -155,8 +155,21 @@ export class Admin {
    */
   #beginAction(): void {
     this.busy = true
+    this.#clearLastAct()
+  }
+
+  /**
+   * Efface tout ce que l'acte précédent a laissé à l'écran : la phrase verte, le refus
+   * rouge et les contrôles qui l'accompagnaient.
+   *
+   * Un seul endroit pour les quatre champs, parce que chacun oublié est un défaut visible :
+   * un refus qui survit à la réussite du même geste se lisait comme « ça a encore échoué »,
+   * et c'est ce que le propriétaire a vu sur « Relire le fichier » (08/11/2026).
+   */
+  #clearLastAct(): void {
     this.notice = ''
     this.actionError = ''
+    this.lastFaults = []
     this.needsFirstPassword = false
   }
 
@@ -252,10 +265,17 @@ export class Admin {
    * modifier sept champs et touche « Enregistrer » perdrait sa saisie et devrait tout
    * refaire après s'être authentifié — et il ne le ferait qu'une fois.
    *
+   * Il OUVRE l'acte comme {@link run} — ce que le précédent a laissé à l'écran s'en va —
+   * sauf qu'il ne pose pas `busy` : les pages protégées désarment leur propre bouton, et un
+   * panneau de mot de passe ouvert ne doit pas figer le reste de l'écran. Le faire ici, une
+   * fois, évite que chaque page s'en souvienne : celles qui l'oubliaient laissaient un refus
+   * rouge au-dessus de la réussite du même geste.
+   *
    * @param action - l'appel protégé, qui sera peut-être passé DEUX fois.
    * @returns ce que l'acte a répondu, ou null s'il a échoué ou s'il a été abandonné.
    */
   async protect<T>(action: () => Promise<T>): Promise<T | null> {
+    this.#clearLastAct()
     try {
       return await action()
     } catch (failure) {

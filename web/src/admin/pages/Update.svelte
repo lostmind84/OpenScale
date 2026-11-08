@@ -117,6 +117,10 @@
       if (fresh !== null) {
         current = fresh
         readFailure = ''
+        admin.notice =
+          fresh.supported && fresh.available
+            ? `La version ${fresh.latest} est disponible.`
+            : 'La vérification est faite : ce poste est à jour.'
       }
     } finally {
       working = ''
@@ -135,6 +139,11 @@
         ? ''
         : 'Le poste n’a pas répondu dans les cinq minutes. Allez le voir.'
       await read()
+      // The outcome is read back from the station and not assumed: the station also comes
+      // back after a rollback, and « installed » would then be false.
+      if (current?.outcome?.status === 'succeeded') {
+        admin.notice = `La version ${version} est installée et le poste est revenu.`
+      }
     } finally {
       working = ''
       switching = false

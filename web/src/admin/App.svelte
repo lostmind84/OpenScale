@@ -127,6 +127,8 @@
    * ne perd sa saisie.
    */
   async function save(): Promise<void> {
+    // `protect` has already cleared the refusal of a previous attempt: the green sentence
+    // below must never sit under a red one.
     const done = await admin.protect(() => draft.save())
     if (done === true) admin.notice = 'La configuration est enregistrée et appliquée.'
   }

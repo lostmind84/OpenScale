@@ -11,7 +11,7 @@
   import { allowedFor, faultOf } from '../lib/faults'
   import { labelOf } from '../lib/fields'
   import { decodedOf, hexOf } from '../lib/frames'
-  import { askLabel, detectLabel, framesCaption, type Listening } from '../lib/listening'
+  import { askLabel, detectLabel, framesCaption, framesHeard, type Listening } from '../lib/listening'
   import type { Admin } from '../lib/session.svelte'
   import { printerObservation, standingOfPrinter, standingOfScale } from '../lib/standing'
   import { census } from '../lib/tally'
@@ -348,6 +348,7 @@
     keep(listenOn, heard)
     // L'effet voit l'arrêt levé et relance la boucle, si le port est énuméré.
     stopped = null
+    admin.notice = `Écoute de ${listenOn} : ${framesHeard(heard.length)}.`
   }
 
   /**
@@ -429,7 +430,12 @@
    */
   async function discover(): Promise<void> {
     const found = await admin.protect(api.discoverPrinters)
-    if (found !== null) printers = found
+    if (found === null) return
+    printers = found
+    admin.notice =
+      found.length === 0
+        ? 'La recherche est terminée : aucune destination d’impression trouvée.'
+        : `La recherche est terminée : ${census('destination trouvée', 'destinations trouvées', found.length, found.length)}`
   }
 
   /**
@@ -464,7 +470,9 @@
       verdicts = []
       return
     }
-    await admin.protect(() => scan(list))
+    const done = await admin.protect(() => scan(list))
+    if (done === null) return
+    admin.notice = `La détection est terminée : ${census('port interrogé', 'ports interrogés', list.length, list.length)} Les verdicts sont ci-dessous.`
   }
 
   /**
