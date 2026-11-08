@@ -303,9 +303,18 @@ func garlicCatalog() *domain.Catalog {
 // --- Driving the station ----------------------------------------------------
 
 // push emits one reading and waits for the loop to have TAKEN it.
+//
+// The measurement channel has a capacity of one, so Push returns as soon as the value is
+// BUFFERED — not when the loop holds it. A loop still publishing the previous turn then
+// finds the reading and the Tick of settle both ready, and the select picks at random:
+// the Tick could be answered first and the reading left in the buffer for several more
+// turns. That is how failure test 3 ter read « 1 599 ms d'âge » where 1 199 were written,
+// once on the CI before 08/11/2026: the last frame of the stream had not been taken. The
+// buffer emptying is the proof it was; internal/station's bench waits on the same thing.
 func (b *bench) push(gross domain.Grams, stability domain.Stability) {
 	b.t.Helper()
 	b.scale.Push(gross, stability)
+	settle(b.t, func() bool { return len(b.hub.Measurements()) == 0 })
 	b.settle()
 }
 
