@@ -273,3 +273,61 @@ describe('le double tarif de la tuile, empilé primaire d’abord (ADR-036)', ()
     expect(abbrevs).toEqual(product.prices.map((p) => tierAbbrev[p.code]))
   })
 })
+
+describe('le mono-tarif de la tuile', () => {
+  it('n’affiche aucun badge .abbrev quand le seul tarif porte un abrégé vide', () => {
+    const base = products[0] as Product
+    const singleTierProduct: Product = {
+      ...base,
+      prices: [{ code: 'STANDARD', text: base.unit_price_text }],
+    }
+    const tile = render([singleTierProduct], {
+      primaryCode: 'STANDARD',
+      tierAbbrev: { STANDARD: '' },
+    })[0] as HTMLElement
+
+    const prices = [...tile.querySelectorAll<HTMLElement>('.price')]
+    expect(prices).toHaveLength(1)
+    expect(tile.querySelectorAll('.abbrev')).toHaveLength(0)
+    expect(prices[0]?.querySelector('.amount')?.textContent).toBe(base.unit_price_text)
+    expect(prices[0]?.querySelector('.unit')?.textContent).toBe(base.price_suffix.trim())
+  })
+
+  it('n’affiche aucun badge .abbrev quand l’abrégé est blanc ou absent', () => {
+    const base = products[0] as Product
+    const singleTierProduct: Product = {
+      ...base,
+      prices: [{ code: 'STANDARD', text: base.unit_price_text }],
+    }
+
+    const withSpaces = render([singleTierProduct], {
+      primaryCode: 'STANDARD',
+      tierAbbrev: { STANDARD: '   ' },
+    })[0] as HTMLElement
+    expect(withSpaces.querySelectorAll('.abbrev')).toHaveLength(0)
+
+    unmount(component!)
+    component = null
+    host?.remove()
+    host = null
+
+    const missingAbbrev = render([singleTierProduct], {
+      primaryCode: 'STANDARD',
+      tierAbbrev: {},
+    })[0] as HTMLElement
+    expect(missingAbbrev.querySelectorAll('.abbrev')).toHaveLength(0)
+  })
+
+  it('garde le badge pour un tarif à abrégé renseigné et le masque pour celui à abrégé vide', () => {
+    const base = products[0] as Product
+    const tile = render([base], {
+      primaryCode: 'A',
+      tierAbbrev: { A: 'A', S: '' },
+    })[0] as HTMLElement
+
+    const prices = [...tile.querySelectorAll<HTMLElement>('.price')]
+    expect(prices).toHaveLength(2)
+    expect(prices[0]?.querySelector('.abbrev')?.textContent?.trim()).toBe('A')
+    expect(prices[1]?.querySelector('.abbrev')).toBeNull()
+  })
+})

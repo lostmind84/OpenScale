@@ -148,6 +148,14 @@ func presentationOf(ui domain.UIConfig) catalogPresentationDTO {
 	}
 }
 
+// presentationDigestInput holds the two configuration views the client grid renders:
+// its screen options and its price grid. Anything else stays out so an edit to a
+// serial port or print darkness never forces a full catalog reload.
+type presentationDigestInput struct {
+	Presentation catalogPresentationDTO `json:"presentation"`
+	Pricing      domain.PricingRules    `json:"pricing"`
+}
+
 // presentationDigest is the string the state stream carries so that a setting saved on
 // the administration screen reaches the client screen next door.
 //
@@ -155,22 +163,25 @@ func presentationOf(ui domain.UIConfig) catalogPresentationDTO {
 //
 // The browser asks for the catalog again when catalog_count moves and, since
 // 04/09/2026, when catalog_updated_at moves (web/src/lib/session.svelte.ts). A
-// presentation that changes without an import therefore never arrives on the grid --
-// which is already true of show_grid_prices, and with a grid setting would become « on
-// règle, on enregistre, et rien ne se passe sur l'écran d'à côté ». The browser only ever
-// COMPARES this string to the previous one; it is opaque to it, and the ETag of the
-// catalog makes an unchanged presentation cost a 304.
+// presentation or pricing edit that changes without an import therefore never arrives on
+// the grid -- which used to happen on show_grid_prices or when switching tiers, and
+// became « on règle, on enregistre, et rien ne se passe sur l'écran d'à côté ». The
+// browser only ever COMPARES this string to the previous one; it is opaque to it, and the
+// ETag of the catalog makes an unchanged payload cost a 304.
 //
 // # What it is taken over, because two readings are possible
 //
-// Over the PRESENTATION DTO, and never over the configuration as a whole: a global
-// fingerprint would reload the whole grid on a change of serial port or of print
-// darkness -- a full reload for a value the client screen does not read. Hashing the
+// Over the PRESENTATION DTO and the PRICING RULES, and never over the configuration as a
+// whole: a global fingerprint would reload the whole grid on a change of serial port or of
+// print darkness -- a full reload for a value the client screen does not read. Hashing the
 // struct rather than a hand-written list of its fields is what keeps that true in BOTH
-// directions: a field added to the presentation enters the digest by itself, and a block
-// that is not in the presentation never can.
-func presentationDigest(p catalogPresentationDTO) string {
-	return domain.BlockFingerprint(p)
+// directions: a field added to the presentation or pricing enters the digest by itself,
+// and a block that is not in this input never can.
+func presentationDigest(p catalogPresentationDTO, pricing domain.PricingRules) string {
+	return domain.BlockFingerprint(presentationDigestInput{
+		Presentation: p,
+		Pricing:      pricing,
+	})
 }
 
 // rfc3339OrEmpty formats an instant, and the zero time as an empty string.

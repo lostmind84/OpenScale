@@ -103,10 +103,13 @@
   {#if showPrice}
     <span class="prices">
       {#each product.prices as price (price.code)}
+        {@const abbrev = (tierAbbrev[price.code] ?? '').trim()}
         <span class="price" class:secondary={price.code !== primaryCode}>
-          <span class="abbrev" class:hollow={price.code !== primaryCode}>
-            {tierAbbrev[price.code] ?? ''}
-          </span>
+          {#if abbrev !== ''}
+            <span class="abbrev" class:hollow={price.code !== primaryCode}>
+              {abbrev}
+            </span>
+          {/if}
           <span class="amount">{price.text}</span>
           <span class="unit">{product.price_suffix.trim()}</span>
         </span>

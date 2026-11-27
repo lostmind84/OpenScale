@@ -276,7 +276,7 @@ func (s *Server) stateOf(snap station.Snapshot) stateDTO {
 		// Read from the Hub and not from the snapshot: the presentation is a
 		// configuration that reloads hot (§11.4), and a snapshot describes a plate, a
 		// product and a printer -- never a screen setting.
-		PresentationDigest: presentationDigest(presentationOf(cfg.UI)),
+		PresentationDigest: presentationDigest(presentationOf(cfg.UI), cfg.Pricing),
 	}
 	return out
 }

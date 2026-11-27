@@ -11,6 +11,7 @@
   import { frenchInteger } from '../lib/format'
   import { productNameOf, type ReadState } from '../lib/read-state'
   import { frenchSeverity, labelOfCode } from '../lib/safeguards'
+  import { setPrimaryCode, tierChoices, tiersOf } from '../lib/tiers'
 
   /**
    * The Rules page of §14.4: the tier grid, the two roundings, the FOURTEEN safeguards,
@@ -44,6 +45,9 @@
 
   const diagnostics = $derived(health.state.diagnostics)
   const waivers = $derived(health.decisions.filter((decision) => decision.min_weight_g !== null))
+  const tiers = $derived(tiersOf(draft))
+  const primaryChoices = $derived(tierChoices(tiers, draft.text('pricing.primary_code')))
+  const referenceChoices = $derived(tierChoices(tiers, draft.text('pricing.reference_code')))
 
   /** Product names by Odoo id, read from the catalog in service. */
   let names = $state<Record<string, string>>({})
@@ -108,13 +112,15 @@
       label="Tarif imprimé en grand"
       path="pricing.primary_code"
       value={draft.text('pricing.primary_code')}
+      choices={primaryChoices}
       hint="Le prix que le client lit sur l’étiquette (A7)."
-      onchange={(value) => draft.set('pricing.primary_code', value)}
+      onchange={(value) => setPrimaryCode(draft, value)}
     />
     <Field
       label="Tarif qui serait encodé si le code-barres portait un prix"
       path="pricing.reference_code"
       value={draft.text('pricing.reference_code')}
+      choices={referenceChoices}
       hint="Le plan livré ne porte pas de prix, mais un poids ou un nombre d’unités : la caisse retrouve le prix par la référence, dans Odoo, et ne doit jamais sous-facturer."
       onchange={(value) => draft.set('pricing.reference_code', value)}
     />

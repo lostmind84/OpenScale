@@ -1,0 +1,1 @@
+import"./app-xYJw-KuL.js";import{t as e}from"./mount-BcPjWY4g.js";e(document.getElementById(`app`));
