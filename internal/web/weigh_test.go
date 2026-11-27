@@ -256,6 +256,130 @@ func TestCommandsAreRefusedOnceTheStationStops(t *testing.T) {
 	}
 }
 
+// TestTareUpdatesDisplayedNetWeightAndPrintsNetLabel covers issue #80 end-to-end:
+// validating a 14 g tare with 52 g on the plate updates the published state to
+// net 38 g (0,038 kg) / tare 14 g, prints the net weight on the label, resets when
+// the container leaves the plate, and clears back to 0 g when zero is submitted.
+func TestTareUpdatesDisplayedNetWeightAndPrintsNetLabel(t *testing.T) {
+	b := newBench(t)
+	b.feed(52, 2)
+
+	ack := decodeStatus[ackDTO](t, b.post("/api/v1/tare", `{"tare_g":14}`), http.StatusAccepted)
+	if !ack.Accepted {
+		t.Fatalf("POST /api/v1/tare refusé : %+v", ack)
+	}
+	if ack.State != "weight_present" && ack.State != "weight_stable" {
+		t.Fatalf("état après tare = %q, attendu weight_present ou weight_stable", ack.State)
+	}
+
+	shown := b.awaitState(func(s stateDTO) bool { return s.Weight.TareG == 14 })
+	if shown.Weight.GrossG != 52 || shown.Weight.NetG != 38 || shown.Weight.NetText != "0,038" {
+		t.Fatalf("poids publié = %+v, attendu brut 52, tare 14, net 38 (0,038)", shown.Weight)
+	}
+	if shown.State != "weight_present" && shown.State != "weight_stable" {
+		t.Fatalf("état publié = %q, attendu weight_present ou weight_stable", shown.State)
+	}
+
+	decodeStatus[ackDTO](t,
+		b.post("/api/v1/weigh", `{"product_id":"4412","tare_g":14,"seen_weight_g":52,"key":"01J9TARE01"}`),
+		http.StatusAccepted)
+	b.awaitPrint()
+
+	printed := b.printer.Jobs()
+	if len(printed) != 1 {
+		t.Fatalf("%d étiquettes imprimées, attendu 1", len(printed))
+	}
+	label := printed[0].Label
+	if label.GrossWeight != 52 || label.Tare != 14 || label.NetWeight != 38 {
+		t.Fatalf("étiquette = brut %d tare %d net %d, attendu 52/14/38",
+			label.GrossWeight, label.Tare, label.NetWeight)
+	}
+	if got := string(label.Barcode); len(got) != 13 || got[7:12] != "00038" {
+		t.Fatalf("code-barres = %q, charge utile attendue 00038", got)
+	}
+
+	// Lifting the container resets the tare for the next customer.
+	b.feed(0, 2)
+	reset := b.awaitState(func(s stateDTO) bool { return s.State == "idle" })
+	if reset.Weight.TareG != 0 {
+		t.Fatalf("tare conservée après retrait du contenant : %d g", reset.Weight.TareG)
+	}
+
+	// Clearing the tare explicitly via tare_g = 0 updates the net weight back to gross.
+	b.feed(52, 2)
+	decodeStatus[ackDTO](t, b.post("/api/v1/tare", `{"tare_g":14}`), http.StatusAccepted)
+	b.awaitState(func(s stateDTO) bool { return s.Weight.TareG == 14 })
+	decodeStatus[ackDTO](t, b.post("/api/v1/tare", `{"tare_g":0}`), http.StatusAccepted)
+	cleared := b.awaitState(func(s stateDTO) bool { return s.Weight.TareG == 0 })
+	if cleared.Weight.NetG != 52 || cleared.Weight.NetText != "0,052" {
+		t.Fatalf("poids après remise à zéro de la tare = %+v, attendu net 52 (0,052)", cleared.Weight)
+	}
+}
+
+// TestTareRejectsMalformedInputAndRefusesUnavailableStates checks input validation,
+// repeated POST /api/v1/tare calls, and refusal when a cycle already succeeded.
+func TestTareRejectsMalformedInputAndRefusesUnavailableStates(t *testing.T) {
+	b := newBench(t)
+	for _, sent := range []string{`{"tare_g":-1}`, `pas du json`, `{"inconnu":1}`} {
+		response := b.post("/api/v1/tare", sent)
+		if response.StatusCode != http.StatusBadRequest {
+			t.Errorf("POST /api/v1/tare %s = %d, attendu 400", sent, response.StatusCode)
+		}
+		response.Body.Close()
+	}
+
+	b.feed(52, 2)
+	first := decodeStatus[ackDTO](t, b.post("/api/v1/tare", `{"tare_g":14}`), http.StatusAccepted)
+	second := decodeStatus[ackDTO](t, b.post("/api/v1/tare", `{"tare_g":14}`), http.StatusAccepted)
+	if !first.Accepted || !second.Accepted || second.State == "entering_tare" {
+		t.Fatalf("appels répétés = %+v puis %+v", first, second)
+	}
+
+	decodeStatus[ackDTO](t,
+		b.post("/api/v1/weigh", `{"product_id":"4412","tare_g":14,"seen_weight_g":52,"key":"01J9DONE"}`),
+		http.StatusAccepted)
+	b.awaitPrint()
+	b.awaitState(func(s stateDTO) bool { return s.State == "succeeded" })
+
+	refused := decodeStatus[ackDTO](t, b.post("/api/v1/tare", `{"tare_g":10}`), http.StatusOK)
+	if refused.Accepted {
+		t.Fatalf("tare acceptée dans l'état succeeded : %+v", refused)
+	}
+}
+
+// TestTareCorrectionAfterInvalidTareRefusal verifies that a customer refused for
+// TARE_INVALID can enter a corrected tare without removing the container.
+func TestTareCorrectionAfterInvalidTareRefusal(t *testing.T) {
+	b := newBench(t)
+	b.feed(52, 2)
+
+	decodeStatus[ackDTO](t, b.post("/api/v1/tare", `{"tare_g":200}`), http.StatusAccepted)
+	refused := decodeStatus[ackDTO](t,
+		b.post("/api/v1/weigh", `{"product_id":"4412","tare_g":200,"seen_weight_g":52,"key":"01J9BADTARE"}`),
+		http.StatusOK)
+	if refused.Accepted || refused.Code != domain.CodeTareInvalid {
+		t.Fatalf("refus attendu %s, reçu %+v", domain.CodeTareInvalid, refused)
+	}
+	b.awaitState(func(s stateDTO) bool { return s.State == "rejected" && s.Message != nil })
+
+	decodeStatus[ackDTO](t, b.post("/api/v1/tare", `{"tare_g":14}`), http.StatusAccepted)
+	fixed := b.awaitState(func(s stateDTO) bool { return s.Weight.TareG == 14 })
+	if fixed.Message != nil {
+		t.Fatalf("bandeau de refus conservé après correction : %+v", fixed.Message)
+	}
+	if fixed.Weight.NetText != "0,038" {
+		t.Fatalf("net_text = %q, attendu 0,038", fixed.Weight.NetText)
+	}
+
+	decodeStatus[ackDTO](t,
+		b.post("/api/v1/weigh", `{"product_id":"4412","tare_g":14,"seen_weight_g":52,"key":"01J9GOODTARE"}`),
+		http.StatusAccepted)
+	b.awaitPrint()
+	if got := b.printer.Jobs()[0].Label.NetWeight; got != 38 {
+		t.Fatalf("poids net imprimé = %d g, attendu 38", got)
+	}
+}
+
 // --- Helpers ----------------------------------------------------------------
 
 // awaitState advances the clock until the published state satisfies the condition.

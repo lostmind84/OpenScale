@@ -36,6 +36,7 @@ func idle(m Model, ev Event, ctx TransitionContext) (Model, []Effect) {
 			return next, nil
 		}
 		next.State = presentOrStable(next)
+		next.ArmedAt = time.Time{}
 		return next, nil
 
 	case TareTapped:
@@ -57,6 +58,9 @@ func idle(m Model, ev Event, ctx TransitionContext) (Model, []Effect) {
 			next := m
 			next.State = ManualMode
 			return next, nil
+		}
+		if m.Tare > 0 && !m.ArmedAt.IsZero() && ctx.Now.Sub(m.ArmedAt) >= idleTimeout(ctx.Cfg) {
+			return m.clear(Idle), nil
 		}
 		return m, nil
 	}
@@ -110,8 +114,11 @@ func armed(m Model, ev Event, ctx TransitionContext) (Model, []Effect) {
 
 	case ProductTapped:
 		// The last intention expressed wins, always: another tile re-arms on the
-		// new product and restarts the timer.
-		return tapFromIdle(m.clear(Idle), e, ctx)
+		// new product and restarts the timer while keeping any active tare.
+		tare := m.Tare
+		cleared := m.clear(Idle)
+		cleared.Tare = tare
+		return tapFromIdle(cleared, e, ctx)
 
 	case TareTapped:
 		return openTareKeypad(m, ctx)
@@ -237,9 +244,28 @@ func awaitingStability(m Model, ev Event, ctx TransitionContext) (Model, []Effec
 // entry, so measurements keep being folded in (§14.3).
 func enteringTare(m Model, ev Event, ctx TransitionContext) (Model, []Effect) {
 	switch e := ev.(type) {
+	case TareTapped:
+		return openTareKeypad(m, ctx)
+
 	case TareConfirmed:
-		next := m
-		next.Tare, next.State = e.Tare, Idle
+		if e.Tare < 0 {
+			return m, []Effect{AckEffect{Key: e.Key, Ack: Ack{
+				Accepted: false, State: m.State, Message: "La tare ne peut pas être négative.",
+			}}}
+		}
+		next := m.clear(Idle)
+		next.Tare = e.Tare
+		if !ctx.LastMeasurement.Timestamp.IsZero() && !emptyZone(ctx.LastMeasurement.Gross, ctx.Cfg.Limits) {
+			next.State = presentOrStable(next)
+			return next, []Effect{AckEffect{Key: e.Key, Ack: Ack{Accepted: true, State: next.State}}}
+		}
+		if next.Tare > 0 {
+			next.ArmedAt = ctx.Now
+			return next, []Effect{
+				ArmTimerEffect{Duration: idleTimeout(ctx.Cfg)},
+				AckEffect{Key: e.Key, Ack: Ack{Accepted: true, State: Idle}},
+			}
+		}
 		return next, []Effect{AckEffect{Key: e.Key, Ack: Ack{Accepted: true, State: Idle}}}
 
 	case MeasurementReceived:
@@ -316,8 +342,9 @@ func manualMode(m Model, ev Event, ctx TransitionContext) (Model, []Effect) {
 // changes nothing about the entry. Three copies is how one of them would eventually
 // forget to restart the idle timer.
 func openTareKeypad(m Model, ctx TransitionContext) (Model, []Effect) {
-	next := m
-	next.State, next.ArmedAt = EnteringTare, ctx.Now
+	next := m.clear(EnteringTare)
+	next.Tare = m.Tare
+	next.ArmedAt = ctx.Now
 	return next, []Effect{
 		ArmTimerEffect{Duration: idleTimeout(ctx.Cfg)},
 		AckEffect{Ack: Ack{Accepted: true, State: EnteringTare}},

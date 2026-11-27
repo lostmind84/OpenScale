@@ -25,6 +25,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/screens", s.screens)
 	mux.HandleFunc("GET /api/v1/catalog", s.catalogPage)
 	mux.HandleFunc("POST /api/v1/weigh", s.weigh)
+	mux.HandleFunc("POST /api/v1/tare", s.tare)
 	mux.HandleFunc("POST /api/v1/reprint", s.reprint)
 	mux.HandleFunc("POST /api/v1/cancel", s.cancel)
 	mux.HandleFunc("POST /api/v1/dismiss", s.dismiss)

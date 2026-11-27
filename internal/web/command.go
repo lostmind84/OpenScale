@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"openscale/internal/domain"
 	"openscale/internal/station"
@@ -103,6 +104,46 @@ func manualKey(key string) string {
 	return key + ":weight"
 }
 
+// tareRequest is the body of POST /api/v1/tare (§14.5).
+//
+// TareG is the packaging mass in whole grams; zero clears an active tare.
+type tareRequest struct {
+	TareG int64 `json:"tare_g"`
+}
+
+// tare is POST /api/v1/tare: sets or clears the active tare on the station so the
+// published snapshot reflects the net weight before a product is tapped.
+func (s *Server) tare(w http.ResponseWriter, r *http.Request) {
+	var body tareRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if body.TareG < 0 {
+		writeProblem(w, http.StatusBadRequest, "", "La tare ne peut pas être négative.")
+		return
+	}
+	ack, err := s.hub.Submit(r.Context(), domain.TareTapped{}, "")
+	if err != nil {
+		s.answerSubmitError(w, err)
+		return
+	}
+	if !ack.Accepted {
+		writeAck(w, ack)
+		return
+	}
+	// Empty key keeps tare naturally idempotent and prevents a replay from leaving
+	// the Hub stuck in EnteringTare; WithoutCancel keeps the pair atomic across a
+	// client disconnect.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+	defer cancel()
+	ack, err = s.hub.Submit(ctx, domain.TareConfirmed{Tare: domain.Grams(body.TareG)}, "")
+	if err != nil {
+		s.answerSubmitError(w, err)
+		return
+	}
+	writeAck(w, ack)
+}
+
 // reprintRequest is the body of POST /api/v1/reprint.
 type reprintRequest struct {
 	JobID string `json:"job_id"`
@@ -197,6 +238,10 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request, ev domain.Event,
 		s.answerSubmitError(w, err)
 		return
 	}
+	writeAck(w, ack)
+}
+
+func writeAck(w http.ResponseWriter, ack domain.Ack) {
 	status := http.StatusOK
 	if ack.Accepted {
 		status = http.StatusAccepted

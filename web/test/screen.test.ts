@@ -670,3 +670,128 @@ describe('ce qui occupe l’écran, et rien d’autre', () => {
     expect(host.querySelector('.tare')?.textContent).toBe('Poids indisponible')
   })
 })
+
+describe('la tare', () => {
+  function padKey(label: string): HTMLElement {
+    const buttons = [...host.querySelectorAll<HTMLElement>('[aria-label="Tare en grammes"] button')]
+    const button = buttons.find((b) => b.textContent?.trim() === label)
+    if (button === undefined) throw new Error(`Touche tare introuvable : ${label}`)
+    return button
+  }
+
+  it('envoie POST /api/v1/tare à la validation et met à jour le bandeau via le flux', async () => {
+    await open(
+      restingState({
+        weight: { ...restingState().weight, gross_g: 52, net_g: 52, net_text: '0,052' },
+      }),
+    )
+
+    host.querySelector<HTMLElement>('.tare-key')?.click()
+    flushSync()
+    padKey('1').click()
+    padKey('4').click()
+    flushSync()
+    expect(host.querySelector('[aria-label="Tare en grammes"] .grams')?.textContent).toBe('14g')
+
+    padKey('Valider').click()
+    flushSync()
+    await vi.waitUntil(() => posted.some((p) => p.route === '/api/v1/tare'))
+
+    expect(host.querySelector('[aria-label="Tare en grammes"]')).toBeNull()
+    expect(posted[0]).toEqual({ route: '/api/v1/tare', body: { tare_g: 14 } })
+
+    stream?.push(
+      restingState({
+        revision: 2,
+        weight: {
+          ...restingState().weight,
+          gross_g: 52,
+          tare_g: 14,
+          net_g: 38,
+          net_text: '0,038',
+        },
+      }),
+    )
+    flushSync()
+
+    expect(host.querySelector('.weight')?.textContent).toContain('0,038')
+    expect(host.querySelector('.tare')?.textContent).toBe('tare 14 g')
+
+    tiles()[0]?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    await vi.waitUntil(() => posted.some((p) => p.route === '/api/v1/weigh'))
+    expect(posted[1]?.body).toMatchObject({ tare_g: 14, seen_weight_g: 52 })
+  })
+
+  it('referme le pavé sur Annuler sans envoyer de requête', async () => {
+    await open()
+    host.querySelector<HTMLElement>('.tare-key')?.click()
+    flushSync()
+    padKey('1').click()
+    padKey('Annuler').click()
+    flushSync()
+
+    expect(host.querySelector('[aria-label="Tare en grammes"]')).toBeNull()
+    expect(posted).toHaveLength(0)
+  })
+
+  it('envoie tare_g: 0 quand on efface puis valide', async () => {
+    await open()
+    host.querySelector<HTMLElement>('.tare-key')?.click()
+    flushSync()
+    padKey('2').click()
+    padKey('Effacer').click()
+    flushSync()
+    expect(host.querySelector('[aria-label="Tare en grammes"] .grams')?.textContent).toBe('0g')
+
+    padKey('Valider').click()
+    flushSync()
+    await vi.waitUntil(() => posted.some((p) => p.route === '/api/v1/tare'))
+    expect(posted[0]).toEqual({ route: '/api/v1/tare', body: { tare_g: 0 } })
+  })
+
+  it('supprime le zéro en tête et borne la saisie à 5 chiffres', async () => {
+    await open()
+    host.querySelector<HTMLElement>('.tare-key')?.click()
+    flushSync()
+
+    padKey('0').click()
+    padKey('5').click()
+    flushSync()
+    expect(host.querySelector('[aria-label="Tare en grammes"] .grams')?.textContent).toBe('5g')
+
+    padKey('Effacer').click()
+    for (const d of ['1', '2', '3', '4', '5', '6']) padKey(d).click()
+    flushSync()
+    expect(host.querySelector('[aria-label="Tare en grammes"] .grams')?.textContent).toBe('12345g')
+
+    padKey('Valider').click()
+    flushSync()
+    await vi.waitUntil(() => posted.some((p) => p.route === '/api/v1/tare'))
+    expect(posted[0]).toEqual({ route: '/api/v1/tare', body: { tare_g: 12345 } })
+  })
+
+  it('pilote le pavé au clavier physique sans ouvrir la recherche', async () => {
+    await open()
+    host.querySelector<HTMLElement>('.tare-key')?.click()
+    flushSync()
+
+    typeKey('1')
+    typeKey('4')
+    typeKey('Backspace')
+    typeKey('5')
+    expect(host.querySelector('[aria-label="Tare en grammes"] .grams')?.textContent).toBe('15g')
+    expect(host.querySelector('.search-field')).toBeNull()
+
+    typeKey('Enter')
+    await vi.waitUntil(() => posted.some((p) => p.route === '/api/v1/tare'))
+    expect(posted[0]).toEqual({ route: '/api/v1/tare', body: { tare_g: 15 } })
+    expect(host.querySelector('[aria-label="Tare en grammes"]')).toBeNull()
+
+    host.querySelector<HTMLElement>('.tare-key')?.click()
+    flushSync()
+    typeKey('9')
+    typeKey('Escape')
+    expect(host.querySelector('[aria-label="Tare en grammes"]')).toBeNull()
+    expect(posted).toHaveLength(1)
+  })
+})

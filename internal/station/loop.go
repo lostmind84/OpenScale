@@ -96,9 +96,11 @@ func (h *Hub) run(ctx context.Context, ticks <-chan time.Time) {
 		})
 		h.model = next
 
-		if next.State == domain.Idle && previous.State != domain.Idle {
-			// The bag left the plate, or the cycle was cancelled. That physical
-			// signal is what empties the banner — not a stopwatch (§14.3).
+		if (next.State == domain.Idle && previous.State != domain.Idle) ||
+			(previous.State == domain.Rejected && next.State != domain.Rejected) ||
+			(previous.State == domain.ProductArmed && next.State == domain.EnteringTare) {
+			// The bag left the plate, the cycle was cancelled, or the customer
+			// moved on from a refusal or arming (for example by adjusting the tare).
 			h.message = nil
 		}
 
