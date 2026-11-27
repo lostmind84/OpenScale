@@ -39,15 +39,10 @@ func TestTheUnitIsValidAccordingToSystemdItself(t *testing.T) {
 	if err != nil {
 		t.Skip("systemd-analyze absent : les directives sont vérifiées par le test suivant")
 	}
-	// systemd-analyze verify also inspects the MODE of the file it is handed, and refuses
-	// one that is executable or world-writable — sound on a real filesystem, but this
-	// repository can be checked out through a bind mount (the project's devcontainer mounts
-	// it from a Windows host), where NTFS reports every file as 0777 to Linux regardless of
-	// what install.sh or the unit itself asks for. Verifying COPIES written with an explicit
-	// 0644 makes the bench judge the unit's CONTENT, independent of whatever filesystem
-	// happens to host the checkout.
-	units := copyUnitsForVerification(t, "openscale.service", "openscale-kiosk.service")
-	output, err := exec.Command(analyze, append([]string{"verify"}, units...)...).CombinedOutput()
+	names := []string{"openscale.service", "openscale-kiosk.service"}
+	root := prepareVerificationRoot(t, names...)
+	args := append([]string{"--root=" + root, "verify"}, names...)
+	output, err := exec.Command(analyze, args...).CombinedOutput()
 	// systemd-analyze checks that ExecStart points at something EXECUTABLE, which on a
 	// CI runner it never is: nothing is installed there. That complaint is about the
 	// MACHINE, not about the unit, and failing on it would mean this test can only run
@@ -66,29 +61,61 @@ func TestTheUnitIsValidAccordingToSystemdItself(t *testing.T) {
 	}
 }
 
-// copyUnitsForVerification copies the named shipped units into a throwaway directory with
-// mode 0644, and returns their new paths in the same order.
-//
-// systemd-analyze verify judges the file it is given, mode included, and this repository's
-// checkout does not always control that mode (see the comment above its one caller). A copy
-// with a mode this test chooses itself is what keeps the bench about the unit and not about
-// the checkout.
-func copyUnitsForVerification(t *testing.T, names ...string) []string {
+// TestSystemdVerificationStillRefusesAnInvalidUnit proves that isolating verification
+// under `--root` catches unknown directives instead of silencing systemd-analyze.
+func TestSystemdVerificationStillRefusesAnInvalidUnit(t *testing.T) {
+	analyze, err := exec.LookPath("systemd-analyze")
+	if err != nil {
+		t.Skip("systemd-analyze absent : les directives sont vérifiées par le test suivant")
+	}
+	root := prepareVerificationRoot(t)
+	badPath := filepath.Join(root, "etc", "systemd", "system", "bad.service")
+	badUnit := "[Unit]\nDescription=Bad\n[Service]\nBogusDirective=yes\nExecStart=/bin/true\n"
+	if err := os.WriteFile(badPath, []byte(badUnit), 0o644); err != nil {
+		t.Fatalf("écriture de l'unité invalide : %v", err)
+	}
+	output, err := exec.Command(analyze, "--root="+root, "verify", "bad.service").CombinedOutput()
+	if err == nil {
+		t.Fatalf("systemd-analyze verify a accepté une unité invalide :\n%s", output)
+	}
+	remaining := bytes.TrimSpace(environmentComplaints.ReplaceAll(output, nil))
+	if len(remaining) == 0 || !bytes.Contains(remaining, []byte("BogusDirective")) {
+		t.Fatalf("sortie inattendue pour une unité invalide :\n%s", output)
+	}
+}
+
+// prepareVerificationRoot creates an isolated root containing minimal target stubs and
+// 0644 copies of the named shipped units so `systemd-analyze --root=... verify` never
+// inspects unrelated host system units or fails on bind-mount permissions.
+func prepareVerificationRoot(t *testing.T, names ...string) string {
 	t.Helper()
-	directory := t.TempDir()
-	copies := make([]string, 0, len(names))
+	root := t.TempDir()
+	unitDir := filepath.Join(root, "etc", "systemd", "system")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatalf("création de %s : %v", unitDir, err)
+	}
+	for _, target := range []string{
+		"sysinit.target",
+		"basic.target",
+		"shutdown.target",
+		"multi-user.target",
+		"network.target",
+	} {
+		stub := []byte("[Unit]\nDescription=stub " + target + "\n")
+		if err := os.WriteFile(filepath.Join(unitDir, target), stub, 0o644); err != nil {
+			t.Fatalf("écriture du jalon %s : %v", target, err)
+		}
+	}
 	for _, name := range names {
 		content, err := os.ReadFile(unitPath(name))
 		if err != nil {
 			t.Fatalf("lecture de %s : %v", name, err)
 		}
-		copyPath := filepath.Join(directory, name)
-		if err := os.WriteFile(copyPath, content, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(unitDir, name), content, 0o644); err != nil {
 			t.Fatalf("copie de %s : %v", name, err)
 		}
-		copies = append(copies, copyPath)
 	}
-	return copies
+	return root
 }
 
 // TestTheStopTimeoutFollowsTheMeasuredShutdownBudget is the §13.4 fix, guarded where it
