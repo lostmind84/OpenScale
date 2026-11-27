@@ -87,3 +87,163 @@ export function previewOf(discount: number): string {
   const cents = 1000 - Math.round(discount * 10)
   return `${String(Math.trunc(cents / 100))},${String(cents % 100).padStart(2, '0')}`
 }
+
+type TierRecord = Record<string, unknown>
+
+/** Reads a shallow-cloned copy of each tier object from the draft. */
+function rawTiers(draft: Draft): TierRecord[] {
+  const value = draft.value('pricing.tiers')
+  if (!Array.isArray(value)) return []
+  return value.map((raw) => ({ ...((raw ?? {}) as TierRecord) }))
+}
+
+/** Picks an unused internal code for a newly added tier. */
+function nextUniqueCode(existing: TierRecord[]): string {
+  if (existing.length === 0) return 'STANDARD'
+  const used = new Set(existing.map((row) => String(row.code ?? '')))
+  let index = existing.length + 1
+  while (used.has(`TARIF_${String(index)}`)) {
+    index += 1
+  }
+  return `TARIF_${String(index)}`
+}
+
+/** Computes the next display rank above all existing tiers. */
+function nextRankOf(existing: TierRecord[]): number {
+  const highest = existing.reduce((max, row) => {
+    const rank = Number(row.rank ?? 0)
+    return Number.isFinite(rank) && rank > max ? rank : max
+  }, 0)
+  return highest + 1
+}
+
+/** Collects every non-empty tier code present in the rows. */
+function codesOf(rows: TierRecord[]): string[] {
+  return rows.map((row) => String(row.code ?? '')).filter((code) => code !== '')
+}
+
+/** Keeps secondary_codes aligned with all non-primary tiers in the grid. */
+function syncSecondaryCodes(draft: Draft, codes: string[], primaryCode: string): void {
+  draft.set(
+    'pricing.secondary_codes',
+    codes.filter((code) => code !== primaryCode),
+  )
+}
+
+/** Picks the best surviving row to act as the catalog-price reference tier. */
+function pickReferenceRow(rows: TierRecord[]): TierRecord | undefined {
+  return (
+    rows.find((row) => row.discount_percent === undefined || row.discount_percent === 0) ?? rows[0]
+  )
+}
+
+/**
+ * Appends a new tier to the grid and fills missing role references so saving stays valid.
+ *
+ * @param draft - the configuration being edited.
+ */
+export function addTier(draft: Draft): void {
+  const existing = rawTiers(draft)
+  const code = nextUniqueCode(existing)
+  const rank = existing.length === 0 ? 1 : nextRankOf(existing)
+  const added: TierRecord =
+    existing.length === 0
+      ? { code, label: 'Prix', abbrev: '', rank: 1 }
+      : { code, label: `Tarif ${String(rank)}`, abbrev: '', discount_percent: 0, rank }
+
+  const nextRows = [...existing, added]
+  const codes = codesOf(nextRows)
+
+  const currentPrimary = String(draft.value('pricing.primary_code') ?? '')
+  const nextPrimary = codes.includes(currentPrimary) ? currentPrimary : code
+  if (currentPrimary !== nextPrimary) {
+    draft.set('pricing.primary_code', nextPrimary)
+  }
+
+  const currentReference = String(draft.value('pricing.reference_code') ?? '')
+  if (!codes.includes(currentReference)) {
+    delete added.discount_percent
+    draft.set('pricing.reference_code', code)
+  }
+
+  draft.set('pricing.tiers', nextRows)
+  syncSecondaryCodes(draft, codes, nextPrimary)
+}
+
+/**
+ * Removes one tier (when more than one remains), renumbers ranks, and realigns
+ * primary, reference, and secondary tier codes.
+ *
+ * Removing a tier is not irreversible until saved, and must never leave the new
+ * reference tier carrying a forbidden discount_percent key.
+ *
+ * @param draft - the configuration being edited.
+ * @param index - zero-based index of the tier to remove.
+ */
+export function removeTier(draft: Draft, index: number): void {
+  const existing = rawTiers(draft)
+  if (existing.length <= 1 || index < 0 || index >= existing.length) return
+
+  const nextRows = existing
+    .filter((_row, position) => position !== index)
+    .map((row, position) => ({ ...row, rank: position + 1 }))
+  const codes = codesOf(nextRows)
+
+  const currentPrimary = String(draft.value('pricing.primary_code') ?? '')
+  const nextPrimary = codes.includes(currentPrimary) ? currentPrimary : (codes[0] ?? '')
+  if (currentPrimary !== nextPrimary) {
+    draft.set('pricing.primary_code', nextPrimary)
+  }
+
+  const currentReference = String(draft.value('pricing.reference_code') ?? '')
+  if (!codes.includes(currentReference)) {
+    const refRow = pickReferenceRow(nextRows)
+    if (refRow !== undefined) {
+      delete refRow.discount_percent
+      draft.set('pricing.reference_code', String(refRow.code ?? ''))
+    }
+  }
+
+  draft.set('pricing.tiers', nextRows)
+  syncSecondaryCodes(draft, codes, nextPrimary)
+}
+
+/**
+ * Updates `pricing.primary_code` and aligns `pricing.secondary_codes` with every
+ * remaining tier code in the grid.
+ *
+ * @param draft - the configuration being edited.
+ * @param code - chosen primary tier code.
+ */
+export function setPrimaryCode(draft: Draft, code: string): void {
+  draft.set('pricing.primary_code', code)
+  const tiers = tiersOf(draft)
+  if (tiers.some((tier) => tier.code === code && tier.code !== '')) {
+    const codes = tiers.map((tier) => tier.code).filter((candidate) => candidate !== '')
+    syncSecondaryCodes(draft, codes, code)
+  }
+}
+
+/**
+ * Builds `<select>` options for tier role selectors without masking an unknown value
+ * carried by the file on disk.
+ *
+ * @param tiers - tiers currently in the grid.
+ * @param current - currently configured tier code.
+ */
+export function tierChoices(tiers: Tier[], current: string): { value: string; label: string }[] {
+  const seen = new Set<string>()
+  const choices: { value: string; label: string }[] = []
+  for (const tier of tiers) {
+    if (tier.code === '' || seen.has(tier.code)) continue
+    seen.add(tier.code)
+    choices.push({
+      value: tier.code,
+      label: tier.label.trim() !== '' ? tier.label : tier.code,
+    })
+  }
+  if (choices.length > 0 && !seen.has(current)) {
+    choices.push({ value: current, label: current === '' ? '—' : current })
+  }
+  return choices
+}

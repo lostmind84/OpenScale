@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"openscale/internal/domain"
+	"openscale/internal/station"
 )
 
 // TestTheCatalogIsServedWholeWithAValidator: the grid arrives once, and a browser that
@@ -270,7 +271,7 @@ func TestTheStateStreamNamesTheCatalogInService(t *testing.T) {
 // darkness — a full reload for a value the client screen does not read.
 func TestThePresentationDigestFollowsThePresentationAndNothingElse(t *testing.T) {
 	reference := loadConfig(t)
-	base := presentationDigest(presentationOf(reference.UI))
+	base := presentationDigest(presentationOf(reference.UI), reference.Pricing)
 
 	for name, tweak := range map[string]func(*domain.Config){
 		"le nombre de colonnes": func(c *domain.Config) { c.UI.GridColumns = 7 },
@@ -280,6 +281,18 @@ func TestThePresentationDigestFollowsThePresentationAndNothingElse(t *testing.T)
 		},
 		"les tuiles à l'unité": func(c *domain.Config) {
 			c.UI.ShowByUnitProducts = !c.UI.ShowByUnitProducts
+		},
+		"le passage au mono-tarif": func(c *domain.Config) {
+			c.Pricing = domain.SingleTierRules()
+		},
+		"l'abrégé d'un tarif": func(c *domain.Config) {
+			c.Pricing.Tiers[0].Abbrev = ""
+		},
+		"la remise d'un tarif": func(c *domain.Config) {
+			c.Pricing.Tiers[0].Discount = 150
+		},
+		"le tarif principal": func(c *domain.Config) {
+			c.Pricing.PrimaryCode = "SOLIDARITY"
 		},
 	} {
 		t.Run("bouge quand "+name+" bouge", func(t *testing.T) {
@@ -311,7 +324,7 @@ func digestOf(t *testing.T, tweak func(*domain.Config)) string {
 	t.Helper()
 	cfg := loadConfig(t)
 	tweak(&cfg)
-	return presentationDigest(presentationOf(cfg.UI))
+	return presentationDigest(presentationOf(cfg.UI), cfg.Pricing)
 }
 
 // TestEveryFieldOfThePresentationEntersItsDigest is what makes « un champ ajouté demain
@@ -322,8 +335,10 @@ func digestOf(t *testing.T, tweak func(*domain.Config)) string {
 // anybody remembering this test exists. A hand-written concatenation of five fields would
 // pass every other test in this file and fail this one.
 func TestEveryFieldOfThePresentationEntersItsDigest(t *testing.T) {
-	reference := presentationOf(loadConfig(t).UI)
-	base := presentationDigest(reference)
+	cfg := loadConfig(t)
+	reference := presentationOf(cfg.UI)
+	referencePricing := cfg.Pricing
+	base := presentationDigest(reference, referencePricing)
 
 	typ := reflect.TypeOf(reference)
 	for i := 0; i < typ.NumField(); i++ {
@@ -341,7 +356,7 @@ func TestEveryFieldOfThePresentationEntersItsDigest(t *testing.T) {
 				"une empreinte dont on ne sait pas prouver qu'elle suit un champ ne "+
 				"protège pas ce champ", typ.Field(i).Name, field.Kind())
 		}
-		if got := presentationDigest(moved); got == base {
+		if got := presentationDigest(moved, referencePricing); got == base {
 			t.Errorf("l'empreinte ne bouge pas quand %s bouge : elle n'est pas prise sur "+
 				"le DTO entier, et le prochain champ ajouté n'y entrera pas non plus",
 				typ.Field(i).Name)
@@ -568,5 +583,37 @@ func TestNoListOfThisPayloadIsEverNull(t *testing.T) {
 			t.Fatalf("%q est servi à null : un écran qui filtre cette liste tombe en ERR-UI-01\n%s",
 				list, raw)
 		}
+	}
+}
+
+// TestThePresentationDigestMovesWhenPricingSwitchesToSingleTier verifies that a live
+// configuration reload switching the price grid to single-tier updates
+// `presentation_digest` in the state stream and causes `/api/v1/catalog` to serve one
+// tier with an empty abbreviation.
+func TestThePresentationDigestMovesWhenPricingSwitchesToSingleTier(t *testing.T) {
+	b := newBench(t)
+
+	beforePage := decodeStatus[catalogDTO](t, b.get("/api/v1/catalog"), http.StatusOK)
+	if len(beforePage.Prices.Tiers) != 2 || len(beforePage.Products[0].Prices) != 2 {
+		t.Fatalf("catalogue initial = %d tarifs, %d prix par tuile ; attendu 2 et 2",
+			len(beforePage.Prices.Tiers), len(beforePage.Products[0].Prices))
+	}
+	beforeDigest := b.state().PresentationDigest
+
+	cfg := b.hub.Config()
+	cfg.Pricing = domain.SingleTierRules()
+	if _, err := b.station.Reload(station.ReloadRequest{Next: cfg}); err != nil {
+		t.Fatalf("Reload : %v", err)
+	}
+
+	if afterDigest := b.state().PresentationDigest; afterDigest == beforeDigest {
+		t.Fatalf("presentation_digest inchangé (%q) après passage en mono-tarif", afterDigest)
+	}
+	afterPage := decodeStatus[catalogDTO](t, b.get("/api/v1/catalog"), http.StatusOK)
+	if len(afterPage.Prices.Tiers) != 1 || afterPage.Prices.Tiers[0].Abbrev != "" {
+		t.Fatalf("tarifs servis = %+v, attendu 1 tarif sans abrégé", afterPage.Prices.Tiers)
+	}
+	if len(afterPage.Products[0].Prices) != 1 {
+		t.Fatalf("prix par tuile = %+v, attendu 1 seul", afterPage.Products[0].Prices)
 	}
 }

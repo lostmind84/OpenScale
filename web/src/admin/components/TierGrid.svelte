@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Draft } from '../lib/draft.svelte'
-  import { discountText, previewOf, tiersOf } from '../lib/tiers'
+  import { addTier, discountText, previewOf, removeTier, tiersOf } from '../lib/tiers'
   import { discountTyped, restoreBox } from '../lib/typed-values'
 
   /**
@@ -42,6 +42,9 @@
 
 {#if tiers.length === 0}
   <p class="fact">Aucun tarif déclaré dans la configuration lue.</p>
+  <div class="tier-actions">
+    <button type="button" class="add-tier" onclick={() => addTier(draft)}>Ajouter un tarif</button>
+  </div>
 {:else}
   <p class="fact muted" data-tier-count>{tierCount(tiers.length)}.</p>
   <div class="scroll">
@@ -53,6 +56,7 @@
           <th>Abrégé</th>
           <th>Remise</th>
           <th>Ordre</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -133,10 +137,24 @@
               {/if}
             </td>
             <td>{tier.rank}</td>
+            <td class="action-cell">
+              <button
+                type="button"
+                class="row-action"
+                disabled={tiers.length <= 1}
+                aria-label="Retirer le tarif {index + 1}"
+                onclick={() => removeTier(draft, index)}
+              >
+                Retirer
+              </button>
+            </td>
           </tr>
         {/each}
       </tbody>
     </table>
+  </div>
+  <div class="tier-actions">
+    <button type="button" class="add-tier" onclick={() => addTier(draft)}>Ajouter un tarif</button>
   </div>
   <p class="fact muted">
     Un champ vidé garde la valeur du fichier : il n’écrit pas zéro, et la case la
@@ -208,5 +226,35 @@
     flex: 1 1 20rem;
     color: var(--ink-muted);
     font-size: 1rem;
+  }
+
+  .tier-actions {
+    display: flex;
+    justify-content: flex-start;
+    margin: 0.75rem 0 0.25rem;
+  }
+
+  .action-cell {
+    width: 1%;
+    white-space: nowrap;
+  }
+
+  .row-action,
+  .add-tier {
+    min-height: 2.75rem;
+    padding: 0 0.875rem;
+    font: inherit;
+    font-size: 1rem;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+
+  .row-action:disabled {
+    color: var(--ink-muted);
+    background: var(--bg);
+    cursor: not-allowed;
   }
 </style>

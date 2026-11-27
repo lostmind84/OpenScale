@@ -395,6 +395,111 @@ describe('la grille de tarifs', () => {
     expect(draft.value('pricing.tiers.1.label')).toBe('Solidaire renforcé')
     expect(draft.value('pricing.tiers.0.label')).toBe('Adhérent')
   })
+
+  it('retire un tarif jusqu’au mono-tarif en réalignant les rôles et les rangs', () => {
+    const config = laCagetteConfig()
+    ;(config.pricing as Record<string, unknown>).secondary_codes = ['SOLIDARITY']
+    const draft = open(config)
+
+    const removeBtn = host.querySelector<HTMLButtonElement>('button[aria-label="Retirer le tarif 1"]')
+    expect(removeBtn).not.toBeNull()
+    expect(removeBtn?.disabled).toBe(false)
+    removeBtn?.click()
+    flushSync()
+
+    expect(host.querySelectorAll('tbody tr')).toHaveLength(1)
+    expect(pageText()).toContain('1 tarif déclaré')
+    expect(draft.dirty).toBe(true)
+    expect(draft.value('pricing.tiers')).toEqual([
+      { code: 'SOLIDARITY', label: 'Solidaire', abbrev: 'S', rank: 1 },
+    ])
+    expect(draft.value('pricing.primary_code')).toBe('SOLIDARITY')
+    expect(draft.value('pricing.reference_code')).toBe('SOLIDARITY')
+    expect(draft.value('pricing.secondary_codes')).toEqual([])
+
+    const lastRemoveBtn = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retirer le tarif 1"]',
+    )
+    expect(lastRemoveBtn?.disabled).toBe(true)
+  })
+
+  it('retire le tarif de référence sans laisser de remise verrouillée sur le tarif survivant', () => {
+    const config = laCagetteConfig()
+    ;(config.pricing as Record<string, unknown>).secondary_codes = ['SOLIDARITY']
+    const draft = open(config)
+
+    const removeRefBtn = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retirer le tarif 2"]',
+    )
+    expect(removeRefBtn).not.toBeNull()
+    removeRefBtn?.click()
+    flushSync()
+
+    expect(host.querySelectorAll('tbody tr')).toHaveLength(1)
+    expect(draft.value('pricing.reference_code')).toBe('MEMBER')
+    expect(draft.value('pricing.primary_code')).toBe('MEMBER')
+    expect(draft.value('pricing.secondary_codes')).toEqual([])
+    expect(draft.value('pricing.tiers.0.discount_percent')).toBeUndefined()
+    const panel = panelAbout('Grille de tarifs')
+    expect(panel).toContain('Prix du catalogue Odoo — pas de remise')
+    expect(panel).not.toContain('ne peut pas porter de remise')
+  })
+
+  it('ajoute un tarif depuis une grille mono-tarif avec code unique et mise à jour des secondaires', () => {
+    const draft = open({
+      pricing: {
+        tiers: [{ code: 'SOLIDARITY', label: 'Solidaire', abbrev: '', rank: 1 }],
+        primary_code: 'SOLIDARITY',
+        secondary_codes: [],
+        reference_code: 'SOLIDARITY',
+        amount_rounding: 'half_up',
+        unit_price_rounding: 'half_up',
+      },
+    })
+
+    const removeOnlyBtn = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retirer le tarif 1"]',
+    )
+    expect(removeOnlyBtn?.disabled).toBe(true)
+
+    const addBtn = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (btn) => collapse(btn.textContent ?? '') === 'Ajouter un tarif',
+    )
+    expect(addBtn).not.toBeUndefined()
+    addBtn?.click()
+    flushSync()
+
+    expect(host.querySelectorAll('tbody tr')).toHaveLength(2)
+    expect(pageText()).toContain('2 tarifs déclarés')
+    expect(draft.value('pricing.tiers')).toEqual([
+      { code: 'SOLIDARITY', label: 'Solidaire', abbrev: '', rank: 1 },
+      { code: 'TARIF_2', label: 'Tarif 2', abbrev: '', discount_percent: 0, rank: 2 },
+    ])
+    expect(draft.value('pricing.secondary_codes')).toEqual(['TARIF_2'])
+    expect(
+      host.querySelector<HTMLButtonElement>('button[aria-label="Retirer le tarif 1"]')?.disabled,
+    ).toBe(false)
+  })
+
+  it('vide l’abrégé du tarif et met à jour secondary_codes quand le tarif principal change', () => {
+    const config = laCagetteConfig()
+    ;(config.pricing as Record<string, unknown>).secondary_codes = ['SOLIDARITY']
+    const draft = open(config)
+
+    type(tierField('Abrégé du tarif 1'), '')
+    expect(draft.value('pricing.tiers.0.abbrev')).toBe('')
+
+    const primarySelect = host.querySelector<HTMLSelectElement>('#field-pricing-primary_code')
+    expect(primarySelect).not.toBeNull()
+    if (primarySelect !== null) {
+      primarySelect.value = 'SOLIDARITY'
+      primarySelect.dispatchEvent(new Event('change', { bubbles: true }))
+      flushSync()
+    }
+
+    expect(draft.value('pricing.primary_code')).toBe('SOLIDARITY')
+    expect(draft.value('pricing.secondary_codes')).toEqual(['MEMBER'])
+  })
 })
 
 describe('le bloc code-barres de §14.4', () => {
