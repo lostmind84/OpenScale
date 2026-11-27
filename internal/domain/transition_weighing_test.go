@@ -217,6 +217,219 @@ func TestTransitionTareTravelsWithTheTapAndReachesTheLabel(t *testing.T) {
 	}
 }
 
+// TestTransitionTareConfirmedWithWeightOnPlateReturnsToWeighing is the exact
+// scenario of issue #80: a customer puts their 52 g container on the plate, enters
+// a 14 g tare, and validates. The station must return directly to WeightPresent or
+// WeightStable (not Idle) holding Tare == 14, and a subsequent ProductTapped whose
+// payload still carries Tare == 0 (SSE throttle race) must still print with 14 g.
+func TestTransitionTareConfirmedWithWeightOnPlateReturnsToWeighing(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		latch     bool
+		wantState State
+	}{
+		{"weight_present", false, WeightPresent},
+		{"weight_stable", true, WeightStable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRun(t)
+			r.at(0).measure(52, Stable)
+			if tc.latch {
+				r.at(400*time.Millisecond).measure(52, Stable)
+			}
+			if r.m.State != tc.wantState {
+				t.Fatalf("precondition state %s, want %s", r.m.State, tc.wantState)
+			}
+
+			r.at(500 * time.Millisecond).send(TareTapped{})
+			if r.m.State != EnteringTare {
+				t.Fatalf("TareTapped reached %s, want entering_tare", r.m.State)
+			}
+
+			effects := r.at(600 * time.Millisecond).send(TareConfirmed{Tare: 14, Key: "01J-TARE80"})
+			if r.m.State != tc.wantState {
+				t.Fatalf("TareConfirmed reached %s, want %s", r.m.State, tc.wantState)
+			}
+			if r.m.Tare != 14 {
+				t.Fatalf("tare %d g, want 14", r.m.Tare)
+			}
+			ack, ok := findEffect[AckEffect](effects)
+			if !ok || !ack.Ack.Accepted || ack.Ack.State != tc.wantState {
+				t.Fatalf("ack = %+v, want Accepted=true State=%s", ack.Ack, tc.wantState)
+			}
+
+			// Even if the tap arrives with Tare: 0 before the browser observes the
+			// throttled SSE snapshot, the model's active tare applies.
+			effects = r.at(700 * time.Millisecond).send(ProductTapped{
+				ProductID: "894", Tare: 0, SeenWeight: 52, Key: "01J-RACE",
+			})
+			print, ok := findEffect[PrintEffect](effects)
+			if !ok {
+				t.Fatalf("tared tap printed nothing: %s, %+v", r.m.State, r.m.Diagnostics)
+			}
+			if print.Label.GrossWeight != 52 || print.Label.Tare != 14 || print.Label.NetWeight != 38 {
+				t.Errorf("label = gross %d tare %d net %d, want 52/14/38",
+					print.Label.GrossWeight, print.Label.Tare, print.Label.NetWeight)
+			}
+		})
+	}
+}
+
+// TestTransitionTareZeroClearsActiveTare checks that confirming a 0 g tare clears an
+// active tare both on an empty plate and with a mass on the plate.
+func TestTransitionTareZeroClearsActiveTare(t *testing.T) {
+	// Empty plate.
+	r := newRun(t)
+	r.at(0).send(TareTapped{})
+	r.at(time.Second).send(TareConfirmed{Tare: 120})
+	if r.m.Tare != 120 || r.m.State != Idle {
+		t.Fatalf("after setting tare: state %s, tare %d", r.m.State, r.m.Tare)
+	}
+	r.at(2 * time.Second).send(TareTapped{})
+	r.at(3 * time.Second).send(TareConfirmed{Tare: 0})
+	if r.m.Tare != 0 || r.m.State != Idle {
+		t.Fatalf("after clearing tare on empty plate: state %s, tare %d", r.m.State, r.m.Tare)
+	}
+
+	// Mass on plate.
+	r = newRun(t)
+	r.at(0).measure(500, Stable)
+	r.at(200 * time.Millisecond).send(TareTapped{})
+	r.at(400 * time.Millisecond).send(TareConfirmed{Tare: 120})
+	if r.m.Tare != 120 || r.m.State != WeightPresent {
+		t.Fatalf("after setting tare on plate: state %s, tare %d", r.m.State, r.m.Tare)
+	}
+	r.at(600 * time.Millisecond).send(TareTapped{})
+	r.at(800 * time.Millisecond).send(TareConfirmed{Tare: 0})
+	if r.m.Tare != 0 || r.m.State != WeightPresent {
+		t.Fatalf("after clearing tare on plate: state %s, tare %d", r.m.State, r.m.Tare)
+	}
+}
+
+// TestTransitionAbandonedTareOnEmptyPlateExpiresSilently ensures a tare confirmed on
+// an empty plate is forgotten after idle_timeout_s if nobody puts anything down,
+// while a load placed on the plate keeps the tare alive past the deadline.
+func TestTransitionAbandonedTareOnEmptyPlateExpiresSilently(t *testing.T) {
+	r := newRun(t)
+	r.at(0).send(TareTapped{})
+	effects := r.at(1 * time.Second).send(TareConfirmed{Tare: 236})
+	if r.m.State != Idle || r.m.Tare != 236 {
+		t.Fatalf("after TareConfirmed: state %s, tare %d", r.m.State, r.m.Tare)
+	}
+	if timer, ok := findEffect[ArmTimerEffect](effects); !ok || timer.Duration != 45*time.Second {
+		t.Errorf("arm timer = %v (ok=%v), want 45s", timer.Duration, ok)
+	}
+	if n := len(r.at(45 * time.Second).send(Tick{})); n != 0 || r.m.Tare != 236 {
+		t.Fatalf("at 44s elapsed: tare %d, effects %d", r.m.Tare, n)
+	}
+	effects = r.at(47 * time.Second).send(Tick{})
+	if len(effects) != 0 {
+		t.Errorf("abandoned tare expiry emitted %d effects, want 0", len(effects))
+	}
+	if r.m.State != Idle || r.m.Tare != 0 {
+		t.Fatalf("after 46s elapsed: state %s, tare %d", r.m.State, r.m.Tare)
+	}
+
+	// Putting a load on the plate before expiry keeps the tare beyond 45s.
+	r = newRun(t)
+	r.at(0).send(TareTapped{})
+	r.at(1 * time.Second).send(TareConfirmed{Tare: 236})
+	r.at(10*time.Second).measure(1472, Stable)
+	if r.m.State != WeightPresent || r.m.Tare != 236 {
+		t.Fatalf("with bag on plate: state %s, tare %d", r.m.State, r.m.Tare)
+	}
+	r.at(60 * time.Second).send(Tick{})
+	if r.m.Tare != 236 || r.m.State != WeightPresent {
+		t.Fatalf("bag on plate lost tare after tick: state %s, tare %d", r.m.State, r.m.Tare)
+	}
+}
+
+// TestTransitionTareCanBeFixedAfterRefusalWithoutLiftingContainer verifies §14.3:
+// after a refusal (e.g. TARE_INVALID), the customer can tap TARE, correct it, and
+// weigh again without taking the container off the scale.
+func TestTransitionTareCanBeFixedAfterRefusalWithoutLiftingContainer(t *testing.T) {
+	r := newRun(t)
+	r.at(0).measure(52, Stable)
+	effects := r.at(200 * time.Millisecond).send(ProductTapped{
+		ProductID: "894", Tare: 200, SeenWeight: 52, Key: "01J-BAD",
+	})
+	if r.m.State != Rejected {
+		t.Fatalf("state %s, want rejected", r.m.State)
+	}
+	if ack, _ := findEffect[AckEffect](effects); ack.Ack.Code != CodeTareInvalid {
+		t.Fatalf("refusal code %q, want %s", ack.Ack.Code, CodeTareInvalid)
+	}
+
+	effects = r.at(400 * time.Millisecond).send(TareTapped{})
+	if r.m.State != EnteringTare {
+		t.Fatalf("TareTapped from Rejected reached %s, want entering_tare", r.m.State)
+	}
+	if r.m.CurrentProduct != nil || r.m.Diagnostics != nil {
+		t.Fatalf("EnteringTare kept stale cycle data: product=%v diag=%v",
+			r.m.CurrentProduct, r.m.Diagnostics)
+	}
+	if ack, ok := findEffect[AckEffect](effects); !ok || !ack.Ack.Accepted {
+		t.Fatalf("TareTapped from Rejected ack = %+v", ack)
+	}
+
+	r.at(600 * time.Millisecond).send(TareConfirmed{Tare: 14})
+	if r.m.State != WeightPresent || r.m.Tare != 14 || r.m.Diagnostics != nil {
+		t.Fatalf("after fix: state=%s tare=%d diag=%v", r.m.State, r.m.Tare, r.m.Diagnostics)
+	}
+
+	effects = r.at(800 * time.Millisecond).send(ProductTapped{
+		ProductID: "894", Tare: 14, SeenWeight: 52, Key: "01J-FIXED",
+	})
+	print, ok := findEffect[PrintEffect](effects)
+	if !ok {
+		t.Fatalf("corrected weighing printed nothing: %s, %+v", r.m.State, r.m.Diagnostics)
+	}
+	if print.Label.NetWeight != 38 {
+		t.Errorf("net weight %d, want 38", print.Label.NetWeight)
+	}
+}
+
+// TestTransitionTarePreservedAcrossRearmAndNegativeTareRefused covers re-arming with
+// an active tare, idempotent TareTapped inside EnteringTare, and negative tares.
+func TestTransitionTarePreservedAcrossRearmAndNegativeTareRefused(t *testing.T) {
+	second := machineGarlic(t)
+	second.ID, second.Name = "973", "PATATE DOUCE SAF"
+	second.Reference = mustCompose(t, "049310000000")
+	r := newRun(t)
+	r.ctx.Catalog = NewCatalog([]Product{machineGarlic(t), second}, nil)
+
+	r.at(0).send(TareTapped{})
+	r.at(100 * time.Millisecond).send(TareConfirmed{Tare: 50})
+	r.at(200*time.Millisecond).tap("894", "01J-ARM1")
+	if r.m.State != ProductArmed || r.m.Tare != 50 {
+		t.Fatalf("first arm: state=%s tare=%d", r.m.State, r.m.Tare)
+	}
+	r.at(300*time.Millisecond).tap("973", "01J-ARM2")
+	if r.m.State != ProductArmed || r.m.Tare != 50 {
+		t.Fatalf("re-arm lost tare: state=%s tare=%d", r.m.State, r.m.Tare)
+	}
+
+	// Idempotent TareTapped while already in EnteringTare, and negative TareConfirmed refused.
+	r = newRun(t)
+	r.at(0).send(TareTapped{})
+	r.at(100 * time.Millisecond).send(TareConfirmed{Tare: 40})
+	effects := r.at(200 * time.Millisecond).send(TareTapped{})
+	if ack, ok := findEffect[AckEffect](effects); !ok || !ack.Ack.Accepted || r.m.State != EnteringTare {
+		t.Fatalf("first TareTapped: state=%s ack=%+v", r.m.State, ack)
+	}
+	effects = r.at(300 * time.Millisecond).send(TareTapped{})
+	if ack, ok := findEffect[AckEffect](effects); !ok || !ack.Ack.Accepted || r.m.State != EnteringTare {
+		t.Fatalf("second TareTapped: state=%s ack=%+v", r.m.State, ack)
+	}
+	effects = r.at(400 * time.Millisecond).send(TareConfirmed{Tare: -10})
+	if r.m.State != EnteringTare || r.m.Tare != 40 {
+		t.Fatalf("negative tare mutated model: state=%s tare=%d", r.m.State, r.m.Tare)
+	}
+	if ack, ok := findEffect[AckEffect](effects); !ok || ack.Ack.Accepted {
+		t.Fatalf("negative tare ack = %+v, want Accepted=false", ack)
+	}
+}
+
 // TestTransitionCatalogArrivesOnlyWhereItIsSafe: a swap from a weighing state would
 // reorder the tiles under a customer's finger, which is what the deferred swap of
 // §10.8 exists to prevent.

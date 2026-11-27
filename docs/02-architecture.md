@@ -1062,7 +1062,8 @@ stateDiagram-v2
     AwaitingStability --> Rejected : Tick, timeout, on_timeout reject
     AwaitingStability --> EnteringWeight : Tick, timeout, on_timeout manual_entry
 
-    EnteringTare --> Idle : TareConfirmed
+    EnteringTare --> Idle : TareConfirmed, plateau vide (expire après idle_timeout_s)
+    EnteringTare --> WeightPresent : TareConfirmed, masse déjà sur le plateau
     ManualMode --> EnteringWeight : ProductTapped
     EnteringWeight --> Validating : ManualWeightConfirmed
 
@@ -1074,6 +1075,7 @@ stateDiagram-v2
 
     Succeeded --> Printing : ReprintRequested
     Succeeded --> Idle : MeasurementReceived en zone vide, modèle remis à zéro
+    Rejected --> EnteringTare : TareTapped, corrige la tare sans lever le contenant
     Rejected --> Idle : MeasurementReceived en zone vide, modèle remis à zéro
     Faulted --> Idle : Dismiss
 
@@ -4362,6 +4364,7 @@ GET  /api/v1/catalog                   catalogue complet (~60 ko pour 355 produi
                                        par palier configuré (ADR-036)
 POST /api/v1/weigh                     {product_id, tare_g, units, manual_weight_g,
                                         seen_weight_g, measurement_seq, key} → 202 {job_id}
+POST /api/v1/tare                      {tare_g}                      → 202
 POST /api/v1/reprint                   {job_id, key}                 → 202
 POST /api/v1/cancel · POST /api/v1/dismiss
 POST /api/v1/ui/error                  {message, stack} → journal technique

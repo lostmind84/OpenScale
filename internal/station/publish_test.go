@@ -182,3 +182,59 @@ func TestTheReprintBarIsPermanentInsideItsWindow(t *testing.T) {
 		t.Fatalf("%d étiquettes, attendu 2 (l'originale et sa réimpression)", n)
 	}
 }
+
+// TestTareUpdatesSnapshotNetWeightAndClearsRefusalBanner checks that confirming a
+// tare publishes Weight.Tare and Weight.Net = Gross - Tare, and clears any prior
+// Rejected banner message without requiring the container to leave the plate.
+func TestTareUpdatesSnapshotNetWeightAndClearsRefusalBanner(t *testing.T) {
+	b := newBench(t)
+	b.feed(52, 2)
+	ctx := context.Background()
+
+	ack, err := b.hub.Submit(ctx, domain.TareTapped{}, "")
+	if err != nil || !ack.Accepted {
+		t.Fatalf("TareTapped = %+v, err = %v", ack, err)
+	}
+	ack, err = b.hub.Submit(ctx, domain.TareConfirmed{Tare: 14}, "")
+	if err != nil || !ack.Accepted {
+		t.Fatalf("TareConfirmed = %+v, err = %v", ack, err)
+	}
+	b.tick()
+
+	s := b.hub.State()
+	if s.Weight.Gross != 52 || s.Weight.Tare != 14 || s.Weight.Net != 38 || s.Tare != 14 {
+		t.Fatalf("snapshot weight/tare = %+v (tare=%d), want 52/14/38", s.Weight, s.Tare)
+	}
+	if s.State != domain.WeightPresent && s.State != domain.WeightStable {
+		t.Fatalf("state = %s, want weight_present or weight_stable", s.State)
+	}
+
+	// An invalid tare moves to Rejected with a warning message; fixing the tare
+	// clears the stale refusal message once the station leaves Rejected.
+	refused, err := b.hub.Submit(ctx, domain.ProductTapped{
+		ProductID: garlicID, Tare: 200, SeenWeight: 52, Key: "k-bad-tare",
+	}, "k-bad-tare")
+	if err != nil || refused.Accepted {
+		t.Fatalf("expected refusal, got %+v (err=%v)", refused, err)
+	}
+	b.tick()
+	if got := b.hub.State(); got.State != domain.Rejected || got.Message == nil {
+		t.Fatalf("after refusal: state=%s message=%v", got.State, got.Message)
+	}
+
+	if _, err := b.hub.Submit(ctx, domain.TareTapped{}, ""); err != nil {
+		t.Fatalf("TareTapped from Rejected: %v", err)
+	}
+	if _, err := b.hub.Submit(ctx, domain.TareConfirmed{Tare: 14}, ""); err != nil {
+		t.Fatalf("TareConfirmed after Rejected: %v", err)
+	}
+	b.tick()
+
+	after := b.hub.State()
+	if after.Message != nil {
+		t.Fatalf("stale refusal message survived tare fix: %+v", after.Message)
+	}
+	if after.Weight.Tare != 14 || after.Weight.Net != 38 {
+		t.Fatalf("after fix weight = %+v, want tare 14 net 38", after.Weight)
+	}
+}

@@ -125,7 +125,10 @@ func (m Model) startCycle(p Product, ev ProductTapped, ctx TransitionContext) Mo
 	next := m.clear(m.State)
 	product := p
 	next.CurrentProduct = &product
-	next.Tare = ev.Tare
+	next.Tare = m.Tare
+	if ev.Tare > 0 {
+		next.Tare = ev.Tare
+	}
 	next.Units = ev.Units
 	if next.Units <= 0 {
 		next.Units = 1

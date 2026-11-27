@@ -25,6 +25,8 @@
   /** The tile disabled from the pointerdown until the stream answers (§14.3). */
   let busyID = $state<string | null>(null)
   let busySinceRevision = $state(-1)
+  /** Maximum digits typed on the tare pad (matches domain.MaxWeight = 99 999 g). */
+  const MAX_TARE_DIGITS = 5
   let tareEntry = $state<string | null>(null)
 
   const catalog = $derived(session.catalog)
@@ -189,19 +191,68 @@
     if (only !== undefined) void pick(only)
   }
 
+  /** Toggles the tare pad anchored under the banner. */
+  function toggleTare(): void {
+    tareEntry = tareEntry === null ? '' : null
+  }
+
+  /** Appends one digit to the tare entry, stripping a sole leading zero. */
+  function appendTareDigit(digit: string): void {
+    if (tareEntry === null) return
+    const base = tareEntry === '0' ? '' : tareEntry
+    if (base.length >= MAX_TARE_DIGITS) return
+    tareEntry = base + digit
+  }
+
+  /** Submits the typed tare in grams and closes the pad. */
+  async function confirmTare(): Promise<void> {
+    const raw = tareEntry
+    if (raw === null) return
+    const grams = raw === '' ? 0 : Number.parseInt(raw, 10)
+    tareEntry = null
+    if (!Number.isFinite(grams) || grams < 0) return
+    try {
+      await api.tare(grams)
+    } catch {
+      /* The SSE stream is the single source of truth for the active tare. */
+    }
+  }
+
+  /** Routes physical keyboard keys to the open tare pad instead of search. */
+  function handleTareKey(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      tareEntry = null
+      return
+    }
+    if (event.key === 'Backspace') {
+      event.preventDefault()
+      tareEntry = (tareEntry ?? '').slice(0, -1)
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      void confirmTare()
+      return
+    }
+    if (/^[0-9]$/.test(event.key)) {
+      event.preventDefault()
+      appendTareDigit(event.key)
+    }
+  }
+
   /**
    * Global PHYSICAL keyboard listener: the station is driven with a mouse and
    * a keyboard, never a finger — this screen has no touch keyboard (§14.3-3,
    * revised 28/07/2026). Ignored while a real <input> has focus: SearchField
    * then handles its own typing natively.
    *
-   * Two things on this screen come BEFORE the grid, and typing must reach
-   * neither the search nor them:
+   * Two things on this screen come BEFORE the grid, and typing must not reach
+   * the search behind them:
    *
-   *   - the tare pad is made of KEYS and not of an `<input>`, so nothing about
-   *     a keystroke distinguishes « 500 grammes of jar » from a product being
-   *     looked up. Left unguarded, the search field opens over the entry in
-   *     progress and the tare the customer believed they typed exists nowhere.
+   *   - the tare pad is made of KEYS and not of an `<input>`, so keystrokes while
+   *     it is open are routed to it directly (`0`-`9`, `Backspace`, `Enter`,
+   *     `Escape`) instead of opening the search field over the entry in progress.
    *   - a full screen is the only moment this screen is TAKEN (§14.3): what is
    *     typed behind it has no addressee, and a volunteer who dismisses the
    *     fault would find the grid filtered by letters nobody meant for it.
@@ -209,7 +260,11 @@
   function onGlobalKey(event: KeyboardEvent): void {
     if (event.metaKey || event.ctrlKey || event.altKey) return
     if (event.target instanceof HTMLElement && event.target.tagName === 'INPUT') return
-    if (tareEntry !== null || screenTaken) return
+    if (screenTaken) return
+    if (tareEntry !== null) {
+      handleTareKey(event)
+      return
+    }
     if (event.key === 'Escape') {
       event.preventDefault()
       clearQuery()
@@ -256,16 +311,16 @@
     showWeight={session.link.showWeight}
     linkBanner={session.link.banner}
     taring={tareEntry !== null}
-    ontare={() => (tareEntry = '')}
+    ontare={toggleTare}
   />
 
   {#if tareEntry !== null}
     <TarePad
       grams={tareEntry}
-      ondigit={(d) => (tareEntry = (tareEntry ?? '') + d)}
+      ondigit={appendTareDigit}
       onclear={() => (tareEntry = '')}
       oncancel={() => (tareEntry = null)}
-      onconfirm={() => (tareEntry = null)}
+      onconfirm={() => void confirmTare()}
     />
   {/if}
 

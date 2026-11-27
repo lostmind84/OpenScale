@@ -2,7 +2,7 @@ import type { Catalog } from './catalog'
 import type { WeighRequest } from './dto'
 
 /**
- * The four calls the client screen makes, and their exact routes (§14.5).
+ * The calls the client screen makes, and their exact routes (§14.5).
  *
  * They all return quickly by construction: printing is asynchronous of HTTP, the
  * `POST` answers in under 5 ms and the result comes back through the stream. A
@@ -19,6 +19,11 @@ export async function fetchCatalog(): Promise<Catalog> {
 /** Submits one tap. The key makes a repeat harmless (§4). */
 export async function weigh(request: WeighRequest): Promise<void> {
   await post('/api/v1/weigh', request)
+}
+
+/** Sets or clears the active tare in grams on the station (§14.5). */
+export async function tare(tareG: number): Promise<void> {
+  await post('/api/v1/tare', { tare_g: tareG })
 }
 
 /** Asks for the last label again, inside the reprint window (§8.5). */

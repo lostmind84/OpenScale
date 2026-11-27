@@ -35,8 +35,8 @@ type ScaleReconnected struct{}
 // POST /api/v1/weigh (§14.5).
 type ProductTapped struct {
 	ProductID string
-	// Tare is AUTHORITATIVE for this weighing: the keypad lives in the front, and
-	// one field with one owner beats two that have to agree.
+	// Tare overrides Model.Tare when positive; zero preserves any active tare
+	// already confirmed on the station via TareConfirmed.
 	Tare Grams
 	// Units is the tile affordance of ADR-023. Zero means "the front sent none",
 	// which is one unit -- the answer in the overwhelming majority of cases.

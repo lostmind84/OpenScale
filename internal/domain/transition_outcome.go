@@ -138,8 +138,15 @@ func rejected(m Model, ev Event, ctx TransitionContext) (Model, []Effect) {
 	case ProductTapped:
 		// Nothing was printed, so nothing forbids another attempt. The cycle is
 		// cleared first, which is what keeps invariant 3 unambiguous: a frozen
-		// weight belongs to ONE cycle and a new cycle freezes its own.
-		return tapOnWeight(m.clear(m.State), e, ctx)
+		// weight belongs to ONE cycle and a new cycle freezes its own, while
+		// preserving any active tare for the retry.
+		tare := m.Tare
+		cleared := m.clear(m.State)
+		cleared.Tare = tare
+		return tapOnWeight(cleared, e, ctx)
+
+	case TareTapped:
+		return openTareKeypad(m, ctx)
 
 	case ReprintRequested:
 		return reprint(m, e, ctx)
